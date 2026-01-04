@@ -20,131 +20,97 @@
       box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
     }
     
-    /* 卡片樣式 */
-    .card { 
-      border: none; 
-      border-radius: 12px; 
-      overflow: hidden; 
-      transition: transform 0.3s ease, box-shadow 0.3s ease; 
-      margin-bottom: 1.5rem; 
-      box-shadow: 0 5px 15px rgba(0,0,0,0.05); 
-    }
-    .card:hover { 
-      transform: translateY(-5px); 
-      box-shadow: 0 10px 20px rgba(0,0,0,0.1); 
-    }
-    .card-header { 
-      background-color: #fff; 
-      border-bottom: 1px solid #f0f0f0; 
-      font-weight: bold; 
-      color: #333; 
-      padding: 1rem; 
-    }
+    .card { border: none; border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+    .card-header { background-color: #fff; border-bottom: 1px solid #f0f0f0; font-weight: bold; color: #333; padding: 1rem; }
+    .img-wrapper { position: relative; background-color: #fafafa; padding: 10px; text-align: center; min-height: 200px; }
+    .img-fluid { width: 100%; height: auto; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
     
-    .img-wrapper { 
-      position: relative; 
-      background-color: #fafafa; 
-      padding: 10px; 
-      text-align: center; 
-      min-height: 200px;
-    }
-    .img-fluid { 
-      width: 100%; height: auto; border-radius: 6px; 
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
-    }
-    
-    .btn-action { 
-      width: 100%; border-radius: 50px; font-weight: bold; 
-      margin-top: 10px; display: flex; align-items: center; justify-content: center; padding: 8px 0;
-    }
+    .btn-action { width: 100%; border-radius: 50px; font-weight: bold; margin-top: 10px; display: flex; align-items: center; justify-content: center; padding: 8px 0; }
     .btn-line { background-color: #06c755; color: white; border: none; }
     .btn-line:hover { background-color: #05b34c; color: white; }
     .btn-download { color: #198754; border-color: #198754; }
     .btn-download:hover { background-color: #198754; color: white; }
     
-    .loading-screen { 
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-      background: white; z-index: 9999; 
-      display: flex; justify-content: center; align-items: center; flex-direction: column; 
-    }
+    .loading-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 9999; display: flex; justify-content: center; align-items: center; flex-direction: column; }
+  
+    /* 管理員按鈕區域 */
+    .admin-section { margin-top: 50px; padding: 20px; text-align: center; border-top: 1px solid #ddd; }
+    .btn-update { background-color: #2c3e50; color: white; border-radius: 50px; padding: 10px 30px; font-weight: bold; }
+    .btn-update:hover { background-color: #1a252f; color: white; }
+    .btn-update:disabled { background-color: #ccc; cursor: not-allowed; }
   </style>
 </head>
 <body>
 
   <div id="loading" class="loading-screen">
     <div class="spinner-border text-success" style="width: 3rem; height: 3rem;" role="status"></div>
-    <p class="mt-3 text-secondary fw-bold" id="loading-text">正在連線至資料庫...</p>
+    <p class="mt-3 text-secondary fw-bold" id="loading-text">正在讀取 GitHub 資料...</p>
   </div>
 
   <div id="main-content" style="display: none;">
     <div class="header-banner">
       <h1 class="fw-bold mb-2" id="page-title">打開心靈的鎖匙</h1>
-      <p class="mb-0 opacity-75">課程 DM 電子檔下載專區</p>
+      <p class="mb-0 opacity-75">週週打開心靈的鎖匙課程 DM </p>
     </div>
 
     <div class="container pb-5">
       <div class="row" id="cards-container"></div>
-      <div class="text-center mt-5 text-muted small"><hr><p>圖片資料來源：Google Drive</p></div>
+      
+      <div class="admin-section">
+        <p class="text-muted small mb-3">
+          <i class="fas fa-cog me-1"></i> 管理員專區
+        </p>
+        <button id="btn-update" class="btn btn-update" onclick="triggerUpdate()">
+          <i class="fas fa-sync-alt me-2"></i> 同步更新圖片 (GitHub)
+        </button>
+        <p id="update-status" class="mt-2 small text-muted"></p>
+      </div>
+
+      <div class="text-center mt-3 text-muted small"><p>圖片資料來源：GitHub Pages</p></div>
     </div>
   </div>
 
   <script>
-    // ==========================================
-    // 請在這裡貼上您的 GAS 網頁應用程式網址
-    // ==========================================
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwd......你的網址貼這裡....../exec";
+    // ==============================================
+    // 設定您的 GitHub Pages 資料網址
+    // ==============================================
+    const USERNAME = "staney41011";
+    const REPO = "SoulKey";
+    const DATA_URL = `https://${USERNAME}.github.io/${REPO}/images/data.json`;
 
     window.onload = function() {
-      fetchData();
-    };
-
-    function fetchData() {
-      if (GAS_API_URL.includes("你的網址")) {
-        showError({message: "請記得編輯 HTML 檔案，填入正確的 GAS_API_URL 網址！"});
-        return;
-      }
-
-      // 使用 fetch 呼叫 API
-      fetch(GAS_API_URL)
+      // 載入時讀取 GitHub 上的資料 (加時間戳記避免快取)
+      fetch(DATA_URL + "?t=" + new Date().getTime())
         .then(response => response.json())
-        .then(data => {
-          if (data.status === 'error') {
-            showError({message: data.message});
-          } else {
-            renderPage(data);
-          }
-        })
+        .then(data => renderPage(data))
         .catch(error => {
-          console.error(error);
-          showError({message: "連線失敗，請確認網址是否正確，或是否開放了「所有人」存取權限。"});
+           console.warn("讀取失敗", error);
+           // 如果讀不到，顯示提示
+           document.getElementById('loading').style.display = 'none';
+           document.getElementById('main-content').style.display = 'block';
+           document.getElementById('cards-container').innerHTML = '<div class="alert alert-info text-center">目前 GitHub 上沒有資料，請點擊下方「同步更新」按鈕來初始化。</div>';
         });
-    }
+    };
 
     function renderPage(data) {
       document.getElementById('loading').style.display = 'none';
       document.getElementById('main-content').style.display = 'block';
       
-      let periodText = "";
-      let safePeriod = data.period ? data.period : "";
-
-      if(safePeriod) {
-        periodText = `第 ${safePeriod} 期`;
-        document.getElementById('page-title').innerText = `${periodText} - 課程 DM`;
-      }
+      let safePeriod = data.period || "";
+      if(safePeriod) document.getElementById('page-title').innerText = `第 ${safePeriod} 期 - 課程 DM`;
 
       const container = document.getElementById('cards-container');
       let html = '';
 
-      if (data.items.length === 0) {
-        container.innerHTML = '<div class="col-12 text-center py-5"><div class="alert alert-warning">無圖片資料。</div></div>';
+      if (!data.items || data.items.length === 0) {
+        container.innerHTML = '<div class="alert alert-warning text-center">無圖片資料。</div>';
         return;
       }
 
       data.items.forEach(item => {
-        // 前端自動產生 LINE 分享文字
         const shareTitle = `打開心靈的鎖匙系列講座 第${safePeriod}期 ${item.lang}DM`;
-        const shareText = encodeURIComponent(`${shareTitle}\n${item.imageUrl}`);
-        const lineUrl = `https://line.me/R/msg/text/?${shareText}`;
+        // GitHub 圖片完整網址
+        const imgUrl = `https://${USERNAME}.github.io/${REPO}/${item.imageUrl}`;
 
         html += `
           <div class="col-md-6 col-lg-4">
@@ -154,16 +120,16 @@
               </div>
               <div class="card-body p-0">
                   <div class="img-wrapper">
-                    <a href="${item.imageUrl}" target="_blank">
-                      <img src="${item.imageUrl}" class="img-fluid" loading="lazy" alt="${item.lang}">
-                    </a>
+                    <img src="${imgUrl}" class="img-fluid" alt="${item.lang}">
                   </div>
               </div>
               <div class="card-body pt-0 pb-3 px-3">
-                <a href="${lineUrl}" target="_blank" class="btn btn-line btn-action">
-                  <i class="fab fa-line me-2" style="font-size: 1.2em;"></i> 分享到 LINE
-                </a>
-                <a href="${item.downloadUrl}" target="_blank" class="btn btn-outline-success btn-sm btn-download btn-action">
+                ${navigator.share ? `
+                <button onclick="shareImage('${shareTitle}', '${imgUrl}')" class="btn btn-line btn-action">
+                  <i class="fab fa-line me-2"></i> 分享圖片到 LINE
+                </button>
+                ` : ''}
+                <a href="${imgUrl}" download="${item.lang}_DM.png" class="btn btn-outline-success btn-sm btn-download btn-action">
                   <i class="fas fa-download me-2"></i> 下載圖片
                 </a>
               </div>
@@ -177,12 +143,51 @@
       container.innerHTML = html;
     }
 
-    function showError(error) {
-      document.getElementById('loading').innerHTML = `
-        <div class="text-danger text-center px-3">
-          <h4>讀取失敗</h4>
-          <p class="text-muted">${error.message}</p>
-        </div>`;
+    // 分享圖片檔案 (因為從 GitHub 同源讀取，所以可以成功！)
+    async function shareImage(title, url) {
+      try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const file = new File([blob], "dm.png", { type: "image/png" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: title, text: title });
+        } else {
+          alert("您的裝置不支援直接分享圖片，請使用下載功能。");
+        }
+      } catch (error) {
+        console.error(error);
+        alert("分享失敗，請稍後再試。");
+      }
+    }
+
+    // 觸發後端 Google Script -> 通知 GitHub
+    function triggerUpdate() {
+      const btn = document.getElementById('btn-update');
+      const status = document.getElementById('update-status');
+      
+      if(!confirm("確定要同步更新 GitHub 上的圖片嗎？")) return;
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>處理中...';
+      status.innerText = "正在通知 GitHub 機器人下載新圖...";
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          btn.innerHTML = '<i class="fas fa-check me-2"></i> 已發送指令';
+          status.innerHTML = "<span class='text-success'><strong>成功！</strong> 機器人正在背景下載圖片。<br>請約 1 分鐘後重新整理此頁面查看新圖。</span>";
+          
+          // 5秒後恢復按鈕，方便再次操作
+          setTimeout(() => { 
+            btn.disabled = false; 
+            btn.innerHTML = '<i class="fas fa-sync-alt me-2"></i> 同步更新圖片 (GitHub)'; 
+          }, 8000);
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> 重試';
+          status.innerHTML = "<span class='text-danger'>錯誤: " + err.message + "</span>";
+        })
+        .triggerGitHubAction();
     }
   </script>
 </body>
