@@ -3,7 +3,7 @@ const https = require('https');
 const path = require('path');
 
 // 這是你的 Google Apps Script JSON API 網址
-const API_URL = 'https://script.google.com/macros/s/AKfycbwvNwOn8QwvH-agggTWm6ZZUosmCPDuGUpSbckc8DFahBP9fiHLfPCBCIlWMt9p4V3V/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwvNwOn8QwvH-agggTWm6ZZUosmCPDuGUpSbckc8DFahBP9fiHLfPCBCIlWMt9p4V3V/exec?type=json';
 const IMG_DIR = 'images';
 
 if (!fs.existsSync(IMG_DIR)){
