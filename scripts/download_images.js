@@ -2,53 +2,57 @@ const fs = require('fs');
 const https = require('https');
 const path = require('path');
 
-// 【關鍵修正】網址後面一定要有 ?type=json，否則會拿到 HTML 網頁
+// 您的 API 網址
 const API_URL = 'https://script.google.com/macros/s/AKfycbwvNwOn8QwvH-agggTWm6ZZUosmCPDuGUpSbckc8DFahBP9fiHLfPCBCIlWMt9p4V3V/exec?type=json';
 const IMG_DIR = 'images';
 
-// 確保圖片目錄存在
 if (!fs.existsSync(IMG_DIR)){
     fs.mkdirSync(IMG_DIR);
 }
 
-// 下載函數
-const download = (url, dest, cb) => {
-  const file = fs.createWriteStream(dest);
-  https.get(url, function(response) {
-    if (response.statusCode !== 200) {
-      fs.unlink(dest, () => {}); // 刪除空檔案
-      if (cb) cb(`下載失敗，HTTP 狀態碼: ${response.statusCode}`);
-      return;
+// 【通用函式】支援自動轉址的連線工具
+const fetchWithRedirect = (url, callback) => {
+  https.get(url, (response) => {
+    // 遇到 301, 302 就自動轉址
+    if (response.statusCode === 301 || response.statusCode === 302) {
+      console.log(`>> 偵測到轉址，正在導向新網址...`);
+      return fetchWithRedirect(response.headers.location, callback);
     }
-    response.pipe(file);
-    file.on('finish', function() {
-      file.close(cb);
-    });
-  }).on('error', function(err) {
-    fs.unlink(dest, () => {});
-    if (cb) cb(err.message);
+    // 正常回傳
+    callback(response);
+  }).on('error', (err) => {
+    console.error("連線錯誤:", err.message);
+    process.exit(1);
   });
 };
 
-console.log(`正在連線至 API: ${API_URL}`);
+console.log(`[1] 正在連線至 API...`);
 
-https.get(API_URL, (res) => {
+// 使用新的函式來抓取 JSON 清單
+fetchWithRedirect(API_URL, (res) => {
   let body = "";
   res.on("data", (chunk) => { body += chunk; });
   res.on("end", () => {
     try {
       // 嘗試解析 JSON
-      // 如果這裡報錯，通常是因為 API_URL 沒加 ?type=json，回傳了 HTML
-      const json = JSON.parse(body);
-      
-      if (json.items.length === 0) {
-        console.log("警告: API 回傳的圖片列表是空的！");
-        process.exit(0); // 正常結束，但沒東西可下載
+      let json;
+      try {
+        json = JSON.parse(body);
+      } catch (e) {
+        console.error("❌ 解析 JSON 失敗！");
+        console.error("收到的內容開頭:", body.substring(0, 100));
+        process.exit(1);
       }
+
+      if (!json.items || json.items.length === 0) {
+        console.log("⚠️ 警告: API 回傳的圖片列表是空的！");
+        process.exit(0); 
+      }
+
+      console.log(`[2] 取得 ${json.items.length} 筆資料 (期數: ${json.period})，準備下載...`);
 
       const dataJsonPath = path.join(IMG_DIR, 'data.json');
       
-      // 準備本地資料
       const localData = { ...json };
       localData.items = json.items.map(item => {
         const filename = `${item.lang}.png`; 
@@ -59,38 +63,51 @@ https.get(API_URL, (res) => {
         };
       });
 
-      // 寫入 data.json
       fs.writeFileSync(dataJsonPath, JSON.stringify(localData, null, 2));
-      console.log(`已更新 data.json，共 ${localData.items.length} 筆資料`);
 
-      // 下載所有圖片
-      let downloadCount = 0;
-      localData.items.forEach(item => {
-        const downloadUrl = item.downloadUrl; 
-        const dest = path.join(IMG_DIR, item.localFilename);
-        
-        download(downloadUrl, dest, (err) => {
-          if(err) {
-            console.error(`❌ 下載失敗 [${item.lang}]:`, err);
-            process.exit(1); // 發生錯誤直接讓 Action 失敗
-          } else {
-            console.log(`✅ 下載完成: ${item.lang}`);
-            downloadCount++;
-            // 檢查是否全部下載完畢
-            if (downloadCount === localData.items.length) {
-              console.log("所有圖片下載完畢！");
+      // 下載圖片流程
+      let promises = localData.items.map(item => {
+        return new Promise((resolve, reject) => {
+          const downloadUrl = item.downloadUrl; 
+          const dest = path.join(IMG_DIR, item.localFilename);
+          
+          console.log(`⬇️ 開始下載: ${item.lang}`);
+          
+          // 圖片下載也要用 fetchWithRedirect 處理轉址
+          fetchWithRedirect(downloadUrl, (response) => {
+            if (response.statusCode !== 200) {
+              console.error(`❌ 下載失敗 [${item.lang}] 狀態碼: ${response.statusCode}`);
+              reject();
+              return;
             }
-          }
+            const file = fs.createWriteStream(dest);
+            response.pipe(file);
+            file.on('finish', () => {
+              file.close(() => {
+                const stats = fs.statSync(dest);
+                if (stats.size === 0) {
+                   console.error(`❌ 下載檔案為空: ${item.lang}`);
+                   reject();
+                } else {
+                   console.log(`✅ 下載完成: ${item.lang}`);
+                   resolve();
+                }
+              });
+            });
+          });
         });
       });
 
+      Promise.all(promises)
+        .then(() => console.log("🎉 所有圖片處理完畢！"))
+        .catch(() => {
+          console.error("💥 部分圖片下載失敗");
+          process.exit(1);
+        });
+
     } catch (error) {
-      console.error("❌ 解析資料失敗！可能原因：");
-      console.error("1. API 網址結尾忘了加 ?type=json");
-      console.error("2. Google Apps Script 部署權限不是 'Anyone' (所有人)");
-      console.error("原始錯誤:", error.message);
-      console.log("API 回傳內容開頭:", body.substring(0, 100)); // 印出前100字來除錯
-      process.exit(1); // 讓 Action 顯示紅燈失敗
+      console.error("發生錯誤:", error);
+      process.exit(1);
     };
   });
 });
