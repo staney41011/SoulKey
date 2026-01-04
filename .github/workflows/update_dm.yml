@@ -1,0 +1,33 @@
+name: Update DM Images
+
+on:
+  repository_dispatch:
+    types: [update-images]
+  workflow_dispatch: # 允許手動在 GitHub 按鈕觸發
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write # 給予寫入權限
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+
+    - name: Run Download Script
+      run: node scripts/download_images.js
+
+    - name: Commit and Push changes
+      run: |
+        git config --global user.name 'GitHub Action'
+        git config --global user.email 'action@github.com'
+        git add images/*
+        git commit -m "Auto update DM images from Google Drive" || echo "No changes to commit"
+        git push
