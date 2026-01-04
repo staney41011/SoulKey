@@ -1,0 +1,47 @@
+{
+  "period": 216,
+  "items": [
+    {
+      "lang": "中文",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1nQ0OEBMzvqhcr5mYnVcd7-kNkE8o0vyz",
+      "imageUrl": "images/中文.png",
+      "localFilename": "中文.png"
+    },
+    {
+      "lang": "英文",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1saXGL9amDqwdCFHktU1yJ9QmEaSAGo_X",
+      "imageUrl": "images/英文.png",
+      "localFilename": "英文.png"
+    },
+    {
+      "lang": "越南",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1nwKL6xnC49ALjMZ7D3TStWLNr0cOC19H",
+      "imageUrl": "images/越南.png",
+      "localFilename": "越南.png"
+    },
+    {
+      "lang": "泰文",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1MufJcQLOTDyDOQZ5wTKkyW6dyClG2PB2",
+      "imageUrl": "images/泰文.png",
+      "localFilename": "泰文.png"
+    },
+    {
+      "lang": "柬埔寨",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1HtcjeOxI31mo7dz4TEngyQfhNnJcZdxa",
+      "imageUrl": "images/柬埔寨.png",
+      "localFilename": "柬埔寨.png"
+    },
+    {
+      "lang": "印尼",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1PwiToESaseyAxLr-_nJNXTrzjUdYVEkl",
+      "imageUrl": "images/印尼.png",
+      "localFilename": "印尼.png"
+    },
+    {
+      "lang": "西文",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1qsN-N5IZhm50p2y1Z7BYhaAufozDGXK5",
+      "imageUrl": "images/西文.png",
+      "localFilename": "西文.png"
+    }
+  ]
+}
