@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <title>課程 DM 分享</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+   
+  <style>
+    body { background-color: #f4f6f9; font-family: "Microsoft JhengHei", sans-serif; }
+    
+    /* 深藍到綠色的漸層表頭 */
+    .header-banner { 
+      background: linear-gradient(135deg, #2c3e50 0%, #27ae60 100%); 
+      color: white; 
+      padding: 2.5rem 1rem; 
+      text-align: center; 
+      margin-bottom: 2rem; 
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+    }
+    
+    /* 卡片樣式 */
+    .card { 
+      border: none; 
+      border-radius: 12px; 
+      overflow: hidden; 
+      transition: transform 0.3s ease, box-shadow 0.3s ease; 
+      margin-bottom: 1.5rem; 
+      box-shadow: 0 5px 15px rgba(0,0,0,0.05); 
+    }
+    .card:hover { 
+      transform: translateY(-5px); 
+      box-shadow: 0 10px 20px rgba(0,0,0,0.1); 
+    }
+    .card-header { 
+      background-color: #fff; 
+      border-bottom: 1px solid #f0f0f0; 
+      font-weight: bold; 
+      color: #333; 
+      padding: 1rem; 
+    }
+    
+    .img-wrapper { 
+      position: relative; 
+      background-color: #fafafa; 
+      padding: 10px; 
+      text-align: center; 
+      min-height: 200px;
+    }
+    .img-fluid { 
+      width: 100%; height: auto; border-radius: 6px; 
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+    }
+    
+    .btn-action { 
+      width: 100%; border-radius: 50px; font-weight: bold; 
+      margin-top: 10px; display: flex; align-items: center; justify-content: center; padding: 8px 0;
+    }
+    .btn-line { background-color: #06c755; color: white; border: none; }
+    .btn-line:hover { background-color: #05b34c; color: white; }
+    .btn-download { color: #198754; border-color: #198754; }
+    .btn-download:hover { background-color: #198754; color: white; }
+    
+    .loading-screen { 
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+      background: white; z-index: 9999; 
+      display: flex; justify-content: center; align-items: center; flex-direction: column; 
+    }
+  </style>
+</head>
+<body>
+
+  <div id="loading" class="loading-screen">
+    <div class="spinner-border text-success" style="width: 3rem; height: 3rem;" role="status"></div>
+    <p class="mt-3 text-secondary fw-bold" id="loading-text">正在連線至資料庫...</p>
+  </div>
+
+  <div id="main-content" style="display: none;">
+    <div class="header-banner">
+      <h1 class="fw-bold mb-2" id="page-title">打開心靈的鎖匙</h1>
+      <p class="mb-0 opacity-75">課程 DM 電子檔下載專區</p>
+    </div>
+
+    <div class="container pb-5">
+      <div class="row" id="cards-container"></div>
+      <div class="text-center mt-5 text-muted small"><hr><p>圖片資料來源：Google Drive</p></div>
+    </div>
+  </div>
+
+  <script>
+    // ==========================================
+    // 您的 Google Apps Script 網址 (JSON API)
+    // ==========================================
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwvNwOn8QwvH-agggTWm6ZZUosmCPDuGUpSbckc8DFahBP9fiHLfPCBCIlWMt9p4V3V/exec";
+
+    window.onload = function() {
+      fetchData();
+    };
+
+    function fetchData() {
+      // 使用 fetch 呼叫 API
+      fetch(GAS_API_URL)
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'error') {
+            showError({message: data.message});
+          } else {
+            renderPage(data);
+          }
+        })
+        .catch(error => {
+          console.error(error);
+          showError({message: "連線失敗，請確認您的 GAS 部署權限是否已設為「所有人」。"});
+        });
+    }
+
+    function renderPage(data) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('main-content').style.display = 'block';
+      
+      let periodText = "";
+      let safePeriod = data.period ? data.period : "";
+
+      if(safePeriod) {
+        periodText = `第 ${safePeriod} 期`;
+        document.getElementById('page-title').innerText = `${periodText} - 課程 DM`;
+      }
+
+      const container = document.getElementById('cards-container');
+      let html = '';
+
+      if (data.items.length === 0) {
+        container.innerHTML = '<div class="col-12 text-center py-5"><div class="alert alert-warning">無圖片資料。</div></div>';
+        return;
+      }
+
+      data.items.forEach(item => {
+        // 前端自動產生 LINE 分享文字
+        const shareTitle = `打開心靈的鎖匙系列講座 第${safePeriod}期 ${item.lang}DM`;
+        const shareText = encodeURIComponent(`${shareTitle}\n${item.imageUrl}`);
+        const lineUrl = `https://line.me/R/msg/text/?${shareText}`;
+
+        html += `
+          <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <div><i class="fas fa-language me-2 text-success"></i>${item.lang}版</div>
+              </div>
+              <div class="card-body p-0">
+                  <div class="img-wrapper">
+                    <a href="${item.imageUrl}" target="_blank">
+                      <img src="${item.imageUrl}" class="img-fluid" loading="lazy" alt="${item.lang}">
+                    </a>
+                  </div>
+              </div>
+              <div class="card-body pt-0 pb-3 px-3">
+                <a href="${lineUrl}" target="_blank" class="btn btn-line btn-action">
+                  <i class="fab fa-line me-2" style="font-size: 1.2em;"></i> 分享到 LINE
+                </a>
+                <a href="${item.downloadUrl}" target="_blank" class="btn btn-outline-success btn-sm btn-download btn-action">
+                  <i class="fas fa-download me-2"></i> 下載圖片
+                </a>
+              </div>
+              <div class="card-footer bg-light text-muted small text-center py-2">
+                ${item.lang}版 DM
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+    }
+
+    function showError(error) {
+      document.getElementById('loading').innerHTML = `
+        <div class="text-danger text-center px-3">
+          <h4>讀取失敗</h4>
+          <p class="text-muted">${error.message}</p>
+        </div>`;
+    }
+  </script>
+</body>
+</html>
