@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="utf-8">
-  <title>週週打開心靈的鎖匙課程 DM </title>
+  <title>週週打開心靈的鎖匙課程 DM</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -20,8 +20,10 @@
       box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
     }
     
+    /* 卡片樣式 */
     .card { border: none; border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
     .card-header { background-color: #fff; border-bottom: 1px solid #f0f0f0; font-weight: bold; color: #333; padding: 1rem; }
+    
     .img-wrapper { position: relative; background-color: #fafafa; padding: 10px; text-align: center; min-height: 200px; }
     .img-fluid { width: 100%; height: auto; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
     
@@ -49,8 +51,8 @@
 
   <div id="main-content" style="display: none;">
     <div class="header-banner">
-      <h1 class="fw-bold mb-2" id="page-title">打開心靈的鎖匙</h1>
-      <p class="mb-0 opacity-75" id="page-subtitle">週週打開心靈的鎖匙課程 DM</p>
+      <h1 class="fw-bold mb-2" id="page-title">週週打開心靈的鎖匙課程 DM</h1>
+      <p class="mb-0 opacity-75" id="page-subtitle"></p>
     </div>
 
     <div class="container pb-5">
@@ -79,7 +81,7 @@
     const DATA_URL = `https://${USERNAME}.github.io/${REPO}/images/data.json`;
 
     window.onload = function() {
-      // 載入時讀取 GitHub 上的資料 (加時間戳記避免快取)
+      // 載入時讀取 GitHub 上的資料
       fetch(DATA_URL + "?t=" + new Date().getTime())
         .then(response => response.json())
         .then(data => renderPage(data))
@@ -95,22 +97,23 @@
       document.getElementById('loading').style.display = 'none';
       document.getElementById('main-content').style.display = 'block';
       
-      // --- 更新標題與日期 ---
-      let titleText = "打開心靈的鎖匙";
-      let subText = "週週打開心靈的鎖匙課程 DM";
+      // --- 【更新】標題與日期邏輯 ---
+      let titleText = "週週打開心靈的鎖匙課程 DM"; // 預設標題
+      let subText = ""; // 預設副標題清空
 
       if (data.period) {
-        titleText = `第 ${data.period} 期 - 打開心靈的鎖匙`;
+        // 顯示：第 216 期 - 週週打開心靈的鎖匙課程 DM
+        titleText = `第 ${data.period} 期 - ${titleText}`;
       }
 
       if (data.date) {
-        // 將日期顯示在副標題後面
-        subText += ` (${data.date})`;
+        // 副標題只顯示日期，例如：(2026/01/04)
+        subText = `(${data.date})`;
       }
 
       document.getElementById('page-title').innerText = titleText;
       document.getElementById('page-subtitle').innerText = subText;
-      // --------------------
+      // ----------------------------
 
       const container = document.getElementById('cards-container');
       let html = '';
@@ -121,10 +124,8 @@
       }
 
       data.items.forEach(item => {
-        // 分享標題也加入日期與期數
-        const shareTitle = `${titleText} ${data.date || ""} ${item.lang}DM`;
-        
-        // GitHub 圖片完整網址
+        // 分享時的文字也同步更新
+        const shareTitle = `${titleText} ${subText} ${item.lang}DM`;
         const imgUrl = `https://${USERNAME}.github.io/${REPO}/${item.imageUrl}`;
 
         html += `
@@ -158,45 +159,46 @@
       container.innerHTML = html;
     }
 
-    // 分享圖片檔案 (從 GitHub 同源讀取)
+    // 單張分享圖片檔案
     async function shareImage(title, url) {
       try {
         const response = await fetch(url);
         const blob = await response.blob();
         const file = new File([blob], "dm.png", { type: "image/png" });
-        
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: title,
-            text: title
-          });
+          await navigator.share({ files: [file], title: title, text: title });
         } else {
           alert("您的裝置不支援直接分享圖片，請使用下載功能。");
         }
       } catch (error) {
-        console.error(error);
         alert("分享失敗，請稍後再試。");
       }
     }
 
-    // 觸發後端 Google Script -> 通知 GitHub
+    // ==============================================
+    // 觸發更新功能 (含密碼保護)
+    // ==============================================
     function triggerUpdate() {
       const btn = document.getElementById('btn-update');
       const status = document.getElementById('update-status');
       
-      if(!confirm("確定要同步更新 GitHub 上的圖片嗎？")) return;
+      const password = prompt("請輸入管理員密碼以執行更新：", "");
 
+      if (password === null) return;
+
+      if (password !== "184179") {
+        alert("❌ 密碼錯誤！無法執行更新。");
+        return;
+      }
+      
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>處理中...';
       status.innerText = "正在通知 GitHub 機器人下載新圖...";
 
-      // 呼叫 Google Apps Script 後端
       google.script.run
         .withSuccessHandler(function(res) {
           btn.innerHTML = '<i class="fas fa-check me-2"></i> 已發送指令';
           status.innerHTML = "<span class='text-success'><strong>成功！</strong> 機器人正在背景下載圖片。<br>請約 1 分鐘後重新整理此頁面查看新圖。</span>";
-          
           setTimeout(() => { 
             btn.disabled = false; 
             btn.innerHTML = '<i class="fas fa-sync-alt me-2"></i> 同步更新圖片 (GitHub)'; 
