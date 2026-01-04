@@ -90,15 +90,20 @@
 
   <script>
     // ==========================================
-    // 您的 Google Apps Script 網址 (JSON API)
+    // 請在這裡貼上您的 GAS 網頁應用程式網址
     // ==========================================
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwvNwOn8QwvH-agggTWm6ZZUosmCPDuGUpSbckc8DFahBP9fiHLfPCBCIlWMt9p4V3V/exec";
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwd......你的網址貼這裡....../exec";
 
     window.onload = function() {
       fetchData();
     };
 
     function fetchData() {
+      if (GAS_API_URL.includes("你的網址")) {
+        showError({message: "請記得編輯 HTML 檔案，填入正確的 GAS_API_URL 網址！"});
+        return;
+      }
+
       // 使用 fetch 呼叫 API
       fetch(GAS_API_URL)
         .then(response => response.json())
@@ -111,7 +116,7 @@
         })
         .catch(error => {
           console.error(error);
-          showError({message: "連線失敗，請確認您的 GAS 部署權限是否已設為「所有人」。"});
+          showError({message: "連線失敗，請確認網址是否正確，或是否開放了「所有人」存取權限。"});
         });
     }
 
