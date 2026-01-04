@@ -1,26 +1,116 @@
-function renderPage(data) {
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <title>週週打開心靈的鎖匙課程 DM </title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+   
+  <style>
+    body { background-color: #f4f6f9; font-family: "Microsoft JhengHei", sans-serif; }
+    
+    /* 深藍到綠色的漸層表頭 */
+    .header-banner { 
+      background: linear-gradient(135deg, #2c3e50 0%, #27ae60 100%); 
+      color: white; 
+      padding: 2.5rem 1rem; 
+      text-align: center; 
+      margin-bottom: 2rem; 
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+    }
+    
+    .card { border: none; border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+    .card-header { background-color: #fff; border-bottom: 1px solid #f0f0f0; font-weight: bold; color: #333; padding: 1rem; }
+    .img-wrapper { position: relative; background-color: #fafafa; padding: 10px; text-align: center; min-height: 200px; }
+    .img-fluid { width: 100%; height: auto; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    
+    .btn-action { width: 100%; border-radius: 50px; font-weight: bold; margin-top: 10px; display: flex; align-items: center; justify-content: center; padding: 8px 0; }
+    .btn-line { background-color: #06c755; color: white; border: none; }
+    .btn-line:hover { background-color: #05b34c; color: white; }
+    .btn-download { color: #198754; border-color: #198754; }
+    .btn-download:hover { background-color: #198754; color: white; }
+    
+    .loading-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 9999; display: flex; justify-content: center; align-items: center; flex-direction: column; }
+  
+    /* 管理員按鈕區域 */
+    .admin-section { margin-top: 50px; padding: 20px; text-align: center; border-top: 1px solid #ddd; }
+    .btn-update { background-color: #2c3e50; color: white; border-radius: 50px; padding: 10px 30px; font-weight: bold; }
+    .btn-update:hover { background-color: #1a252f; color: white; }
+    .btn-update:disabled { background-color: #ccc; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+  <div id="loading" class="loading-screen">
+    <div class="spinner-border text-success" style="width: 3rem; height: 3rem;" role="status"></div>
+    <p class="mt-3 text-secondary fw-bold" id="loading-text">正在讀取 GitHub 資料...</p>
+  </div>
+
+  <div id="main-content" style="display: none;">
+    <div class="header-banner">
+      <h1 class="fw-bold mb-2" id="page-title">打開心靈的鎖匙</h1>
+      <p class="mb-0 opacity-75" id="page-subtitle">週週打開心靈的鎖匙課程 DM</p>
+    </div>
+
+    <div class="container pb-5">
+      <div class="row" id="cards-container"></div>
+      
+      <div class="admin-section">
+        <p class="text-muted small mb-3">
+          <i class="fas fa-cog me-1"></i> 管理員專區
+        </p>
+        <button id="btn-update" class="btn btn-update" onclick="triggerUpdate()">
+          <i class="fas fa-sync-alt me-2"></i> 同步更新圖片 (GitHub)
+        </button>
+        <p id="update-status" class="mt-2 small text-muted"></p>
+      </div>
+
+      <div class="text-center mt-3 text-muted small"><p>圖片資料來源：GitHub Pages</p></div>
+    </div>
+  </div>
+
+  <script>
+    // ==============================================
+    // 設定您的 GitHub Pages 資料網址
+    // ==============================================
+    const USERNAME = "staney41011";
+    const REPO = "SoulKey";
+    const DATA_URL = `https://${USERNAME}.github.io/${REPO}/images/data.json`;
+
+    window.onload = function() {
+      // 載入時讀取 GitHub 上的資料 (加時間戳記避免快取)
+      fetch(DATA_URL + "?t=" + new Date().getTime())
+        .then(response => response.json())
+        .then(data => renderPage(data))
+        .catch(error => {
+           console.warn("讀取 GitHub 失敗", error);
+           document.getElementById('loading').style.display = 'none';
+           document.getElementById('main-content').style.display = 'block';
+           document.getElementById('cards-container').innerHTML = '<div class="alert alert-info text-center">目前 GitHub 上沒有資料，請點擊下方「同步更新」按鈕來初始化。</div>';
+        });
+    };
+
+    function renderPage(data) {
       document.getElementById('loading').style.display = 'none';
       document.getElementById('main-content').style.display = 'block';
       
-      // --- 【更新標題區域】 ---
-      let titleText = "打開心靈的鎖匙"; // 預設標題
-      let subText = "週週打開心靈的鎖匙課程 DM"; // 預設副標題
+      // --- 更新標題與日期 ---
+      let titleText = "打開心靈的鎖匙";
+      let subText = "週週打開心靈的鎖匙課程 DM";
 
-      // 如果有期數
       if (data.period) {
         titleText = `第 ${data.period} 期 - 打開心靈的鎖匙`;
       }
 
-      // 如果有日期
       if (data.date) {
-        // 將日期加在副標題後面，或者您想加在標題也可以
+        // 將日期顯示在副標題後面
         subText += ` (${data.date})`;
       }
 
-      // 更新畫面文字
       document.getElementById('page-title').innerText = titleText;
-      document.querySelector('.header-banner p').innerText = subText;
-      // -----------------------
+      document.getElementById('page-subtitle').innerText = subText;
+      // --------------------
 
       const container = document.getElementById('cards-container');
       let html = '';
@@ -31,8 +121,8 @@ function renderPage(data) {
       }
 
       data.items.forEach(item => {
-        // 分享時的文字也加入日期
-        const shareTitle = `打開心靈的鎖匙 ${titleText} ${data.date || ""} ${item.lang}版 DM`;
+        // 分享標題也加入日期與期數
+        const shareTitle = `${titleText} ${data.date || ""} ${item.lang}DM`;
         
         // GitHub 圖片完整網址
         const imgUrl = `https://${USERNAME}.github.io/${REPO}/${item.imageUrl}`;
@@ -67,3 +157,58 @@ function renderPage(data) {
       });
       container.innerHTML = html;
     }
+
+    // 分享圖片檔案 (從 GitHub 同源讀取)
+    async function shareImage(title, url) {
+      try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const file = new File([blob], "dm.png", { type: "image/png" });
+        
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: title,
+            text: title
+          });
+        } else {
+          alert("您的裝置不支援直接分享圖片，請使用下載功能。");
+        }
+      } catch (error) {
+        console.error(error);
+        alert("分享失敗，請稍後再試。");
+      }
+    }
+
+    // 觸發後端 Google Script -> 通知 GitHub
+    function triggerUpdate() {
+      const btn = document.getElementById('btn-update');
+      const status = document.getElementById('update-status');
+      
+      if(!confirm("確定要同步更新 GitHub 上的圖片嗎？")) return;
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>處理中...';
+      status.innerText = "正在通知 GitHub 機器人下載新圖...";
+
+      // 呼叫 Google Apps Script 後端
+      google.script.run
+        .withSuccessHandler(function(res) {
+          btn.innerHTML = '<i class="fas fa-check me-2"></i> 已發送指令';
+          status.innerHTML = "<span class='text-success'><strong>成功！</strong> 機器人正在背景下載圖片。<br>請約 1 分鐘後重新整理此頁面查看新圖。</span>";
+          
+          setTimeout(() => { 
+            btn.disabled = false; 
+            btn.innerHTML = '<i class="fas fa-sync-alt me-2"></i> 同步更新圖片 (GitHub)'; 
+          }, 10000);
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> 重試';
+          status.innerHTML = "<span class='text-danger'>錯誤: " + err.message + "</span>";
+        })
+        .triggerGitHubAction();
+    }
+  </script>
+</body>
+</html>
