@@ -3,14 +3,15 @@ name: Update DM Images
 on:
   repository_dispatch:
     types: [update-images]
-  workflow_dispatch: # 允許手動在 GitHub 按鈕觸發
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
+    # 【關鍵】給予寫入權限，否則無法 Push
     permissions:
-      contents: write # 給予寫入權限
+      contents: write
 
     steps:
     - name: Checkout code
@@ -24,10 +25,25 @@ jobs:
     - name: Run Download Script
       run: node scripts/download_images.js
 
+    # 【除錯】列出下載的檔案，證明圖片真的有被載下來
+    - name: Check files (Debug)
+      run: |
+        echo "=== 檢查 images 資料夾內容 ==="
+        ls -la images/ || echo "images 資料夾不存在！"
+
     - name: Commit and Push changes
       run: |
         git config --global user.name 'GitHub Action'
         git config --global user.email 'action@github.com'
-        git add images/*
-        git commit -m "Auto update DM images from Google Drive" || echo "No changes to commit"
+        
+        # 強制加入所有變更 (包含新檔案與刪除的檔案)
+        git add .
+        
+        # 顯示狀態讓我知道發生什麼事
+        git status
+        
+        # 提交 (如果有變更才提交，沒有就顯示訊息)
+        git commit -m "Auto update DM images from Google Drive" || echo "⚠️ 沒有變更可以提交 (可能是圖片內容沒變)"
+        
+        # 推送回 GitHub
         git push
