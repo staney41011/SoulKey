@@ -27,12 +27,38 @@
     .img-wrapper { position: relative; background-color: #fafafa; padding: 10px; text-align: center; min-height: 200px; }
     .img-fluid { width: 100%; height: auto; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
     
+    /* 按鈕樣式 */
     .btn-action { width: 100%; border-radius: 50px; font-weight: bold; margin-top: 10px; display: flex; align-items: center; justify-content: center; padding: 8px 0; }
     .btn-line { background-color: #06c755; color: white; border: none; }
     .btn-line:hover { background-color: #05b34c; color: white; }
     .btn-download { color: #198754; border-color: #198754; }
     .btn-download:hover { background-color: #198754; color: white; }
     
+    /* 直播區塊特別樣式 */
+    .live-section {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+      margin-bottom: 2rem;
+      border: 1px solid #e0e0e0;
+    }
+    .live-badge {
+      background-color: #ff0000;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      margin-right: 8px;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.6; }
+      100% { opacity: 1; }
+    }
+
     .loading-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 9999; display: flex; justify-content: center; align-items: center; flex-direction: column; }
   
     /* 管理員按鈕區域 */
@@ -56,6 +82,24 @@
     </div>
 
     <div class="container pb-5">
+      
+      <div class="live-section">
+        <h5 class="fw-bold mb-3"><span class="live-badge">LIVE</span>每週日線上直播</h5>
+        
+        <div class="ratio ratio-16x9 mb-3">
+          <iframe 
+            src="https://www.youtube.com/embed/live_stream?channel=UCCBeKLJ-mnOVUdihX2xoXSw" 
+            title="YouTube video player" 
+            frameborder="0" 
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+            allowfullscreen>
+          </iframe>
+        </div>
+
+        <button onclick="shareLiveText()" class="btn btn-line btn-action w-100">
+          <i class="fab fa-line me-2"></i> 分享上課直播連結
+        </button>
+      </div>
       <div class="row" id="cards-container"></div>
       
       <div class="admin-section">
@@ -97,23 +141,20 @@
       document.getElementById('loading').style.display = 'none';
       document.getElementById('main-content').style.display = 'block';
       
-      // --- 【更新】標題與日期邏輯 ---
-      let titleText = "週週打開心靈的鎖匙課程 DM"; // 預設標題
-      let subText = ""; // 預設副標題清空
+      // 更新標題與日期邏輯
+      let titleText = "週週打開心靈的鎖匙課程 DM"; 
+      let subText = ""; 
 
       if (data.period) {
-        // 顯示：第 216 期 - 週週打開心靈的鎖匙課程 DM
         titleText = `第 ${data.period} 期 - ${titleText}`;
       }
 
       if (data.date) {
-        // 副標題只顯示日期，例如：(2026/01/04)
         subText = `(${data.date})`;
       }
 
       document.getElementById('page-title').innerText = titleText;
       document.getElementById('page-subtitle').innerText = subText;
-      // ----------------------------
 
       const container = document.getElementById('cards-container');
       let html = '';
@@ -124,7 +165,6 @@
       }
 
       data.items.forEach(item => {
-        // 分享時的文字也同步更新
         const shareTitle = `${titleText} ${subText} ${item.lang}DM`;
         const imgUrl = `https://${USERNAME}.github.io/${REPO}/${item.imageUrl}`;
 
@@ -172,6 +212,32 @@
         }
       } catch (error) {
         alert("分享失敗，請稍後再試。");
+      }
+    }
+
+    // ==============================================
+    // 【新增】分享直播資訊功能
+    // ==============================================
+    function shareLiveText() {
+      const textToShare = `親愛的前賢家人們好!
+記得每週日早上08:30--11:30
+投資自己最棒的心靈享宴
+https://www.youtube.com/channel/UCCBeKLJ-mnOVUdihX2xoXSw/live
+恭祝平安!
+健康愉悅!闔府歡欣!`;
+
+      // 優先嘗試使用手機的原生分享 (會直接叫出 LINE 選單)
+      if (navigator.share) {
+        navigator.share({
+          text: textToShare
+        }).catch((error) => console.log('分享取消', error));
+      } else {
+        // 電腦版或不支援分享時，複製到剪貼簿
+        navigator.clipboard.writeText(textToShare).then(function() {
+          alert("✅ 文字已複製！請打開 LINE 貼上發送。");
+        }, function(err) {
+          alert("複製失敗，請手動複製。");
+        });
       }
     }
 
