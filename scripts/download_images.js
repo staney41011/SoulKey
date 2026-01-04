@@ -6,16 +6,18 @@ const path = require('path');
 const API_URL = 'https://script.google.com/macros/s/AKfycbwvNwOn8QwvH-agggTWm6ZZUosmCPDuGUpSbckc8DFahBP9fiHLfPCBCIlWMt9p4V3V/exec?type=json';
 const IMG_DIR = 'images';
 
+// 確保 images 資料夾存在
 if (!fs.existsSync(IMG_DIR)){
     fs.mkdirSync(IMG_DIR);
 }
 
-// 【通用函式】支援自動轉址的連線工具
+// 【通用函式】支援所有轉址 (301, 302, 303, 307)
 const fetchWithRedirect = (url, callback) => {
   https.get(url, (response) => {
-    // 遇到 301, 302 就自動轉址
-    if (response.statusCode === 301 || response.statusCode === 302) {
-      console.log(`>> 偵測到轉址，正在導向新網址...`);
+    // 檢查狀態碼是否為轉址 (3xx)
+    if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+      // console.log(`>> 偵測到轉址 (${response.statusCode})，正在導向新網址...`); 
+      // (註解掉避免 Log 太多，只保留關鍵訊息)
       return fetchWithRedirect(response.headers.location, callback);
     }
     // 正常回傳
@@ -28,19 +30,18 @@ const fetchWithRedirect = (url, callback) => {
 
 console.log(`[1] 正在連線至 API...`);
 
-// 使用新的函式來抓取 JSON 清單
+// 1. 抓取清單
 fetchWithRedirect(API_URL, (res) => {
   let body = "";
   res.on("data", (chunk) => { body += chunk; });
   res.on("end", () => {
     try {
-      // 嘗試解析 JSON
+      // 解析 JSON
       let json;
       try {
         json = JSON.parse(body);
       } catch (e) {
-        console.error("❌ 解析 JSON 失敗！");
-        console.error("收到的內容開頭:", body.substring(0, 100));
+        console.error("❌ 解析 JSON 失敗！內容可能為 HTML。");
         process.exit(1);
       }
 
@@ -53,6 +54,7 @@ fetchWithRedirect(API_URL, (res) => {
 
       const dataJsonPath = path.join(IMG_DIR, 'data.json');
       
+      // 準備本地資料結構
       const localData = { ...json };
       localData.items = json.items.map(item => {
         const filename = `${item.lang}.png`; 
@@ -63,9 +65,10 @@ fetchWithRedirect(API_URL, (res) => {
         };
       });
 
+      // 寫入 data.json
       fs.writeFileSync(dataJsonPath, JSON.stringify(localData, null, 2));
 
-      // 下載圖片流程
+      // 2. 下載所有圖片
       let promises = localData.items.map(item => {
         return new Promise((resolve, reject) => {
           const downloadUrl = item.downloadUrl; 
@@ -73,17 +76,19 @@ fetchWithRedirect(API_URL, (res) => {
           
           console.log(`⬇️ 開始下載: ${item.lang}`);
           
-          // 圖片下載也要用 fetchWithRedirect 處理轉址
           fetchWithRedirect(downloadUrl, (response) => {
             if (response.statusCode !== 200) {
               console.error(`❌ 下載失敗 [${item.lang}] 狀態碼: ${response.statusCode}`);
               reject();
               return;
             }
+            
             const file = fs.createWriteStream(dest);
             response.pipe(file);
+            
             file.on('finish', () => {
               file.close(() => {
+                // 檢查檔案大小
                 const stats = fs.statSync(dest);
                 if (stats.size === 0) {
                    console.error(`❌ 下載檔案為空: ${item.lang}`);
@@ -99,7 +104,7 @@ fetchWithRedirect(API_URL, (res) => {
       });
 
       Promise.all(promises)
-        .then(() => console.log("🎉 所有圖片處理完畢！"))
+        .then(() => console.log("🎉 所有圖片處理完畢，準備上傳 GitHub！"))
         .catch(() => {
           console.error("💥 部分圖片下載失敗");
           process.exit(1);
