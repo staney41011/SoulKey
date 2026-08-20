@@ -1,46 +1,46 @@
 {
-  "period": 248,
-  "date": "2026/8/16",
+  "period": 249,
+  "date": "2026/8/23",
   "items": [
     {
       "lang": "中文",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=1Oq49fJY6mw8E43-fuEHcIvoHQDcMCLM6",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1qovncxVYu-sQyzJfdb-xC95ZIlRBQZ_e",
       "imageUrl": "images/中文.png",
       "localFilename": "中文.png"
     },
     {
       "lang": "英文",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=1_XbQpDr0V2oys3Mg9DJwFnXHQzJTbWfx",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=18bJF-96FaL01SllXTMh2H09PjhHb-IYC",
       "imageUrl": "images/英文.png",
       "localFilename": "英文.png"
     },
     {
       "lang": "越南",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=1UZ3rQaFM_AlRzII96dQxk1q6VxgOKVME",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1gmKzQLR2nuosdIBXi9U8_z2NCLbbPF9v",
       "imageUrl": "images/越南.png",
       "localFilename": "越南.png"
     },
     {
       "lang": "泰文",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=1pg7hw-g-1CmEKy_vz13ruKjwgUxJoj__",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=17rDYxe2FKL1MCA_rfY4iCNFST9k5kgOX",
       "imageUrl": "images/泰文.png",
       "localFilename": "泰文.png"
     },
     {
       "lang": "柬埔寨",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=1nJ3WoZBr5jcxmLdXVtP8jwuzfSVu27iW",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1lgfzvTDvCtT7BZKwS4933yVqX75J15Dw",
       "imageUrl": "images/柬埔寨.png",
       "localFilename": "柬埔寨.png"
     },
     {
       "lang": "印尼",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=1GG1t8fcekO3rvSpd0TDaeIQIH4aa-m_Z",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1TfPI47gRCuKAnPxarxVlp2LRkcjmOdSk",
       "imageUrl": "images/印尼.png",
       "localFilename": "印尼.png"
     },
     {
       "lang": "西文",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=1-K4Kqt3uH2YnYdzSAxXOPLuLTPegPUZD",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1G_l9gpW8FC4C-5M2-4kJwMCMo-3dWkMf",
       "imageUrl": "images/西文.png",
       "localFilename": "西文.png"
     }
