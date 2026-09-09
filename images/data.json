@@ -1,22 +1,22 @@
 {
-  "period": 251,
-  "date": "2026/9/6",
+  "period": 252,
+  "date": "2026/09/13",
   "items": [
     {
       "lang": "中文",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=168XUgR_S-pBUSwK8k1OHSvHMaZJBt3mo",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1xl2aWHQZZd2PKGL7JVnh71v3Qnc4kLh6",
       "imageUrl": "images/中文.png",
       "localFilename": "中文.png"
     },
     {
       "lang": "英文",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=1CkKlYS2RO5_T2TA6BYkp9y1YCahf03Zo",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1iPGKYKci378HNjfa10UFFgFdk1-DOY4t",
       "imageUrl": "images/英文.png",
       "localFilename": "英文.png"
     },
     {
       "lang": "越南",
-      "downloadUrl": "https://drive.google.com/uc?export=download&id=1ntjbzxix_ueoS9mn_a5E2tDR1COyyfOo",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1sPNMnCBUi90LjWvw8rtx6VkFDi5UmHOt",
       "imageUrl": "images/越南.png",
       "localFilename": "越南.png"
     },
