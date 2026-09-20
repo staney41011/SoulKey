@@ -110,7 +110,7 @@ def main():
         if args.stage in {"zh", "metadata", "asr"}:
             run([sys.executable, str(system_dir / "setup_wpc_provider.py")])
 
-        if args.stage == "zh":
+        if args.stage in {"zh", "metadata"}:
             run([
                 sys.executable, str(system_dir / "runner.py"),
                 "--task-id", args.task_id,
@@ -131,21 +131,14 @@ def main():
                 "--max-tasks", "1",
                 "--force",
             ])
-            report(
-                args.bridge_url,
-                args.runtime_nonce,
-                "needs_review",
-                "中文逐字稿與 AI 中文校稿完成，待人工中文定稿",
-            )
+            if args.stage == "zh":
+                report(
+                    args.bridge_url,
+                    args.runtime_nonce,
+                    "needs_review",
+                    "中文逐字稿與 AI 中文校稿完成，待人工中文定稿",
+                )
             cmd = None
-        elif args.stage == "metadata":
-            cmd = [
-                sys.executable, str(system_dir / "runner.py"),
-                "--task-id", args.task_id,
-                "--stage", "metadata",
-                "--max-tasks", "1",
-                "--force-metadata",
-            ]
         elif args.stage == "asr":
             cmd = [
                 sys.executable, str(system_dir / "runner.py"),
