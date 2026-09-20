@@ -1,4 +1,4 @@
-yt-dlp
+yt-dlp[default]
 yt-dlp-getpot-wpc
 youtube-transcript-api
 google-api-python-client
