@@ -15,8 +15,7 @@ LECTURER_PATTERNS = [
     r"(?:講師|主講人|主講|講者|授課老師|授課者)\s+([^\n｜|、,，;；]{2,30})",
 ]
 
-POT_SERVER_HOME = Path("/kaggle/working/bgutil-ytdlp-pot-provider/server")
-POT_SCRIPT = POT_SERVER_HOME / "build" / "generate_once.js"
+WPC_BROWSER_MARKER = Path("/kaggle/working/wpc_browser_path.txt")
 
 
 def _cookie_file(workdir: Path):
@@ -31,19 +30,6 @@ def _cookie_file(workdir: Path):
 
     path = workdir / "youtube_cookies.txt"
     path.write_bytes(raw)
-
-    first_line = path.read_text(
-        encoding="utf-8",
-        errors="ignore",
-    ).splitlines()[:1]
-    if not first_line or first_line[0] not in {
-        "# HTTP Cookie File",
-        "# Netscape HTTP Cookie File",
-    }:
-        raise RuntimeError(
-            "YouTube cookies 必須是 Mozilla/Netscape cookies.txt 格式。"
-        )
-
     return str(path)
 
 
@@ -58,23 +44,23 @@ def _base_options(workdir: Path, quiet: bool):
     if cookiefile:
         options["cookiefile"] = cookiefile
 
-    user_agent = get_secret("YOUTUBE_USER_AGENT", required=False)
-    if user_agent:
-        options["http_headers"] = {"User-Agent": user_agent}
-
     return options, bool(cookiefile)
 
 
-def _pot_profile():
-    if not POT_SCRIPT.exists():
+def _wpc_profile():
+    if not WPC_BROWSER_MARKER.exists():
+        return None
+    browser = WPC_BROWSER_MARKER.read_text(encoding="utf-8").strip()
+    if not browser or not Path(browser).exists():
         return None
 
     return {
         "youtube": {
             "player_client": ["mweb"],
+            "fetch_pot": ["always"],
         },
-        "youtubepot-bgutilscript": {
-            "server_home": [str(POT_SERVER_HOME)],
+        "youtubepot-wpc": {
+            "browser_path": [browser],
         },
     }
 
@@ -102,21 +88,21 @@ def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
 
     last_error = None
 
-    pot = _pot_profile()
-    if pot:
+    wpc = _wpc_profile()
+    if wpc:
         attempt = dict(options)
-        attempt["extractor_args"] = pot
-        print("[YouTube] PO Token 模式：mweb + bgutil script provider")
+        attempt["extractor_args"] = wpc
+        print("[YouTube] WPC 模式：mweb + Chromium WebPoClient")
         try:
             with YoutubeDL(attempt) as ydl:
                 return ydl.extract_info(url, download=download)
         except DownloadError as exc:
             last_error = exc
-            print("[YouTube] PO Token 模式失敗，改試匿名 fallback。")
+            print("[YouTube] WPC 模式失敗，改試匿名 fallback。")
     else:
         print(
-            "[YouTube] 尚未安裝 PO Token Provider，"
-            "可先執行 setup_pot_provider.py。"
+            "[YouTube] 尚未準備 WPC Provider；"
+            "請先執行 setup_wpc_provider.py。"
         )
 
     for index, extractor_args in enumerate(_anonymous_profiles(), start=1):
@@ -219,22 +205,23 @@ def download_audio(url: str, workdir: Path):
         source_wav = candidates[0]
 
     normalized = workdir / "audio_16k_mono.wav"
-    cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-i", str(source_wav),
-        "-ac", "1",
-        "-ar", "16000",
-        str(normalized),
-    ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(source_wav),
+            "-ac", "1",
+            "-ar", "16000",
+            str(normalized),
+        ],
+        check=True,
+    )
 
-    meta = {
+    return normalized, {
         "id": info.get("id"),
         "title": info.get("title"),
         "duration": info.get("duration"),
         "webpage_url": info.get("webpage_url") or url,
     }
-    return normalized, meta
 
 
 def save_metadata_json(metadata: dict, path: Path):
