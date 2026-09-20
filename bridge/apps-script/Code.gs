@@ -1050,7 +1050,7 @@ function writeTextFile_(folder, name, content, mimeType) {
   if (iter.hasNext()) {
     iter.next().setContent(content);
   } else {
-    folder.createFile(name, content, mimeType || MimeType.PLAIN_TEXT);
+    folder.createFile(name, content, mimeType || "text/plain");
   }
 }
 
@@ -1255,9 +1255,9 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
     segments: normalized
   }, null, 2);
 
-  writeTextFile_(targetFolder, code + ".json", payload, MimeType.JSON);
-  writeTextFile_(targetFolder, code + ".txt", buildTxt_(normalized), MimeType.PLAIN_TEXT);
-  writeTextFile_(targetFolder, code + ".srt", buildSrt_(normalized), MimeType.PLAIN_TEXT);
+  writeTextFile_(targetFolder, code + ".json", payload, "application/json");
+  writeTextFile_(targetFolder, code + ".txt", buildTxt_(normalized), "text/plain");
+  writeTextFile_(targetFolder, code + ".srt", buildSrt_(normalized), "text/plain");
 
   const task = taskInfo_(taskId);
   const taskSheet = getSheetByName_(TASK_SHEET_NAME);
@@ -1445,5 +1445,5 @@ function jsonp_(callback, payload) {
 function json_(payload) {
   return ContentService
     .createTextOutput(JSON.stringify(payload))
-    .setMimeType(ContentService.MimeType.JSON);
+    .setMimeType(ContentService."application/json");
 }
