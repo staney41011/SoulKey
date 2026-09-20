@@ -52,14 +52,14 @@ function doPost(e) {
       headers: {
         Authorization: "Bearer " + githubToken,
         Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28"
+        "X-GitHub-Api-Version": "2026-03-10"
       },
       muteHttpExceptions: true
     });
 
     const status = response.getResponseCode();
 
-    if (status !== 204) {
+    if (status !== 200 && status !== 204) {
       return json_({
         ok: false,
         error: "github_dispatch_failed",
@@ -68,10 +68,22 @@ function doPost(e) {
       });
     }
 
+    let githubResult = {};
+    const responseText = String(response.getContentText() || "").trim();
+    if (responseText) {
+      try {
+        githubResult = JSON.parse(responseText);
+      } catch (_) {
+        githubResult = {};
+      }
+    }
+
     return json_({
       ok: true,
       action: action,
-      message: "GitHub Actions workflow dispatched"
+      message: "GitHub Actions workflow dispatched",
+      workflow_run_id: githubResult.workflow_run_id || null,
+      html_url: githubResult.html_url || null
     });
   } catch (err) {
     return json_({
