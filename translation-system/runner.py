@@ -26,6 +26,7 @@ from google_io import (
     upload_or_replace_file,
 )
 from youtube_io import download_audio, extract_metadata, save_metadata_json
+from status_io import new_run_id, mark_running, mark_done, mark_error
 
 
 def now_text():
@@ -274,6 +275,20 @@ def main():
         print(f"[URL] {task['youtube_url']}")
 
         metadata = {}
+        status_stage = "metadata" if args.stage == "metadata" else "asr"
+        run_id = new_run_id(task["task_id"], status_stage)
+        mark_running(
+            task["task_id"],
+            status_stage,
+            sheets=sheets,
+            run_id=run_id,
+            message=(
+                "讀取 YouTube Metadata"
+                if status_stage == "metadata"
+                else "下載音訊並執行 ASR"
+            ),
+            progress=0,
+        )
         try:
             needs_metadata = (
                 args.force_metadata
@@ -298,11 +313,25 @@ def main():
                     )
 
             if args.stage == "metadata":
+                mark_done(
+                    task["task_id"],
+                    "metadata",
+                    sheets=sheets,
+                    run_id=run_id,
+                    message="YouTube Metadata 完成",
+                )
                 processed += 1
                 continue
 
             if task["asr"] == "完成" and not args.force_asr:
                 print("[ASR] 已完成，略過。使用 --force-asr 可重跑。")
+                mark_done(
+                    task["task_id"],
+                    "asr",
+                    sheets=sheets,
+                    run_id=run_id,
+                    message="ASR 先前已完成，本次略過",
+                )
                 processed += 1
                 continue
 
@@ -316,6 +345,13 @@ def main():
                 workdir,
             )
             print("[DONE] ASR 結果已寫回 Google Drive。")
+            mark_done(
+                task["task_id"],
+                "asr",
+                sheets=sheets,
+                run_id=run_id,
+                message="ASR 結果已寫回 Google Drive",
+            )
             processed += 1
 
             try:
@@ -334,6 +370,13 @@ def main():
                 asr="錯誤",
                 updated_at=now_text(),
                 note=message[:450],
+            )
+            mark_error(
+                task["task_id"],
+                status_stage,
+                sheets=sheets,
+                run_id=run_id,
+                exc=exc,
             )
             processed += 1
 
