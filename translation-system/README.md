@@ -13,6 +13,35 @@
 7. 將成果寫回該期、該堂課的 Google Drive 資料夾
 8. 即時更新 Sheet 的 ASR 狀態與最後更新時間
 9. 已完成任務預設跳過，可在 Kaggle 斷線後續跑
+10. ASR 模型支援永久掛載；優先使用 Kaggle Input，不重複下載
+
+## 模型永久保存
+
+`shooding/taiwan-breeze-asr-26` 約 3.09 GB。
+
+第一次執行：
+
+```bash
+python translation-system/prepare_model.py
+```
+
+模型會下載到：
+
+```text
+/kaggle/working/persistent-model/taiwan-breeze-asr-26
+```
+
+第一次下載完成後，在 Kaggle：
+
+1. Save Version / Save & Run All
+2. 保存 Notebook Output
+3. 將該 Output 建成/掛成私人 Input（Dataset 或 Notebook Output）
+4. 之後 Runner 會自動掃描 `/kaggle/input` 找 `model.bin + config.json`
+5. 找到後直接載入，不再從 Hugging Face 下載
+
+也可設定 `ASR_MODEL_PATH` 指向指定永久模型資料夾。
+
+只有找不到永久模型時，Runner 才會自動回退到 Hugging Face 下載。
 
 ## Kaggle 必要設定
 
@@ -38,8 +67,7 @@ Kaggle Secrets 建立以下三個 Secret：
 ## 為什麼不用 Service Account
 
 本專案目前的主資料夾位於個人「我的雲端硬碟」。
-Service Account 無法可靠地擁有/建立檔案，因此 Runner 使用「使用者 OAuth refresh token」，
-讓上傳檔案直接由你的 Google 帳戶擁有。
+Runner 使用「使用者 OAuth refresh token」，讓上傳檔案直接由你的 Google 帳戶擁有。
 
 ## Google OAuth 一次性設定
 
@@ -50,7 +78,6 @@ Service Account 無法可靠地擁有/建立檔案，因此 Runner 使用「使�
 5. Authorized redirect URI 加入：
    `https://developers.google.com/oauthplayground`
 6. OAuth consent screen 建議切到 **In production**。
-   Testing 模式的 refresh token 對 Drive/Sheets 這類 scope 通常 7 天會過期。
 7. 打開 OAuth 2.0 Playground。
 8. 右上齒輪：
    - Use your own OAuth credentials：ON
@@ -70,6 +97,12 @@ Service Account 無法可靠地擁有/建立檔案，因此 Runner 使用「使�
 git clone https://github.com/staney41011/SoulKey.git /kaggle/working/SoulKey
 cd /kaggle/working/SoulKey
 pip install -q -r translation-system/requirements.txt
+```
+
+先跑 Doctor：
+
+```bash
+python translation-system/doctor.py
 ```
 
 先只測 YouTube metadata：
@@ -120,7 +153,7 @@ python translation-system/runner.py --stage metadata --period 253 --max-tasks 4 
   segments.json
 ```
 
-下一階段會在這個基礎上加入：
+下一階段會加入：
 
 - 中文逐字稿 AI 校正
 - 專有名詞鎖定
