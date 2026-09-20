@@ -1,6 +1,7 @@
 const cfg = window.SOULKEY_CONFIG || {};
+
 const STORE = {
-  tasks: "soulkey_studio_tasks_v1",
+  tasks: "soulkey_studio_tasks_v2",
   terms: "soulkey_studio_terms_v1",
   gpu: "soulkey_studio_gpu_v1"
 };
@@ -22,107 +23,352 @@ const seedTerms = [
   ["一世修一世成","宗教術語","一試修一試成"],
   ["超生了死","宗教術語",""],
   ["渡化","宗教術語","杜化"]
-].map((x,i)=>({id:"seed-"+i,name:x[0],category:x[1],aliases:x[2],description:"",status:"正式詞庫"}));
+].map((x,i)=>({
+  id:"seed-"+i,
+  name:x[0],
+  category:x[1],
+  aliases:x[2],
+  description:"",
+  status:"正式詞庫"
+}));
 
-const pipeline = [
-  ["01","來源資訊","免 GPU","ready"],
-  ["02","ASR 辨識","GPU 工作","ready"],
-  ["03","AI 中文校稿","GPU 工作","ready"],
-  ["04","人工確認","網頁操作","ready"],
-  ["05","多語翻譯","中文定稿後","locked"],
-  ["06","字幕","翻譯後","locked"],
-  ["07","TTS","GPU 工作","locked"],
-  ["08","完成影片","最後階段","locked"]
+const workflow = [
+  {key:"metadata", label:"來源資訊", short:"來源", hint:"免 GPU"},
+  {key:"asr", label:"ASR 逐字稿", short:"逐字稿", hint:"GPU"},
+  {key:"polish", label:"AI 中文校稿", short:"AI校稿", hint:"GPU"},
+  {key:"review", label:"人工中文定稿", short:"定稿", hint:"人工"},
+  {key:"vernacular", label:"全文白話化", short:"白話", hint:"GPU"},
+  {key:"en", label:"英文翻譯", short:"英文", hint:"GPU"},
+  {key:"multi", label:"四語翻譯", short:"四語", hint:"GPU"},
+  {key:"tts", label:"各國音檔", short:"音檔", hint:"GPU"},
+  {key:"video", label:"完成影片", short:"影片", hint:"最後"}
 ];
 
 function load(key, fallback){
-  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
+  catch { return fallback; }
 }
 function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
+
 let tasks = load(STORE.tasks, []);
 let terms = load(STORE.terms, seedTerms);
+let selectedTaskId = null;
+
 if(!localStorage.getItem(STORE.terms)) save(STORE.terms, terms);
 
 const titles = {
-  dashboard:"任務總覽", "new-task":"建立任務", review:"中文逐字稿校稿",
-  glossary:"專有名詞庫", knowledge:"經典知識庫", system:"系統狀態"
+  dashboard:"任務總覽",
+  "new-task":"建立任務",
+  review:"中文逐字稿校稿",
+  glossary:"專有名詞庫",
+  knowledge:"經典知識庫",
+  system:"系統狀態"
 };
+
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g,m=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[m]));
+}
 
 function showView(name){
   document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
-  document.querySelectorAll(".nav-item").forEach(x=>x.classList.toggle("active",x.dataset.view===name));
+  document.querySelectorAll(".nav-item").forEach(
+    x=>x.classList.toggle("active",x.dataset.view===name)
+  );
   document.getElementById("view-"+name).classList.add("active");
   document.getElementById("view-title").textContent=titles[name]||"SoulKey Studio";
 }
-document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
-document.querySelectorAll("[data-go]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.go)));
+
+document.querySelectorAll("[data-view]").forEach(
+  b=>b.addEventListener("click",()=>showView(b.dataset.view))
+);
+document.querySelectorAll("[data-go]").forEach(
+  b=>b.addEventListener("click",()=>showView(b.dataset.go))
+);
 
 function renderPipeline(){
-  document.getElementById("pipeline").innerHTML=pipeline.map(x=>
-    '<div class="step '+x[3]+'"><span>STEP '+x[0]+'</span><b>'+x[1]+'</b><small>'+x[2]+'</small></div>'
+  document.getElementById("pipeline").innerHTML=workflow.map((x,i)=>
+    '<div class="step ready">'+
+      '<span>STEP '+String(i+1).padStart(2,"0")+'</span>'+
+      '<b>'+x.label+'</b>'+
+      '<small>'+x.hint+'</small>'+
+    '</div>'
   ).join("");
+}
+
+function normalizeTask(t){
+  if(!Number.isInteger(t.completedStep)) t.completedStep=-1;
+  if(!t.status) t.status="等待執行";
+  return t;
+}
+
+function nextStageFor(task){
+  const t=normalizeTask(task);
+  const nextIndex=t.completedStep+1;
+  return nextIndex<workflow.length ? workflow[nextIndex] : null;
+}
+
+function taskProgressHtml(task){
+  const t=normalizeTask(task);
+  return '<div class="task-progress">'+workflow.map((stage,i)=>{
+    const state=i<=t.completedStep ? "done" : (i===t.completedStep+1 ? "current" : "");
+    return '<span class="task-progress-step '+state+'" title="'+escapeHtml(stage.label)+'">'+
+      '<i></i><small>'+escapeHtml(stage.short)+'</small>'+
+    '</span>';
+  }).join("")+'</div>';
 }
 
 function renderTasks(){
   const el=document.getElementById("task-list");
+
   if(!tasks.length){
-    el.innerHTML='<div class="empty">尚無任務。先到「建立任務」貼入 YouTube 網址。</div>';
+    el.innerHTML='<div class="empty">尚無任務。到「建立任務」輸入一期四堂課的 YouTube 網址。</div>';
   }else{
-    el.innerHTML=tasks.slice().reverse().map(t=>
-      '<div class="task-row"><b>'+escapeHtml(t.id)+'</b><div><strong>第'+t.period+'期・'+escapeHtml(t.lesson)+'</strong><br><span class="muted">'+escapeHtml(t.url)+'</span></div><span class="badge">'+escapeHtml(t.stage)+'</span><span class="muted">'+new Date(t.createdAt).toLocaleString("zh-TW")+'</span></div>'
-    ).join("");
+    const sorted=tasks.slice().sort((a,b)=>{
+      if(Number(b.period)!==Number(a.period)) return Number(b.period)-Number(a.period);
+      return Number(String(a.lesson).replace(/\D/g,""))-Number(String(b.lesson).replace(/\D/g,""));
+    });
+
+    el.innerHTML=sorted.map(raw=>{
+      const t=normalizeTask(raw);
+      const next=nextStageFor(t);
+      const complete=!next;
+      return '<article class="course-task-row" data-open-task="'+escapeHtml(t.id)+'">'+
+        '<div class="course-task-main">'+
+          '<div class="course-task-title">'+
+            '<span class="course-lesson">'+escapeHtml(t.lesson)+'</span>'+
+            '<div><b>'+escapeHtml(t.id)+'</b>'+
+            '<small>第'+escapeHtml(t.period)+'期</small></div>'+
+          '</div>'+
+          '<div class="course-url" title="'+escapeHtml(t.url)+'">'+escapeHtml(t.url)+'</div>'+
+        '</div>'+
+        '<div class="course-task-flow">'+
+          taskProgressHtml(t)+
+          '<div class="course-stage-line">'+
+            '<span class="badge '+(complete?"complete":"")+'">'+
+              (complete?"全部完成":"下一步："+escapeHtml(next.label))+
+            '</span>'+
+            '<span class="muted">'+escapeHtml(t.status)+'</span>'+
+          '</div>'+
+        '</div>'+
+        '<div class="course-task-actions">'+
+          '<button class="ghost task-review-btn" data-review-task="'+escapeHtml(t.id)+'">校正逐字稿</button>'+
+          '<button class="primary task-next-btn" data-next-task="'+escapeHtml(t.id)+'" '+(complete?"disabled":"")+'>'+
+            (complete?"已完成":"執行下一步")+
+          '</button>'+
+        '</div>'+
+      '</article>';
+    }).join("");
+
+    document.querySelectorAll("[data-open-task]").forEach(row=>{
+      row.addEventListener("click",e=>{
+        if(e.target.closest("button")) return;
+        openTaskReview(row.dataset.openTask);
+      });
+    });
+
+    document.querySelectorAll("[data-review-task]").forEach(btn=>{
+      btn.addEventListener("click",e=>{
+        e.stopPropagation();
+        openTaskReview(btn.dataset.reviewTask);
+      });
+    });
+
+    document.querySelectorAll("[data-next-task]").forEach(btn=>{
+      btn.addEventListener("click",e=>{
+        e.stopPropagation();
+        confirmNextStage(btn.dataset.nextTask);
+      });
+    });
   }
+
   document.getElementById("stat-tasks").textContent=tasks.length;
   document.getElementById("stat-terms").textContent=terms.length;
 }
 
-function escapeHtml(s){
-  return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+function openTaskReview(taskId){
+  selectedTaskId=taskId;
+  const task=tasks.find(x=>x.id===taskId);
+  if(!task) return;
+
+  const context=document.getElementById("review-task-context");
+  context.innerHTML=
+    '<b>'+escapeHtml(task.id)+'</b>'+
+    '<span>第'+escapeHtml(task.period)+'期・'+escapeHtml(task.lesson)+'</span>'+
+    '<small>'+escapeHtml(task.url)+'</small>';
+
+  document.getElementById("current-time").textContent="--:--";
+  showView("review");
 }
 
-document.getElementById("task-form").addEventListener("submit", async e=>{
-  e.preventDefault();
-  const url=document.getElementById("youtube-url").value.trim();
-  const period=Number(document.getElementById("period").value);
-  const lesson=document.getElementById("lesson").value;
-  const note=document.getElementById("task-note").value.trim();
-  const id='P'+period+'-L'+String(parseInt(lesson.replace(/\D/g,""))).padStart(2,"0")+'-'+Date.now().toString().slice(-5);
-  const task={id,url,period,lesson,note,stage:cfg.apiBaseUrl?"queued":"前端草稿",createdAt:new Date().toISOString()};
+function confirmNextStage(taskId){
+  const task=tasks.find(x=>x.id===taskId);
+  if(!task) return;
+  normalizeTask(task);
+  const next=nextStageFor(task);
+  if(!next) return;
+
+  const ok=confirm(
+    task.id+"｜"+task.lesson+"\n\n"+
+    "確定執行下一步驟：\n"+next.label+"？\n\n"+
+    (cfg.apiBaseUrl
+      ? "確認後會送出後端工作。"
+      : "目前是 UI 原型，先記錄流程狀態；後端接上後這顆按鈕會真正啟動 Kaggle。")
+  );
+  if(!ok) return;
+
+  task.status="已確認："+next.label;
+
   if(cfg.apiBaseUrl){
-    try{
-      const r=await fetch(cfg.apiBaseUrl.replace(/\/$/,"")+"/jobs",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(task)});
+    task.status="排隊中："+next.label;
+    fetch(cfg.apiBaseUrl.replace(/\/$/,"")+"/jobs/"+encodeURIComponent(task.id)+"/run",{
+      method:"POST",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({stage:next.key})
+    }).then(r=>{
       if(!r.ok) throw new Error("API "+r.status);
-      const data=await r.json();
-      task.id=data.jobId||task.id; task.stage=data.status||"queued";
-    }catch(err){
-      alert("後端送出失敗，已保留為本機草稿："+err.message);
-      task.stage="本機草稿";
-    }
+      task.completedStep+=1;
+      task.status="完成："+next.label;
+      save(STORE.tasks,tasks);
+      renderTasks();
+    }).catch(err=>{
+      task.status="送出失敗："+err.message;
+      save(STORE.tasks,tasks);
+      renderTasks();
+    });
+  }else{
+    task.completedStep+=1;
+    task.status="完成："+next.label;
+    save(STORE.tasks,tasks);
+    renderTasks();
   }
-  tasks.push(task); save(STORE.tasks,tasks); renderTasks();
-  e.target.reset(); document.getElementById("period").value=period;
+}
+
+function updateTaskCodes(){
+  const period=Number(document.getElementById("period").value)||0;
+  for(let i=1;i<=4;i++){
+    document.getElementById("task-code-"+i).textContent=
+      "P"+period+"-L"+String(i).padStart(2,"0");
+  }
+}
+document.getElementById("period").addEventListener("input",updateTaskCodes);
+
+document.getElementById("task-form").addEventListener("submit",async e=>{
+  e.preventDefault();
+
+  const period=Number(document.getElementById("period").value);
+  const note=document.getElementById("task-note").value.trim();
+  const urls=[1,2,3,4].map(i=>document.getElementById("youtube-url-"+i).value.trim());
+
+  if(urls.some(x=>!x)){
+    alert("四堂課都要填入 YouTube 網址。");
+    return;
+  }
+
+  const created=[];
+  for(let i=1;i<=4;i++){
+    const id="P"+period+"-L"+String(i).padStart(2,"0");
+    const existing=tasks.find(t=>t.id===id);
+
+    const task=existing || {
+      id,
+      period,
+      lesson:"第"+i+"堂",
+      completedStep:-1,
+      createdAt:new Date().toISOString()
+    };
+
+    task.url=urls[i-1];
+    task.note=note;
+    task.status=cfg.apiBaseUrl ? "建立中" : "等待執行";
+
+    if(cfg.apiBaseUrl){
+      try{
+        const r=await fetch(cfg.apiBaseUrl.replace(/\/$/,"")+"/jobs",{
+          method:"POST",
+          headers:{"content-type":"application/json"},
+          body:JSON.stringify(task)
+        });
+        if(!r.ok) throw new Error("API "+r.status);
+        const data=await r.json();
+        task.status=data.status||"等待執行";
+      }catch(err){
+        task.status="本機草稿："+err.message;
+      }
+    }
+
+    if(!existing) tasks.push(task);
+    created.push(task);
+  }
+
+  save(STORE.tasks,tasks);
+  renderTasks();
+
+  e.target.reset();
+  document.getElementById("period").value=period;
+  updateTaskCodes();
+
+  alert(
+    "第 "+period+" 期四堂課已建立：\n"+
+    created.map(t=>"• "+t.id+" "+t.lesson).join("\n")
+  );
   showView("dashboard");
 });
 
 function renderTerms(filter=""){
   const q=filter.trim().toLowerCase();
-  const rows=terms.filter(t=>!q||[t.name,t.category,t.aliases,t.description].join(" ").toLowerCase().includes(q));
+  const rows=terms.filter(t=>
+    !q||[t.name,t.category,t.aliases,t.description].join(" ").toLowerCase().includes(q)
+  );
+
   document.getElementById("term-body").innerHTML=rows.map(t=>
-    '<tr><td><b>'+escapeHtml(t.name)+'</b></td><td>'+escapeHtml(t.category)+'</td><td>'+escapeHtml(t.aliases||"—")+'</td><td><span class="badge">'+escapeHtml(t.status||"正式詞庫")+'</span></td><td><button class="mini term" data-delete-term="'+escapeHtml(t.id)+'">刪除</button></td></tr>'
+    '<tr>'+
+      '<td><b>'+escapeHtml(t.name)+'</b></td>'+
+      '<td>'+escapeHtml(t.category)+'</td>'+
+      '<td>'+escapeHtml(t.aliases||"—")+'</td>'+
+      '<td><span class="badge">'+escapeHtml(t.status||"正式詞庫")+'</span></td>'+
+      '<td><button class="mini term" data-delete-term="'+escapeHtml(t.id)+'">刪除</button></td>'+
+    '</tr>'
   ).join("");
+
   document.querySelectorAll("[data-delete-term]").forEach(b=>b.addEventListener("click",()=>{
-    if(!confirm("刪除這個本機詞彙？"))return;
-    terms=terms.filter(t=>t.id!==b.dataset.deleteTerm); save(STORE.terms,terms); renderTerms(document.getElementById("term-search").value); renderTasks();
+    if(!confirm("刪除這個本機詞彙？")) return;
+    terms=terms.filter(t=>t.id!==b.dataset.deleteTerm);
+    save(STORE.terms,terms);
+    renderTerms(document.getElementById("term-search").value);
+    renderTasks();
   }));
 }
-document.getElementById("term-search").addEventListener("input",e=>renderTerms(e.target.value));
+
+document.getElementById("term-search").addEventListener(
+  "input",e=>renderTerms(e.target.value)
+);
+
 const dlg=document.getElementById("term-dialog");
 document.getElementById("add-term").addEventListener("click",()=>dlg.showModal());
+
 document.getElementById("save-term").addEventListener("click",e=>{
   const form=document.getElementById("term-form");
-  if(!form.reportValidity()){e.preventDefault();return;}
-  const t={id:"term-"+Date.now(),name:document.getElementById("term-name").value.trim(),category:document.getElementById("term-category").value,aliases:document.getElementById("term-aliases").value.trim(),description:document.getElementById("term-description").value.trim(),status:"正式詞庫"};
-  terms.push(t);save(STORE.terms,terms);renderTerms();renderTasks();form.reset();
+  if(!form.reportValidity()){
+    e.preventDefault();
+    return;
+  }
+
+  const t={
+    id:"term-"+Date.now(),
+    name:document.getElementById("term-name").value.trim(),
+    category:document.getElementById("term-category").value,
+    aliases:document.getElementById("term-aliases").value.trim(),
+    description:document.getElementById("term-description").value.trim(),
+    status:"正式詞庫"
+  };
+
+  terms.push(t);
+  save(STORE.terms,terms);
+  renderTerms();
+  renderTasks();
+  form.reset();
 });
 
 const demoSegments=[
@@ -134,24 +380,81 @@ const demoSegments=[
 
 function renderSegments(items){
   const el=document.getElementById("segment-list");
+
+  if(!items.length){
+    el.innerHTML='<div class="empty">沒有符合目前篩選條件的段落。</div>';
+    return;
+  }
+
   el.innerHTML=items.map((s,i)=>
-    '<div class="segment '+s.flags.join(" ")+'" data-segment="'+i+'"><div class="segment-meta"><span>'+s.time+'</span><span>'+s.flags.map(x=>x==="uncertain"?"⚠ 待人工確認":"AI 已修改").join(" · ")+'</span></div><div class="muted">ASR：'+escapeHtml(s.raw)+'</div><textarea>'+escapeHtml(s.text)+'</textarea><div class="segment-actions"><button class="mini term">加入詞庫</button><button class="mini confirm">確認此句</button></div></div>'
+    '<div class="segment '+s.flags.join(" ")+'" data-time="'+escapeHtml(s.time)+'">'+
+      '<div class="segment-meta">'+
+        '<span>'+escapeHtml(s.time)+'</span>'+
+        '<span>'+s.flags.map(x=>x==="uncertain"?"⚠ 待人工確認":"AI 已修改").join(" · ")+'</span>'+
+      '</div>'+
+      '<div class="muted">ASR：'+escapeHtml(s.raw)+'</div>'+
+      '<textarea>'+escapeHtml(s.text)+'</textarea>'+
+      '<div class="segment-actions">'+
+        '<button class="mini term">加入詞庫</button>'+
+        '<button class="mini confirm">確認此句</button>'+
+      '</div>'+
+    '</div>'
   ).join("");
-  document.getElementById("stat-uncertain").textContent=items.filter(x=>x.flags.includes("uncertain")).length;
-  document.querySelectorAll(".segment").forEach(seg=>seg.addEventListener("click",()=>{document.getElementById("current-time").textContent=demoSegments[Number(seg.dataset.segment)]?.time||"--:--";}));
+
+  document.getElementById("stat-uncertain").textContent=
+    demoSegments.filter(x=>x.flags.includes("uncertain")).length;
+
+  document.querySelectorAll(".segment").forEach(seg=>{
+    seg.addEventListener("click",()=>{
+      document.getElementById("current-time").textContent=seg.dataset.time||"--:--";
+    });
+  });
 }
-document.getElementById("load-demo").addEventListener("click",()=>renderSegments(demoSegments));
+
+document.getElementById("load-demo").addEventListener(
+  "click",()=>renderSegments(demoSegments)
+);
+
 document.querySelectorAll("[data-filter]").forEach(b=>b.addEventListener("click",()=>{
-  document.querySelectorAll("[data-filter]").forEach(x=>x.classList.toggle("active",x===b));
-  const f=b.dataset.filter; renderSegments(f==="all"?demoSegments:demoSegments.filter(x=>x.flags.includes(f)));
+  document.querySelectorAll("[data-filter]").forEach(
+    x=>x.classList.toggle("active",x===b)
+  );
+  const filter=b.dataset.filter;
+  renderSegments(
+    filter==="all"
+      ? demoSegments
+      : demoSegments.filter(x=>x.flags.includes(filter))
+  );
 }));
-document.getElementById("finalize-zh").addEventListener("click",()=>alert("正式版會先檢查所有『待人工確認』是否清空，再鎖定中文版本並開放五語翻譯。"));
+
+document.getElementById("finalize-zh").addEventListener("click",()=>{
+  if(!selectedTaskId){
+    alert("請先從任務總覽選擇一堂課。");
+    return;
+  }
+
+  const task=tasks.find(x=>x.id===selectedTaskId);
+  if(!task) return;
+
+  const ok=confirm(
+    task.id+"｜"+task.lesson+"\n\n"+
+    "確定中文逐字稿已人工確認完成並定稿？\n"+
+    "定稿後，這堂課下一步會進入「全文白話化」。"
+  );
+  if(!ok) return;
+
+  task.completedStep=Math.max(task.completedStep,3);
+  task.status="中文已定稿";
+  save(STORE.tasks,tasks);
+  renderTasks();
+  alert("已標記中文定稿。下一步："+workflow[4].label);
+});
 
 async function pingBackend(){
-  if(!cfg.apiBaseUrl)return;
+  if(!cfg.apiBaseUrl) return;
   try{
     const r=await fetch(cfg.apiBaseUrl.replace(/\/$/,"")+"/health");
-    if(!r.ok)throw new Error();
+    if(!r.ok) throw new Error();
     document.getElementById("backend-text").textContent="後端已連線";
     document.querySelector(".backend-pill .status-dot").style.background="#56b981";
     document.getElementById("api-state").textContent="已連線";
@@ -161,4 +464,8 @@ async function pingBackend(){
   }
 }
 
-renderPipeline();renderTasks();renderTerms();pingBackend();
+updateTaskCodes();
+renderPipeline();
+renderTasks();
+renderTerms();
+pingBackend();
