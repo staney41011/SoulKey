@@ -227,6 +227,7 @@ def main():
         help="metadata=只抓YouTube資訊；asr/all=YouTube Cookies→ASR",
     )
     parser.add_argument("--period", type=int, default=None)
+    parser.add_argument("--task-id", default=None)
     parser.add_argument("--max-tasks", type=int, default=4)
     parser.add_argument("--force-metadata", action="store_true")
     parser.add_argument("--force-asr", action="store_true")
@@ -251,6 +252,8 @@ def main():
         if not task["youtube_url"]:
             continue
         if args.period is not None and task["period"] != args.period:
+            continue
+        if args.task_id and task["task_id"] != args.task_id:
             continue
         tasks.append(task)
 
