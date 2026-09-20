@@ -24,6 +24,7 @@ from google_io import (
     upload_or_replace_file,
 )
 from runner import resolve_lesson_folders
+from status_io import new_run_id, mark_running, mark_done, mark_error
 from translation_engine import (
     LANGUAGE_NAMES,
     load_segments_json,
@@ -304,6 +305,27 @@ def main():
         print("-" * 72)
         print(f"[TASK] {task['task_id']} / 第{task['period']}期 / {task['lesson']}")
 
+        if args.stage == "modernize":
+            status_stage = "vernacular"
+        elif args.stage == "translate" and args.lang == "en":
+            status_stage = "en"
+        elif args.stage == "translate":
+            status_stage = f"multi:{args.lang}"
+        elif args.stage == "translate-all":
+            status_stage = "multi"
+        else:
+            status_stage = "translation-all-test"
+
+        run_id = new_run_id(task["task_id"], status_stage)
+        mark_running(
+            task["task_id"],
+            status_stage,
+            sheets=sheets,
+            run_id=run_id,
+            message=f"翻譯流程執行中：{args.stage}" + (f" / {args.lang}" if args.lang else ""),
+            progress=0,
+        )
+
         try:
             folders = resolve_lesson_folders(
                 drive,
@@ -380,6 +402,13 @@ def main():
                         force=args.force,
                     )
 
+            mark_done(
+                task["task_id"],
+                status_stage,
+                sheets=sheets,
+                run_id=run_id,
+                message=f"翻譯流程完成：{args.stage}" + (f" / {args.lang}" if args.lang else ""),
+            )
             processed += 1
 
         except Exception as exc:
@@ -387,6 +416,13 @@ def main():
             print(f"[ERROR] {message}", file=sys.stderr)
             traceback.print_exc()
             update_note(sheets, task["sheet_row"], message)
+            mark_error(
+                task["task_id"],
+                status_stage,
+                sheets=sheets,
+                run_id=run_id,
+                exc=exc,
+            )
             processed += 1
 
     print("")
