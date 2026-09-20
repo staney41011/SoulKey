@@ -124,6 +124,66 @@ def _normalize_returned(returned):
     return by_id
 
 
+def _generate_parsed_json(
+    tokenizer,
+    model,
+    messages,
+    max_new_tokens,
+    label,
+    retries=2,
+):
+    """
+    Qwen 偶爾會把翻譯內容中的引號直接放進 JSON string，
+    造成合法內容卻因 JSON syntax 錯誤而讓整個任務中止。
+    這裡只重試格式，不改變來源內容或 segment。
+    """
+    last_error = None
+    last_response = ""
+
+    for attempt in range(retries + 1):
+        current_messages = list(messages)
+        if attempt > 0:
+            current_messages.extend([
+                {
+                    "role": "assistant",
+                    "content": last_response,
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Your previous response was invalid JSON. "
+                        "Return the SAME requested segments again as one strictly valid JSON object only. "
+                        "Do not add Markdown or explanation. "
+                        "Use double quotes for JSON keys and string values, and escape any literal double "
+                        "quotes inside translated text. Do not omit any requested segment id."
+                    ),
+                },
+            ])
+
+        response = _generate_json(
+            tokenizer,
+            model,
+            current_messages,
+            max_new_tokens=max_new_tokens,
+        )
+        last_response = response
+
+        try:
+            return _extract_json_object(response)
+        except Exception as exc:
+            last_error = exc
+            print(
+                f"[WARN] {label} JSON 格式錯誤；"
+                f"第 {attempt + 1}/{retries + 1} 次輸出無法解析："
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    raise RuntimeError(
+        f"{label} 連續 {retries + 1} 次無法產生合法 JSON："
+        f"{type(last_error).__name__}: {last_error}"
+    )
+
+
 def modernize_to_vernacular(
     source_segments,
     output_dir: Path,
@@ -154,6 +214,7 @@ def modernize_to_vernacular(
 6. 每個 segment 必須保留原 id；不可合併、刪除、新增或重新排序。
 7. 每段輸出 text 是白話版本；source_text 不需輸出。
 8. 只輸出 JSON，不要 Markdown，不要解釋推理。
+9. JSON 字串內容如果需要引號，請使用中文彎引號「」或正確跳脫，不可輸出破壞 JSON 語法的裸雙引號。
 
 JSON 格式：
 {"segments":[{"id":0,"text":"白話文","had_classical":false,"review_required":false,"notes":""}]}
@@ -190,16 +251,19 @@ JSON 格式：
             f"[VERNACULAR] segments {start + 1}-"
             f"{min(start + chunk_size, len(source_segments))}/{len(source_segments)}"
         )
-        response = _generate_json(
+        parsed = _generate_parsed_json(
             tokenizer,
             model,
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            max_new_tokens=2600,
+            max_new_tokens=2800,
+            label=(
+                f"VERNACULAR segments {start + 1}-"
+                f"{min(start + chunk_size, len(source_segments))}"
+            ),
         )
-        parsed = _extract_json_object(response)
         by_id = _normalize_returned(parsed.get("segments"))
 
         for raw in target:
@@ -248,7 +312,7 @@ def translate_segments(
     output_dir: Path,
     model_name: str,
     glossary_rows=None,
-    chunk_size=6,
+    chunk_size=4,
 ):
     if target_code not in LANGUAGE_NAMES:
         raise ValueError(f"不支援的翻譯語言：{target_code}")
@@ -282,6 +346,8 @@ Rules:
 5. For religious or I-Kuan Tao terminology without a locked translation, choose a clear translation and set review_required=true when there is real ambiguity.
 6. Keep every segment id exactly. Do not merge, add, delete, or reorder segments.
 7. Output only JSON.
+8. The JSON must be syntactically valid. If the translation contains quotation marks, use
+   typographic quotation marks or escape literal double quotes correctly inside JSON strings.
 
 JSON format:
 {{"segments":[{{"id":0,"text":"translation","review_required":false,"notes":""}}]}}
@@ -317,16 +383,19 @@ Translate all requested segments into {target_language}."""
             f"[TRANSLATE:{target_code}] segments {start + 1}-"
             f"{min(start + chunk_size, len(source_segments))}/{len(source_segments)}"
         )
-        response = _generate_json(
+        parsed = _generate_parsed_json(
             tokenizer,
             model,
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            max_new_tokens=3000,
+            max_new_tokens=3200,
+            label=(
+                f"TRANSLATE:{target_code} segments {start + 1}-"
+                f"{min(start + chunk_size, len(source_segments))}"
+            ),
         )
-        parsed = _extract_json_object(response)
         by_id = _normalize_returned(parsed.get("segments"))
 
         for raw in target:
