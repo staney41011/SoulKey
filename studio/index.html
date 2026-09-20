@@ -133,9 +133,8 @@
             <p class="eyebrow">GPU POLICY</p>
             <h3>按需啟動，不常駐</h3>
             <div class="policy-list">
-              <div><b>ASR</b><span>需要 GPU → 喚起 Kaggle → 完成即離線</span></div>
-              <div><b>人工中文校稿</b><span>網頁直接編輯 → 不使用 GPU</span></div>
-              <div><b>AI 複核</b><span>需要時再啟動 Kaggle</span></div>
+              <div><b>中文定稿</b><span>一次完成來源資訊 → ASR → AI 中文校稿，再回網頁人工定稿</span></div>
+              <div><b>人工中文定稿</b><span>左右對照逐字稿與 AI 校稿結果 → 不使用 GPU</span></div>
               <div><b>各國語言翻譯</b><span>中文定稿後才可執行</span></div>
               <div><b>TTS 音檔</b><span>目前流程先完成多語音檔；影片輸出留待後續階段</span></div>
             </div>
@@ -202,36 +201,44 @@
         <div class="review-toolbar panel">
           <div>
             <p class="eyebrow">ZH REVIEW</p>
-            <h3>中文逐字稿校稿</h3>
+            <h3>人工中文定稿</h3>
             <div class="review-task-context" id="review-task-context">尚未選擇課程任務</div>
-            <p class="muted">每堂課獨立校稿、人工確認，確認完成後再執行該堂課的下一個流程。</p>
+            <p class="muted">來源資訊、ASR 與 AI 中文校稿會一次完成。左側保留逐字稿，右側是 AI 校稿結果；右側可直接修正為最終中文稿。</p>
           </div>
           <div class="toolbar-actions">
             <button class="primary" id="finalize-zh">中文定稿</button>
           </div>
         </div>
-        <div class="review-layout">
-          <div class="panel video-panel">
-            <div class="video-placeholder" id="video-placeholder">
-              <div class="play-icon">▶</div>
-              <b>影片預覽區</b>
-              <span>選擇任務後顯示 YouTube</span>
-            </div>
-            <div class="context-card">
-              <span>目前句</span>
-              <strong id="current-time">--:--</strong>
-              <small>可播放前後 5 秒核對原音</small>
-            </div>
+        <div class="panel zh-review-media-bar">
+          <div class="video-placeholder compact" id="video-placeholder">
+            <div class="play-icon">▶</div>
+            <div><b>影片預覽／原音核對</b><span>選擇段落後可對照該時間位置</span></div>
           </div>
-          <div class="panel transcript-panel">
+          <div class="context-card compact">
+            <span>目前段落</span>
+            <strong id="current-time">--:--</strong>
+            <small>保留時間軸供人工核對</small>
+          </div>
+        </div>
+
+        <div class="panel zh-final-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">SIDE BY SIDE</p>
+              <h3>逐字稿／AI 中文校稿對照</h3>
+            </div>
             <div class="filter-row">
               <button class="chip active" data-filter="all">全部</button>
               <button class="chip" data-filter="uncertain">待人工確認</button>
               <button class="chip" data-filter="changed">AI 已修改</button>
             </div>
-            <div id="segment-list" class="segment-list">
-              <div class="empty">這堂課目前尚未載入逐字稿資料。正式串接 Kaggle / Drive 後，這裡會直接顯示該堂課的 ASR 原文、AI 校稿結果與待人工確認內容。</div>
-            </div>
+          </div>
+          <div class="bilingual-head zh-final-head">
+            <span>中文逐字稿（ASR 原文・唯讀）</span>
+            <span>AI 中文校稿結果／人工 Final（可修改）</span>
+          </div>
+          <div id="segment-list" class="segment-list zh-final-list">
+            <div class="empty">完成「中文定稿」的 AI 處理後，這裡會自動顯示左側逐字稿與右側 AI 校稿結果。</div>
           </div>
         </div>
       </section>
@@ -378,7 +385,7 @@
               <p class="eyebrow">WEB EXECUTION</p>
               <h3>Kaggle Web Worker</h3>
             </div>
-            <div class="worker-build"><span class="muted">Build 20260920.24</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
+            <div class="worker-build"><span class="muted">Build 20260920.25</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
           </div>
           <p class="muted block-copy">
             私人 Kaggle 資料載體已通過測試。正式流程現在使用「網頁按一下 → Apps Script → GitHub Actions → Kaggle」，並由 Apps Script 提供短效 Google OAuth。
@@ -446,6 +453,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app-20260920-24.js"></script>
+  <script src="./app-20260920-25.js"></script>
 </body>
 </html>
