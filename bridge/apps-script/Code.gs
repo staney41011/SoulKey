@@ -236,9 +236,16 @@ function postMessage_(payload) {
   const safe = JSON.stringify(payload).replace(/</g, "\\u003c");
   const html =
     "<!doctype html><meta charset='utf-8'>" +
+    "<body style='font-family:sans-serif;font-size:12px'>" +
+    "SoulKey status response" +
     "<script>" +
-    "window.parent.postMessage(" + safe + ", '*');" +
-    "<\/script>";
+    "(function(){" +
+      "var data=" + safe + ";" +
+      "try{window.parent.postMessage(data,'*');}catch(e){}" +
+      "try{window.top.postMessage(data,'*');}catch(e){}" +
+    "})();" +
+    "<\/script>" +
+    "</body>";
 
   return HtmlService
     .createHtmlOutput(html)
