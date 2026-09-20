@@ -50,11 +50,9 @@ YouTube URL
   ↓
 14 字幕整理
   ↓
-15 TTS
+15 TTS / 各國音檔
   ↓
-16 音訊時間軸對齊
-  ↓
-17 完成影片
+目前階段完成
 ```
 
 ---
@@ -513,7 +511,7 @@ English Draft 完成後，不得直接進入其他語言翻譯。
 
 ---
 
-## 13. Stage 13～16｜字幕 / TTS / 影片
+## 13. Stage 14～15｜字幕 / TTS
 
 ### 字幕
 - 以各語言 final transcript 建立
@@ -538,8 +536,15 @@ English Draft 完成後，不得直接進入其他語言翻譯。
 - 若 TTS 超過原片總長：不得截斷內容，標記 needs_review / 待人工確認
 - 每段 segment WAV 仍保留，供未來精細對齊使用
 
-### 完成影片
-每語言獨立輸出。
+### 本階段終點
+目前專案先以各語言字幕與 TTS 音檔完成為終點。
+
+暫不納入：
+- 配音影片輸出
+- 逐句嘴型同步
+- 精細逐 segment 對齊
+
+上述項目保留為未來 Phase C，不影響目前翻譯與音檔流程。
 
 ---
 
@@ -580,6 +585,59 @@ error
 
 ---
 
+## 14B. 任務狀態回報與下一步解鎖
+
+網頁不得因為「按下執行」就自行把 Stage 標記完成。
+
+正式狀態必須由後端 / Kaggle 回報，建議狀態：
+
+```text
+pending       尚未送出
+queued        已送出，等待 Kaggle
+running       Kaggle 執行中
+needs_review  AI / Kaggle 已完成，但需要人工確認
+done          該 Stage 正式完成
+error         執行失敗
+stale         上游被修改，這份下游結果已失效
+```
+
+### 下一步解鎖規則
+
+- `pending / queued / running`：禁止下一步
+- `error`：只開放「重新執行」
+- `needs_review`：只開放對應人工校正頁
+- `done`：才開放下一個 Stage
+- `stale`：禁止作為下一步輸入，必須重新執行或重新人工確認
+- 人工 Stage 只有在 Final 寫入成功後才能從 `needs_review` 變成 `done`
+
+### 回報方向
+
+```text
+Studio 觸發工作
+→ GitHub Actions
+→ Kaggle
+→ Kaggle / Worker 寫入狀態
+→ Studio 定期讀取狀態
+→ 只有 done 才解鎖下一步
+```
+
+每次狀態至少包含：
+- task_id
+- stage
+- status
+- run_id
+- progress（0～100，可選）
+- message
+- started_at
+- finished_at
+- updated_at
+- error_code / error_message
+- output_revision
+
+Studio 可每 10～15 秒查詢一次執行中任務；人工頁面不需要 GPU 輪詢。
+
+---
+
 ## 15. 日誌
 
 每個 Task 要記錄：
@@ -614,8 +672,7 @@ error
 - 其他四語翻譯
 - 各語言人工確認
 - 字幕
-- TTS
-- 完成影片
+- TTS / 各國音檔
 
 ---
 
@@ -630,7 +687,6 @@ error
 6. 詞庫讀寫
 7. 五語翻譯
 8. TTS
-9. 影片輸出
 
 ### Phase B｜再做 Web
 Web 只負責：
