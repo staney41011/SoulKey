@@ -10,6 +10,10 @@ from yt_dlp.utils import DownloadError
 from google_io import get_secret
 
 
+LECTURER_ALIASES = {
+    "中和老師": "翁樞紐",
+}
+
 LECTURER_PATTERNS = [
     r"(?:講師|主講人|主講|講者|授課老師|授課者)\s*[：:｜|]\s*([^\n｜|、,，;；]{2,30})",
     r"(?:講師|主講人|主講|講者|授課老師|授課者)\s+([^\n｜|、,，;；]{2,30})",
@@ -247,6 +251,11 @@ def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
     raise RuntimeError("YouTube 取得失敗")
 
 
+def normalize_lecturer(name: str):
+    name = str(name or "").strip()
+    return LECTURER_ALIASES.get(name, name)
+
+
 def detect_lecturer(info: dict):
     title = (info.get("title") or "").strip()
     description = (info.get("description") or "").strip()
@@ -257,14 +266,14 @@ def detect_lecturer(info: dict):
     for segment in re.split(r"[｜|]", title):
         segment = segment.strip()
         if re.fullmatch(r"[\u4e00-\u9fff·]{2,12}老師", segment):
-            return segment, "title_teacher_segment"
+            return normalize_lecturer(segment), "title_teacher_segment"
 
     for pattern in LECTURER_PATTERNS:
         match = re.search(pattern, haystack, flags=re.IGNORECASE)
         if match:
             lecturer = re.sub(r"\s+", " ", match.group(1)).strip(" -–—：:")
             if lecturer:
-                return lecturer, "title_or_description"
+                return normalize_lecturer(lecturer), "title_or_description"
 
     fallback = (
         info.get("channel")
@@ -272,7 +281,7 @@ def detect_lecturer(info: dict):
         or info.get("uploader_id")
         or ""
     )
-    return str(fallback).strip(), "channel_or_uploader"
+    return normalize_lecturer(str(fallback).strip()), "channel_or_uploader"
 
 
 def extract_metadata(url: str, workdir: Path):
