@@ -14,6 +14,11 @@ ASR_MODEL = os.getenv(
     "shooding/taiwan-breeze-asr-26",
 )
 
+POLISH_MODEL = os.getenv(
+    "POLISH_MODEL",
+    "Qwen/Qwen3-4B",
+)
+
 TIMEZONE = "Asia/Taipei"
 
 # 任務佇列欄位（週次已移除）
