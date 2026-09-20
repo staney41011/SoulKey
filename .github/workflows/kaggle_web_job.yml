@@ -1,0 +1,216 @@
+name: Kaggle Web Job
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: SoulKey task id
+        required: true
+        type: string
+      stage:
+        description: metadata/asr/polish/vernacular/en/multi/tts
+        required: true
+        type: string
+      lang:
+        description: Optional single language code
+        required: false
+        default: ""
+        type: string
+      langs:
+        description: Optional comma-separated language codes
+        required: false
+        default: ""
+        type: string
+      runtime_nonce:
+        description: Short-lived SoulKey runtime nonce
+        required: true
+        type: string
+      bridge_url:
+        description: Apps Script web app URL
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-kaggle-web-worker
+  cancel-in-progress: false
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-web-worker
+
+    steps:
+      - name: Install Kaggle CLI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install kaggle
+
+      - name: Pull current Web Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="${RUNNER_TEMP}/soulkey-web-worker"
+          mkdir -p "$DIR"
+          kaggle kernels pull "$KAGGLE_KERNEL" -p "$DIR" -m
+          cat "$DIR/kernel-metadata.json"
+
+      - name: Build formal SoulKey job
+        shell: bash
+        env:
+          JOB_TASK_ID: ${{ inputs.task_id }}
+          JOB_STAGE: ${{ inputs.stage }}
+          JOB_LANG: ${{ inputs.lang }}
+          JOB_LANGS: ${{ inputs.langs }}
+          JOB_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
+          JOB_BRIDGE_URL: ${{ inputs.bridge_url }}
+        run: |
+          set -euo pipefail
+          DIR="${RUNNER_TEMP}/soulkey-web-worker"
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          d = Path(os.environ["RUNNER_TEMP"]) / "soulkey-web-worker"
+          meta_path = d / "kernel-metadata.json"
+          meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+          stage = os.environ["JOB_STAGE"].strip()
+          gpu_stages = {"asr", "polish", "vernacular", "en", "multi", "tts"}
+
+          meta["is_private"] = True
+          meta["enable_internet"] = True
+          meta["enable_gpu"] = stage in gpu_stages
+          meta["enable_tpu"] = False
+          meta["kernel_sources"] = ["cwlmrcsir/translate-system"]
+          meta["dataset_sources"] = []
+
+          meta_path.write_text(
+              json.dumps(meta, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+
+          job = {
+              "task_id": os.environ["JOB_TASK_ID"].strip(),
+              "stage": stage,
+              "lang": os.environ["JOB_LANG"].strip(),
+              "langs": os.environ["JOB_LANGS"].strip(),
+              "runtime_nonce": os.environ["JOB_RUNTIME_NONCE"].strip(),
+              "bridge_url": os.environ["JOB_BRIDGE_URL"].strip(),
+          }
+          (d / "soulkey_job.json").write_text(
+              json.dumps(job, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+
+          code_file = meta["code_file"]
+          bootstrap = r'''
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          job_path = Path("/kaggle/src/soulkey_job.json")
+          if not job_path.exists():
+              job_path = Path(__file__).with_name("soulkey_job.json")
+
+          job = json.loads(job_path.read_text(encoding="utf-8"))
+
+          repo = Path("/kaggle/working/SoulKey")
+          subprocess.run(
+              [
+                  "git", "clone", "--depth", "1",
+                  "https://github.com/staney41011/SoulKey.git",
+                  str(repo),
+              ],
+              check=True,
+          )
+
+          cmd = [
+              sys.executable,
+              str(repo / "translation-system" / "web_job_worker.py"),
+              "--task-id", job["task_id"],
+              "--stage", job["stage"],
+              "--bridge-url", job["bridge_url"],
+              "--runtime-nonce", job["runtime_nonce"],
+          ]
+          if job.get("lang"):
+              cmd += ["--lang", job["lang"]]
+          if job.get("langs"):
+              cmd += ["--langs", job["langs"]]
+
+          subprocess.run(cmd, check=True)
+          '''
+          (d / code_file).write_text(bootstrap, encoding="utf-8")
+
+          print("Formal job prepared:", job["task_id"], job["stage"])
+          print("GPU:", meta["enable_gpu"])
+          PY
+
+          cat "$DIR/kernel-metadata.json"
+
+      - name: Push Kaggle job
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="${RUNNER_TEMP}/soulkey-web-worker"
+          kaggle kernels push -p "$DIR" -t 600
+
+      - name: Wait for Kaggle job
+        id: wait_job
+        shell: bash
+        run: |
+          set -euo pipefail
+          FINAL_STATUS="UNKNOWN"
+
+          for i in $(seq 1 720); do
+            STATUS="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+            echo "$STATUS"
+
+            if echo "$STATUS" | grep -Eqi 'complete|completed'; then
+              FINAL_STATUS="COMPLETE"
+              break
+            fi
+
+            if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
+              FINAL_STATUS="ERROR"
+              break
+            fi
+
+            sleep 10
+          done
+
+          echo "final_status=$FINAL_STATUS" >> "$GITHUB_OUTPUT"
+          echo "Kaggle final status: $FINAL_STATUS"
+
+      - name: Download Kaggle log
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/soulkey-web-job-output"
+          mkdir -p "$OUT"
+          kaggle kernels output "$KAGGLE_KERNEL" -p "$OUT" -o || true
+          find "$OUT" -maxdepth 2 -type f -print || true
+          LOG="$(find "$OUT" -type f -name '*.log' | head -n 1 || true)"
+          if [ -n "$LOG" ]; then
+            echo "----- Kaggle log tail -----"
+            tail -n 180 "$LOG"
+          fi
+
+      - name: Verify Kaggle job
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.wait_job.outputs.final_status }}" != "COMPLETE" ]; then
+            echo "Kaggle job failed: ${{ steps.wait_job.outputs.final_status }}"
+            exit 1
+          fi
+          echo "SoulKey Kaggle Web Job completed."
