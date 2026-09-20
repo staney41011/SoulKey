@@ -1,5 +1,4 @@
 import argparse
-import json
 import re
 import shutil
 import sys
@@ -26,6 +25,7 @@ from google_io import (
     update_cells,
     upload_or_replace_file,
 )
+from source_io import find_drive_source, prepare_drive_audio
 from youtube_io import download_audio, extract_metadata, save_metadata_json
 
 
@@ -73,6 +73,7 @@ def resolve_lesson_folders(drive, sheets, period: int, lesson_label: str):
 
     return {
         "lesson": lesson_folder,
+        "source_video": require_child_folder(drive, lesson_folder, "00_原始影片"),
         "source": require_child_folder(drive, lesson_folder, "00_來源資訊"),
         "transcript": require_child_folder(drive, lesson_folder, "01_中文逐字稿"),
     }
@@ -115,19 +116,43 @@ def process_metadata(sheets, task, sheet_row, workdir):
 
 
 def upload_metadata(drive, source_folder_id, metadata, task, workdir):
-    payload = dict(metadata)
+    payload = dict(metadata or {})
     payload.update(
         {
             "task_id": task["task_id"],
             "period": task["period"],
             "lesson": task["lesson"],
-            "youtube_url": task["youtube_url"],
+            "youtube_url": task.get("youtube_url") or "",
             "saved_at": now_text(),
         }
     )
     path = workdir / "source_info.json"
     save_metadata_json(payload, path)
     upload_or_replace_file(drive, source_folder_id, path, "source_info.json")
+
+
+def get_audio_source(drive, task, folders, workdir):
+    drive_source = find_drive_source(drive, folders["source_video"])
+    if drive_source:
+        print(f"[SOURCE] 使用 Google Drive：{drive_source['name']}")
+        audio_path, source_meta = prepare_drive_audio(
+            drive,
+            drive_source,
+            workdir,
+        )
+        return audio_path, source_meta
+
+    youtube_url = task.get("youtube_url") or ""
+    if youtube_url:
+        print("[SOURCE] Drive 沒有原始影片，嘗試 YouTube 備援。")
+        audio_path, source_meta = download_audio(youtube_url, workdir)
+        source_meta["source_type"] = "youtube"
+        return audio_path, source_meta
+
+    raise RuntimeError(
+        "找不到來源：請把影片放進此堂課的 00_原始影片，"
+        "或在控制中心提供 YouTube URL。"
+    )
 
 
 def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
@@ -143,13 +168,18 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         sheet_row,
         asr="處理中",
         updated_at=now_text(),
-        note="下載YouTube音訊並進行ASR",
+        note="尋找 Drive 原始影片並進行 ASR",
     )
 
-    audio_path, download_meta = download_audio(task["youtube_url"], workdir)
-    if not metadata:
-        metadata = {}
-    metadata.update({"download": download_meta})
+    audio_path, source_meta = get_audio_source(
+        drive,
+        task,
+        folders,
+        workdir,
+    )
+
+    metadata = dict(metadata or {})
+    metadata["source"] = source_meta
     upload_metadata(drive, folders["source"], metadata, task, workdir)
 
     result = transcribe_audio(
@@ -180,12 +210,16 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
 
     duration = result.get("duration")
     duration_text = f"{duration:.0f}s" if isinstance(duration, (int, float)) else "未知"
+    source_type = source_meta.get("source_type", "unknown")
     update_task_row(
         sheets,
         sheet_row,
         asr="完成",
         updated_at=now_text(),
-        note=f"ASR完成；{result['segment_count']}段；音訊長度={duration_text}",
+        note=(
+            f"ASR完成；來源={source_type}；"
+            f"{result['segment_count']}段；音訊長度={duration_text}"
+        ),
     )
 
 
@@ -210,7 +244,7 @@ def main():
         "--stage",
         choices=["metadata", "asr", "all"],
         default="all",
-        help="metadata=只抓YouTube資訊；asr=metadata+逐字稿；all目前等同asr",
+        help="metadata=只抓YouTube資訊；asr/all=Drive優先逐字稿",
     )
     parser.add_argument("--period", type=int, default=None)
     parser.add_argument("--max-tasks", type=int, default=4)
@@ -219,9 +253,10 @@ def main():
     args = parser.parse_args()
 
     print("=" * 72)
-    print("打開心靈的鎖匙｜全球翻譯系統 Runner v1")
+    print("打開心靈的鎖匙｜全球翻譯系統 Runner v1.1")
     print(f"Sheet: {SPREADSHEET_ID}")
     print(f"Stage: {args.stage}")
+    print("來源策略：Google Drive 優先；YouTube 僅備援")
     print("=" * 72)
 
     drive, sheets = build_google_services()
@@ -231,7 +266,7 @@ def main():
     tasks = []
     for index, raw in enumerate(raw_rows, start=2):
         task = row_to_task(raw, index)
-        if not task["youtube_url"]:
+        if not task["task_id"] or task["period"] is None or not task["lesson"]:
             continue
         if args.period is not None and task["period"] != args.period:
             continue
@@ -255,9 +290,8 @@ def main():
             f"[TASK] {task['task_id']} / "
             f"第{task['period']}期 / {task['lesson']}"
         )
-        print(f"[URL] {task['youtube_url']}")
 
-        metadata = None
+        metadata = {}
         try:
             needs_metadata = (
                 args.force_metadata
@@ -265,29 +299,43 @@ def main():
                 or not task["lecturer"]
             )
 
-            if needs_metadata:
-                metadata = process_metadata(
-                    sheets,
-                    task,
-                    sheet_row,
-                    workdir,
-                )
-                print(f"[META] 課程：{task['title']}")
-                print(f"[META] 講師：{task['lecturer']}")
-            else:
-                print("[META] 已有課程名稱與講師，略過重新抓取。")
-
             if args.stage == "metadata":
+                if not task["youtube_url"]:
+                    print("[META] 沒有 YouTube URL，略過。")
+                elif needs_metadata:
+                    metadata = process_metadata(
+                        sheets,
+                        task,
+                        sheet_row,
+                        workdir,
+                    )
+                    print(f"[META] 課程：{task['title']}")
+                    print(f"[META] 講師：{task['lecturer']}")
+                else:
+                    print("[META] 已有課程名稱與講師。")
                 processed += 1
                 continue
+
+            if needs_metadata and task["youtube_url"]:
+                try:
+                    metadata = process_metadata(
+                        sheets,
+                        task,
+                        sheet_row,
+                        workdir,
+                    )
+                    print(f"[META] 課程：{task['title']}")
+                    print(f"[META] 講師：{task['lecturer']}")
+                except Exception as exc:
+                    print(
+                        f"[META] YouTube metadata 取得失敗，"
+                        f"但不阻擋 ASR：{type(exc).__name__}: {exc}"
+                    )
 
             if task["asr"] == "完成" and not args.force_asr:
-                print("[ASR] Sheet 已標記完成，略過。使用 --force-asr 可重跑。")
+                print("[ASR] 已完成，略過。使用 --force-asr 可重跑。")
                 processed += 1
                 continue
-
-            if metadata is None:
-                metadata = extract_metadata(task["youtube_url"], workdir)
 
             process_asr(
                 drive,
@@ -314,7 +362,7 @@ def main():
             update_task_row(
                 sheets,
                 sheet_row,
-                asr="錯誤" if args.stage != "metadata" else task["asr"],
+                asr="錯誤",
                 updated_at=now_text(),
                 note=message[:450],
             )
