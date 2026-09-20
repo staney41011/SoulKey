@@ -342,7 +342,7 @@
             <div class="system-list">
               <div><span>DM 分享頁</span><b class="ok">完全隔離／未修改</b></div>
               <div><span>Studio 前端</span><b class="ok">已建立</b></div>
-              <div><span>任務 API</span><b class="warn" id="api-state">待接安全後端</b></div>
+              <div><span>任務 API</span><b class="warn" id="api-state">待部署最新版 Apps Script</b></div>
               <div><span>Kaggle 喚醒</span><b class="ok">GitHub → Kaggle 已驗證</b></div>
               <div><span>任務狀態回報</span><b class="warn" id="status-sync-state">等待同步</b></div>
               <div><span>Firestore</span><b class="warn">待建立專案設定</b></div>
@@ -351,7 +351,7 @@
           <div class="panel">
             <p class="eyebrow">SAFETY</p><h3>敏感資料原則</h3>
             <p class="muted block-copy">YouTube Cookies、Google OAuth、Kaggle Token 永遠不寫進這個網頁，也不提交到 GitHub。前端只拿到任務狀態與必要資料。</p>
-            <div class="codebox">Browser → Secure API → GitHub Actions → Kaggle GPU<br>Kaggle Secrets → YouTube / Google Drive</div>
+            <div class="codebox">Browser → Apps Script → GitHub Actions → Kaggle GPU<br>Apps Script OAuth → Google Drive / Sheets</div>
           </div>
         </div>
 
@@ -361,20 +361,20 @@
               <p class="eyebrow">WEB EXECUTION</p>
               <h3>Kaggle Web Worker</h3>
             </div>
-            <div class="worker-build"><span class="muted">Build 20260920.19</span><span class="badge" id="web-worker-state">尚未驗證</span></div>
+            <div class="worker-build"><span class="muted">Build 20260920.20</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
           </div>
           <p class="muted block-copy">
-            正式改成「網頁按一下 → GitHub Actions → Kaggle」之前，Kaggle API push 不會保留 Notebook Secret，因此改用私人 Kaggle Dataset 做安全憑證載體測試。
+            私人 Kaggle 資料載體已通過測試。正式流程現在使用「網頁按一下 → Apps Script → GitHub Actions → Kaggle」，並由 Apps Script 提供短效 Google OAuth。
           </p>
           <div class="worker-actions">
-            <button class="ghost" id="worker-setup" type="button">① 建立 Web Worker</button>
-            <button class="primary" id="worker-secret-test" type="button">② 測試私人憑證資料集</button>
+            <button class="ghost" id="worker-setup" type="button">重新建立 Web Worker</button>
+            <button class="ghost" id="worker-secret-test" type="button">重新測試私人資料載體</button>
           </div>
           <div class="bridge-status" id="web-worker-status">
-            尚未建立 Web Worker。
+            正式 Web Job workflow 已寫入 GitHub；完成最新版 Apps Script 部署後即可從任務頁啟動。
           </div>
           <p class="muted bridge-note">
-            這兩個測試都不會執行正式 ASR、翻譯或 TTS；私人資料集測試使用無敏感測試值與 CPU，不耗 GPU 額度。
+            上面兩個按鈕保留作為診斷工具；日常使用不需要再操作。
           </p>
         </div>
 
@@ -427,6 +427,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app-20260920-19.js"></script>
+  <script src="./app-20260920-20.js"></script>
 </body>
 </html>
