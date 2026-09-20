@@ -48,8 +48,8 @@ const workflow = [
   {key:"vernacular-review", label:"人工白話文定稿", short:"白定稿", hint:"人工"},
   {key:"en", label:"英文翻譯", short:"英文", hint:"GPU"},
   {key:"en-review", label:"人工英文定稿", short:"英定稿", hint:"人工"},
-  {key:"multi", label:"四語翻譯", short:"四語", hint:"GPU"},
-  {key:"tts", label:"各國音檔", short:"音檔", hint:"目前終點"}
+  {key:"multi", label:"各國語言翻譯", short:"多語", hint:"依選擇"},
+  {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
 
 function load(key, fallback){
@@ -60,6 +60,12 @@ function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
 
 let tasks = load(STORE.tasks, []);
 let terms = load(STORE.terms, seedTerms);
+let languageSettings = [
+  {code:"th",name:"ภาษาไทย",can_ai_translate:true,can_tts:true},
+  {code:"es",name:"Español",can_ai_translate:true,can_tts:true},
+  {code:"id",name:"Bahasa Indonesia",can_ai_translate:true,can_tts:true},
+  {code:"vi",name:"Tiếng Việt",can_ai_translate:true,can_tts:true}
+];
 let selectedTaskId = null;
 let selectedPeriod = null;
 let currentView = "dashboard";
@@ -364,8 +370,143 @@ function stageState(task,index){
   return "locked";
 }
 
+
+function normalizedLanguagePlan(task){
+  const current=Array.isArray(task.languagePlan) ? task.languagePlan : [];
+  const byCode=Object.fromEntries(current.map(x=>[x.language_code || x.code,x]));
+
+  return languageSettings
+    .filter(lang=>lang.code!=="en")
+    .map(lang=>{
+      const saved=byCode[lang.code] || {};
+      return {
+        language_code:lang.code,
+        language_name:lang.name,
+        transcript_enabled:!!saved.transcript_enabled,
+        transcript_source:saved.transcript_source || "ai",
+        audio_enabled:!!saved.audio_enabled,
+        audio_source:saved.audio_source || "tts"
+      };
+    });
+}
+
+function renderLanguagePlan(task){
+  const list=document.getElementById("language-plan-list");
+  const status=document.getElementById("language-plan-status");
+  if(!list || !task) return;
+
+  const plan=normalizedLanguagePlan(task);
+
+  list.innerHTML=plan.map(item=>{
+    const lang=languageSettings.find(x=>x.code===item.language_code) || {};
+    const aiDisabled=!lang.can_ai_translate;
+    const ttsDisabled=!lang.can_tts;
+    return '<article class="language-plan-row" data-lang-plan="'+escapeHtml(item.language_code)+'">'+
+      '<div class="language-name"><b>'+escapeHtml(item.language_name)+'</b><small>'+escapeHtml(item.language_code)+'</small></div>'+
+      '<div class="language-output-cell">'+
+        '<label class="output-toggle"><input type="checkbox" data-plan-transcript '+(item.transcript_enabled?"checked":"")+'> 需要文稿</label>'+
+        '<select data-plan-transcript-source '+(!item.transcript_enabled?"disabled":"")+'>'+
+          '<option value="ai" '+(item.transcript_source==="ai"?"selected":"")+' '+(aiDisabled?"disabled":"")+'>AI 翻譯</option>'+
+          '<option value="human" '+(item.transcript_source==="human"?"selected":"")+'>真人翻譯／人工提供</option>'+
+        '</select>'+
+      '</div>'+
+      '<div class="language-output-cell">'+
+        '<label class="output-toggle"><input type="checkbox" data-plan-audio '+(item.audio_enabled?"checked":"")+'> 需要音檔</label>'+
+        '<select data-plan-audio-source '+(!item.audio_enabled?"disabled":"")+'>'+
+          '<option value="tts" '+(item.audio_source==="tts"?"selected":"")+' '+(ttsDisabled?"disabled":"")+'>AI TTS</option>'+
+          '<option value="human" '+(item.audio_source==="human"?"selected":"")+'>真人錄音</option>'+
+        '</select>'+
+      '</div>'+
+    '</article>';
+  }).join("");
+
+  if(status){
+    const selected=plan.filter(x=>x.transcript_enabled || x.audio_enabled).length;
+    status.textContent=selected
+      ? "目前已選 "+selected+" 種語言；尚未變更前可直接調整。"
+      : "尚未選擇任何目標語言；不會自動把全部語言送去 Kaggle。";
+  }
+
+  document.querySelectorAll(".language-plan-row").forEach(row=>{
+    const transcript=row.querySelector("[data-plan-transcript]");
+    const transcriptSource=row.querySelector("[data-plan-transcript-source]");
+    const audio=row.querySelector("[data-plan-audio]");
+    const audioSource=row.querySelector("[data-plan-audio-source]");
+
+    transcript?.addEventListener("change",()=>{
+      transcriptSource.disabled=!transcript.checked;
+    });
+    audio?.addEventListener("change",()=>{
+      audioSource.disabled=!audio.checked;
+      if(audio.checked && audioSource.value==="tts" && !transcript.checked){
+        transcript.checked=true;
+        transcriptSource.disabled=false;
+      }
+    });
+    audioSource?.addEventListener("change",()=>{
+      if(audio.checked && audioSource.value==="tts" && !transcript.checked){
+        transcript.checked=true;
+        transcriptSource.disabled=false;
+      }
+    });
+  });
+}
+
+function collectLanguagePlan(){
+  return [...document.querySelectorAll(".language-plan-row")].map(row=>{
+    const code=row.dataset.langPlan;
+    const lang=languageSettings.find(x=>x.code===code) || {name:code};
+    return {
+      language_code:code,
+      language_name:lang.name || code,
+      transcript_enabled:!!row.querySelector("[data-plan-transcript]")?.checked,
+      transcript_source:row.querySelector("[data-plan-transcript-source]")?.value || "ai",
+      audio_enabled:!!row.querySelector("[data-plan-audio]")?.checked,
+      audio_source:row.querySelector("[data-plan-audio-source]")?.value || "tts"
+    };
+  });
+}
+
+function saveLanguagePlanForSelectedTask(){
+  const task=tasks.find(x=>x.id===selectedTaskId);
+  if(!task) return;
+
+  const plan=collectLanguagePlan();
+  task.languagePlan=plan;
+  save(STORE.tasks,tasks);
+
+  const selected=plan.filter(x=>x.transcript_enabled || x.audio_enabled);
+  const status=document.getElementById("language-plan-status");
+
+  if(!selected.length){
+    if(status) status.textContent="已儲存：本堂課目前不需要任何其他語言輸出。";
+  }else{
+    if(status) status.textContent="已儲存 "+selected.length+" 種語言設定，正在同步控制中心…";
+  }
+
+  const sent=submitBridgePost({
+    action:"language_plan_save",
+    task_id:task.id,
+    plan_json:JSON.stringify(plan)
+  });
+
+  if(!sent && status){
+    status.textContent="已儲存在目前瀏覽器；Bridge 連線後會再同步中央控制表。";
+  }
+}
+
+function requestLanguageSettings(){
+  return submitBridgePost({action:"language_settings"});
+}
+
+function requestLanguagePlan(taskId){
+  if(!taskId) return false;
+  return submitBridgePost({action:"language_plan_get",task_id:taskId});
+}
+
 function renderTaskDetail(task){
   normalizeTask(task);
+  renderLanguagePlan(task);
   const next=nextStageFor(task);
   const nextIndex=task.completedStep+1;
 
@@ -508,6 +649,7 @@ function openTaskDetail(taskId){
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
   renderTaskDetail(task);
+  requestLanguagePlan(task.id);
   showView("task-detail");
 }
 
@@ -1155,6 +1297,38 @@ window.addEventListener("message",event=>{
     }
   }
 
+  if(data.type==="language_settings" && data.ok){
+    const received=Array.isArray(data.languages) ? data.languages : [];
+    if(received.length){
+      languageSettings=received.filter(x=>x.code!=="en");
+      const task=tasks.find(x=>x.id===selectedTaskId);
+      if(task) renderLanguagePlan(task);
+    }
+  }
+
+  if(data.type==="language_plan" && data.ok){
+    const task=tasks.find(x=>x.id===data.task_id);
+    if(task){
+      task.languagePlan=Array.isArray(data.plan) ? data.plan : [];
+      save(STORE.tasks,tasks);
+      if(selectedTaskId===task.id) renderLanguagePlan(task);
+    }
+  }
+
+  if(data.type==="language_plan_saved"){
+    const status=document.getElementById("language-plan-status");
+    if(data.ok){
+      const task=tasks.find(x=>x.id===data.task_id);
+      if(task){
+        task.languagePlan=Array.isArray(data.plan) ? data.plan : task.languagePlan;
+        save(STORE.tasks,tasks);
+      }
+      if(status) status.textContent="已同步到中央控制表。";
+    }else if(status){
+      status.textContent="語言設定同步失敗，請稍後再試。";
+    }
+  }
+
   if(data.type==="status_health"){
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
@@ -1167,11 +1341,18 @@ window.addEventListener("message",event=>{
         syncText.textContent="執行狀態表目前 "+String(data.rows||0)+" 筆紀錄";
       }
       requestTaskStatuses();
+      requestLanguageSettings();
     }else if(syncState){
       syncState.textContent="狀態表連線失敗";
       syncState.className="warn";
     }
   }
+});
+
+document.getElementById("save-language-plan")?.addEventListener("click",saveLanguagePlanForSelectedTask);
+document.getElementById("refresh-language-settings")?.addEventListener("click",()=>{
+  requestLanguageSettings();
+  if(selectedTaskId) requestLanguagePlan(selectedTaskId);
 });
 
 function initStatusPolling(){
