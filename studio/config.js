@@ -4,5 +4,5 @@ window.SOULKEY_CONFIG = {
   apiBaseUrl: "",
   bridgeEndpoint: "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec",
   mode: "prototype",
-  version: "0.1.0"
+  version: "0.1.1"
 };
