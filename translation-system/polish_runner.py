@@ -17,6 +17,7 @@ from google_io import (
 )
 from polish import polish_segments
 from runner import get_glossary_terms, resolve_lesson_folders
+from status_io import new_run_id, mark_running, mark_done, mark_error
 
 
 def now_text():
@@ -97,10 +98,28 @@ def main():
         print("-" * 72)
         print(f"[TASK] {task['task_id']} / 第{task['period']}期 / {task['lesson']}")
 
+        run_id = new_run_id(task["task_id"], "polish")
+
         if task["zh_review"] == "完成" and not args.force:
             print("[POLISH] 已完成；如要重跑請加 --force")
+            mark_done(
+                task["task_id"],
+                "polish",
+                sheets=sheets,
+                run_id=run_id,
+                message="AI 中文校稿先前已完成，本次略過",
+            )
             processed += 1
             continue
+
+        mark_running(
+            task["task_id"],
+            "polish",
+            sheets=sheets,
+            run_id=run_id,
+            message="AI 中文校稿執行中",
+            progress=0,
+        )
 
         try:
             if task["asr"] != "完成":
@@ -158,9 +177,20 @@ def main():
                     f"待確認{result['uncertain_count']}處"
                 ),
             )
+            done_message = (
+                f"AI校稿完成：修改 {result['changed_count']} 段；"
+                f"待人工確認 {result['uncertain_count']} 處"
+            )
             print(
                 f"[DONE] AI校稿完成：修改 {result['changed_count']} 段，"
                 f"待確認 {result['uncertain_count']} 處"
+            )
+            mark_done(
+                task["task_id"],
+                "polish",
+                sheets=sheets,
+                run_id=run_id,
+                message=done_message,
             )
             processed += 1
 
