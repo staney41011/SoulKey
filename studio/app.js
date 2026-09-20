@@ -53,6 +53,7 @@ function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
 let tasks = load(STORE.tasks, []);
 let terms = load(STORE.terms, seedTerms);
 let selectedTaskId = null;
+let selectedPeriod = null;
 let currentView = "dashboard";
 const viewHistory = [];
 
@@ -61,6 +62,7 @@ if(!localStorage.getItem(STORE.terms)) save(STORE.terms, terms);
 const titles = {
   dashboard:"任務總覽",
   "new-task":"建立任務",
+  "task-detail":"課程任務",
   review:"中文逐字稿校稿",
   glossary:"專有名詞庫",
   knowledge:"經典知識庫",
@@ -147,13 +149,49 @@ function taskProgressHtml(task){
   }).join("")+'</div>';
 }
 
+function availablePeriods(){
+  return [...new Set(tasks.map(t=>Number(t.period)).filter(Boolean))]
+    .sort((a,b)=>b-a);
+}
+
+function renderPeriodSelector(){
+  const select=document.getElementById("dashboard-period");
+  if(!select) return;
+
+  const periods=availablePeriods();
+  if(!periods.length){
+    select.innerHTML='<option value="">尚無期數</option>';
+    select.disabled=true;
+    selectedPeriod=null;
+    return;
+  }
+
+  select.disabled=false;
+  if(!selectedPeriod || !periods.includes(Number(selectedPeriod))){
+    selectedPeriod=periods[0];
+  }
+
+  select.innerHTML=periods.map(p=>
+    '<option value="'+p+'" '+(Number(selectedPeriod)===p?"selected":"")+'>第 '+p+' 期</option>'
+  ).join("");
+}
+
+function tasksForSelectedPeriod(){
+  if(!selectedPeriod) return [];
+  return tasks.filter(t=>Number(t.period)===Number(selectedPeriod));
+}
+
 function renderTasks(){
   const el=document.getElementById("task-list");
 
+  renderPeriodSelector();
+
   if(!tasks.length){
     el.innerHTML='<div class="empty">尚無任務。到「建立任務」輸入一期四堂課的 YouTube 網址。</div>';
+  }else if(!tasksForSelectedPeriod().length){
+    el.innerHTML='<div class="empty">這一期目前沒有課程任務。</div>';
   }else{
-    const sorted=tasks.slice().sort((a,b)=>{
+    const sorted=tasksForSelectedPeriod().slice().sort((a,b)=>{
       if(Number(b.period)!==Number(a.period)) return Number(b.period)-Number(a.period);
       return Number(String(a.lesson).replace(/\D/g,""))-Number(String(b.lesson).replace(/\D/g,""));
     });
@@ -192,7 +230,7 @@ function renderTasks(){
     document.querySelectorAll("[data-open-task]").forEach(row=>{
       row.addEventListener("click",e=>{
         if(e.target.closest("button")) return;
-        openTaskReview(row.dataset.openTask);
+        openTaskDetail(row.dataset.openTask);
       });
     });
 
@@ -213,6 +251,90 @@ function renderTasks(){
 
   document.getElementById("stat-tasks").textContent=tasks.length;
   document.getElementById("stat-terms").textContent=terms.length;
+}
+
+function stageState(task,index){
+  normalizeTask(task);
+  if(index<=task.completedStep) return "done";
+  if(index===task.completedStep+1) return "current";
+  return "locked";
+}
+
+function renderTaskDetail(task){
+  normalizeTask(task);
+  const next=nextStageFor(task);
+  const nextIndex=task.completedStep+1;
+
+  document.getElementById("detail-title").textContent=
+    "第"+task.period+"期・"+task.lesson;
+
+  document.getElementById("detail-meta").innerHTML=
+    '<b>'+escapeHtml(task.id)+'</b>'+
+    '<span>'+escapeHtml(task.status)+'</span>'+
+    '<small>'+escapeHtml(task.url)+'</small>';
+
+  document.getElementById("detail-stage-list").innerHTML=workflow.map((stage,i)=>{
+    const state=stageState(task,i);
+    const label=state==="done"?"已完成":state==="current"?"目前步驟":"尚未開放";
+    const reviewStage=stage.key==="polish" || stage.key==="review";
+    return '<button class="detail-stage '+state+'" data-detail-stage="'+i+'" '+(state==="locked"?"disabled":"")+'>'+
+      '<span class="detail-stage-number">'+String(i+1).padStart(2,"0")+'</span>'+
+      '<div><b>'+escapeHtml(stage.label)+'</b><small>'+label+'・'+escapeHtml(stage.hint)+'</small></div>'+
+      (reviewStage?'<em>中文校稿</em>':'')+
+    '</button>';
+  }).join("");
+
+  const current=next || workflow[workflow.length-1];
+  const isChineseReview = next && ["polish","review"].includes(next.key);
+  document.getElementById("detail-current-title").textContent=
+    next ? next.label : "全部流程完成";
+
+  if(!next){
+    document.getElementById("detail-current-body").innerHTML=
+      '<div class="stage-message success"><b>這堂課已全部完成</b><span>所有流程均已完成。</span></div>';
+  }else if(isChineseReview){
+    document.getElementById("detail-current-body").innerHTML=
+      '<div class="stage-message review-ready">'+
+        '<div><b>現在要進行中文校稿</b><span>進入後可查看 ASR 原文、AI 修改、待人工確認與逐段修正。</span></div>'+
+        '<button class="primary" data-open-review-inline="'+escapeHtml(task.id)+'">進入中文校稿</button>'+
+      '</div>';
+  }else{
+    document.getElementById("detail-current-body").innerHTML=
+      '<div class="stage-message">'+
+        '<div><b>下一步：'+escapeHtml(next.label)+'</b><span>'+escapeHtml(next.hint)+' 工作。確認後才會執行這堂課的下一階段。</span></div>'+
+      '</div>';
+  }
+
+  const reviewBtn=document.getElementById("detail-review-btn");
+  reviewBtn.hidden = task.completedStep < 1;
+  reviewBtn.onclick=()=>openTaskReview(task.id);
+
+  const nextBtn=document.getElementById("detail-next-btn");
+  nextBtn.disabled=!next;
+  nextBtn.textContent=next ? "執行下一步："+next.label : "已全部完成";
+  nextBtn.onclick=()=>confirmNextStage(task.id);
+
+  document.querySelectorAll("[data-open-review-inline]").forEach(btn=>{
+    btn.addEventListener("click",()=>openTaskReview(btn.dataset.openReviewInline));
+  });
+
+  document.querySelectorAll("[data-detail-stage]").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const index=Number(btn.dataset.detailStage);
+      const stage=workflow[index];
+      if(["polish","review"].includes(stage.key)){
+        openTaskReview(task.id);
+      }
+    });
+  });
+}
+
+function openTaskDetail(taskId){
+  selectedTaskId=taskId;
+  const task=tasks.find(x=>x.id===taskId);
+  if(!task) return;
+  renderTaskDetail(task);
+  showView("task-detail");
 }
 
 function openTaskReview(taskId){
@@ -270,6 +392,9 @@ function confirmNextStage(taskId){
     task.status="完成："+next.label;
     save(STORE.tasks,tasks);
     renderTasks();
+    if(currentView==="task-detail" && selectedTaskId===task.id){
+      renderTaskDetail(task);
+    }
   }
 }
 
@@ -280,6 +405,11 @@ function updateTaskCodes(){
       "P"+period+"-L"+String(i).padStart(2,"0");
   }
 }
+document.getElementById("dashboard-period")?.addEventListener("change",e=>{
+  selectedPeriod=Number(e.target.value)||null;
+  renderTasks();
+});
+
 document.getElementById("period").addEventListener("input",updateTaskCodes);
 
 document.getElementById("task-form").addEventListener("submit",async e=>{
@@ -330,6 +460,7 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
     created.push(task);
   }
 
+  selectedPeriod=period;
   save(STORE.tasks,tasks);
   renderTasks();
 
