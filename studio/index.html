@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260920-7">
+  <link rel="stylesheet" href="./styles.css?v=20260920-8">
 </head>
 <body>
   <div class="shell">
@@ -132,6 +132,7 @@
             <div id="detail-meta" class="review-task-context"></div>
           </div>
           <div class="task-detail-actions">
+            <button class="ghost rollback-button" id="detail-previous-btn">↶ 退回上一步</button>
             <button class="ghost" id="detail-review-btn">進入中文校稿</button>
             <button class="primary" id="detail-next-btn">執行下一步</button>
           </div>
@@ -193,6 +194,40 @@
         </div>
       </section>
 
+      <section class="view" id="view-vernacular-review">
+        <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
+
+        <div class="review-toolbar panel">
+          <div>
+            <p class="eyebrow">VERNACULAR REVIEW</p>
+            <h3>人工白話文定稿</h3>
+            <div class="review-task-context" id="vernacular-review-task-context">尚未選擇課程任務</div>
+            <p class="muted">左側保留中文原文，右側逐段校正 AI 白話文。確認後才允許進入英文翻譯。</p>
+          </div>
+          <div class="toolbar-actions">
+            <button class="ghost" id="load-vernacular-demo">預覽原文／白話文</button>
+            <button class="primary" id="finalize-vernacular">白話文定稿</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">SIDE BY SIDE</p>
+              <h3>原文／白話文逐段對照</h3>
+            </div>
+            <span class="muted">原文唯讀；白話文可人工修正</span>
+          </div>
+          <div class="bilingual-head vernacular-head">
+            <span>中文原文</span>
+            <span>白話文 Draft / Final</span>
+          </div>
+          <div id="vernacular-review-list" class="vernacular-review-list">
+            <div class="empty">這堂課目前尚未載入白話文資料。正式串接 Drive 後，這裡會以相同 segment id 顯示原文與 AI 白話文。</div>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-en-review">
         <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
 
@@ -201,7 +236,7 @@
             <p class="eyebrow">EN REVIEW</p>
             <h3>人工英文定稿</h3>
             <div class="review-task-context" id="en-review-task-context">尚未選擇課程任務</div>
-            <p class="muted">逐段對照中文白話底稿與英文翻譯。人工確認後，專有名詞的英文譯法會同步學習進詞庫。</p>
+            <p class="muted">逐段對照中文原文、人工定稿白話文與英文翻譯。人工確認後，專有名詞的英文譯法會同步學習進詞庫。</p>
           </div>
           <div class="toolbar-actions">
             <button class="ghost" id="load-en-demo">預覽中英對照介面</button>
@@ -213,12 +248,13 @@
           <div class="panel-head">
             <div>
               <p class="eyebrow">BILINGUAL REVIEW</p>
-              <h3>中文／英文段落對照</h3>
+              <h3>原文／白話文／英文段落對照</h3>
             </div>
-            <span class="muted">左側中文不可改；右側英文可人工修正</span>
+            <label class="inline-toggle"><input id="toggle-en-vernacular" type="checkbox" checked> 顯示白話文</label>
           </div>
-          <div class="bilingual-head">
-            <span>中文白話底稿</span>
+          <div class="trilingual-head" id="en-review-head">
+            <span>中文原文</span>
+            <span class="vernacular-column">白話文 Final</span>
             <span>English Draft / Final</span>
           </div>
           <div id="en-review-list" class="en-review-list">
@@ -340,6 +376,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app.js?v=20260920-7"></script>
+  <script src="./app.js?v=20260920-8"></script>
 </body>
 </html>
