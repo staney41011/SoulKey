@@ -36,7 +36,7 @@ const seedTerms = [
   status:"正式詞庫"
 }));
 
-const WORKFLOW_VERSION = 3;
+const WORKFLOW_VERSION = 4;
 
 const workflow = [
   {key:"metadata", label:"來源資訊", short:"來源", hint:"免 GPU"},
@@ -48,8 +48,7 @@ const workflow = [
   {key:"en", label:"英文翻譯", short:"英文", hint:"GPU"},
   {key:"en-review", label:"人工英文定稿", short:"英定稿", hint:"人工"},
   {key:"multi", label:"四語翻譯", short:"四語", hint:"GPU"},
-  {key:"tts", label:"各國音檔", short:"音檔", hint:"GPU"},
-  {key:"video", label:"完成影片", short:"影片", hint:"最後"}
+  {key:"tts", label:"各國音檔", short:"音檔", hint:"目前終點"}
 ];
 
 function load(key, fallback){
@@ -156,7 +155,12 @@ function normalizeTask(t){
     version=3;
   }
 
+  if(version < 4){
+    version=4;
+  }
+
   t.workflowVersion=version;
+  if(t.completedStep >= workflow.length) t.completedStep=workflow.length-1;
   if(!t.status) t.status="等待執行";
   return t;
 }
