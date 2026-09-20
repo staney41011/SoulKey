@@ -1,9 +1,15 @@
 import os
 import shutil
 import subprocess
+import sys
+import urllib.request
+import zipfile
 from pathlib import Path
 
 BROWSER_MARKER = Path("/kaggle/working/wpc_browser_path.txt")
+DENO_MARKER = Path("/kaggle/working/deno_path.txt")
+DENO_DIR = Path("/kaggle/working/deno-bin")
+DENO_BIN = DENO_DIR / "deno"
 
 
 def run(cmd, check=True):
@@ -35,43 +41,97 @@ def install_browser():
 
     print("找不到 Chrome/Chromium，嘗試用 apt 安裝 Chromium。")
     run(["apt-get", "update"])
-    result = run(
-        ["apt-get", "install", "-y", "chromium"],
-        check=False,
-    )
+    result = run(["apt-get", "install", "-y", "chromium"], check=False)
     if result.returncode != 0:
-        result = run(
-            ["apt-get", "install", "-y", "chromium-browser"],
-            check=False,
-        )
+        run(["apt-get", "install", "-y", "chromium-browser"], check=False)
 
     browser = find_browser()
     if not browser:
-        raise RuntimeError(
-            "Chromium 自動安裝失敗。請回傳這一格輸出，我們再切換 Chrome for Testing。"
-        )
+        raise RuntimeError("Chromium 自動安裝失敗。")
     return browser
 
 
+def install_deno():
+    if DENO_BIN.exists():
+        return str(DENO_BIN)
+
+    DENO_DIR.mkdir(parents=True, exist_ok=True)
+    archive = DENO_DIR / "deno.zip"
+    url = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
+
+    print("下載 Deno（yt-dlp 官方建議的 JS runtime）...")
+    urllib.request.urlretrieve(url, archive)
+    with zipfile.ZipFile(archive, "r") as zf:
+        zf.extractall(DENO_DIR)
+    archive.unlink(missing_ok=True)
+    DENO_BIN.chmod(0o755)
+
+    result = subprocess.run(
+        [str(DENO_BIN), "--version"],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    print(result.stdout.strip())
+    return str(DENO_BIN)
+
+
+def patch_installed_wpc():
+    import yt_dlp_plugins.extractor.getpot_wpc as wpc
+
+    path = Path(wpc.__file__)
+    text = path.read_text(encoding="utf-8")
+
+    old = """return nodriver.core.config.Config(
+            headless=False,
+            browser_executable_path=browser_executable_path,
+            browser_args=browser_args
+        )"""
+
+    new = """return nodriver.core.config.Config(
+            headless=True,
+            browser_executable_path=browser_executable_path,
+            browser_args=browser_args,
+            sandbox=False,
+        )"""
+
+    if new in text:
+        print("✅ WPC Kaggle patch 已存在")
+        return
+
+    if old not in text:
+        print("⚠️ WPC 原始碼版本不同，略過檔案 patch；youtube_io 仍有 runtime patch。")
+        return
+
+    path.write_text(text.replace(old, new), encoding="utf-8")
+    print(f"✅ WPC 已修正為 headless + no-sandbox：{path}")
+
+
 def main():
-    # bgutil 先移除，避免多個 provider 同時競爭。
     run([
-        "python", "-m", "pip", "uninstall", "-y",
+        sys.executable, "-m", "pip", "uninstall", "-y",
         "bgutil-ytdlp-pot-provider",
     ], check=False)
 
     run([
-        "python", "-m", "pip", "install", "-U",
-        "yt-dlp", "yt-dlp-getpot-wpc",
+        sys.executable, "-m", "pip", "install", "-U",
+        "yt-dlp[default]", "yt-dlp-getpot-wpc",
     ])
 
     browser = install_browser()
     BROWSER_MARKER.write_text(browser + "\n", encoding="utf-8")
 
-    print("\n✅ WPC PO Token Provider 準備完成")
+    deno = install_deno()
+    DENO_MARKER.write_text(deno + "\n", encoding="utf-8")
+
+    patch_installed_wpc()
+
+    print("\n✅ YouTube Runtime 準備完成")
     print(f"Browser: {browser}")
-    print(f"Marker: {BROWSER_MARKER}")
-    print("這個方案不需要 YouTube cookies。")
+    print("Browser mode: headless + no-sandbox")
+    print(f"Deno: {deno}")
+    print(f"Browser marker: {BROWSER_MARKER}")
+    print(f"Deno marker: {DENO_MARKER}")
 
 
 if __name__ == "__main__":
