@@ -8,6 +8,7 @@ const STORE = {
 
 const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
+const STATUS_POLL_MS = 12000;
 
 const seedTerms = [
   ["前賢","道場稱謂","前嫌、前線、淺顯、請醒"],
@@ -165,8 +166,27 @@ function normalizeTask(t){
   return t;
 }
 
+function remoteStageStatus(task, stageKey){
+  return task && task.remoteStages && task.remoteStages[stageKey]
+    ? task.remoteStages[stageKey]
+    : null;
+}
+
+function syncCompletedFromRemote(task){
+  normalizeTask(task);
+  for(let i=0;i<workflow.length;i++){
+    const remote=remoteStageStatus(task,workflow[i].key);
+    if(remote && remote.status==="done" && i===task.completedStep+1){
+      task.completedStep=i;
+    }else if(i>task.completedStep+1){
+      break;
+    }
+  }
+  return task;
+}
+
 function nextStageFor(task){
-  const t=normalizeTask(task);
+  const t=syncCompletedFromRemote(task);
   const nextIndex=t.completedStep+1;
   return nextIndex<workflow.length ? workflow[nextIndex] : null;
 }
@@ -213,6 +233,30 @@ function tasksForSelectedPeriod(){
   return tasks.filter(t=>Number(t.period)===Number(selectedPeriod));
 }
 
+function remoteStatusText(status){
+  const map={
+    pending:"等待執行",
+    queued:"Kaggle 排隊中",
+    running:"Kaggle 執行中",
+    needs_review:"待人工確認",
+    done:"完成",
+    error:"執行失敗",
+    stale:"上游已變更，需重跑"
+  };
+  return map[status] || status || "";
+}
+
+function activeRemoteStatus(task){
+  for(const stage of workflow){
+    const item=remoteStageStatus(task,stage.key);
+    if(!item) continue;
+    if(["queued","running","needs_review","error","stale"].includes(item.status)){
+      return item;
+    }
+  }
+  return null;
+}
+
 function renderTasks(){
   const el=document.getElementById("task-list");
 
@@ -232,6 +276,8 @@ function renderTasks(){
       const t=normalizeTask(raw);
       const next=nextStageFor(t);
       const complete=!next;
+      const remoteActive=activeRemoteStatus(t);
+      const nextRemote=next ? remoteStageStatus(t,next.key) : null;
       return '<article class="course-task-row" data-open-task="'+escapeHtml(t.id)+'">'+
         '<div class="course-task-main">'+
           '<div class="course-task-title">'+
@@ -247,13 +293,27 @@ function renderTasks(){
             '<span class="badge '+(complete?"complete":"")+'">'+
               (complete?"全部完成":"下一步："+escapeHtml(next.label))+
             '</span>'+
-            '<span class="muted">'+escapeHtml(t.status)+'</span>'+
+            '<span class="muted">'+escapeHtml(
+              remoteActive
+                ? remoteStatusText(remoteActive.status)+
+                  (remoteActive.progress ? " "+remoteActive.progress+"%" : "")
+                : t.status
+            )+'</span>'+
           '</div>'+
         '</div>'+
         '<div class="course-task-actions">'+
           '<button class="ghost task-review-btn" data-review-task="'+escapeHtml(t.id)+'">校正逐字稿</button>'+
-          '<button class="primary task-next-btn" data-next-task="'+escapeHtml(t.id)+'" '+(complete?"disabled":"")+'>'+
-            (complete?"已完成":"執行下一步")+
+          '<button class="primary task-next-btn" data-next-task="'+escapeHtml(t.id)+'" '+
+            (complete || (nextRemote && ["queued","running"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
+            (complete
+              ? "已完成"
+              : nextRemote && nextRemote.status==="running"
+                ? "執行中 "+(nextRemote.progress||"")+"%"
+                : nextRemote && nextRemote.status==="queued"
+                  ? "排隊中"
+                  : nextRemote && nextRemote.status==="error"
+                    ? "重新執行"
+                    : "執行下一步")+
           '</button>'+
         '</div>'+
       '</article>';
@@ -287,6 +347,18 @@ function renderTasks(){
 
 function stageState(task,index){
   normalizeTask(task);
+  const stage=workflow[index];
+  const remote=remoteStageStatus(task,stage.key);
+
+  if(remote){
+    if(remote.status==="done") return "done";
+    if(remote.status==="running") return "running";
+    if(remote.status==="queued") return "queued";
+    if(remote.status==="needs_review") return "needs-review";
+    if(remote.status==="error") return "error";
+    if(remote.status==="stale") return "stale";
+  }
+
   if(index<=task.completedStep) return "done";
   if(index===task.completedStep+1) return "current";
   return "locked";
@@ -307,7 +379,10 @@ function renderTaskDetail(task){
 
   document.getElementById("detail-stage-list").innerHTML=workflow.map((stage,i)=>{
     const state=stageState(task,i);
-    const label=state==="done"?"已完成":state==="current"?"目前步驟":"尚未開放";
+    const remote=remoteStageStatus(task,stage.key);
+    const label=remote
+      ? remoteStatusText(remote.status)+(remote.progress ? " "+remote.progress+"%" : "")
+      : state==="done"?"已完成":state==="current"?"目前步驟":"尚未開放";
     const reviewStage=["polish","review","vernacular-review","en-review"].includes(stage.key);
     return '<button class="detail-stage '+state+'" data-detail-stage="'+i+'" '+(state==="locked"?"disabled":"")+'>'+
       '<span class="detail-stage-number">'+String(i+1).padStart(2,"0")+'</span>'+
@@ -360,7 +435,8 @@ function renderTaskDetail(task){
   reviewBtn.onclick=()=>openTaskReview(task.id);
 
   const nextBtn=document.getElementById("detail-next-btn");
-  nextBtn.disabled=!next;
+  const nextRemote=next ? remoteStageStatus(task,next.key) : null;
+  nextBtn.disabled=!next || !!(nextRemote && ["queued","running"].includes(nextRemote.status));
   const humanReviewNext=next && ["vernacular-review","en-review"].includes(next.key);
   nextBtn.textContent=next ? (humanReviewNext ? "進入："+next.label : "執行下一步："+next.label) : "已全部完成";
   nextBtn.onclick=()=>{
@@ -978,6 +1054,137 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   openTaskDetail(task.id);
 });
 
+function submitBridgePost(fields){
+  const endpoint=
+    document.getElementById("bridge-endpoint")?.value.trim() ||
+    localStorage.getItem(BRIDGE_ENDPOINT_KEY) ||
+    cfg.bridgeEndpoint ||
+    "";
+  const key=
+    document.getElementById("bridge-key")?.value.trim() ||
+    sessionStorage.getItem(BRIDGE_SESSION_KEY) ||
+    "";
+
+  if(!endpoint || !key) return false;
+
+  const form=document.createElement("form");
+  form.method="POST";
+  form.action=endpoint;
+  form.target="soulkey-bridge-target";
+  form.style.display="none";
+
+  const payload={...fields,bridge_key:key};
+  for(const [name,value] of Object.entries(payload)){
+    const input=document.createElement("input");
+    input.type="hidden";
+    input.name=name;
+    input.value=String(value ?? "");
+    form.appendChild(input);
+  }
+
+  document.body.appendChild(form);
+  form.submit();
+  window.setTimeout(()=>form.remove(),2000);
+  return true;
+}
+
+function applyRemoteStatuses(payload){
+  const remoteTasks=payload && payload.tasks ? payload.tasks : {};
+  let changed=false;
+
+  for(const task of tasks){
+    const remote=remoteTasks[task.id];
+    if(!remote || !remote.stages) continue;
+    task.remoteStages=remote.stages;
+    task.remoteUpdatedAt=payload.server_time || new Date().toISOString();
+    syncCompletedFromRemote(task);
+    changed=true;
+  }
+
+  if(changed){
+    save(STORE.tasks,tasks);
+    renderTasks();
+    if(currentView==="task-detail" && selectedTaskId){
+      const task=tasks.find(x=>x.id===selectedTaskId);
+      if(task) renderTaskDetail(task);
+    }
+  }
+
+  const syncState=document.getElementById("status-sync-state");
+  if(syncState){
+    syncState.textContent="已同步";
+    syncState.className="ok";
+  }
+  const syncText=document.getElementById("status-sync-text");
+  if(syncText){
+    syncText.textContent="最後同步："+new Date().toLocaleTimeString();
+  }
+}
+
+function requestTaskStatuses(){
+  const key=sessionStorage.getItem(BRIDGE_SESSION_KEY) || "";
+  const endpoint=localStorage.getItem(BRIDGE_ENDPOINT_KEY) || cfg.bridgeEndpoint || "";
+  if(!key || !endpoint || !tasks.length) return false;
+
+  const ids=tasks.map(t=>t.id).filter(Boolean).slice(0,20);
+  if(!ids.length) return false;
+
+  return submitBridgePost({
+    action:"status_batch",
+    task_ids:ids.join(",")
+  });
+}
+
+function requestStatusHealth(){
+  return submitBridgePost({action:"status_health"});
+}
+
+window.addEventListener("message",event=>{
+  const data=event.data || {};
+  if(data.source!=="soulkey-bridge") return;
+
+  if(data.type==="status_result"){
+    if(data.ok){
+      applyRemoteStatuses(data);
+    }else{
+      const syncState=document.getElementById("status-sync-state");
+      if(syncState){
+        syncState.textContent="同步失敗";
+        syncState.className="warn";
+      }
+    }
+  }
+
+  if(data.type==="status_health"){
+    const syncState=document.getElementById("status-sync-state");
+    const syncText=document.getElementById("status-sync-text");
+    if(data.ok){
+      if(syncState){
+        syncState.textContent="狀態表已連線";
+        syncState.className="ok";
+      }
+      if(syncText){
+        syncText.textContent="執行狀態表目前 "+String(data.rows||0)+" 筆紀錄";
+      }
+      requestTaskStatuses();
+    }else if(syncState){
+      syncState.textContent="狀態表連線失敗";
+      syncState.className="warn";
+    }
+  }
+});
+
+function initStatusPolling(){
+  window.setTimeout(()=>{
+    requestStatusHealth();
+    requestTaskStatuses();
+  },1200);
+
+  window.setInterval(()=>{
+    requestTaskStatuses();
+  },STATUS_POLL_MS);
+}
+
 function setBridgeStatus(message, state="idle"){
   const status=document.getElementById("bridge-status");
   const badge=document.getElementById("bridge-state");
@@ -1029,6 +1236,7 @@ function initBridgePanel(){
     const value=keyInput.value.trim();
     if(value){
       sessionStorage.setItem(BRIDGE_SESSION_KEY,value);
+      window.setTimeout(()=>requestStatusHealth(),250);
     }else{
       sessionStorage.removeItem(BRIDGE_SESSION_KEY);
     }
@@ -1052,37 +1260,17 @@ function initBridgePanel(){
     localStorage.setItem(BRIDGE_ENDPOINT_KEY,endpoint);
     sessionStorage.setItem(BRIDGE_SESSION_KEY,key);
 
-    const form=document.createElement("form");
-    form.method="POST";
-    form.action=endpoint;
-    form.target="soulkey-bridge-target";
-    form.style.display="none";
-
-    const fields={
-      action:"smoke",
-      bridge_key:key
-    };
-
-    for(const [name,value] of Object.entries(fields)){
-      const input=document.createElement("input");
-      input.type="hidden";
-      input.name=name;
-      input.value=value;
-      form.appendChild(input);
-    }
-
-    document.body.appendChild(form);
     testButton.disabled=true;
     setBridgeStatus("正在送出網頁 → GitHub → Kaggle 測試…","sending");
-    form.submit();
+    submitBridgePost({action:"smoke"});
 
     window.setTimeout(()=>{
-      form.remove();
       testButton.disabled=false;
       setBridgeStatus(
         "測試已送出。現在到 GitHub Actions 查看是否自動出現新的「Kaggle Run Bridge Test」。",
         "sent"
       );
+      requestStatusHealth();
     },1500);
   });
 }
@@ -1107,4 +1295,5 @@ renderTasks();
 renderTerms();
 updateBackButton();
 initBridgePanel();
+initStatusPolling();
 pingBackend();
