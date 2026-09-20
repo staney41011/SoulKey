@@ -82,7 +82,7 @@ jobs:
           meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
           stage = os.environ["JOB_STAGE"].strip()
-          gpu_stages = {"zh", "asr", "polish", "vernacular", "en", "multi", "tts"}
+          gpu_stages = {"zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts"}
 
           meta["is_private"] = True
           meta["enable_internet"] = True
