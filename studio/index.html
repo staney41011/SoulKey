@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260920-10">
+  <link rel="stylesheet" href="./styles.css?v=20260920-11">
 </head>
 <body>
   <div class="shell">
@@ -116,7 +116,7 @@
               <div><b>ASR</b><span>需要 GPU → 喚起 Kaggle → 完成即離線</span></div>
               <div><b>人工中文校稿</b><span>網頁直接編輯 → 不使用 GPU</span></div>
               <div><b>AI 複核</b><span>需要時再啟動 Kaggle</span></div>
-              <div><b>五語翻譯</b><span>中文定稿後才可執行</span></div>
+              <div><b>各國語言翻譯</b><span>中文定稿後才可執行</span></div>
               <div><b>TTS 音檔</b><span>目前流程先完成多語音檔；影片輸出留待後續階段</span></div>
             </div>
           </div>
@@ -151,6 +151,29 @@
             <div><p class="eyebrow">CURRENT STAGE</p><h3 id="detail-current-title">目前步驟</h3></div>
           </div>
           <div id="detail-current-body" class="detail-current-body"></div>
+        </div>
+
+        <div class="panel" id="detail-language-plan">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">LANGUAGE OUTPUTS</p>
+              <h3>各國語言輸出設定</h3>
+            </div>
+            <button class="ghost" id="refresh-language-settings" type="button">更新語言清單</button>
+          </div>
+          <p class="muted block-copy">
+            每堂課可獨立決定哪些語言需要翻譯文稿、哪些需要音檔。若已有真人翻譯或真人錄音，就不啟動對應 AI 工作。
+          </p>
+          <div class="language-plan-head">
+            <span>語言</span><span>翻譯文稿</span><span>音檔</span>
+          </div>
+          <div id="language-plan-list" class="language-plan-list">
+            <div class="empty">正在等待語言設定。</div>
+          </div>
+          <div class="language-plan-footer">
+            <span class="muted" id="language-plan-status">尚未儲存本堂課的語言輸出設定。</span>
+            <button class="primary" id="save-language-plan" type="button">儲存語言設定</button>
+          </div>
         </div>
       </section>
 
@@ -380,6 +403,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app.js?v=20260920-10"></script>
+  <script src="./app.js?v=20260920-11"></script>
 </body>
 </html>
