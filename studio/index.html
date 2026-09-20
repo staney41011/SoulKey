@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260920-5">
+  <link rel="stylesheet" href="./styles.css?v=20260920-7">
 </head>
 <body>
   <div class="shell">
@@ -193,6 +193,53 @@
         </div>
       </section>
 
+      <section class="view" id="view-en-review">
+        <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
+
+        <div class="review-toolbar panel">
+          <div>
+            <p class="eyebrow">EN REVIEW</p>
+            <h3>人工英文定稿</h3>
+            <div class="review-task-context" id="en-review-task-context">尚未選擇課程任務</div>
+            <p class="muted">逐段對照中文白話底稿與英文翻譯。人工確認後，專有名詞的英文譯法會同步學習進詞庫。</p>
+          </div>
+          <div class="toolbar-actions">
+            <button class="ghost" id="load-en-demo">預覽中英對照介面</button>
+            <button class="primary" id="finalize-en">英文定稿</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">BILINGUAL REVIEW</p>
+              <h3>中文／英文段落對照</h3>
+            </div>
+            <span class="muted">左側中文不可改；右側英文可人工修正</span>
+          </div>
+          <div class="bilingual-head">
+            <span>中文白話底稿</span>
+            <span>English Draft / Final</span>
+          </div>
+          <div id="en-review-list" class="en-review-list">
+            <div class="empty">這堂課目前尚未載入英文翻譯。正式串接 Drive 後，這裡會直接顯示相同 segment id 的中英段落。</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">TERM LEARNING</p>
+              <h3>專有名詞翻譯學習</h3>
+            </div>
+            <span class="muted">只有人工確認過的譯法才會升級為正式英文詞彙</span>
+          </div>
+          <div id="en-term-learning" class="term-learning-grid">
+            <div class="empty">載入英文段落後，系統會列出偵測到的專有名詞與目前英文譯法。</div>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-glossary">
         <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
         <div class="panel">
@@ -204,7 +251,7 @@
           <div class="term-search"><input id="term-search" placeholder="搜尋詞彙、別名、類別…"></div>
           <div class="term-table-wrap">
             <table>
-              <thead><tr><th>標準詞</th><th>類別</th><th>常見誤辨／別名</th><th>狀態</th><th></th></tr></thead>
+              <thead><tr><th>標準詞</th><th>類別</th><th>English</th><th>常見誤辨／別名</th><th>狀態</th><th></th></tr></thead>
               <tbody id="term-body"></tbody>
             </table>
           </div>
@@ -285,6 +332,7 @@
       <div class="dialog-head"><h3>新增專有名詞</h3><button value="cancel" class="icon-btn">×</button></div>
       <label>標準詞<input id="term-name" required placeholder="例如：前賢"></label>
       <label>類別<select id="term-category"><option>宗教術語</option><option>仙佛／聖賢</option><option>道場稱謂</option><option>佛規禮節</option><option>經典／訓文</option><option>台語俗諺</option><option>歷史典故</option><option>其他</option></select></label>
+      <label>English<input id="term-en" placeholder="人工確認後的英文譯法"></label>
       <label>常見誤辨／別名<input id="term-aliases" placeholder="以逗號分隔"></label>
       <label>說明<textarea id="term-description" rows="3" placeholder="語境、出處或判斷方式"></textarea></label>
       <div class="dialog-actions"><button value="cancel" class="ghost">取消</button><button id="save-term" value="default" class="primary">儲存</button></div>
@@ -292,6 +340,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app.js?v=20260920-6"></script>
+  <script src="./app.js?v=20260920-7"></script>
 </body>
 </html>
