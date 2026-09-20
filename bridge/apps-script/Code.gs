@@ -8,7 +8,13 @@ const STATUS_SHEET_NAME = "執行狀態";
 const LANGUAGE_SHEET_NAME = "語言設定";
 const LANGUAGE_PLAN_SHEET_NAME = "語言任務設定";
 
-function doGet() {
+function doGet(e) {
+  const view = String((e && e.parameter && e.parameter.view) || "").trim();
+
+  if (view === "client") {
+    return bridgeClientHtml_();
+  }
+
   return json_({
     ok: true,
     service: "SoulKey Studio Bridge",
@@ -175,6 +181,216 @@ function doPost(e) {
       }
     );
   }
+}
+
+function bridgeRequest_(request) {
+  try {
+    request = request || {};
+    const props = PropertiesService.getScriptProperties();
+    const expectedKey = String(props.getProperty("BRIDGE_KEY") || "").trim();
+    const bridgeKey = String(request.bridge_key || "").trim();
+    const action = String(request.action || "").trim();
+
+    if (!expectedKey) {
+      return {
+        source: "soulkey-bridge",
+        type: action === "status_health" ? "status_health" : "status_result",
+        ok: false,
+        error: "server_not_configured",
+        message: "BRIDGE_KEY 尚未設定"
+      };
+    }
+
+    if (!bridgeKey || bridgeKey !== expectedKey) {
+      return {
+        source: "soulkey-bridge",
+        type: action === "status_health" ? "status_health" : "status_result",
+        ok: false,
+        error: "unauthorized",
+        message: "Bridge Key 不正確"
+      };
+    }
+
+    if (action === "status_health") {
+      const sheet = getStatusSheet_();
+      return {
+        source: "soulkey-bridge",
+        type: "status_health",
+        ok: true,
+        sheet: STATUS_SHEET_NAME,
+        rows: Math.max(0, sheet.getLastRow() - 1),
+        server_time: new Date().toISOString()
+      };
+    }
+
+    if (action === "status" || action === "status_batch") {
+      const raw = String(request.task_ids || request.task_id || "").trim();
+      const taskIds = raw
+        .split(",")
+        .map(function(x) { return x.trim(); })
+        .filter(function(x) { return x; })
+        .slice(0, 20);
+
+      if (!taskIds.length) {
+        return {
+          source: "soulkey-bridge",
+          type: "status_result",
+          ok: false,
+          error: "missing_task_id",
+          message: "缺少 task_id"
+        };
+      }
+
+      return {
+        source: "soulkey-bridge",
+        type: "status_result",
+        ok: true,
+        tasks: readLatestStatuses_(taskIds),
+        server_time: new Date().toISOString()
+      };
+    }
+
+    if (action === "language_settings") {
+      return {
+        source: "soulkey-bridge",
+        type: "language_settings",
+        ok: true,
+        languages: readLanguageSettings_(),
+        server_time: new Date().toISOString()
+      };
+    }
+
+    if (action === "language_plan_get") {
+      const taskId = String(request.task_id || "").trim();
+      if (!taskId) {
+        return {
+          source: "soulkey-bridge",
+          type: "language_plan",
+          ok: false,
+          error: "missing_task_id"
+        };
+      }
+
+      return {
+        source: "soulkey-bridge",
+        type: "language_plan",
+        ok: true,
+        task_id: taskId,
+        plan: readLanguagePlan_(taskId),
+        server_time: new Date().toISOString()
+      };
+    }
+
+    if (action === "language_plan_save") {
+      const taskId = String(request.task_id || "").trim();
+      const planJson = String(request.plan_json || "").trim();
+
+      if (!taskId || !planJson) {
+        return {
+          source: "soulkey-bridge",
+          type: "language_plan_saved",
+          ok: false,
+          error: "missing_plan"
+        };
+      }
+
+      let plan = [];
+      try {
+        plan = JSON.parse(planJson);
+      } catch (err) {
+        return {
+          source: "soulkey-bridge",
+          type: "language_plan_saved",
+          ok: false,
+          error: "invalid_plan_json"
+        };
+      }
+
+      saveLanguagePlan_(taskId, plan);
+
+      return {
+        source: "soulkey-bridge",
+        type: "language_plan_saved",
+        ok: true,
+        task_id: taskId,
+        plan: readLanguagePlan_(taskId),
+        server_time: new Date().toISOString()
+      };
+    }
+
+    return {
+      source: "soulkey-bridge",
+      type: "bridge_error",
+      ok: false,
+      error: "unsupported_action",
+      message: "不支援的 action: " + action
+    };
+
+  } catch (err) {
+    return {
+      source: "soulkey-bridge",
+      type: "bridge_error",
+      ok: false,
+      error: "bridge_exception",
+      message: String(err && err.message ? err.message : err)
+    };
+  }
+}
+
+function bridgeClientHtml_() {
+  const html = `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SoulKey Bridge Client</title>
+</head>
+<body>
+<script>
+(function(){
+  function send(payload){
+    try {
+      window.parent.postMessage(payload, "*");
+    } catch (e) {}
+  }
+
+  send({
+    source: "soulkey-bridge-client",
+    type: "ready"
+  });
+
+  window.addEventListener("message", function(event){
+    var data = event.data || {};
+    if (data.source !== "soulkey-studio" || data.type !== "bridge_request") return;
+
+    google.script.run
+      .withSuccessHandler(function(result){
+        send(result || {
+          source: "soulkey-bridge",
+          type: "bridge_error",
+          ok: false,
+          error: "empty_response"
+        });
+      })
+      .withFailureHandler(function(err){
+        send({
+          source: "soulkey-bridge",
+          type: "bridge_error",
+          ok: false,
+          error: "script_run_failed",
+          message: String(err && err.message ? err.message : err)
+        });
+      })
+      .bridgeRequest_(data.request || {});
+  });
+})();
+</script>
+</body>
+</html>`;
+
+  return HtmlService
+    .createHtmlOutput(html)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 function dispatchSmoke_(githubToken) {
