@@ -34,6 +34,18 @@ COMMON_ASR_FIXES = {
     "天師德": "天恩師德",
     "尚方慈悲": "上方慈悲",
     "先佛慈悲": "仙佛慈悲",
+    "歌全選": "各位前賢",
+    "歌藝全學": "各位前賢",
+    "隔一圈以前": "各位前賢",
+    "擺煉成鋼": "百鍊成鋼",
+    "萬事具備，只見東": "萬事俱備，只欠東風",
+    "萬事具備，只見東風": "萬事俱備，只欠東風",
+    "關法律子": "關法律主",
+    "修道半道": "修道辦道",
+    "經現傳承": "金線傳承",
+    "死氣層層": "死氣沉沉",
+    "胡園補缺": "扶圓補缺",
+    "少一點賢氣": "少一點嫌棄",
 }
 
 SYSTEM_PROMPT = """你是「打開心靈的鎖匙」課程的繁體中文逐字稿校稿員。
@@ -43,10 +55,13 @@ SYSTEM_PROMPT = """你是「打開心靈的鎖匙」課程的繁體中文逐字�
 1. 只校正辨識錯字、同音誤字、標點、斷句與明顯語病，不新增講者沒有說過的觀點。
 2. 保留講者原本口語語氣與意思，不把逐字稿改寫成文章。
 3. 優先使用提供的「道場專有名詞」。
-4. 對上下文高度確定的常識性誤辨可以修正，例如「學護五車→學富五車」「竹繭→竹簡」「商國→三國」。
-5. 台語、俗諺、人名、佛規禮節或道場用語若無法高度確定，寧可保留原文，並放進 uncertain，不可自行編造。
-6. 每個 segment 必須保留相同 id，不可合併、刪除或新增 segment。
-7. 輸出必須是 JSON，不要加 Markdown、說明或思考過程。
+4. 對上下文高度確定的常識性誤辨必須主動修正，不要因為「保守」而留下明顯錯字。例如「學護五車→學富五車」「竹繭→竹簡」「商國→三國」「擺煉成鋼→百鍊成鋼」「萬事具備，只見東→萬事俱備，只欠東風」。
+5. 道場稱謂與固定用語要優先判斷，例如「關法律主」「金線傳承」「扶圓補缺」「前賢」「白陽期」。
+6. 將 ASR 造成的大量驚嘆號改成自然的繁體中文標點與清楚斷句；仍保留口語感，但要讓一般讀者能順暢閱讀。
+7. 如果一個詞句在語意、成語、歷史典故或上下文上明顯不成立，必須再次檢查；能高度確定就修正，不能確定就保留並放進 uncertain。uncertain 要偏向多抓，不要漏掉可疑詞。
+8. 台語俗諺、人名、佛規禮節或特殊道場用語若無法高度確定，不可自行編造。
+9. 每個 segment 必須保留相同 id，不可合併、刪除或新增 segment。
+10. 輸出必須是 JSON，不要加 Markdown、說明或思考過程。
 
 輸出格式：
 {"segments":[{"id":0,"text":"校正後文字","uncertain":["不確定詞句"]}]}
@@ -110,12 +125,15 @@ def _load_model(model_name: str):
     _TOKENIZER = AutoTokenizer.from_pretrained(source, trust_remote_code=True)
     _MODEL = AutoModelForCausalLM.from_pretrained(
         source,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map="auto",
         low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
     _MODEL.eval()
+    for name in ("temperature", "top_p", "top_k"):
+        if hasattr(_MODEL.generation_config, name):
+            setattr(_MODEL.generation_config, name, None)
     _MODEL_KEY = key
     return _TOKENIZER, _MODEL
 
@@ -216,7 +234,7 @@ def polish_segments(
     output_dir: Path,
     model_name: str,
     glossary_terms=None,
-    chunk_size=5,
+    chunk_size=8,
 ):
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = json.loads(Path(segments_json_path).read_text(encoding="utf-8"))
@@ -249,12 +267,19 @@ def polish_segments(
         before = ""
         after = ""
         if chunk_start > 0:
-            before = _deterministic_fix(
-                str(raw_segments[chunk_start - 1].get("text") or "").strip()
+            before_items = raw_segments[max(0, chunk_start - 2):chunk_start]
+            before = "\n".join(
+                _deterministic_fix(str(x.get("text") or "").strip())
+                for x in before_items
             )
         if chunk_start + chunk_size < len(raw_segments):
-            after = _deterministic_fix(
-                str(raw_segments[chunk_start + chunk_size].get("text") or "").strip()
+            after_items = raw_segments[
+                chunk_start + chunk_size:
+                min(len(raw_segments), chunk_start + chunk_size + 2)
+            ]
+            after = "\n".join(
+                _deterministic_fix(str(x.get("text") or "").strip())
+                for x in after_items
             )
 
         user_prompt = f"""道場專有名詞：
@@ -324,6 +349,126 @@ def polish_segments(
                     "start": result_seg["start"],
                     "phrase": phrase,
                 })
+
+    # 第二輪：用第一輪結果搭配原始 ASR 再做一次「校對者」審稿。
+    # 目的不是改寫內容，而是抓出第一輪仍留下的成語、典故、道場稱謂與怪句。
+    REVIEW_PROMPT = """你是第二輪逐字稿審稿員。
+請比較 raw（原始 ASR）與 current（第一輪校稿），找出 current 仍殘留的明顯辨識錯誤。
+
+規則：
+1. 不改變講者原意，不自行增加內容。
+2. 必須修正高度確定的成語、典故、歷史人物與道場固定稱謂。
+3. 特別注意：百鍊成鋼、萬事俱備只欠東風、關法律主、金線傳承、扶圓補缺、前賢、白陽期等。
+4. current 若仍有語意不通、像隨機同音字拼出的詞，必須檢查；能確定就修，不能確定就放 uncertain。
+5. 標點改為自然繁體中文，不要滿篇驚嘆號。
+6. 每個 id 必須保留，不得增刪 segment。
+7. 只輸出 JSON：
+{"segments":[{"id":0,"text":"最終校正版","uncertain":["仍待人工確認"]}]}
+"""
+
+    second_pass = []
+    second_uncertain = []
+
+    for chunk_start in range(0, len(polished), chunk_size):
+        target = polished[chunk_start:chunk_start + chunk_size]
+        review_items = []
+        for offset, seg in enumerate(target):
+            idx = chunk_start + offset
+            review_items.append({
+                "id": idx,
+                "raw": str(raw_segments[idx].get("text") or "").strip(),
+                "current": seg["text"],
+            })
+
+        before = "\n".join(
+            x["text"] for x in polished[max(0, chunk_start - 2):chunk_start]
+        )
+        after = "\n".join(
+            x["text"]
+            for x in polished[
+                chunk_start + chunk_size:
+                min(len(polished), chunk_start + chunk_size + 2)
+            ]
+        )
+
+        review_user = f"""道場專有名詞：
+{glossary_text}
+
+前文：
+{before}
+
+要審稿的內容：
+{json.dumps(review_items, ensure_ascii=False)}
+
+後文：
+{after}
+
+請做第二輪審稿並回傳 JSON。"""
+
+        print(
+            f"[POLISH-2] 複核 segments "
+            f"{chunk_start + 1}-{min(chunk_start + chunk_size, len(polished))}"
+            f"/{len(polished)}"
+        )
+
+        response = _generate_json(
+            tokenizer,
+            model,
+            [
+                {"role": "system", "content": REVIEW_PROMPT},
+                {"role": "user", "content": review_user},
+            ],
+        )
+        parsed = _extract_json_object(response)
+        returned = parsed.get("segments") or []
+        by_id = {
+            int(item["id"]): item
+            for item in returned
+            if isinstance(item, dict) and "id" in item
+        }
+
+        for offset, seg in enumerate(target):
+            idx = chunk_start + offset
+            item = by_id.get(idx, {})
+            text = str(item.get("text") or seg["text"]).strip()
+            uncertain = item.get("uncertain") or []
+            if isinstance(uncertain, str):
+                uncertain = [uncertain]
+            uncertain = [str(x).strip() for x in uncertain if str(x).strip()]
+
+            second_pass.append({
+                "start": seg["start"],
+                "end": seg["end"],
+                "text": text,
+            })
+            for phrase in uncertain:
+                second_uncertain.append({
+                    "id": idx,
+                    "start": seg["start"],
+                    "phrase": phrase,
+                })
+
+    polished = second_pass
+
+    # 重新依「最終結果」產生修改報告，並合併兩輪 uncertain。
+    review_changes = []
+    for idx, final_seg in enumerate(polished):
+        raw_text = str(raw_segments[idx].get("text") or "").strip()
+        if final_seg["text"] != raw_text:
+            review_changes.append({
+                "id": idx,
+                "start": final_seg["start"],
+                "end": final_seg["end"],
+                "raw": raw_text,
+                "polished": final_seg["text"],
+            })
+
+    merged_uncertain = {}
+    for item in all_uncertain + second_uncertain:
+        key = (int(item["id"]), str(item["phrase"]).strip())
+        if key[1]:
+            merged_uncertain[key] = item
+    all_uncertain = list(merged_uncertain.values())
 
     txt_path = output_dir / "zh-TW.polished.txt"
     srt_path = output_dir / "zh-TW.polished.srt"
