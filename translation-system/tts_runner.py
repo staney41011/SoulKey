@@ -94,15 +94,30 @@ def main():
     parser.add_argument("--task-id", default=None)
     parser.add_argument("--period", type=int, default=None)
     parser.add_argument("--lang", choices=list(LANGUAGE_NAMES), default=None)
+    parser.add_argument(
+        "--langs",
+        default=None,
+        help="逗號分隔多語言，例如 en,es；只處理指定語言",
+    )
     parser.add_argument("--all-langs", action="store_true")
     parser.add_argument("--max-tasks", type=int, default=1)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
-    if not args.lang and not args.all_langs:
-        parser.error("請指定 --lang en/th/es/id/vi 或 --all-langs")
+    if sum(bool(x) for x in [args.lang, args.langs, args.all_langs]) != 1:
+        parser.error("請擇一指定 --lang、--langs en,es 或 --all-langs")
 
-    langs = list(LANGUAGE_NAMES) if args.all_langs else [args.lang]
+    if args.all_langs:
+        langs = list(LANGUAGE_NAMES)
+    elif args.langs:
+        langs = [x.strip() for x in args.langs.split(",") if x.strip()]
+        invalid = [x for x in langs if x not in LANGUAGE_NAMES]
+        if invalid:
+            parser.error("不支援的語言代碼：" + ",".join(invalid))
+        # 去重但保留順序
+        langs = list(dict.fromkeys(langs))
+    else:
+        langs = [args.lang]
 
     print("=" * 72)
     print("打開心靈的鎖匙｜多語 TTS")
@@ -136,14 +151,14 @@ def main():
         print("-" * 72)
         print(f"[TASK] {task['task_id']} / 第{task['period']}期 / {task['lesson']}")
 
-        status_stage = "tts" if args.all_langs else f"tts:{args.lang}"
+        status_stage = "tts"
         run_id = new_run_id(task["task_id"], status_stage)
         mark_running(
             task["task_id"],
             status_stage,
             sheets=sheets,
             run_id=run_id,
-            message="多語音檔生成中",
+            message="音檔生成中：" + ",".join(langs),
             progress=0,
         )
 
@@ -167,6 +182,17 @@ def main():
             completed = []
             over_duration = []
             for lang in langs:
+                lang_stage = f"tts:{lang}"
+                lang_run_id = new_run_id(task["task_id"], lang_stage)
+                mark_running(
+                    task["task_id"],
+                    lang_stage,
+                    sheets=sheets,
+                    run_id=lang_run_id,
+                    message=f"{LANGUAGE_NAMES[lang]} 音檔生成中",
+                    progress=0,
+                )
+
                 translation_status = task.get(lang, "")
                 if translation_status not in {"完成", "待人工確認"}:
                     raise RuntimeError(
@@ -198,15 +224,39 @@ def main():
                         "lang": lang,
                         "over": result["over_by_seconds"],
                     })
+                    lang_note = (
+                        f"{LANGUAGE_NAMES[lang]} 音檔已產生；"
+                        f"自然朗讀超過原片 {result['over_by_seconds']:.1f}s；"
+                        "未調速、未截斷"
+                    )
                     print(
                         f"[WARN] {lang}: 自然朗讀超過原片 "
                         f"{result['over_by_seconds']:.1f}s；未調速、未截斷。"
                     )
+                    mark_needs_review(
+                        task["task_id"],
+                        lang_stage,
+                        sheets=sheets,
+                        run_id=lang_run_id,
+                        message=lang_note,
+                    )
                 else:
+                    lang_note = (
+                        f"{LANGUAGE_NAMES[lang]} 音檔完成；"
+                        f"speech={result['speech_duration']:.1f}s；"
+                        f"target={result['target_duration']:.1f}s"
+                    )
                     print(
                         f"[DONE] {lang}: speech={result['speech_duration']:.1f}s / "
                         f"target={result['target_duration']:.1f}s / "
                         f"尾端靜音={result['remaining_silence']:.1f}s"
+                    )
+                    mark_done(
+                        task["task_id"],
+                        lang_stage,
+                        sheets=sheets,
+                        run_id=lang_run_id,
+                        message=lang_note,
                     )
 
             if over_duration:
@@ -220,11 +270,11 @@ def main():
                     f"超過原片總長：{over_text}；"
                     "未調速、未截斷，請先處理超時語言"
                 )
-            elif args.all_langs and len(completed) == len(LANGUAGE_NAMES):
+            elif len(completed) == len(langs):
                 status = "完成"
                 note = (
                     f"TTS完成：{','.join(completed)}；"
-                    "所有語言皆在原片總長內結束；較短音檔只在尾端補靜音"
+                    "本次指定語言皆在原片總長內結束；較短音檔只在尾端補靜音"
                 )
             else:
                 status = "部分完成：" + ",".join(completed)
@@ -240,25 +290,16 @@ def main():
                 note,
             )
 
-            if status_stage == "tts":
-                if status == "完成":
-                    mark_done(
-                        task["task_id"],
-                        status_stage,
-                        sheets=sheets,
-                        run_id=run_id,
-                        message=note,
-                    )
-                else:
-                    mark_needs_review(
-                        task["task_id"],
-                        status_stage,
-                        sheets=sheets,
-                        run_id=run_id,
-                        message=note,
-                    )
-            else:
+            if status == "完成":
                 mark_done(
+                    task["task_id"],
+                    status_stage,
+                    sheets=sheets,
+                    run_id=run_id,
+                    message=note,
+                )
+            else:
+                mark_needs_review(
                     task["task_id"],
                     status_stage,
                     sheets=sheets,
