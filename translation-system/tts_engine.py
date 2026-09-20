@@ -119,6 +119,7 @@ def synthesize_language(
     model_id: str,
     output_dir: Path,
     seed=555,
+    target_duration=None,
 ):
     output_dir.mkdir(parents=True, exist_ok=True)
     segment_dir = output_dir / f"{lang}_segments"
@@ -191,7 +192,38 @@ def synthesize_language(
     if not full_parts:
         raise RuntimeError(f"{lang} 沒有產生任何音訊")
 
-    full_audio = np.concatenate(full_parts[:-1])
+    speech_audio = np.concatenate(full_parts[:-1])
+    speech_duration = len(speech_audio) / sample_rate
+
+    target_duration = (
+        float(target_duration)
+        if target_duration is not None and float(target_duration) > 0
+        else None
+    )
+    within_source_duration = True
+    remaining_silence = 0.0
+    over_by_seconds = 0.0
+
+    if target_duration is not None:
+        if speech_duration <= target_duration:
+            remaining_silence = max(0.0, target_duration - speech_duration)
+            pad_samples = int(round(remaining_silence * sample_rate))
+            if pad_samples > 0:
+                full_audio = np.concatenate([
+                    speech_audio,
+                    np.zeros(pad_samples, dtype=np.float32),
+                ])
+            else:
+                full_audio = speech_audio
+        else:
+            # 使用者要求不調速、不截字，因此超過原片長度時保留完整語音，
+            # 並明確標記需要人工處理，而不是破壞內容。
+            within_source_duration = False
+            over_by_seconds = speech_duration - target_duration
+            full_audio = speech_audio
+    else:
+        full_audio = speech_audio
+
     wav_path = output_dir / f"{lang}.wav"
     mp3_path = output_dir / f"{lang}.mp3"
     manifest_path = output_dir / f"{lang}.tts_manifest.json"
@@ -205,11 +237,18 @@ def synthesize_language(
         "model": model_id,
         "sample_rate": sample_rate,
         "timeline_aligned": False,
-        "note": (
-            "此音檔為完整連續朗讀版；尚未針對原影片逐段伸縮對齊。"
-            "segment WAV 與原時間軸已保留，供後續配音影片對齊。"
-        ),
+        "duration_policy": "natural_speech_no_speed_change_no_segment_alignment",
+        "target_duration": round(target_duration, 3) if target_duration else None,
+        "speech_duration": round(speech_duration, 3),
         "full_duration": round(len(full_audio) / sample_rate, 3),
+        "within_source_duration": within_source_duration,
+        "remaining_silence": round(remaining_silence, 3),
+        "over_by_seconds": round(over_by_seconds, 3),
+        "note": (
+            "目前只要求完整朗讀在原片總長內結束；不做逐段時間對齊、"
+            "不調整語速，也不為了時間重新斷句。若朗讀較短，僅在尾端補靜音；"
+            "若朗讀超過原片長度，保留完整內容並標記需要人工處理，不截斷語音。"
+        ),
         "segments": manifest_segments,
     }
     manifest_path.write_text(
@@ -233,6 +272,11 @@ def synthesize_language(
         "manifest": manifest_path,
         "segments_zip": zip_path,
         "duration": manifest["full_duration"],
+        "speech_duration": manifest["speech_duration"],
+        "target_duration": manifest["target_duration"],
+        "within_source_duration": manifest["within_source_duration"],
+        "remaining_silence": manifest["remaining_silence"],
+        "over_by_seconds": manifest["over_by_seconds"],
         "segment_count": len(manifest_segments),
         "model": model_id,
     }
