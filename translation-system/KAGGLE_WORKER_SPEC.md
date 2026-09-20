@@ -34,6 +34,7 @@ python worker.py --task-id P253-L02 --stage asr
 python worker.py --task-id P253-L02 --stage polish
 python worker.py --task-id P253-L02 --stage finalize-zh
 python worker.py --task-id P253-L02 --stage translate --lang en
+# 英文人工定稿在 Web / 人工流程完成，不占 Kaggle GPU
 python worker.py --task-id P253-L02 --stage translate-all
 python worker.py --task-id P253-L02 --stage tts --lang en
 python worker.py --task-id P253-L02 --stage video --lang en
@@ -280,7 +281,8 @@ Kaggle 本身不需要等待網頁。
 ```text
 zh-TW.final.json
 → zh-TW.vernacular.json
-→ en.json
+→ en.json (English Draft)
+→ 人工英文定稿 → en.final.json
 → th/es/id/vi.json
 ```
 
@@ -289,7 +291,7 @@ zh-TW.final.json
 白話化與翻譯共用 Qwen3-4B：
 - 白話化：整篇逐 segment 處理，但保留前後文
 - English：只能讀白話中文
-- th/es/id/vi：只能讀 English pivot
+- th/es/id/vi：只能讀人工確認後的 English Final pivot
 - 每一段保留 id/start/end
 - 文言、偈語、經典句若不確定，標記 review_required
 
@@ -313,3 +315,19 @@ TTS 目前採自然連續朗讀：
 - 只要求整條音檔在原片總長內結束
 - 比原片短時只在尾端補靜音
 - 超過原片總長時不截斷，標記待人工確認
+
+
+---
+
+## 15. 人工英文定稿（非 GPU Stage）
+
+English 翻譯完成後，Kaggle 必須停止於 English Draft，不得自動進入 th/es/id/vi。
+
+Web 人工流程：
+- 顯示 zh-TW.vernacular 與 en Draft 的逐 segment 對照
+- 英文可人工修正
+- 人工確認專有名詞英文譯法
+- 將確認結果寫回 glossary
+- 產生 en.final.json / txt / srt
+
+只有 en.final 完成後，才允許再次喚醒 Kaggle 執行其他四語翻譯。
