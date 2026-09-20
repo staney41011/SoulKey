@@ -108,7 +108,9 @@ function goBack(){
   showView(target,{fromBack:true});
 }
 
-document.getElementById("back-button")?.addEventListener("click",goBack);
+document.querySelectorAll("[data-page-back]").forEach(
+  button=>button.addEventListener("click",goBack)
+);
 
 document.querySelectorAll("[data-view]").forEach(
   b=>b.addEventListener("click",()=>showView(b.dataset.view))
