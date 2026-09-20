@@ -84,40 +84,67 @@ def _anonymous_profiles():
 def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
     if has_cookies:
         last_error = None
-
-        # Logged-in fallback recommended for current YouTube changes:
-        # web_creator requires account cookies and a GVS PO Token.
-        # WPC can mint PO Tokens for logged-in sessions.
         wpc = _wpc_profile()
+
+        # Current yt-dlp recommendation when default YouTube clients fail:
+        # prefer mweb with a GVS PO Token. WPC supports logged-in sessions.
+        cookie_profiles = []
+
         if wpc:
-            attempt = dict(options)
-            attempt["extractor_args"] = {
-                "youtube": {
-                    "player_client": ["web_creator"],
-                    "fetch_pot": ["always"],
+            cookie_profiles.extend([
+                (
+                    "mweb + WPC",
+                    {
+                        "youtube": {
+                            "player_client": ["mweb"],
+                            "fetch_pot": ["always"],
+                        },
+                        "youtubepot-wpc": wpc["youtubepot-wpc"],
+                    },
+                ),
+                (
+                    "web_safari + WPC",
+                    {
+                        "youtube": {
+                            "player_client": ["web_safari"],
+                            "fetch_pot": ["always"],
+                        },
+                        "youtubepot-wpc": wpc["youtubepot-wpc"],
+                    },
+                ),
+                (
+                    "web_creator + WPC",
+                    {
+                        "youtube": {
+                            "player_client": ["web_creator"],
+                            "fetch_pot": ["always"],
+                        },
+                        "youtubepot-wpc": wpc["youtubepot-wpc"],
+                    },
+                ),
+            ])
+
+        cookie_profiles.append(
+            (
+                "default + web_embedded",
+                {
+                    "youtube": {
+                        "player_client": ["default", "web_embedded"],
+                    }
                 },
-                "youtubepot-wpc": wpc["youtubepot-wpc"],
-            }
-            print("[YouTube] Cookies + WPC 模式：web_creator")
+            )
+        )
+
+        for label, extractor_args in cookie_profiles:
+            attempt = dict(options)
+            attempt["extractor_args"] = extractor_args
+            print(f"[YouTube] Cookies 模式：{label}")
             try:
                 with YoutubeDL(attempt) as ydl:
                     return ydl.extract_info(url, download=download)
             except DownloadError as exc:
                 last_error = exc
-                print("[YouTube] web_creator + WPC 失敗，改試 default + web_embedded。")
-
-        attempt = dict(options)
-        attempt["extractor_args"] = {
-            "youtube": {
-                "player_client": ["default", "web_embedded"],
-            }
-        }
-        print("[YouTube] Cookies fallback：default + web_embedded")
-        try:
-            with YoutubeDL(attempt) as ydl:
-                return ydl.extract_info(url, download=download)
-        except DownloadError as exc:
-            last_error = exc
+                print(f"[YouTube] {label} 失敗，改試下一層。")
 
         if last_error:
             raise last_error
