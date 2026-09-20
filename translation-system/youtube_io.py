@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
 from google_io import get_secret
 
@@ -43,7 +44,7 @@ def _cookie_file(workdir: Path):
     return str(path)
 
 
-def _youtube_options(workdir: Path, quiet: bool):
+def _base_options(workdir: Path, quiet: bool):
     options = {
         "quiet": quiet,
         "no_warnings": quiet,
@@ -58,7 +59,47 @@ def _youtube_options(workdir: Path, quiet: bool):
     if user_agent:
         options["http_headers"] = {"User-Agent": user_agent}
 
-    return options
+    return options, bool(cookiefile)
+
+
+def _anonymous_profiles():
+    # 先用官方目前較適合匿名播放的 client。
+    # 第二層再跳過一般 webpage request，降低雲端 IP 被 bot challenge 擋住的機率。
+    return [
+        {
+            "youtube": {
+                "player_client": ["web_embedded", "android_vr"],
+            }
+        },
+        {
+            "youtube": {
+                "player_client": ["web_embedded", "android_vr"],
+                "player_skip": ["webpage"],
+            }
+        },
+    ]
+
+
+def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
+    if has_cookies:
+        with YoutubeDL(options) as ydl:
+            return ydl.extract_info(url, download=download)
+
+    last_error = None
+    for index, extractor_args in enumerate(_anonymous_profiles(), start=1):
+        attempt = dict(options)
+        attempt["extractor_args"] = extractor_args
+        print(f"[YouTube] 匿名模式第 {index} 層：{extractor_args['youtube']['player_client']}")
+        try:
+            with YoutubeDL(attempt) as ydl:
+                return ydl.extract_info(url, download=download)
+        except DownloadError as exc:
+            last_error = exc
+            print(f"[YouTube] 匿名模式第 {index} 層失敗，改試下一層。")
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("YouTube 匿名模式失敗")
 
 
 def detect_lecturer(info: dict):
@@ -84,11 +125,15 @@ def detect_lecturer(info: dict):
 
 def extract_metadata(url: str, workdir: Path):
     workdir.mkdir(parents=True, exist_ok=True)
-    options = _youtube_options(workdir, quiet=True)
+    options, has_cookies = _base_options(workdir, quiet=True)
     options["skip_download"] = True
 
-    with YoutubeDL(options) as ydl:
-        info = ydl.extract_info(url, download=False)
+    info = _extract_info(
+        url=url,
+        options=options,
+        download=False,
+        has_cookies=has_cookies,
+    )
 
     lecturer, lecturer_source = detect_lecturer(info)
     return {
@@ -109,7 +154,7 @@ def download_audio(url: str, workdir: Path):
     workdir.mkdir(parents=True, exist_ok=True)
     raw_template = str(workdir / "source.%(ext)s")
 
-    options = _youtube_options(workdir, quiet=False)
+    options, has_cookies = _base_options(workdir, quiet=False)
     options.update(
         {
             "format": "bestaudio/best",
@@ -123,8 +168,12 @@ def download_audio(url: str, workdir: Path):
         }
     )
 
-    with YoutubeDL(options) as ydl:
-        info = ydl.extract_info(url, download=True)
+    info = _extract_info(
+        url=url,
+        options=options,
+        download=True,
+        has_cookies=has_cookies,
+    )
 
     source_wav = workdir / "source.wav"
     if not source_wav.exists():
