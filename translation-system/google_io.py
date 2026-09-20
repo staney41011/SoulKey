@@ -1,3 +1,4 @@
+import io
 import mimetypes
 import os
 import re
@@ -6,12 +7,7 @@ from pathlib import Path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-
-SCOPES = [
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/spreadsheets",
-]
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 
 def get_secret(name: str, required: bool = True):
@@ -39,8 +35,6 @@ def build_google_services():
     client_secret = get_secret("GOOGLE_CLIENT_SECRET")
     refresh_token = get_secret("GOOGLE_REFRESH_TOKEN")
 
-    # refresh token 在 Google 授權時已綁定原始 scopes。
-    # Refresh grant 不再額外送 scopes，避免 invalid_scope。
     creds = Credentials(
         token=None,
         refresh_token=refresh_token,
@@ -70,7 +64,6 @@ def read_values(sheets, spreadsheet_id: str, a1_range: str):
 
 
 def update_cells(sheets, spreadsheet_id: str, updates: dict):
-    """updates = {"任務佇列!D2": "標題", ...}"""
     data = [{"range": rng, "values": [[value]]} for rng, value in updates.items()]
     if not data:
         return
@@ -127,6 +120,54 @@ def require_child_folder(drive, parent_id: str, name: str):
     if not folder_id:
         raise RuntimeError(f"找不到資料夾：{name} (parent={parent_id})")
     return folder_id
+
+
+def list_child_files(drive, parent_id: str):
+    query = f"'{parent_id}' in parents and trashed = false"
+    files = []
+    page_token = None
+    while True:
+        result = (
+            drive.files()
+            .list(
+                q=query,
+                spaces="drive",
+                fields="nextPageToken,files(id,name,mimeType,size,modifiedTime)",
+                pageSize=100,
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute()
+        )
+        files.extend(result.get("files", []))
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            break
+    return files
+
+
+def download_drive_file(drive, file_id: str, destination):
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    request = drive.files().get_media(
+        fileId=file_id,
+        supportsAllDrives=True,
+    )
+    with destination.open("wb") as fh:
+        downloader = MediaIoBaseDownload(
+            fh,
+            request,
+            chunksize=16 * 1024 * 1024,
+        )
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+            if status:
+                print(f"[Drive] 下載 {status.progress() * 100:.1f}%")
+
+    return destination
 
 
 def find_file(drive, parent_id: str, name: str):
