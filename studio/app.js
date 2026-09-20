@@ -497,12 +497,12 @@ function saveLanguagePlanForSelectedTask(){
 }
 
 function requestLanguageSettings(){
-  return bridgeClientRequest({action:"language_settings"});
+  return jsonpBridgeRequest({action:"language_settings"});
 }
 
 function requestLanguagePlan(taskId){
   if(!taskId) return false;
-  return bridgeClientRequest({action:"language_plan_get",task_id:taskId});
+  return jsonpBridgeRequest({action:"language_plan_get",task_id:taskId});
 }
 
 function renderTaskDetail(task){
@@ -1268,6 +1268,57 @@ function bridgeClientRequest(fields){
   return true;
 }
 
+function jsonpBridgeRequest(fields){
+  const endpoint=
+    document.getElementById("bridge-endpoint")?.value.trim() ||
+    localStorage.getItem(BRIDGE_ENDPOINT_KEY) ||
+    cfg.bridgeEndpoint ||
+    "";
+  const key=
+    document.getElementById("bridge-key")?.value.trim() ||
+    sessionStorage.getItem(BRIDGE_SESSION_KEY) ||
+    "";
+
+  if(!endpoint || !key) return false;
+
+  const callbackName="__soulkey_jsonp_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+  const script=document.createElement("script");
+  const params=new URLSearchParams({
+    ...Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,String(v ?? "")])),
+    bridge_key:key,
+    callback:callbackName,
+    _t:String(Date.now())
+  });
+
+  const cleanup=()=>{
+    try{delete window[callbackName];}catch(_){}
+    script.remove();
+  };
+
+  window[callbackName]=(data)=>{
+    cleanup();
+    window.dispatchEvent(new MessageEvent("message",{data}));
+  };
+
+  script.onerror=()=>{
+    cleanup();
+    const syncState=document.getElementById("status-sync-state");
+    const syncText=document.getElementById("status-sync-text");
+    if(syncState){
+      syncState.textContent="同步失敗";
+      syncState.className="warn";
+    }
+    if(syncText){
+      syncText.textContent="無法讀取 Apps Script 狀態 API。";
+    }
+  };
+
+  const sep=endpoint.includes("?") ? "&" : "?";
+  script.src=endpoint+sep+params.toString();
+  document.head.appendChild(script);
+  return true;
+}
+
 function applyRemoteStatuses(payload){
   const remoteTasks=payload && payload.tasks ? payload.tasks : {};
   let changed=false;
@@ -1309,14 +1360,14 @@ function requestTaskStatuses(){
   const ids=tasks.map(t=>t.id).filter(Boolean).slice(0,20);
   if(!ids.length) return false;
 
-  return bridgeClientRequest({
+  return jsonpBridgeRequest({
     action:"status_batch",
     task_ids:ids.join(",")
   });
 }
 
 function requestStatusHealth(){
-  return bridgeClientRequest({action:"status_health"});
+  return jsonpBridgeRequest({action:"status_health"});
 }
 
 window.addEventListener("message",event=>{
@@ -1456,12 +1507,10 @@ document.getElementById("refresh-language-settings")?.addEventListener("click",(
 function initStatusPolling(){
   window.setTimeout(()=>{
     initBridgeClient();
-  },500);
-
-  window.setTimeout(()=>{
     requestStatusHealth();
     requestTaskStatuses();
-  },1800);
+    requestLanguageSettings();
+  },700);
 
   window.setInterval(()=>{
     requestTaskStatuses();
@@ -1568,8 +1617,10 @@ function initBridgePanel(){
     if(value){
       sessionStorage.setItem(BRIDGE_SESSION_KEY,value);
       window.setTimeout(()=>{
-        if(!bridgeClientReady) initBridgeClient();
-        else requestStatusHealth();
+        initBridgeClient();
+        requestStatusHealth();
+        requestTaskStatuses();
+        requestLanguageSettings();
       },250);
     }else{
       sessionStorage.removeItem(BRIDGE_SESSION_KEY);
