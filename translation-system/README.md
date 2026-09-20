@@ -161,3 +161,130 @@ python translation-system/runner.py --stage metadata --period 253 --max-tasks 4 
 - 五語 TTS
 - 音訊時間軸對齊
 - 完整配音影片
+
+
+## v2 翻譯與多語音檔流程
+
+翻譯不再直接使用 ASR 原稿。正式順序固定為：
+
+```text
+中文 final
+→ 全文白話化
+→ English Pivot
+→ Thai / Spanish / Indonesian / Vietnamese
+→ 各語言 TTS
+```
+
+### 為什麼先白話化
+
+課程可能包含文言文、偈語、古語、經典句或高度凝縮的道場語句。
+系統會先將整篇逐字稿轉成忠實的現代繁體中文白話文，保留 segment id 與時間軸，再從白話中文翻譯英文。
+
+已是清楚白話文的部分儘量維持，不摘要、不補充教義。
+不確定的台語、經文或特殊稱謂會標記 `review_required`。
+
+### English Pivot 原則
+
+- English 唯一來源：`zh-TW.vernacular.json`
+- Thai / Spanish / Indonesian / Vietnamese 唯一來源：`en.json`
+- 不允許中文直接翻成其他四種語言
+
+### 目前第253期第2堂測試
+
+若尚未建立 `zh-TW.final.json`，只為了測試整條流程，可使用：
+
+```bash
+python translation-system/translate_runner.py \
+  --task-id P253-L02 \
+  --stage all \
+  --allow-draft \
+  --force
+```
+
+正式批次時不應使用 `--allow-draft`。
+
+### 分段執行
+
+只做白話化：
+
+```bash
+python translation-system/translate_runner.py \
+  --task-id P253-L02 \
+  --stage modernize \
+  --allow-draft
+```
+
+只做英文：
+
+```bash
+python translation-system/translate_runner.py \
+  --task-id P253-L02 \
+  --stage translate \
+  --lang en \
+  --force
+```
+
+英文完成後再翻其他語言：
+
+```bash
+python translation-system/translate_runner.py \
+  --task-id P253-L02 \
+  --stage translate-all \
+  --force
+```
+
+Drive 的 `02_翻譯稿` 會得到：
+
+```text
+zh-TW.vernacular.txt
+zh-TW.vernacular.srt
+zh-TW.vernacular.json
+en.txt / en.srt / en.json
+th.txt / th.srt / th.json
+es.txt / es.srt / es.json
+id.txt / id.srt / id.json
+vi.txt / vi.srt / vi.json
+```
+
+## 多語 TTS
+
+第一版 TTS 使用 Meta MMS-TTS，語言模型：
+
+- English: `facebook/mms-tts-eng`
+- Thai: `facebook/mms-tts-tha`
+- Spanish: `facebook/mms-tts-spa`
+- Indonesian: `facebook/mms-tts-ind`
+- Vietnamese: `facebook/mms-tts-vie`
+
+先一次準備五語模型：
+
+```bash
+python translation-system/prepare_tts_models.py
+```
+
+之後 Save Version，把 `/kaggle/working/persistent-model` 保存成 Kaggle Input，就不必每次重新下載。
+
+產生五語音檔：
+
+```bash
+python translation-system/tts_runner.py \
+  --task-id P253-L02 \
+  --all-langs \
+  --force
+```
+
+每種語言會在 Drive `04_音檔` 產生：
+
+```text
+en.wav
+en.mp3
+en.segments.zip
+en.tts_manifest.json
+```
+
+其他語言同樣使用 `th/es/id/vi` 檔名前綴。
+
+目前完整 WAV/MP3 是「連續朗讀版」，尚未針對原影片逐段伸縮對齊；
+`segments.zip` 保留每一段獨立音訊，供下一階段影片配音對齊使用。
+
+> MMS-TTS 模型授權為 CC-BY-NC 4.0。若未來用途涉及商業化，需在上線前改用允許商業使用的 TTS 模型或服務。
