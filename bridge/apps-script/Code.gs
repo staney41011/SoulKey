@@ -17,6 +17,22 @@ function doGet(e) {
     return bridgeClientHtml_();
   }
 
+  const action = String((e && e.parameter && e.parameter.action) || "").trim();
+  const callback = String((e && e.parameter && e.parameter.callback) || "").trim();
+
+  if (
+    callback &&
+    ["status_health", "status", "status_batch", "language_settings", "language_plan_get"].indexOf(action) >= 0
+  ) {
+    const request = {
+      action: action,
+      bridge_key: String((e && e.parameter && e.parameter.bridge_key) || "").trim(),
+      task_id: String((e && e.parameter && e.parameter.task_id) || "").trim(),
+      task_ids: String((e && e.parameter && e.parameter.task_ids) || "").trim()
+    };
+    return jsonp_(callback, bridgeRequest(request));
+  }
+
   return json_({
     ok: true,
     service: "SoulKey Studio Bridge",
@@ -24,7 +40,6 @@ function doGet(e) {
     status_sheet: STATUS_SHEET_NAME
   });
 }
-
 function doPost(e) {
   try {
     const props = PropertiesService.getScriptProperties();
@@ -225,7 +240,7 @@ function doPost(e) {
   }
 }
 
-function bridgeRequest_(request) {
+function bridgeRequest(request) {
   try {
     request = request || {};
     const props = PropertiesService.getScriptProperties();
@@ -423,7 +438,7 @@ function bridgeClientHtml_() {
           message: String(err && err.message ? err.message : err)
         });
       })
-      .bridgeRequest_(data.request || {});
+      .bridgeRequest(data.request || {});
   });
 })();
 </script>
@@ -711,6 +726,24 @@ function postMessage_(payload) {
   return HtmlService
     .createHtmlOutput(html)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function jsonp_(callback, payload) {
+  // Only allow a conservative JS identifier / dotted callback name.
+  const safeCallback = /^[A-Za-z_$][0-9A-Za-z_$]*(?:\.[A-Za-z_$][0-9A-Za-z_$]*)*$/.test(callback)
+    ? callback
+    : "";
+
+  if (!safeCallback) {
+    return ContentService
+      .createTextOutput("/* invalid callback */")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+
+  const body = safeCallback + "(" + JSON.stringify(payload).replace(/</g, "\\u003c") + ");";
+  return ContentService
+    .createTextOutput(body)
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
 
 function json_(payload) {
