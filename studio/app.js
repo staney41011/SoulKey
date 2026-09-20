@@ -1419,7 +1419,7 @@ window.addEventListener("message",event=>{
     const syncText=document.getElementById("status-sync-text");
     const reason=data.message || data.error || "未知錯誤";
     if(syncState){
-      syncState.textContent="Bridge 錯誤";
+      syncState.textContent="Bridge 錯誤："+reason;
       syncState.className="warn";
     }
     if(syncText){
