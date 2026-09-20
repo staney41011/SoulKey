@@ -5,6 +5,8 @@ const REF = "main";
 
 const CONTROL_SHEET_ID = "1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
 const STATUS_SHEET_NAME = "執行狀態";
+const LANGUAGE_SHEET_NAME = "語言設定";
+const LANGUAGE_PLAN_SHEET_NAME = "語言任務設定";
 
 function doGet() {
   return json_({
@@ -59,6 +61,71 @@ function doPost(e) {
         ok: true,
         sheet: STATUS_SHEET_NAME,
         rows: Math.max(0, sheet.getLastRow() - 1),
+        server_time: new Date().toISOString()
+      });
+    }
+
+    if (action === "language_settings") {
+      return postMessage_({
+        source: "soulkey-bridge",
+        type: "language_settings",
+        ok: true,
+        languages: readLanguageSettings_(),
+        server_time: new Date().toISOString()
+      });
+    }
+
+    if (action === "language_plan_get") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      if (!taskId) {
+        return postMessage_({
+          source: "soulkey-bridge",
+          type: "language_plan",
+          ok: false,
+          error: "missing_task_id"
+        });
+      }
+      return postMessage_({
+        source: "soulkey-bridge",
+        type: "language_plan",
+        ok: true,
+        task_id: taskId,
+        plan: readLanguagePlan_(taskId),
+        server_time: new Date().toISOString()
+      });
+    }
+
+    if (action === "language_plan_save") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const planJson = String((e && e.parameter && e.parameter.plan_json) || "").trim();
+      if (!taskId || !planJson) {
+        return postMessage_({
+          source: "soulkey-bridge",
+          type: "language_plan_saved",
+          ok: false,
+          error: "missing_plan"
+        });
+      }
+
+      let plan = [];
+      try {
+        plan = JSON.parse(planJson);
+      } catch (err) {
+        return postMessage_({
+          source: "soulkey-bridge",
+          type: "language_plan_saved",
+          ok: false,
+          error: "invalid_plan_json"
+        });
+      }
+
+      saveLanguagePlan_(taskId, plan);
+      return postMessage_({
+        source: "soulkey-bridge",
+        type: "language_plan_saved",
+        ok: true,
+        task_id: taskId,
+        plan: readLanguagePlan_(taskId),
         server_time: new Date().toISOString()
       });
     }
@@ -157,6 +224,123 @@ function dispatchSmoke_(githubToken) {
   });
 }
 
+
+function getSheetByName_(name) {
+  const spreadsheet = SpreadsheetApp.openById(CONTROL_SHEET_ID);
+  const sheet = spreadsheet.getSheetByName(name);
+  if (!sheet) {
+    throw new Error("找不到工作表：" + name);
+  }
+  return sheet;
+}
+
+function readLanguageSettings_() {
+  const sheet = getSheetByName_(LANGUAGE_SHEET_NAME);
+  const values = sheet.getDataRange().getDisplayValues();
+  const result = [];
+
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    const code = String(row[0] || "").trim();
+    const name = String(row[1] || "").trim();
+    const enabled = String(row[2] || "").trim().toUpperCase() === "TRUE";
+    const translationModel = String(row[3] || "").trim();
+    const ttsModel = String(row[4] || "").trim();
+
+    if (!code || !enabled) continue;
+
+    result.push({
+      code: code,
+      name: name || code,
+      translation_model: translationModel,
+      tts_model: ttsModel,
+      can_ai_translate: !!translationModel,
+      can_tts: !!ttsModel
+    });
+  }
+
+  return result;
+}
+
+function readLanguagePlan_(taskId) {
+  const sheet = getSheetByName_(LANGUAGE_PLAN_SHEET_NAME);
+  const values = sheet.getDataRange().getDisplayValues();
+  const result = [];
+
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    if (String(row[0] || "").trim() !== taskId) continue;
+
+    result.push({
+      task_id: taskId,
+      language_code: String(row[1] || "").trim(),
+      language_name: String(row[2] || "").trim(),
+      transcript_enabled: String(row[3] || "").trim().toUpperCase() === "TRUE",
+      transcript_source: String(row[4] || "").trim(),
+      audio_enabled: String(row[5] || "").trim().toUpperCase() === "TRUE",
+      audio_source: String(row[6] || "").trim(),
+      status: String(row[7] || "").trim(),
+      updated_at: String(row[8] || "").trim(),
+      note: String(row[9] || "").trim()
+    });
+  }
+
+  return result;
+}
+
+function saveLanguagePlan_(taskId, plan) {
+  if (!Array.isArray(plan)) {
+    throw new Error("plan 必須是陣列");
+  }
+
+  const sheet = getSheetByName_(LANGUAGE_PLAN_SHEET_NAME);
+  const values = sheet.getDataRange().getDisplayValues();
+
+  for (let r = values.length - 1; r >= 1; r--) {
+    if (String(values[r][0] || "").trim() === taskId) {
+      sheet.deleteRow(r + 1);
+    }
+  }
+
+  const now = Utilities.formatDate(
+    new Date(),
+    Session.getScriptTimeZone() || "Asia/Taipei",
+    "yyyy-MM-dd HH:mm:ss"
+  );
+
+  const rows = [];
+  plan.slice(0, 50).forEach(function(item) {
+    const code = String(item.language_code || item.code || "").trim();
+    if (!code || code === "en") return;
+
+    const transcriptEnabled = !!item.transcript_enabled;
+    const audioEnabled = !!item.audio_enabled;
+    const transcriptSource = transcriptEnabled
+      ? String(item.transcript_source || "ai").trim()
+      : "skip";
+    const audioSource = audioEnabled
+      ? String(item.audio_source || "tts").trim()
+      : "skip";
+
+    rows.push([
+      taskId,
+      code,
+      String(item.language_name || item.name || code).trim(),
+      transcriptEnabled,
+      transcriptSource,
+      audioEnabled,
+      audioSource,
+      "planned",
+      now,
+      String(item.note || "").slice(0, 500)
+    ]);
+  });
+
+  if (rows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 10).setValues(rows);
+  }
+}
+
 function getStatusSheet_() {
   const spreadsheet = SpreadsheetApp.openById(CONTROL_SHEET_ID);
   const sheet = spreadsheet.getSheetByName(STATUS_SHEET_NAME);
@@ -223,10 +407,18 @@ function responseForAction_(action, payload) {
   if (
     action === "status" ||
     action === "status_batch" ||
-    action === "status_health"
+    action === "status_health" ||
+    action === "language_settings" ||
+    action === "language_plan_get" ||
+    action === "language_plan_save"
   ) {
     payload.source = "soulkey-bridge";
-    payload.type = action === "status_health" ? "status_health" : "status_result";
+    payload.type =
+      action === "status_health" ? "status_health" :
+      action === "language_settings" ? "language_settings" :
+      action === "language_plan_get" ? "language_plan" :
+      action === "language_plan_save" ? "language_plan_saved" :
+      "status_result";
     return postMessage_(payload);
   }
   return json_(payload);
