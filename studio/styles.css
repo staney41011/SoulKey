@@ -63,3 +63,21 @@ dialog{border:0;border-radius:17px;padding:0;width:min(540px,92vw);box-shadow:0 
 .bridge-diagnostic-form{grid-template-columns:1fr 1fr auto}
 @media(max-width:1050px){.dashboard-bridge-card{grid-template-columns:1fr}.dashboard-bridge-form{grid-template-columns:1fr auto}.dashboard-bridge-form .badge{grid-column:1/-1;justify-self:start}.bridge-diagnostic-form{grid-template-columns:1fr}}
 @media(max-width:650px){.dashboard-bridge-form{grid-template-columns:1fr}.dashboard-bridge-form button{width:100%}.dashboard-bridge-copy{display:block}}
+
+.zh-review-media-bar{display:flex;gap:16px;align-items:center;justify-content:space-between}
+.video-placeholder.compact{min-height:84px;display:flex;flex:1;align-items:center;justify-content:flex-start;gap:14px;padding:18px;text-align:left}
+.video-placeholder.compact div:last-child{display:flex;flex-direction:column;gap:3px}
+.context-card.compact{min-width:180px;margin:0}
+.zh-final-panel{overflow:hidden}
+.zh-final-head{grid-template-columns:1fr 1fr}
+.zh-final-list{display:flex;flex-direction:column;gap:0}
+.zh-review-row{padding:16px 0;border-top:1px solid var(--line)}
+.zh-review-row:first-child{border-top:0}
+.zh-review-row-meta{display:flex;gap:10px;align-items:center;margin-bottom:8px;font-size:11px;color:var(--muted)}
+.zh-review-flags{margin-left:auto}
+.zh-review-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.zh-asr-source{min-height:104px;padding:14px;border:1px solid var(--line);border-radius:12px;background:#f7f8fb;white-space:pre-wrap;line-height:1.7}
+.zh-polished-final{min-height:104px;width:100%;resize:vertical;margin:0;line-height:1.7}
+.zh-review-row.uncertain .zh-asr-source,.zh-review-row.uncertain .zh-polished-final{border-color:#e2b85c}
+.zh-review-row.confirmed{background:rgba(86,185,129,.04)}
+@media(max-width:900px){.zh-review-pair,.zh-final-head{grid-template-columns:1fr}.zh-final-head span:first-child{border-bottom:1px solid var(--line)}.zh-review-media-bar{align-items:stretch;flex-direction:column}.context-card.compact{min-width:0}}
