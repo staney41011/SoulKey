@@ -17,6 +17,23 @@ def _looks_like_ct2_model(path: Path):
     )
 
 
+def _find_named_model_under(root: Path, model_dir_name: str):
+    if not root.exists():
+        return None
+
+    # Kaggle Notebook Output 通常會形成多層路徑，例如：
+    # /kaggle/input/notebooks/<user>/<notebook>/persistent-model/taiwan-breeze-asr-26
+    try:
+        for config_path in root.rglob("config.json"):
+            candidate = config_path.parent
+            if candidate.name == model_dir_name and _looks_like_ct2_model(candidate):
+                return candidate
+    except Exception:
+        return None
+
+    return None
+
+
 def resolve_model_source(model_name: str):
     """
     優先順序：
@@ -33,39 +50,18 @@ def resolve_model_source(model_name: str):
             return str(path)
         raise RuntimeError(f"ASR_MODEL_PATH 不是有效 CTranslate2 模型：{path}")
 
-    preferred_roots = [
-        Path("/kaggle/input"),
-        Path("/kaggle/working/persistent-model"),
-    ]
+    model_dir_name = "taiwan-breeze-asr-26"
 
-    for root in preferred_roots:
-        if not root.exists():
-            continue
+    # 先強制找 /kaggle/input，確保跨 Session 使用永久掛載模型。
+    input_model = _find_named_model_under(Path("/kaggle/input"), model_dir_name)
+    if input_model:
+        print(f"[ASR] 使用 Kaggle 永久 Input 模型：{input_model}")
+        return str(input_model)
 
-        # 先找名稱最接近的資料夾，避免掃描不必要的大量檔案。
-        direct_candidates = [
-            root / "taiwan-breeze-asr-26",
-            root / "translation-asr-model" / "taiwan-breeze-asr-26",
-            root / "translation-models" / "taiwan-breeze-asr-26",
-        ]
-        for candidate in direct_candidates:
-            if _looks_like_ct2_model(candidate):
-                print(f"[ASR] 使用永久掛載模型：{candidate}")
-                return str(candidate)
-
-        # Kaggle Dataset 常會多一層版本/資料夾，因此做 bounded fallback search。
-        try:
-            for model_bin in root.rglob("model.bin"):
-                candidate = model_bin.parent
-                if _looks_like_ct2_model(candidate):
-                    config_text = (candidate / "config.json").read_text(
-                        encoding="utf-8", errors="ignore"
-                    )
-                    if "whisper" in config_text.lower() or "model_type" in config_text.lower():
-                        print(f"[ASR] 自動找到永久掛載模型：{candidate}")
-                        return str(candidate)
-        except Exception:
-            pass
+    working_model = Path("/kaggle/working/persistent-model") / model_dir_name
+    if _looks_like_ct2_model(working_model):
+        print(f"[ASR] 使用本 Session 暫存模型：{working_model}")
+        return str(working_model)
 
     print(
         "[ASR] 找不到永久掛載模型，將從 Hugging Face 下載。"
@@ -90,7 +86,6 @@ def _load_model(model_name: str):
             "compute_type": compute_type,
         }
 
-        # 只有遠端 Hugging Face repo 才需要 download_root。
         if not Path(model_source).exists():
             kwargs["download_root"] = "/kaggle/working/translation-model-cache"
 
