@@ -644,7 +644,7 @@ function initBridgePanel(){
   const testButton=document.getElementById("bridge-test");
   if(!endpointInput || !keyInput || !testButton) return;
 
-  endpointInput.value=localStorage.getItem(BRIDGE_ENDPOINT_KEY) || "";
+  endpointInput.value=localStorage.getItem(BRIDGE_ENDPOINT_KEY) || cfg.bridgeEndpoint || "";
   keyInput.value=sessionStorage.getItem(BRIDGE_SESSION_KEY) || "";
 
   if(endpointInput.value){
