@@ -199,6 +199,13 @@ def main():
             print(f"[ERROR] {message}", file=sys.stderr)
             traceback.print_exc()
             update_status(sheets, task["sheet_row"], "錯誤", message)
+            mark_error(
+                task["task_id"],
+                "polish",
+                sheets=sheets,
+                run_id=run_id,
+                exc=exc,
+            )
             processed += 1
 
     print("")
