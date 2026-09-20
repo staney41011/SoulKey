@@ -416,6 +416,14 @@ def main():
             print(f"[ERROR] {message}", file=sys.stderr)
             traceback.print_exc()
             update_note(sheets, task["sheet_row"], message)
+            if args.stage == "translate" and args.lang:
+                update_lang_status(
+                    sheets,
+                    task["sheet_row"],
+                    args.lang,
+                    "錯誤",
+                    message,
+                )
             mark_error(
                 task["task_id"],
                 status_stage,
