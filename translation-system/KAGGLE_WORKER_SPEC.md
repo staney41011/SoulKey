@@ -269,3 +269,42 @@ Kaggle 本身不需要等待網頁。
 3. translate engine
 4. TTS
 5. video render
+
+
+---
+
+## 14. 翻譯與 TTS 新規則
+
+翻譯固定鏈：
+
+```text
+zh-TW.final.json
+→ zh-TW.vernacular.json
+→ en.json
+→ th/es/id/vi.json
+```
+
+測試期間若 final 尚未完成，可以顯式使用 `--allow-draft` 讓 `polish_report.json` 當來源；正式流程禁止。
+
+白話化與翻譯共用 Qwen3-4B：
+- 白話化：整篇逐 segment 處理，但保留前後文
+- English：只能讀白話中文
+- th/es/id/vi：只能讀 English pivot
+- 每一段保留 id/start/end
+- 文言、偈語、經典句若不確定，標記 review_required
+
+TTS 第一版：
+- en → facebook/mms-tts-eng
+- th → facebook/mms-tts-tha
+- es → facebook/mms-tts-spa
+- id → facebook/mms-tts-ind
+- vi → facebook/mms-tts-vie
+
+每語言輸出：
+- full WAV
+- full MP3
+- segment WAV zip
+- tts manifest
+
+TTS 目前是連續朗讀版，不在此階段強制把語速伸縮到原影片時間；
+影片對齊留到獨立 alignment stage，避免先把語音品質破壞。
