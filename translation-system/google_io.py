@@ -31,18 +31,24 @@ def get_secret(name: str, required: bool = True):
 
 
 def build_google_services():
-    client_id = get_secret("GOOGLE_CLIENT_ID")
-    client_secret = get_secret("GOOGLE_CLIENT_SECRET")
-    refresh_token = get_secret("GOOGLE_REFRESH_TOKEN")
+    access_token = os.environ.get("GOOGLE_ACCESS_TOKEN", "").strip()
 
-    creds = Credentials(
-        token=None,
-        refresh_token=refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=client_id,
-        client_secret=client_secret,
-    )
-    creds.refresh(Request())
+    if access_token:
+        print("[Google] 使用 SoulKey Bridge 提供的短效 OAuth access token")
+        creds = Credentials(token=access_token)
+    else:
+        client_id = get_secret("GOOGLE_CLIENT_ID")
+        client_secret = get_secret("GOOGLE_CLIENT_SECRET")
+        refresh_token = get_secret("GOOGLE_REFRESH_TOKEN")
+
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+        creds.refresh(Request())
 
     drive = build("drive", "v3", credentials=creds, cache_discovery=False)
     sheets = build("sheets", "v4", credentials=creds, cache_discovery=False)
