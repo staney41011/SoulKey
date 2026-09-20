@@ -1290,9 +1290,14 @@ window.addEventListener("message",event=>{
       applyRemoteStatuses(data);
     }else{
       const syncState=document.getElementById("status-sync-state");
+      const syncText=document.getElementById("status-sync-text");
+      const reason=data.message || data.error || "未知錯誤";
       if(syncState){
         syncState.textContent="同步失敗";
         syncState.className="warn";
+      }
+      if(syncText){
+        syncText.textContent="狀態同步失敗："+reason;
       }
     }
   }
@@ -1343,8 +1348,10 @@ window.addEventListener("message",event=>{
       requestTaskStatuses();
       requestLanguageSettings();
     }else if(syncState){
+      const reason=data.message || data.error || "未知錯誤";
       syncState.textContent="狀態表連線失敗";
       syncState.className="warn";
+      if(syncText) syncText.textContent="狀態表連線失敗："+reason;
     }
   }
 });
