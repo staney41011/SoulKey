@@ -16,6 +16,38 @@ LECTURER_PATTERNS = [
 ]
 
 WPC_BROWSER_MARKER = Path("/kaggle/working/wpc_browser_path.txt")
+DENO_MARKER = Path("/kaggle/working/deno_path.txt")
+_WPC_PATCHED = False
+
+
+def _patch_wpc_for_kaggle():
+    """Make the WPC Chromium launcher work inside Kaggle's root container."""
+    global _WPC_PATCHED
+    if _WPC_PATCHED:
+        return
+
+    try:
+        import yt_dlp_plugins.extractor.getpot_wpc as wpc
+
+        original = wpc.WPCPTP.get_nodriver_config
+        if getattr(original, "_soulkey_kaggle_patch", False):
+            _WPC_PATCHED = True
+            return
+
+        def patched(self, proxy=None):
+            config = original(self, proxy)
+            # Kaggle runs as root/container. Chromium needs no-sandbox,
+            # and headless avoids needing an X display.
+            config.sandbox = False
+            config.headless = True
+            return config
+
+        patched._soulkey_kaggle_patch = True
+        wpc.WPCPTP.get_nodriver_config = patched
+        _WPC_PATCHED = True
+        print("[YouTube] WPC Kaggle patch：headless + no-sandbox")
+    except Exception as exc:
+        print(f"[YouTube] WPC Kaggle patch 警告：{type(exc).__name__}: {exc}")
 
 
 def _cookie_file(workdir: Path):
@@ -34,6 +66,8 @@ def _cookie_file(workdir: Path):
 
 
 def _base_options(workdir: Path, quiet: bool):
+    _patch_wpc_for_kaggle()
+
     options = {
         "quiet": quiet,
         "no_warnings": quiet,
@@ -43,6 +77,11 @@ def _base_options(workdir: Path, quiet: bool):
         "fragment_retries": 1,
         "extractor_retries": 1,
     }
+
+    if DENO_MARKER.exists():
+        deno = DENO_MARKER.read_text(encoding="utf-8").strip()
+        if deno and Path(deno).exists():
+            options["js_runtimes"] = {"deno": {"path": deno}}
 
     cookiefile = _cookie_file(workdir)
     if cookiefile:
