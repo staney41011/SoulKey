@@ -74,6 +74,11 @@ def resolve_lesson_folders(drive, sheets, period: int, lesson_label: str):
         "lesson": lesson_folder,
         "source": require_child_folder(drive, lesson_folder, "00_來源資訊"),
         "transcript": require_child_folder(drive, lesson_folder, "01_中文逐字稿"),
+        "translation": require_child_folder(drive, lesson_folder, "02_翻譯稿"),
+        "subtitle": require_child_folder(drive, lesson_folder, "03_字幕"),
+        "audio": require_child_folder(drive, lesson_folder, "04_音檔"),
+        "video": require_child_folder(drive, lesson_folder, "05_完成影片"),
+        "log": require_child_folder(drive, lesson_folder, "99_處理紀錄"),
     }
 
 
