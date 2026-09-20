@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=20260920-3">
 </head>
 <body>
   <div class="shell">
@@ -27,10 +27,6 @@
     <main class="main">
       <header class="topbar">
         <div class="topbar-left">
-          <button id="back-button" class="back-button" type="button" aria-label="回上一頁" hidden>
-            <span aria-hidden="true">←</span>
-            <span>回上一頁</span>
-          </button>
           <div>
             <p class="eyebrow">打開心靈的鎖匙</p>
             <h1 id="view-title">任務總覽</h1>
@@ -79,6 +75,7 @@
       </section>
 
       <section class="view" id="view-new-task">
+        <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
         <div class="split">
           <div class="panel">
             <p class="eyebrow">NEW COURSE</p>
@@ -127,6 +124,7 @@
       </section>
 
       <section class="view" id="view-task-detail">
+        <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
         <div class="panel task-detail-hero">
           <div>
             <p class="eyebrow">COURSE TASK</p>
@@ -156,6 +154,7 @@
       </section>
 
       <section class="view" id="view-review">
+        <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
         <div class="review-toolbar panel">
           <div>
             <p class="eyebrow">ZH REVIEW</p>
@@ -195,6 +194,7 @@
       </section>
 
       <section class="view" id="view-glossary">
+        <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
         <div class="panel">
           <div class="panel-head">
             <div><p class="eyebrow">GLOSSARY</p><h3>一貫道／道場專有名詞庫</h3></div>
@@ -212,6 +212,7 @@
       </section>
 
       <section class="view" id="view-knowledge">
+        <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
         <div class="panel">
           <p class="eyebrow">KNOWLEDGE BASE</p>
           <h3>經典與宗教知識庫</h3>
@@ -228,6 +229,7 @@
       </section>
 
       <section class="view" id="view-system">
+        <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
         <div class="split">
           <div class="panel">
             <p class="eyebrow">SYSTEM</p><h3>服務狀態</h3>
@@ -261,6 +263,6 @@
   </dialog>
 
   <script src="./config.js"></script>
-  <script src="./app.js"></script>
+  <script src="./app.js?v=20260920-3"></script>
 </body>
 </html>
