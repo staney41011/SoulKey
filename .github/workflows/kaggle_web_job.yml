@@ -199,6 +199,21 @@ jobs:
             tail -n 180 "$LOG"
           fi
 
+      - name: Report Kaggle failure to Bridge
+        if: always() && steps.wait_job.outputs.final_status != 'COMPLETE'
+        shell: bash
+        env:
+          JOB_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
+          JOB_BRIDGE_URL: ${{ inputs.bridge_url }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST "$JOB_BRIDGE_URL" \
+            --data-urlencode "action=worker_report" \
+            --data-urlencode "nonce=$JOB_RUNTIME_NONCE" \
+            --data-urlencode "status=error" \
+            --data-urlencode "message=Kaggle Kernel 執行失敗；請查看 GitHub Actions / Kaggle log" \
+            >/dev/null || true
+
       - name: Verify Kaggle job
         if: always()
         shell: bash
