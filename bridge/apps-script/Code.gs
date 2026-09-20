@@ -911,7 +911,7 @@ function saveLanguagePlan_(taskId, plan) {
   const rows = [];
   plan.slice(0, 50).forEach(function(item) {
     const code = String(item.language_code || item.code || "").trim();
-    if (!code || code === "en") return;
+    if (!code) return;
 
     const transcriptEnabled = !!item.transcript_enabled;
     const audioEnabled = !!item.audio_enabled;
