@@ -36,23 +36,25 @@ YouTube URL
   ↓
 07 人工中文定稿
   ↓
-08 全文白話化（文言／古語 → 現代繁中）
+08 AI 白話化（文言／古語 → 現代繁中 Draft）
   ↓
-09 中文白話 → English Draft
+09 人工白話文定稿（原文／白話文逐段對照）
   ↓
-10 人工英文定稿（中英逐段對照＋術語學習）
+10 人工白話文 Final → English Draft
   ↓
-11 English Final → Thai / Spanish / Indonesian / Vietnamese
+11 人工英文定稿（原文／白話文／英文逐段對照＋術語學習）
   ↓
-12 各語言人工確認
+12 English Final → Thai / Spanish / Indonesian / Vietnamese
   ↓
-13 字幕整理
+13 各語言人工確認
   ↓
-14 TTS
+14 字幕整理
   ↓
-15 音訊時間軸對齊
+15 TTS
   ↓
-16 完成影片
+16 音訊時間軸對齊
+  ↓
+17 完成影片
 ```
 
 ---
@@ -396,10 +398,15 @@ AI 不得：
 正式來源優先使用：
 `zh-TW.final.json`
 
-整篇逐字稿先轉為：
+AI 先產生白話文 Draft：
 - `zh-TW.vernacular.txt`
 - `zh-TW.vernacular.srt`
 - `zh-TW.vernacular.json`
+
+人工逐段校正後再產生不可被 AI 覆蓋的 Final：
+- `zh-TW.vernacular.final.txt`
+- `zh-TW.vernacular.final.srt`
+- `zh-TW.vernacular.final.json`
 
 規則：
 - 已是現代白話的句子儘量維持
@@ -408,7 +415,20 @@ AI 不得：
 - 不確定經文／台語／仙佛稱謂標記 review_required
 - 原中文永久保留，不被白話版覆蓋
 
-### 11.2 English Pivot
+### 11.2 人工白話文定稿
+
+AI 白話文完成後不得直接進入英文翻譯。
+
+Web 必須逐 segment 顯示：
+- 左側：`zh-TW.final` 中文原文（唯讀）
+- 右側：AI 白話文 Draft（可人工修改）
+- 保留 segment id / start / end
+
+人工定稿後才產生 `zh-TW.vernacular.final.*`。
+
+English 翻譯只能讀 `zh-TW.vernacular.final.json`，不得直接讀 AI Draft。
+
+### 11.3 English Pivot
 
 英文是所有外語翻譯的樞紐語言。
 
@@ -428,12 +448,13 @@ AI 不得：
 - 中文直接翻印尼文
 - 中文直接翻越南文
 
-### 11.3 人工英文定稿
+### 11.4 人工英文定稿
 
 English Draft 完成後，不得直接進入其他語言翻譯。
 
-網頁需提供逐 segment 對照：
-- 左側：繁中白話底稿（唯讀）
+網頁需提供逐 segment 三區對照：
+- 左側：繁中原文 `zh-TW.final`（唯讀）
+- 中間：人工白話文 Final（唯讀，可由使用者開關顯示）
 - 右側：英文 Draft（可人工修改）
 - 保留相同 segment id / start / end
 
@@ -460,7 +481,7 @@ English Draft 完成後，不得直接進入其他語言翻譯。
 
 後續 Thai / Spanish / Indonesian / Vietnamese 必須只讀 `en.final.json`，不得讀未定稿的 `en.json`。
 
-### 11.4 翻譯規則
+### 11.5 翻譯規則
 
 - 保留 segment id
 - 保留 start/end
@@ -469,7 +490,7 @@ English Draft 完成後，不得直接進入其他語言翻譯。
 - 專有名詞依鎖定翻譯
 - 經典名稱按目標語言慣用名稱
 - 若無標準翻譯，標記 review_required
-- English 必須以 zh-TW.vernacular 為來源
+- English 必須以人工定稿後的 zh-TW.vernacular.final 為唯一來源
 - th/es/id/vi 必須以人工確認後的 English Final 為唯一來源
 
 ### 每個語言輸出
@@ -542,6 +563,23 @@ error
 
 ---
 
+## 14A. 退回上一步／版本挽救
+
+每一堂課在任務詳情頁都必須支援「退回上一步」。
+
+規則：
+- 退回不刪除既有輸出檔
+- 重新開啟上一個 stage 供修改或重跑
+- 退回點之後的所有下游結果標記為 `stale / needs_recheck`
+- stale 結果不可再被當作正式 Final 或後續輸入
+- 人工 Final 若重新修改，必須建立新 revision，不覆蓋舊 revision
+- 新 revision 完成後，下游 stage 必須重新確認或重跑
+- 日誌保存 rollback_from / rollback_to / reason / timestamp
+
+這個設計用來處理人工誤按定稿、翻譯發現上游錯字、白話文解讀錯誤等情況。
+
+---
+
 ## 15. 日誌
 
 每個 Task 要記錄：
@@ -569,6 +607,8 @@ error
 - ASR
 - 中文 AI 校稿
 - 中文人工定稿
+- AI 白話文
+- 白話文人工定稿
 - 英文翻譯
 - 英文人工定稿
 - 其他四語翻譯
