@@ -83,18 +83,44 @@ def _anonymous_profiles():
 
 def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
     if has_cookies:
-        # 2026-08 yt-dlp / YouTube known issue:
-        # logged-in extraction may default to tv_downgraded and fail with
-        # "The page needs to be reloaded". Force currently recommended clients.
+        last_error = None
+
+        # Logged-in fallback recommended for current YouTube changes:
+        # web_creator requires account cookies and a GVS PO Token.
+        # WPC can mint PO Tokens for logged-in sessions.
+        wpc = _wpc_profile()
+        if wpc:
+            attempt = dict(options)
+            attempt["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["web_creator"],
+                    "fetch_pot": ["always"],
+                },
+                "youtubepot-wpc": wpc["youtubepot-wpc"],
+            }
+            print("[YouTube] Cookies + WPC 模式：web_creator")
+            try:
+                with YoutubeDL(attempt) as ydl:
+                    return ydl.extract_info(url, download=download)
+            except DownloadError as exc:
+                last_error = exc
+                print("[YouTube] web_creator + WPC 失敗，改試 default + web_embedded。")
+
         attempt = dict(options)
         attempt["extractor_args"] = {
             "youtube": {
                 "player_client": ["default", "web_embedded"],
             }
         }
-        print("[YouTube] Cookies 模式：default + web_embedded")
-        with YoutubeDL(attempt) as ydl:
-            return ydl.extract_info(url, download=download)
+        print("[YouTube] Cookies fallback：default + web_embedded")
+        try:
+            with YoutubeDL(attempt) as ydl:
+                return ydl.extract_info(url, download=download)
+        except DownloadError as exc:
+            last_error = exc
+
+        if last_error:
+            raise last_error
 
     last_error = None
 
