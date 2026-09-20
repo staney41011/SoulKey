@@ -26,6 +26,13 @@ def main():
         snapshot_download(
             repo_id=model_id,
             local_dir=str(target),
+            allow_patterns=[
+                "config.json",
+                "model.safetensors",
+                "tokenizer_config.json",
+                "special_tokens_map.json",
+                "vocab.json",
+            ],
         )
         print(f"✅ {lang} TTS model ready")
 
