@@ -55,8 +55,45 @@ def report(bridge_url: str, nonce: str, status: str, message: str):
 
 
 def run(cmd, cwd=None):
-    print("$", " ".join(map(str, cmd)), flush=True)
-    subprocess.run(list(map(str, cmd)), cwd=cwd, check=True)
+    cmd = list(map(str, cmd))
+    if cmd and Path(cmd[0]).name.startswith("python") and "-u" not in cmd[1:2]:
+        cmd.insert(1, "-u")
+    print("$", " ".join(cmd), flush=True)
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    subprocess.run(cmd, cwd=cwd, env=env, check=True)
+
+
+def prepare_asr_runtime():
+    root = Path("/kaggle/input")
+    matches = []
+    if root.exists():
+        try:
+            matches = list(root.rglob("taiwan-breeze-asr-26/model.bin"))
+        except Exception as exc:
+            print(f"[ASR-PREFLIGHT] 掃描 /kaggle/input 失敗：{type(exc).__name__}: {exc}", flush=True)
+
+    if matches:
+        model_dir = matches[0].parent
+        os.environ["ASR_MODEL_PATH"] = str(model_dir)
+        print(f"[ASR-PREFLIGHT] 使用永久 ASR 模型：{model_dir}", flush=True)
+        return str(model_dir)
+
+    print("[ASR-PREFLIGHT] /kaggle/input 找不到永久 ASR 模型。", flush=True)
+    try:
+        top = sorted(str(p) for p in root.glob("*"))[:40] if root.exists() else []
+        print("[ASR-PREFLIGHT] input roots:", top, flush=True)
+    except Exception:
+        pass
+
+    # 明確準備到 working，避免 WhisperModel 在載入期間隱式下載造成難以診斷的 Kernel ERROR。
+    run([sys.executable, str(Path("/kaggle/working/SoulKey/translation-system/prepare_model.py"))])
+    model_dir = Path("/kaggle/working/persistent-model/taiwan-breeze-asr-26")
+    if not (model_dir / "model.bin").exists():
+        raise RuntimeError("ASR 模型準備完成後仍找不到 model.bin")
+    os.environ["ASR_MODEL_PATH"] = str(model_dir)
+    print(f"[ASR-PREFLIGHT] 使用本次下載 ASR 模型：{model_dir}", flush=True)
+    return str(model_dir)
 
 
 def main():
@@ -111,6 +148,7 @@ def main():
             run([sys.executable, str(system_dir / "setup_wpc_provider.py")])
 
         if args.stage in {"zh", "metadata"}:
+            prepare_asr_runtime()
             run([
                 sys.executable, str(system_dir / "runner.py"),
                 "--task-id", args.task_id,
@@ -140,6 +178,7 @@ def main():
                 )
             cmd = None
         elif args.stage == "asr":
+            prepare_asr_runtime()
             cmd = [
                 sys.executable, str(system_dir / "runner.py"),
                 "--task-id", args.task_id,
