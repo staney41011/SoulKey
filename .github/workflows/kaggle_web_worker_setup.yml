@@ -1,0 +1,64 @@
+name: Kaggle Web Worker Setup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  create-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+
+    steps:
+      - name: Install Kaggle CLI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install kaggle
+
+      - name: Build private SoulKey web worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="${RUNNER_TEMP}/soulkey-web-worker"
+          mkdir -p "$DIR"
+
+          cat > "$DIR/web_worker.py" <<'PY'
+          from pathlib import Path
+          from kaggle_secrets import UserSecretsClient
+
+          value = UserSecretsClient().get_secret("SOULKEY_WEB_TEST")
+          if value != "ok":
+              raise RuntimeError("SOULKEY_WEB_TEST secret is missing or incorrect")
+
+          Path("/kaggle/working/web_worker_secret_check.txt").write_text(
+              "SoulKey web worker secret OK\n",
+              encoding="utf-8",
+          )
+          print("SoulKey web worker secret OK")
+          PY
+
+          cat > "$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-web-worker",
+            "title": "SoulKey Web Worker",
+            "code_file": "web_worker.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_internet": false,
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          JSON
+
+          cat "$DIR/kernel-metadata.json"
+          kaggle kernels push -p "$DIR" --no-run
+          echo "Worker created without running:"
+          echo "https://www.kaggle.com/code/cwlmrcsir/soulkey-web-worker"
