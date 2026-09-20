@@ -361,20 +361,20 @@
               <p class="eyebrow">WEB EXECUTION</p>
               <h3>Kaggle Web Worker</h3>
             </div>
-            <div class="worker-build"><span class="muted">Build 20260920.18</span><span class="badge" id="web-worker-state">尚未驗證</span></div>
+            <div class="worker-build"><span class="muted">Build 20260920.19</span><span class="badge" id="web-worker-state">尚未驗證</span></div>
           </div>
           <p class="muted block-copy">
-            正式改成「網頁按一下 → GitHub Actions → Kaggle」之前，先用無敏感資料的測試 Secret 驗證 Kaggle API 觸發後是否仍能讀取 Notebook Secret。
+            正式改成「網頁按一下 → GitHub Actions → Kaggle」之前，Kaggle API push 不會保留 Notebook Secret，因此改用私人 Kaggle Dataset 做安全憑證載體測試。
           </p>
           <div class="worker-actions">
             <button class="ghost" id="worker-setup" type="button">① 建立 Web Worker</button>
-            <button class="primary" id="worker-secret-test" type="button">② 測試 Secret</button>
+            <button class="primary" id="worker-secret-test" type="button">② 測試私人憑證資料集</button>
           </div>
           <div class="bridge-status" id="web-worker-status">
             尚未建立 Web Worker。
           </div>
           <p class="muted bridge-note">
-            這兩個測試都不會執行正式 ASR、翻譯或 TTS；Secret 測試使用 CPU，不耗 GPU 額度。
+            這兩個測試都不會執行正式 ASR、翻譯或 TTS；私人資料集測試使用無敏感測試值與 CPU，不耗 GPU 額度。
           </p>
         </div>
 
@@ -427,6 +427,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app-20260920-18.js"></script>
+  <script src="./app-20260920-19.js"></script>
 </body>
 </html>
