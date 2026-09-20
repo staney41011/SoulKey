@@ -70,6 +70,7 @@ let languageSettings = [
 let selectedTaskId = null;
 let selectedPeriod = null;
 let currentZhReview = [];
+let currentZhReviewAll = [];
 let currentVernacularReview = [];
 let currentEnglishReview = [];
 let currentView = "dashboard";
@@ -531,7 +532,7 @@ function saveLanguagePlanForSelectedTask(){
     if(status) status.textContent="已儲存 "+selected.length+" 種語言設定，正在同步控制中心…";
   }
 
-  const sent=bridgeClientRequest({
+  const sent=submitBridgePost({
     action:"language_plan_save",
     task_id:task.id,
     plan_json:JSON.stringify(plan)
@@ -956,6 +957,9 @@ function renderSegments(items){
   }
 
   currentZhReview=items;
+  if(!document.querySelector("[data-filter].active") || document.querySelector("[data-filter].active")?.dataset.filter==="all"){
+    currentZhReviewAll=items;
+  }
   el.innerHTML=items.map((s,i)=>
     '<div class="segment '+s.flags.join(" ")+'" data-id="'+escapeHtml(s.id ?? i)+'" data-start="'+escapeHtml(s.start ?? 0)+'" data-end="'+escapeHtml(s.end ?? 0)+'" data-time="'+escapeHtml(s.time)+'">'+
       '<div class="segment-meta">'+
@@ -992,8 +996,8 @@ document.querySelectorAll("[data-filter]").forEach(b=>b.addEventListener("click"
   const filter=b.dataset.filter;
   renderSegments(
     filter==="all"
-      ? currentZhReview
-      : currentZhReview.filter(x=>(x.flags||[]).includes(filter))
+      ? currentZhReviewAll
+      : currentZhReviewAll.filter(x=>(x.flags||[]).includes(filter))
   );
 }));
 
@@ -1634,7 +1638,7 @@ window.addEventListener("message",event=>{
   if(data.type==="language_settings" && data.ok){
     const received=Array.isArray(data.languages) ? data.languages : [];
     if(received.length){
-      languageSettings=received.filter(x=>x.code!=="en");
+      languageSettings=received;
       const task=tasks.find(x=>x.id===selectedTaskId);
       if(task) renderLanguagePlan(task);
     }
