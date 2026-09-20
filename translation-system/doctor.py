@@ -1,12 +1,13 @@
 import shutil
 import sys
+from pathlib import Path
 
 import torch
 
-from config import SPREADSHEET_ID, TASK_SHEET_RANGE
+from asr import resolve_model_source
+from config import ASR_MODEL, SPREADSHEET_ID, TASK_SHEET_RANGE
 from google_io import build_google_services, read_values
 from youtube_io import extract_metadata
-from pathlib import Path
 
 
 def ok(label, value="OK"):
@@ -32,7 +33,19 @@ def main():
         raise RuntimeError("找不到 ffmpeg")
     ok("FFmpeg", ffmpeg)
 
-    drive = sheets = None
+    try:
+        model_source = resolve_model_source(ASR_MODEL)
+        model_path = Path(model_source)
+        if model_path.exists():
+            ok("永久 ASR 模型", model_source)
+        else:
+            print(
+                "⚠️ 永久 ASR 模型尚未掛載；Runner 會回退到 Hugging Face 下載。"
+            )
+    except Exception as exc:
+        fail("ASR 模型檢查", exc)
+        return 5
+
     try:
         drive, sheets = build_google_services()
         ok("Google OAuth")
