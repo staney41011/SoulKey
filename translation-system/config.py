@@ -8,6 +8,7 @@ SPREADSHEET_ID = os.getenv(
 TASK_SHEET_RANGE = "任務佇列!A2:T"
 PERIOD_SHEET_RANGE = "期數設定!A2:H"
 GLOSSARY_RANGE = "專有名詞庫!A2:A200"
+GLOSSARY_FULL_RANGE = "專有名詞庫!A2:J500"
 
 ASR_MODEL = os.getenv(
     "ASR_MODEL",
@@ -18,6 +19,19 @@ POLISH_MODEL = os.getenv(
     "POLISH_MODEL",
     "Qwen/Qwen3-4B",
 )
+
+TRANSLATION_MODEL = os.getenv(
+    "TRANSLATION_MODEL",
+    "Qwen/Qwen3-4B",
+)
+
+TTS_MODELS = {
+    "en": "facebook/mms-tts-eng",
+    "th": "facebook/mms-tts-tha",
+    "es": "facebook/mms-tts-spa",
+    "id": "facebook/mms-tts-ind",
+    "vi": "facebook/mms-tts-vie",
+}
 
 TIMEZONE = "Asia/Taipei"
 
