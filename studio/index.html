@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>SoulKey Studio｜全球翻譯工作台</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">心</div>
+        <div><strong>SoulKey Studio</strong><span>全球翻譯工作台</span></div>
+      </div>
+      <nav id="nav">
+        <button class="nav-item active" data-view="dashboard">總覽</button>
+        <button class="nav-item" data-view="new-task">建立任務</button>
+        <button class="nav-item" data-view="review">中文校稿</button>
+        <button class="nav-item" data-view="glossary">專有名詞庫</button>
+        <button class="nav-item" data-view="knowledge">經典知識庫</button>
+        <button class="nav-item" data-view="system">系統狀態</button>
+      </nav>
+      <div class="sidebar-note">
+        <span class="dot"></span>
+        <div><b>獨立工作台</b><small>不修改原 DM 分享頁</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">打開心靈的鎖匙</p>
+          <h1 id="view-title">任務總覽</h1>
+        </div>
+        <div class="backend-pill" id="backend-pill">
+          <span class="status-dot"></span>
+          <span id="backend-text">前端測試模式</span>
+        </div>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="hero">
+          <div>
+            <span class="hero-label">SOULKEY TRANSLATION PIPELINE</span>
+            <h2>從 YouTube 到多語課程，一步一步確認。</h2>
+            <p>GPU 只在需要時啟動。中文完成並人工定稿後，才開放後續翻譯。</p>
+          </div>
+          <button class="primary" data-go="new-task">＋ 建立新課程</button>
+        </div>
+
+        <div class="stats">
+          <article><span>目前任務</span><strong id="stat-tasks">0</strong><small>本瀏覽器工作台</small></article>
+          <article><span>待人工確認</span><strong id="stat-uncertain">0</strong><small>AI 無法高信心判斷</small></article>
+          <article><span>本週 GPU 紀錄</span><strong id="stat-gpu">0m</strong><small>完成任務即結束</small></article>
+          <article><span>正式詞庫</span><strong id="stat-terms">0</strong><small>持續累積</small></article>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">WORKFLOW</p><h3>處理流程</h3></div>
+            <span class="muted">可獨立執行、重跑與人工確認</span>
+          </div>
+          <div class="pipeline" id="pipeline"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">RECENT</p><h3>最近任務</h3></div>
+          </div>
+          <div id="task-list" class="task-list"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-new-task">
+        <div class="split">
+          <div class="panel">
+            <p class="eyebrow">NEW COURSE</p>
+            <h3>建立翻譯任務</h3>
+            <p class="muted block-copy">貼入 YouTube 網址後建立任務。正式後端接上後，這裡會直接送入任務佇列，不需要打開 Kaggle。</p>
+            <form id="task-form">
+              <label>YouTube 網址<input id="youtube-url" type="url" required placeholder="https://youtu.be/..."></label>
+              <div class="grid2">
+                <label>期數<input id="period" type="number" min="1" value="253" required></label>
+                <label>堂次<select id="lesson"><option>第1堂</option><option>第2堂</option><option>第3堂</option><option>第4堂</option></select></label>
+              </div>
+              <label>備註<textarea id="task-note" rows="3" placeholder="可留空"></textarea></label>
+              <button class="primary full" type="submit">建立任務</button>
+            </form>
+          </div>
+          <div class="panel soft">
+            <p class="eyebrow">GPU POLICY</p>
+            <h3>按需啟動，不常駐</h3>
+            <div class="policy-list">
+              <div><b>ASR</b><span>需要 GPU → 喚起 Kaggle → 完成即離線</span></div>
+              <div><b>人工中文校稿</b><span>網頁直接編輯 → 不使用 GPU</span></div>
+              <div><b>AI 複核</b><span>需要時再啟動 Kaggle</span></div>
+              <div><b>五語翻譯</b><span>中文定稿後才可執行</span></div>
+              <div><b>TTS / 影片</b><span>各自獨立工作，不讓 GPU 空等</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-review">
+        <div class="review-toolbar panel">
+          <div>
+            <p class="eyebrow">ZH REVIEW</p>
+            <h3>中文逐字稿校稿</h3>
+            <p class="muted">正式後端接上後，會同步顯示影片、時間軸、ASR 原文、AI 建議與待確認詞。</p>
+          </div>
+          <div class="toolbar-actions">
+            <button class="ghost" id="load-demo">載入介面示範</button>
+            <button class="primary" id="finalize-zh">中文定稿</button>
+          </div>
+        </div>
+        <div class="review-layout">
+          <div class="panel video-panel">
+            <div class="video-placeholder" id="video-placeholder">
+              <div class="play-icon">▶</div>
+              <b>影片預覽區</b>
+              <span>選擇任務後顯示 YouTube</span>
+            </div>
+            <div class="context-card">
+              <span>目前句</span>
+              <strong id="current-time">--:--</strong>
+              <small>可播放前後 5 秒核對原音</small>
+            </div>
+          </div>
+          <div class="panel transcript-panel">
+            <div class="filter-row">
+              <button class="chip active" data-filter="all">全部</button>
+              <button class="chip" data-filter="uncertain">待人工確認</button>
+              <button class="chip" data-filter="changed">AI 已修改</button>
+            </div>
+            <div id="segment-list" class="segment-list">
+              <div class="empty">目前尚未載入逐字稿。後端完成後會直接從任務資料讀取。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-glossary">
+        <div class="panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">GLOSSARY</p><h3>一貫道／道場專有名詞庫</h3></div>
+            <button class="primary" id="add-term">＋ 新增詞彙</button>
+          </div>
+          <p class="muted block-copy">人工確認過的詞會成為高信心詞庫。未來 ASR 提示、AI 校稿與翻譯都共用同一份資料。</p>
+          <div class="term-search"><input id="term-search" placeholder="搜尋詞彙、別名、類別…"></div>
+          <div class="term-table-wrap">
+            <table>
+              <thead><tr><th>標準詞</th><th>類別</th><th>常見誤辨／別名</th><th>狀態</th><th></th></tr></thead>
+              <tbody id="term-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-knowledge">
+        <div class="panel">
+          <p class="eyebrow">KNOWLEDGE BASE</p>
+          <h3>經典與宗教知識庫</h3>
+          <p class="muted block-copy">預留給一貫道訓文、儒釋道經典、佛教經典、聖經、歷史典故與台語俗諺。資料會與「專有名詞」分開管理，避免 AI 把經文內容當成固定翻譯詞。</p>
+          <div class="knowledge-grid">
+            <article><b>一貫道／訓文</b><span>仙佛聖訓、修辦用語、佛規禮節</span></article>
+            <article><b>儒家</b><span>四書五經、聖賢典故</span></article>
+            <article><b>佛教</b><span>佛經、菩薩與佛號</span></article>
+            <article><b>道家／道教</b><span>經典、人物、術語</span></article>
+            <article><b>基督宗教</b><span>聖經卷章與常見引用</span></article>
+            <article><b>台語俗諺</b><span>保留原音、漢字版本與解釋</span></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-system">
+        <div class="split">
+          <div class="panel">
+            <p class="eyebrow">SYSTEM</p><h3>服務狀態</h3>
+            <div class="system-list">
+              <div><span>DM 分享頁</span><b class="ok">完全隔離／未修改</b></div>
+              <div><span>Studio 前端</span><b class="ok">已建立</b></div>
+              <div><span>任務 API</span><b class="warn" id="api-state">待接安全後端</b></div>
+              <div><span>Kaggle 喚醒</span><b class="warn">待接 GitHub Action</b></div>
+              <div><span>Firestore</span><b class="warn">待建立專案設定</b></div>
+            </div>
+          </div>
+          <div class="panel">
+            <p class="eyebrow">SAFETY</p><h3>敏感資料原則</h3>
+            <p class="muted block-copy">YouTube Cookies、Google OAuth、Kaggle Token 永遠不寫進這個網頁，也不提交到 GitHub。前端只拿到任務狀態與必要資料。</p>
+            <div class="codebox">Browser → Secure API → GitHub Actions → Kaggle GPU<br>Kaggle Secrets → YouTube / Google Drive</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="term-dialog">
+    <form method="dialog" id="term-form">
+      <div class="dialog-head"><h3>新增專有名詞</h3><button value="cancel" class="icon-btn">×</button></div>
+      <label>標準詞<input id="term-name" required placeholder="例如：前賢"></label>
+      <label>類別<select id="term-category"><option>宗教術語</option><option>仙佛／聖賢</option><option>道場稱謂</option><option>佛規禮節</option><option>經典／訓文</option><option>台語俗諺</option><option>歷史典故</option><option>其他</option></select></label>
+      <label>常見誤辨／別名<input id="term-aliases" placeholder="以逗號分隔"></label>
+      <label>說明<textarea id="term-description" rows="3" placeholder="語境、出處或判斷方式"></textarea></label>
+      <div class="dialog-actions"><button value="cancel" class="ghost">取消</button><button id="save-term" value="default" class="primary">儲存</button></div>
+    </form>
+  </dialog>
+
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
