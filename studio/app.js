@@ -53,6 +53,8 @@ function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
 let tasks = load(STORE.tasks, []);
 let terms = load(STORE.terms, seedTerms);
 let selectedTaskId = null;
+let currentView = "dashboard";
+const viewHistory = [];
 
 if(!localStorage.getItem(STORE.terms)) save(STORE.terms, terms);
 
@@ -71,14 +73,40 @@ function escapeHtml(s){
   }[m]));
 }
 
-function showView(name){
+function updateBackButton(){
+  const button=document.getElementById("back-button");
+  if(!button) return;
+  button.hidden=currentView==="dashboard";
+}
+
+function showView(name, options={}){
+  const {fromBack=false, replace=false}=options;
+  if(!document.getElementById("view-"+name)) return;
+
+  if(name!==currentView && !fromBack && !replace){
+    viewHistory.push(currentView);
+  }
+
   document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(
     x=>x.classList.toggle("active",x.dataset.view===name)
   );
   document.getElementById("view-"+name).classList.add("active");
   document.getElementById("view-title").textContent=titles[name]||"SoulKey Studio";
+  currentView=name;
+  updateBackButton();
+  window.scrollTo({top:0,behavior:"smooth"});
 }
+
+function goBack(){
+  let target=viewHistory.pop();
+  if(!target || target===currentView){
+    target="dashboard";
+  }
+  showView(target,{fromBack:true});
+}
+
+document.getElementById("back-button")?.addEventListener("click",goBack);
 
 document.querySelectorAll("[data-view]").forEach(
   b=>b.addEventListener("click",()=>showView(b.dataset.view))
@@ -468,4 +496,5 @@ updateTaskCodes();
 renderPipeline();
 renderTasks();
 renderTerms();
+updateBackButton();
 pingBackend();
