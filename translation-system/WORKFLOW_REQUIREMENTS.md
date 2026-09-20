@@ -38,19 +38,21 @@ YouTube URL
   ↓
 08 全文白話化（文言／古語 → 現代繁中）
   ↓
-09 中文白話 → English Pivot
+09 中文白話 → English Draft
   ↓
-10 English → Thai / Spanish / Indonesian / Vietnamese
+10 人工英文定稿（中英逐段對照＋術語學習）
   ↓
-11 各語言人工確認
+11 English Final → Thai / Spanish / Indonesian / Vietnamese
   ↓
-12 字幕整理
+12 各語言人工確認
   ↓
-13 TTS
+13 字幕整理
   ↓
-14 音訊時間軸對齊
+14 TTS
   ↓
-15 完成影片
+15 音訊時間軸對齊
+  ↓
+16 完成影片
 ```
 
 ---
@@ -415,7 +417,8 @@ AI 不得：
 ```text
 繁中 final
 → 繁中白話 vernacular
-→ English
+→ English Draft
+→ 人工英文定稿 English Final
 → Thai / Spanish / Indonesian / Vietnamese
 ```
 
@@ -425,7 +428,39 @@ AI 不得：
 - 中文直接翻印尼文
 - 中文直接翻越南文
 
-### 11.3 翻譯規則
+### 11.3 人工英文定稿
+
+English Draft 完成後，不得直接進入其他語言翻譯。
+
+網頁需提供逐 segment 對照：
+- 左側：繁中白話底稿（唯讀）
+- 右側：英文 Draft（可人工修改）
+- 保留相同 segment id / start / end
+
+人工定稿後產生：
+- `en.final.txt`
+- `en.final.srt`
+- `en.final.json`
+
+### 英文術語學習
+
+人工英文定稿時，系統要同步偵測本段出現的專有名詞，顯示：
+- canonical_zh
+- 目前 English 譯法
+- 詞庫既有 English（若有）
+- 是否 locked
+
+人工按下確認後：
+- 將 English 寫回專有名詞庫
+- `human_verified=true`
+- 可選擇升級為 `translation_locked=true`
+- 記錄來源 task_id / segment_id / updated_at
+
+未經人工確認的 AI 英文譯法，不得自動成為 locked translation。
+
+後續 Thai / Spanish / Indonesian / Vietnamese 必須只讀 `en.final.json`，不得讀未定稿的 `en.json`。
+
+### 11.4 翻譯規則
 
 - 保留 segment id
 - 保留 start/end
@@ -435,7 +470,7 @@ AI 不得：
 - 經典名稱按目標語言慣用名稱
 - 若無標準翻譯，標記 review_required
 - English 必須以 zh-TW.vernacular 為來源
-- th/es/id/vi 必須以 English 為來源
+- th/es/id/vi 必須以人工確認後的 English Final 為唯一來源
 
 ### 每個語言輸出
 - `<lang>.txt`
@@ -444,7 +479,7 @@ AI 不得：
 
 ---
 
-## 12. Stage 11｜翻譯人工確認
+## 12. Stage 12｜其他語言人工確認
 
 每個語言需獨立狀態：
 
@@ -457,7 +492,7 @@ AI 不得：
 
 ---
 
-## 13. Stage 12～15｜字幕 / TTS / 影片
+## 13. Stage 13～16｜字幕 / TTS / 影片
 
 ### 字幕
 - 以各語言 final transcript 建立
@@ -534,8 +569,10 @@ error
 - ASR
 - 中文 AI 校稿
 - 中文人工定稿
-- 五語翻譯
-- 五語人工確認
+- 英文翻譯
+- 英文人工定稿
+- 其他四語翻譯
+- 各語言人工確認
 - 字幕
 - TTS
 - 完成影片
