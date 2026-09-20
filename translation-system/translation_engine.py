@@ -356,14 +356,17 @@ JSON format:
     result = []
     reviews = []
 
-    for start in range(0, len(source_segments), chunk_size):
-        target = source_segments[start:start + chunk_size]
+    def translate_batch(target, start_index):
         payload = [{"id": x["id"], "text": x["text"]} for x in target]
-        before = _window_text(source_segments, max(0, start - 2), start)
+        before = _window_text(
+            source_segments,
+            max(0, start_index - 2),
+            start_index,
+        )
         after = _window_text(
             source_segments,
-            start + chunk_size,
-            min(len(source_segments), start + chunk_size + 2),
+            start_index + len(target),
+            min(len(source_segments), start_index + len(target) + 2),
         )
         user_prompt = f"""Glossary:
 {glossary_text or "(No locked glossary entries yet.)"}
@@ -379,27 +382,50 @@ Following context (context only):
 
 Translate all requested segments into {target_language}."""
 
-        print(
-            f"[TRANSLATE:{target_code}] segments {start + 1}-"
-            f"{min(start + chunk_size, len(source_segments))}/{len(source_segments)}"
-        )
-        parsed = _generate_parsed_json(
-            tokenizer,
-            model,
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_new_tokens=3200,
-            label=(
-                f"TRANSLATE:{target_code} segments {start + 1}-"
-                f"{min(start + chunk_size, len(source_segments))}"
-            ),
-        )
-        by_id = _normalize_returned(parsed.get("segments"))
+        first = start_index + 1
+        last = start_index + len(target)
+        label = f"TRANSLATE:{target_code} segments {first}-{last}"
 
-        for raw in target:
-            item = by_id.get(raw["id"], {})
+        print(
+            f"[TRANSLATE:{target_code}] segments {first}-{last}/"
+            f"{len(source_segments)}"
+        )
+
+        try:
+            parsed = _generate_parsed_json(
+                tokenizer,
+                model,
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_new_tokens=3200,
+                label=label,
+            )
+            by_id = _normalize_returned(parsed.get("segments"))
+            return [(raw, by_id.get(raw["id"], {})) for raw in target]
+
+        except RuntimeError:
+            if len(target) <= 1:
+                raise
+
+            mid = max(1, len(target) // 2)
+            left = target[:mid]
+            right = target[mid:]
+            print(
+                f"[WARN] {label} 連續格式失敗，"
+                f"自動拆成 {len(left)} + {len(right)} 段重試"
+            )
+            return (
+                translate_batch(left, start_index)
+                + translate_batch(right, start_index + mid)
+            )
+
+    for start in range(0, len(source_segments), chunk_size):
+        target = source_segments[start:start + chunk_size]
+        translated_pairs = translate_batch(target, start)
+
+        for raw, item in translated_pairs:
             text = str(item.get("text") or "").strip()
             missing = not text
             if missing:
