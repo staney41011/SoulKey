@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260920-11">
+  <link rel="stylesheet" href="./styles.css?v=20260920-12">
 </head>
 <body>
   <div class="shell">
@@ -355,6 +355,29 @@
           </div>
         </div>
 
+        <div class="panel bridge-panel" id="web-worker-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">WEB EXECUTION</p>
+              <h3>Kaggle Web Worker</h3>
+            </div>
+            <span class="badge" id="web-worker-state">尚未驗證</span>
+          </div>
+          <p class="muted block-copy">
+            正式改成「網頁按一下 → GitHub Actions → Kaggle」之前，先用無敏感資料的測試 Secret 驗證 Kaggle API 觸發後是否仍能讀取 Notebook Secret。
+          </p>
+          <div class="worker-actions">
+            <button class="ghost" id="worker-setup" type="button">① 建立 Web Worker</button>
+            <button class="primary" id="worker-secret-test" type="button">② 測試 Secret</button>
+          </div>
+          <div class="bridge-status" id="web-worker-status">
+            尚未建立 Web Worker。
+          </div>
+          <p class="muted bridge-note">
+            這兩個測試都不會執行正式 ASR、翻譯或 TTS；Secret 測試使用 CPU，不耗 GPU 額度。
+          </p>
+        </div>
+
         <div class="panel bridge-panel">
           <div class="panel-head">
             <div>
@@ -404,6 +427,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app.js?v=20260920-13"></script>
+  <script src="./app.js?v=20260920-14"></script>
 </body>
 </html>
