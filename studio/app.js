@@ -1541,21 +1541,21 @@ function setWorkerStatus(message,state="idle"){
 }
 
 document.getElementById("worker-setup")?.addEventListener("click",()=>{
-  const sent=bridgeClientRequest({action:"worker_setup"});
+  const sent=submitBridgePost({action:"worker_setup"});
   if(!sent){
-    setWorkerStatus("Bridge 尚未連線，請先確認 Apps Script 與 Bridge Key。","error");
+    setWorkerStatus("尚未設定 Apps Script URL 或 Bridge Key。","error");
     return;
   }
   setWorkerStatus(
-    "已送出建立 Web Worker。等 GitHub Actions 完成後，到 Kaggle Worker 附加測試 Secret。",
+    "已送出建立 Web Worker。請等待 GitHub Actions 的 Kaggle Web Worker Setup 執行。",
     "sending"
   );
 });
 
 document.getElementById("worker-secret-test")?.addEventListener("click",()=>{
-  const sent=bridgeClientRequest({action:"worker_secret_test"});
+  const sent=submitBridgePost({action:"worker_secret_test"});
   if(!sent){
-    setWorkerStatus("Bridge 尚未連線，請先確認 Apps Script 與 Bridge Key。","error");
+    setWorkerStatus("尚未設定 Apps Script URL 或 Bridge Key。","error");
     return;
   }
   setWorkerStatus(
