@@ -7,6 +7,8 @@ import torch
 from asr import resolve_model_source
 from config import ASR_MODEL, SPREADSHEET_ID, TASK_SHEET_RANGE
 from google_io import build_google_services, read_values
+from runner import resolve_lesson_folders, row_to_task
+from source_io import find_drive_source
 from youtube_io import extract_metadata
 
 
@@ -39,9 +41,7 @@ def main():
         if model_path.exists():
             ok("永久 ASR 模型", model_source)
         else:
-            print(
-                "⚠️ 永久 ASR 模型尚未掛載；Runner 會回退到 Hugging Face 下載。"
-            )
+            print("⚠️ 永久 ASR 模型尚未掛載。")
     except Exception as exc:
         fail("ASR 模型檢查", exc)
         return 5
@@ -60,32 +60,54 @@ def main():
         fail("控制中心", exc)
         return 3
 
+    first_task = None
+    for index, raw in enumerate(rows, start=2):
+        task = row_to_task(raw, index)
+        if task["task_id"] and task["period"] is not None and task["lesson"]:
+            first_task = task
+            break
+
+    if first_task:
+        try:
+            folders = resolve_lesson_folders(
+                drive,
+                sheets,
+                first_task["period"],
+                first_task["lesson"],
+            )
+            source = find_drive_source(drive, folders["source_video"])
+            if source:
+                ok("Drive 原始影片", source["name"])
+            else:
+                print(
+                    "⚠️ 第1堂的 00_原始影片 目前是空的；"
+                    "上傳影片後即可直接跑 ASR。"
+                )
+        except Exception as exc:
+            fail("Drive 來源資料夾", exc)
+            return 6
+
     first_url = None
     for row in rows:
         if len(row) > 4 and row[4]:
             first_url = row[4]
             break
 
-    if not first_url:
-        print("⚠️ 控制中心目前沒有 YouTube 網址，略過 YouTube 測試。")
-        return 0
+    if first_url:
+        try:
+            meta = extract_metadata(
+                first_url,
+                Path("/kaggle/working/translate-system-doctor"),
+            )
+            ok("YouTube（選配）", meta.get("title", ""))
+        except Exception as exc:
+            print(
+                "⚠️ YouTube 目前無法從 Kaggle 存取，"
+                "但 Drive→ASR 不受影響。"
+            )
+            print(f"   {type(exc).__name__}: {exc}")
 
-    try:
-        meta = extract_metadata(
-            first_url,
-            Path("/kaggle/working/translate-system-doctor"),
-        )
-        ok("YouTube", meta.get("title", ""))
-        ok("講師偵測", meta.get("lecturer", ""))
-    except Exception as exc:
-        fail("YouTube", exc)
-        print(
-            "提示：若出現 YouTube bot/login 限制，可再設定 "
-            "YOUTUBE_COOKIES_B64 Secret。"
-        )
-        return 4
-
-    print("\n🎉 Doctor 全部通過，可以開始跑 metadata / ASR。")
+    print("\n🎉 核心系統可用。Drive 原始影片是主要處理來源。")
     return 0
 
 
