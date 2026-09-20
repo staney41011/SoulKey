@@ -187,7 +187,6 @@
             <p class="muted">每堂課獨立校稿、人工確認，確認完成後再執行該堂課的下一個流程。</p>
           </div>
           <div class="toolbar-actions">
-            <button class="ghost" id="load-demo">預覽校稿介面</button>
             <button class="primary" id="finalize-zh">中文定稿</button>
           </div>
         </div>
@@ -228,7 +227,6 @@
             <p class="muted">左側保留中文原文，右側逐段校正 AI 白話文。確認後才允許進入英文翻譯。</p>
           </div>
           <div class="toolbar-actions">
-            <button class="ghost" id="load-vernacular-demo">預覽原文／白話文</button>
             <button class="primary" id="finalize-vernacular">白話文定稿</button>
           </div>
         </div>
@@ -246,7 +244,7 @@
             <span>白話文 Draft / Final</span>
           </div>
           <div id="vernacular-review-list" class="vernacular-review-list">
-            <div class="empty">這堂課目前尚未載入白話文資料。正式串接 Drive 後，這裡會以相同 segment id 顯示原文與 AI 白話文。</div>
+            <div class="empty">選擇任務後會自動讀取 Google Drive 的原文與白話文，並以相同 segment id 顯示原文與 AI 白話文。</div>
           </div>
         </div>
       </section>
@@ -262,7 +260,6 @@
             <p class="muted">逐段對照中文原文、人工定稿白話文與英文翻譯。人工確認後，專有名詞的英文譯法會同步學習進詞庫。</p>
           </div>
           <div class="toolbar-actions">
-            <button class="ghost" id="load-en-demo">預覽中英對照介面</button>
             <button class="primary" id="finalize-en">英文定稿</button>
           </div>
         </div>
@@ -345,7 +342,7 @@
               <div><span>任務 API</span><b class="warn" id="api-state">待部署最新版 Apps Script</b></div>
               <div><span>Kaggle 喚醒</span><b class="ok">GitHub → Kaggle 已驗證</b></div>
               <div><span>任務狀態回報</span><b class="warn" id="status-sync-state">等待同步</b></div>
-              <div><span>Firestore</span><b class="warn">待建立專案設定</b></div>
+              <div><span>YouTube Cookies</span><b class="warn" id="youtube-cookie-state">未檢查</b></div>
             </div>
           </div>
           <div class="panel">
@@ -361,7 +358,7 @@
               <p class="eyebrow">WEB EXECUTION</p>
               <h3>Kaggle Web Worker</h3>
             </div>
-            <div class="worker-build"><span class="muted">Build 20260920.20</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
+            <div class="worker-build"><span class="muted">Build 20260920.21</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
           </div>
           <p class="muted block-copy">
             私人 Kaggle 資料載體已通過測試。正式流程現在使用「網頁按一下 → Apps Script → GitHub Actions → Kaggle」，並由 Apps Script 提供短效 Google OAuth。
@@ -427,6 +424,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app-20260920-20.js"></script>
+  <script src="./app-20260920-21.js"></script>
 </body>
 </html>
