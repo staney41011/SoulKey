@@ -18,7 +18,7 @@ def run(cmd, cwd=None):
 def node_major():
     node = shutil.which("node")
     if not node:
-        raise RuntimeError("找不到 Node.js。PO Token Provider 需要 Node.js >= 22。")
+        raise RuntimeError("找不到 Node.js。PO Token Provider 需要 Node.js >= 20。")
     out = subprocess.check_output([node, "--version"], text=True).strip()
     match = re.search(r"v?(\d+)", out)
     if not match:
@@ -30,9 +30,9 @@ def node_major():
 
 def main():
     major = node_major()
-    if major < 22:
+    if major < 20:
         raise RuntimeError(
-            f"目前 Node.js {major}，bgutil 2.0.0 需要 Node.js >= 22。"
+            f"目前 Node.js {major}，bgutil 2.0.0 需要 Node.js >= 20。"
         )
 
     if DEST.exists():
