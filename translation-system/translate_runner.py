@@ -205,21 +205,39 @@ def process_translation(
     )
 
     if lang == "en":
-        source_path = download_translation_json(
+        final_item = find_file(
             drive,
             folders["translation"],
-            "zh-TW.vernacular",
-            workdir,
+            "zh-TW.vernacular.final.json",
         )
+        if final_item:
+            source_path = workdir / "zh-TW.vernacular.final.json"
+            download_drive_file(drive, final_item["id"], source_path)
+        else:
+            source_path = download_translation_json(
+                drive,
+                folders["translation"],
+                "zh-TW.vernacular",
+                workdir,
+            )
         source_segments = load_segments_json(source_path)
         source_language = "Traditional Chinese vernacular"
     else:
-        source_path = download_translation_json(
+        final_item = find_file(
             drive,
             folders["translation"],
-            "en",
-            workdir,
+            "en.final.json",
         )
+        if final_item:
+            source_path = workdir / "en.final.json"
+            download_drive_file(drive, final_item["id"], source_path)
+        else:
+            source_path = download_translation_json(
+                drive,
+                folders["translation"],
+                "en",
+                workdir,
+            )
         source_segments = load_segments_json(source_path)
         source_language = "English pivot"
 
@@ -254,10 +272,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--stage",
-        choices=["modernize", "translate", "translate-all", "all"],
+        choices=["modernize", "translate", "translate-targets", "translate-all", "all"],
         default="all",
     )
     parser.add_argument("--lang", choices=list(LANGUAGE_NAMES), default=None)
+    parser.add_argument(
+        "--langs",
+        default=None,
+        help="逗號分隔的目標語言，例如 th,es；供 translate-targets 使用",
+    )
     parser.add_argument("--period", type=int, default=None)
     parser.add_argument("--task-id", default=None)
     parser.add_argument("--max-tasks", type=int, default=1)
@@ -271,6 +294,23 @@ def main():
 
     if args.stage == "translate" and not args.lang:
         parser.error("--stage translate 必須指定 --lang")
+
+    target_langs = []
+    if args.stage == "translate-targets":
+        target_langs = [
+            x.strip() for x in str(args.langs or "").split(",") if x.strip()
+        ]
+        target_langs = list(dict.fromkeys(target_langs))
+        invalid = [
+            x for x in target_langs
+            if x not in LANGUAGE_NAMES or x == "en"
+        ]
+        if invalid:
+            parser.error(
+                "translate-targets 不支援：" + ",".join(invalid)
+            )
+        if not target_langs:
+            parser.error("--stage translate-targets 必須指定 --langs")
 
     print("=" * 72)
     print("打開心靈的鎖匙｜白話中文 → English Pivot → 多語翻譯")
@@ -311,7 +351,7 @@ def main():
             status_stage = "en"
         elif args.stage == "translate":
             status_stage = f"multi:{args.lang}"
-        elif args.stage == "translate-all":
+        elif args.stage in {"translate-targets", "translate-all"}:
             status_stage = "multi"
         else:
             status_stage = "translation-all-test"
