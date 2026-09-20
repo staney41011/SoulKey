@@ -6,6 +6,9 @@ const STORE = {
   gpu: "soulkey_studio_gpu_v1"
 };
 
+const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
+const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
+
 const seedTerms = [
   ["前賢","道場稱謂","前嫌、前線、淺顯、請醒"],
   ["白陽期","宗教術語","白羊期、白楊期、白羊棋、白楊棋"],
@@ -611,6 +614,116 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
   alert("已標記中文定稿。下一步："+workflow[4].label);
 });
 
+
+function setBridgeStatus(message, state="idle"){
+  const status=document.getElementById("bridge-status");
+  const badge=document.getElementById("bridge-state");
+  if(status) status.textContent=message;
+  if(!badge) return;
+
+  badge.className="badge";
+  if(state==="ready"){
+    badge.classList.add("complete");
+    badge.textContent="已設定";
+  }else if(state==="sending"){
+    badge.textContent="送出中";
+  }else if(state==="sent"){
+    badge.classList.add("complete");
+    badge.textContent="已送出";
+  }else if(state==="error"){
+    badge.classList.add("bridge-error");
+    badge.textContent="需要檢查";
+  }else{
+    badge.textContent="尚未設定";
+  }
+}
+
+function initBridgePanel(){
+  const endpointInput=document.getElementById("bridge-endpoint");
+  const keyInput=document.getElementById("bridge-key");
+  const testButton=document.getElementById("bridge-test");
+  if(!endpointInput || !keyInput || !testButton) return;
+
+  endpointInput.value=localStorage.getItem(BRIDGE_ENDPOINT_KEY) || "";
+  keyInput.value=sessionStorage.getItem(BRIDGE_SESSION_KEY) || "";
+
+  if(endpointInput.value){
+    setBridgeStatus("Apps Script Web App URL 已設定，可以輸入 Bridge Key 後測試。","ready");
+  }
+
+  endpointInput.addEventListener("change",()=>{
+    const value=endpointInput.value.trim();
+    if(value){
+      localStorage.setItem(BRIDGE_ENDPOINT_KEY,value);
+      setBridgeStatus("Apps Script Web App URL 已儲存。","ready");
+    }else{
+      localStorage.removeItem(BRIDGE_ENDPOINT_KEY);
+      setBridgeStatus("尚未設定 Apps Script Web App URL。","idle");
+    }
+  });
+
+  keyInput.addEventListener("input",()=>{
+    const value=keyInput.value.trim();
+    if(value){
+      sessionStorage.setItem(BRIDGE_SESSION_KEY,value);
+    }else{
+      sessionStorage.removeItem(BRIDGE_SESSION_KEY);
+    }
+  });
+
+  testButton.addEventListener("click",()=>{
+    const endpoint=endpointInput.value.trim();
+    const key=keyInput.value.trim();
+
+    if(!endpoint){
+      setBridgeStatus("請先貼上 Apps Script Web App URL。","error");
+      endpointInput.focus();
+      return;
+    }
+    if(!key){
+      setBridgeStatus("請輸入 Bridge Key。","error");
+      keyInput.focus();
+      return;
+    }
+
+    localStorage.setItem(BRIDGE_ENDPOINT_KEY,endpoint);
+    sessionStorage.setItem(BRIDGE_SESSION_KEY,key);
+
+    const form=document.createElement("form");
+    form.method="POST";
+    form.action=endpoint;
+    form.target="soulkey-bridge-target";
+    form.style.display="none";
+
+    const fields={
+      action:"smoke",
+      bridge_key:key
+    };
+
+    for(const [name,value] of Object.entries(fields)){
+      const input=document.createElement("input");
+      input.type="hidden";
+      input.name=name;
+      input.value=value;
+      form.appendChild(input);
+    }
+
+    document.body.appendChild(form);
+    testButton.disabled=true;
+    setBridgeStatus("正在送出網頁 → GitHub → Kaggle 測試…","sending");
+    form.submit();
+
+    window.setTimeout(()=>{
+      form.remove();
+      testButton.disabled=false;
+      setBridgeStatus(
+        "測試已送出。現在到 GitHub Actions 查看是否自動出現新的「Kaggle Run Bridge Test」。",
+        "sent"
+      );
+    },1500);
+  });
+}
+
 async function pingBackend(){
   if(!cfg.apiBaseUrl) return;
   try{
@@ -630,4 +743,5 @@ renderPipeline();
 renderTasks();
 renderTerms();
 updateBackButton();
+initBridgePanel();
 pingBackend();
