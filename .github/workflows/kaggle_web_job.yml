@@ -104,25 +104,20 @@ jobs:
               "runtime_nonce": os.environ["JOB_RUNTIME_NONCE"].strip(),
               "bridge_url": os.environ["JOB_BRIDGE_URL"].strip(),
           }
-          (d / "soulkey_job.json").write_text(
-              json.dumps(job, ensure_ascii=False, indent=2),
-              encoding="utf-8",
-          )
 
           code_file = meta["code_file"]
+          job_literal = repr(job)
           bootstrap = r'''
-          import json
           import subprocess
           import sys
           from pathlib import Path
 
-          job_path = Path("/kaggle/src/soulkey_job.json")
-          if not job_path.exists():
-              job_path = Path(__file__).with_name("soulkey_job.json")
+          job = __SOULKEY_JOB_LITERAL__
 
-          job = json.loads(job_path.read_text(encoding="utf-8"))
-
-          repo = Path("/kaggle/working/SoulKey")
+          repo = Path("/kaggle/working/SoulKey")'''.replace(
+              "__SOULKEY_JOB_LITERAL__",
+              job_literal,
+          ) + r'''
           subprocess.run(
               [
                   "git", "clone", "--depth", "1",
