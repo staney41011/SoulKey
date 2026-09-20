@@ -1,0 +1,109 @@
+name: Kaggle Run Bridge Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  launch-kaggle-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-bridge-smoke
+
+    steps:
+      - name: Install Kaggle CLI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install kaggle
+
+      - name: Build isolated smoke-test kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_DIR="${RUNNER_TEMP}/soulkey-kaggle-bridge"
+          mkdir -p "$TEST_DIR"
+
+          cat > "$TEST_DIR/bridge_smoke.py" <<'PY'
+          from pathlib import Path
+          from datetime import datetime, timezone
+
+          now = datetime.now(timezone.utc).isoformat()
+          message = f"SoulKey GitHub -> Kaggle bridge OK at {now}\n"
+          print(message.strip())
+          Path("/kaggle/working/bridge_ok.txt").write_text(message, encoding="utf-8")
+          PY
+
+          kaggle kernels init -p "$TEST_DIR"
+
+          TEST_DIR="$TEST_DIR" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["TEST_DIR"]) / "kernel-metadata.json"
+          meta = json.loads(path.read_text(encoding="utf-8"))
+          meta.update({
+              "id": "cwlmrcsir/soulkey-bridge-smoke",
+              "title": "SoulKey Bridge Smoke Test",
+              "code_file": "bridge_smoke.py",
+              "language": "python",
+              "kernel_type": "script",
+              "is_private": True,
+              "enable_gpu": False,
+              "enable_internet": False,
+              "dataset_sources": [],
+              "competition_sources": [],
+              "kernel_sources": []
+          })
+          path.write_text(
+              json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(path.read_text(encoding="utf-8"))
+          PY
+
+      - name: Push and start Kaggle CPU test
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_DIR="${RUNNER_TEMP}/soulkey-kaggle-bridge"
+          kaggle kernels push -p "$TEST_DIR" -t 120
+
+      - name: Wait for Kaggle run
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            STATUS="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+            echo "$STATUS"
+
+            if echo "$STATUS" | grep -Eqi 'complete|completed'; then
+              echo "Kaggle smoke-test run completed."
+              exit 0
+            fi
+
+            if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
+              echo "Kaggle smoke-test run failed."
+              exit 1
+            fi
+
+            sleep 5
+          done
+
+          echo "Timed out waiting for Kaggle smoke-test run."
+          exit 1
+
+      - name: Verify Kaggle output
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="${RUNNER_TEMP}/soulkey-kaggle-output"
+          mkdir -p "$OUT_DIR"
+          kaggle kernels output "$KAGGLE_KERNEL" -p "$OUT_DIR" -o
+          cat "$OUT_DIR/bridge_ok.txt"
+          grep -q "SoulKey GitHub -> Kaggle bridge OK" "$OUT_DIR/bridge_ok.txt"
+          echo "GitHub -> Kaggle execution bridge verified."
