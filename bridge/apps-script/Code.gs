@@ -1,6 +1,8 @@
 const OWNER = "staney41011";
 const REPO = "SoulKey";
 const WORKFLOW = "kaggle_run_bridge_test.yml";
+const WORKFLOW_WEB_WORKER_SETUP = "kaggle_web_worker_setup.yml";
+const WORKFLOW_WEB_WORKER_SECRET_TEST = "kaggle_web_worker_secret_test.yml";
 const REF = "main";
 
 const CONTROL_SHEET_ID = "1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
@@ -57,6 +59,46 @@ function doPost(e) {
         });
       }
       return dispatchSmoke_(githubToken);
+    }
+
+    if (action === "worker_setup") {
+      if (!githubToken) {
+        return postMessage_({
+          source: "soulkey-bridge",
+          type: "worker_setup",
+          ok: false,
+          error: "server_not_configured",
+          message: "GITHUB_TOKEN 尚未設定"
+        });
+      }
+      const result = dispatchWorkflow_(
+        githubToken,
+        WORKFLOW_WEB_WORKER_SETUP,
+        {}
+      );
+      result.source = "soulkey-bridge";
+      result.type = "worker_setup";
+      return postMessage_(result);
+    }
+
+    if (action === "worker_secret_test") {
+      if (!githubToken) {
+        return postMessage_({
+          source: "soulkey-bridge",
+          type: "worker_secret_test",
+          ok: false,
+          error: "server_not_configured",
+          message: "GITHUB_TOKEN 尚未設定"
+        });
+      }
+      const result = dispatchWorkflow_(
+        githubToken,
+        WORKFLOW_WEB_WORKER_SECRET_TEST,
+        {}
+      );
+      result.source = "soulkey-bridge";
+      result.type = "worker_secret_test";
+      return postMessage_(result);
     }
 
     if (action === "status_health") {
@@ -393,15 +435,20 @@ function bridgeClientHtml_() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-function dispatchSmoke_(githubToken) {
+function dispatchWorkflow_(githubToken, workflowFile, inputs) {
   const url =
     "https://api.github.com/repos/" + OWNER + "/" + REPO +
-    "/actions/workflows/" + encodeURIComponent(WORKFLOW) + "/dispatches";
+    "/actions/workflows/" + encodeURIComponent(workflowFile) + "/dispatches";
+
+  const payload = { ref: REF };
+  if (inputs && Object.keys(inputs).length) {
+    payload.inputs = inputs;
+  }
 
   const response = UrlFetchApp.fetch(url, {
     method: "post",
     contentType: "application/json",
-    payload: JSON.stringify({ ref: REF }),
+    payload: JSON.stringify(payload),
     headers: {
       Authorization: "Bearer " + githubToken,
       Accept: "application/vnd.github+json",
@@ -411,18 +458,18 @@ function dispatchSmoke_(githubToken) {
   });
 
   const status = response.getResponseCode();
+  const responseText = String(response.getContentText() || "").trim();
 
   if (status !== 200 && status !== 204) {
-    return json_({
+    return {
       ok: false,
       error: "github_dispatch_failed",
       github_status: status,
-      github_body: response.getContentText().slice(0, 800)
-    });
+      github_body: responseText.slice(0, 800)
+    };
   }
 
   let githubResult = {};
-  const responseText = String(response.getContentText() || "").trim();
   if (responseText) {
     try {
       githubResult = JSON.parse(responseText);
@@ -431,13 +478,19 @@ function dispatchSmoke_(githubToken) {
     }
   }
 
-  return json_({
+  return {
     ok: true,
-    action: "smoke",
+    workflow: workflowFile,
     message: "GitHub Actions workflow dispatched",
     workflow_run_id: githubResult.workflow_run_id || null,
     html_url: githubResult.html_url || null
-  });
+  };
+}
+
+function dispatchSmoke_(githubToken) {
+  const result = dispatchWorkflow_(githubToken, WORKFLOW, {});
+  result.action = "smoke";
+  return json_(result);
 }
 
 
