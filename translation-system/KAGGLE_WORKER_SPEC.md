@@ -280,7 +280,8 @@ Kaggle 本身不需要等待網頁。
 
 ```text
 zh-TW.final.json
-→ zh-TW.vernacular.json
+→ zh-TW.vernacular.json (AI Draft)
+→ 人工白話文定稿 → zh-TW.vernacular.final.json
 → en.json (English Draft)
 → 人工英文定稿 → en.final.json
 → th/es/id/vi.json
@@ -290,7 +291,7 @@ zh-TW.final.json
 
 白話化與翻譯共用 Qwen3-4B：
 - 白話化：整篇逐 segment 處理，但保留前後文
-- English：只能讀白話中文
+- English：只能讀人工定稿後的 zh-TW.vernacular.final.json
 - th/es/id/vi：只能讀人工確認後的 English Final pivot
 - 每一段保留 id/start/end
 - 文言、偈語、經典句若不確定，標記 review_required
@@ -331,3 +332,29 @@ Web 人工流程：
 - 產生 en.final.json / txt / srt
 
 只有 en.final 完成後，才允許再次喚醒 Kaggle 執行其他四語翻譯。
+
+
+---
+
+## 16. 人工白話文定稿（非 GPU Stage）
+
+AI 白話化完成後，Kaggle 不得自動接著做 English。
+
+Web 人工流程：
+- 左側顯示 zh-TW.final 原文
+- 右側顯示 zh-TW.vernacular Draft 並可修改
+- 人工定稿後產生 zh-TW.vernacular.final.json / txt / srt
+- English 只能以 vernacular final 為來源
+
+---
+
+## 17. 退回上一步與 stale 下游
+
+Web 可將任務退回上一個 stage。
+
+Worker / 後端規則：
+- 不刪除既有檔案
+- 下游產物標記 stale / needs_recheck
+- stale final 禁止被後續 stage 讀取
+- 人工 final 修改後建立新 revision
+- 只有新 revision 再確認完成後，才能重新啟動下一個 GPU stage
