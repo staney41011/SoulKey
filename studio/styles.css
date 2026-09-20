@@ -54,3 +54,12 @@ dialog{border:0;border-radius:17px;padding:0;width:min(540px,92vw);box-shadow:0 
 @media(max-width:900px){.language-plan-head{display:none}.language-plan-row{grid-template-columns:1fr}.language-output-cell{grid-template-columns:1fr}.language-plan-footer{align-items:stretch;flex-direction:column}.language-plan-footer button{width:100%}}
 
 .worker-actions{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}.worker-actions button{min-width:180px}
+
+.dashboard-bridge-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(420px,.9fr);gap:24px;align-items:center;border-left:4px solid #d4a72c}
+.dashboard-bridge-copy{display:flex;gap:18px;align-items:flex-start}.dashboard-bridge-copy h3{margin:0 0 6px}.dashboard-bridge-copy p{margin:0}
+.dashboard-bridge-form{display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:10px;align-items:end}.dashboard-bridge-form label{margin:0}.dashboard-bridge-form input{margin:5px 0 0}
+.dashboard-bridge-message{grid-column:1/-1;font-size:11px;color:var(--muted);padding-top:2px}
+.bridge-built-in{border:1px solid var(--line);background:#fafbfe;border-radius:12px;padding:11px 13px;min-width:180px}.bridge-built-in span,.bridge-built-in b{display:block}.bridge-built-in span{font-size:10px;color:var(--muted);margin-bottom:3px}.bridge-built-in b{font-size:12px}
+.bridge-diagnostic-form{grid-template-columns:1fr 1fr auto}
+@media(max-width:1050px){.dashboard-bridge-card{grid-template-columns:1fr}.dashboard-bridge-form{grid-template-columns:1fr auto}.dashboard-bridge-form .badge{grid-column:1/-1;justify-self:start}.bridge-diagnostic-form{grid-template-columns:1fr}}
+@media(max-width:650px){.dashboard-bridge-form{grid-template-columns:1fr}.dashboard-bridge-form button{width:100%}.dashboard-bridge-copy{display:block}}
