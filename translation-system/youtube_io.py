@@ -20,9 +20,45 @@ def _cookie_file(workdir: Path):
     if not value:
         return None
 
+    try:
+        raw = base64.b64decode(value)
+    except Exception as exc:
+        raise RuntimeError("YOUTUBE_COOKIES_B64 不是有效的 Base64") from exc
+
     path = workdir / "youtube_cookies.txt"
-    path.write_bytes(base64.b64decode(value))
+    path.write_bytes(raw)
+
+    first_line = path.read_text(
+        encoding="utf-8",
+        errors="ignore",
+    ).splitlines()[:1]
+    if not first_line or first_line[0] not in {
+        "# HTTP Cookie File",
+        "# Netscape HTTP Cookie File",
+    }:
+        raise RuntimeError(
+            "YouTube cookies 必須是 Mozilla/Netscape cookies.txt 格式。"
+        )
+
     return str(path)
+
+
+def _youtube_options(workdir: Path, quiet: bool):
+    options = {
+        "quiet": quiet,
+        "no_warnings": quiet,
+        "noplaylist": True,
+    }
+
+    cookiefile = _cookie_file(workdir)
+    if cookiefile:
+        options["cookiefile"] = cookiefile
+
+    user_agent = get_secret("YOUTUBE_USER_AGENT", required=False)
+    if user_agent:
+        options["http_headers"] = {"User-Agent": user_agent}
+
+    return options
 
 
 def detect_lecturer(info: dict):
@@ -48,15 +84,8 @@ def detect_lecturer(info: dict):
 
 def extract_metadata(url: str, workdir: Path):
     workdir.mkdir(parents=True, exist_ok=True)
-    options = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "noplaylist": True,
-    }
-    cookiefile = _cookie_file(workdir)
-    if cookiefile:
-        options["cookiefile"] = cookiefile
+    options = _youtube_options(workdir, quiet=True)
+    options["skip_download"] = True
 
     with YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -80,22 +109,19 @@ def download_audio(url: str, workdir: Path):
     workdir.mkdir(parents=True, exist_ok=True)
     raw_template = str(workdir / "source.%(ext)s")
 
-    options = {
-        "quiet": False,
-        "no_warnings": False,
-        "noplaylist": True,
-        "format": "bestaudio/best",
-        "outtmpl": raw_template,
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "wav",
-            }
-        ],
-    }
-    cookiefile = _cookie_file(workdir)
-    if cookiefile:
-        options["cookiefile"] = cookiefile
+    options = _youtube_options(workdir, quiet=False)
+    options.update(
+        {
+            "format": "bestaudio/best",
+            "outtmpl": raw_template,
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "wav",
+                }
+            ],
+        }
+    )
 
     with YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=True)
