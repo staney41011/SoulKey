@@ -153,6 +153,7 @@ def main():
             )
 
             completed = []
+            over_duration = []
             for lang in langs:
                 translation_status = task.get(lang, "")
                 if translation_status not in {"完成", "待人工確認"}:
@@ -167,32 +168,64 @@ def main():
                     lang,
                     workdir,
                 )
+                source_duration = max(
+                    float(seg.get("end", 0) or 0)
+                    for seg in segments
+                )
                 result = synthesize_language(
                     segments=segments,
                     lang=lang,
                     model_id=TTS_MODELS[lang],
                     output_dir=workdir / f"tts-{lang}",
+                    target_duration=source_duration,
                 )
                 upload_tts_outputs(drive, folders["audio"], result)
                 completed.append(lang)
-                print(
-                    f"[DONE] {lang}: {result['segment_count']} segments / "
-                    f"{result['duration']:.1f}s"
-                )
+                if not result["within_source_duration"]:
+                    over_duration.append({
+                        "lang": lang,
+                        "over": result["over_by_seconds"],
+                    })
+                    print(
+                        f"[WARN] {lang}: 自然朗讀超過原片 "
+                        f"{result['over_by_seconds']:.1f}s；未調速、未截斷。"
+                    )
+                else:
+                    print(
+                        f"[DONE] {lang}: speech={result['speech_duration']:.1f}s / "
+                        f"target={result['target_duration']:.1f}s / "
+                        f"尾端靜音={result['remaining_silence']:.1f}s"
+                    )
 
-            if args.all_langs and len(completed) == len(LANGUAGE_NAMES):
+            if over_duration:
+                status = "待人工確認"
+                over_text = ",".join(
+                    f"{item['lang']}+{item['over']:.1f}s"
+                    for item in over_duration
+                )
+                note = (
+                    f"TTS已產生：{','.join(completed)}；"
+                    f"超過原片總長：{over_text}；"
+                    "未調速、未截斷，請先處理超時語言"
+                )
+            elif args.all_langs and len(completed) == len(LANGUAGE_NAMES):
                 status = "完成"
+                note = (
+                    f"TTS完成：{','.join(completed)}；"
+                    "所有語言皆在原片總長內結束；較短音檔只在尾端補靜音"
+                )
             else:
                 status = "部分完成：" + ",".join(completed)
+                note = (
+                    f"TTS完成：{','.join(completed)}；"
+                    "已輸出 WAV/MP3/segments.zip；不做逐段時間對齊或調速"
+                )
 
             update_audio_status(
                 sheets,
                 task["sheet_row"],
                 status,
-                (
-                    f"TTS完成：{','.join(completed)}；"
-                    "已輸出 WAV/MP3/segments.zip；尚未做影片時間軸伸縮對齊"
-                ),
+                note,
             )
             processed += 1
 
