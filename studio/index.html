@@ -48,8 +48,28 @@
           <button class="primary" data-go="new-task">＋ 建立新課程</button>
         </div>
 
+        <div class="panel dashboard-bridge-card" id="dashboard-bridge-card">
+          <div class="dashboard-bridge-copy">
+            <p class="eyebrow">CONTROL CENTER</p>
+            <div>
+              <h3>連線全球翻譯控制中心</h3>
+              <p class="muted">Apps Script URL 已內建。輸入 Bridge Key 後，會自動讀取 Google Sheet 任務與最新 Kaggle 狀態。</p>
+            </div>
+          </div>
+          <div class="dashboard-bridge-form">
+            <label>Bridge Key
+              <input id="dashboard-bridge-key" type="password" autocomplete="off" placeholder="輸入 Bridge Key">
+            </label>
+            <button class="primary" id="dashboard-bridge-connect" type="button">連線控制中心</button>
+            <span class="badge" id="dashboard-bridge-state">尚未連線</span>
+          </div>
+          <div class="dashboard-bridge-message" id="dashboard-bridge-message">
+            Bridge Key 只保留在目前瀏覽器分頁，不會寫入 GitHub。
+          </div>
+        </div>
+
         <div class="stats">
-          <article><span>目前任務</span><strong id="stat-tasks">0</strong><small>本瀏覽器工作台</small></article>
+          <article><span>目前任務</span><strong id="stat-tasks">0</strong><small>中央控制中心</small></article>
           <article><span>待人工確認</span><strong id="stat-uncertain">0</strong><small>AI 無法高信心判斷</small></article>
           <article><span>本週 GPU 紀錄</span><strong id="stat-gpu">0m</strong><small>完成任務即結束</small></article>
           <article><span>正式詞庫</span><strong id="stat-terms">0</strong><small>持續累積</small></article>
@@ -358,7 +378,7 @@
               <p class="eyebrow">WEB EXECUTION</p>
               <h3>Kaggle Web Worker</h3>
             </div>
-            <div class="worker-build"><span class="muted">Build 20260920.22</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
+            <div class="worker-build"><span class="muted">Build 20260920.23</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
           </div>
           <p class="muted block-copy">
             私人 Kaggle 資料載體已通過測試。正式流程現在使用「網頁按一下 → Apps Script → GitHub Actions → Kaggle」，並由 Apps Script 提供短效 Google OAuth。
@@ -386,13 +406,15 @@
           <p class="muted block-copy">
             這裡只觸發已驗證過的 Kaggle smoke test，不會啟動正式 ASR、翻譯、TTS，也不會使用 GPU。
           </p>
-          <div class="bridge-form">
-            <label>Apps Script Web App URL
-              <input id="bridge-endpoint" type="url" placeholder="https://script.google.com/macros/s/.../exec">
-            </label>
-            <label>Bridge Key
-              <input id="bridge-key" type="password" autocomplete="off" placeholder="只保留在目前瀏覽器分頁">
-            </label>
+          <div class="bridge-form bridge-diagnostic-form">
+            <div class="bridge-built-in">
+              <span>Apps Script Web App</span>
+              <b id="bridge-endpoint-display">已內建</b>
+            </div>
+            <div class="bridge-built-in">
+              <span>Bridge Key</span>
+              <b>由總覽頁輸入</b>
+            </div>
             <button class="primary" id="bridge-test" type="button">送出橋樑測試</button>
           </div>
           <div class="bridge-status" id="bridge-status">
@@ -402,7 +424,7 @@
             任務狀態尚未同步。
           </div>
           <p class="muted bridge-note">
-            Web App URL 只儲存在這個瀏覽器；Bridge Key 不會寫進 GitHub，只保留在目前分頁。
+            Apps Script URL 已寫入系統設定；Bridge Key 從總覽頁輸入，只保留在目前分頁。
           </p>
           <iframe name="soulkey-bridge-target" id="soulkey-bridge-target" hidden></iframe>
           <iframe id="soulkey-status-bridge" title="SoulKey status bridge" hidden></iframe>
@@ -424,6 +446,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app-20260920-22.js"></script>
+  <script src="./app-20260920-23.js"></script>
 </body>
 </html>
