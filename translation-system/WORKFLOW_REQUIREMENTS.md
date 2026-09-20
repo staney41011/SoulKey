@@ -36,17 +36,21 @@ YouTube URL
   ↓
 07 人工中文定稿
   ↓
-08 五語翻譯
+08 全文白話化（文言／古語 → 現代繁中）
   ↓
-09 各語言人工確認
+09 中文白話 → English Pivot
   ↓
-10 字幕整理
+10 English → Thai / Spanish / Indonesian / Vietnamese
   ↓
-11 TTS
+11 各語言人工確認
   ↓
-12 音訊時間軸對齊
+12 字幕整理
   ↓
-13 完成影片
+13 TTS
+  ↓
+14 音訊時間軸對齊
+  ↓
+15 完成影片
 ```
 
 ---
@@ -376,24 +380,53 @@ AI 不得：
 
 ---
 
-## 11. Stage 08｜五語翻譯
+## 11. Stage 08～10｜白話化 + English Pivot + 五語翻譯
 
-語言：
+目標語言：
 - English
 - ไทย
 - Español
 - Bahasa Indonesia
 - Tiếng Việt
 
-### 唯一允許的中文來源
+### 11.1 中文白話化
+
+正式來源優先使用：
 `zh-TW.final.json`
 
-不得直接翻譯：
-- raw ASR
-- polished draft
-- 未人工確認版本
+整篇逐字稿先轉為：
+- `zh-TW.vernacular.txt`
+- `zh-TW.vernacular.srt`
+- `zh-TW.vernacular.json`
 
-### 翻譯規則
+規則：
+- 已是現代白話的句子儘量維持
+- 文言文、古語、偈語、凝縮句轉成忠實現代白話
+- 不摘要、不刪減、不增加教義
+- 不確定經文／台語／仙佛稱謂標記 review_required
+- 原中文永久保留，不被白話版覆蓋
+
+### 11.2 English Pivot
+
+英文是所有外語翻譯的樞紐語言。
+
+唯一流程：
+
+```text
+繁中 final
+→ 繁中白話 vernacular
+→ English
+→ Thai / Spanish / Indonesian / Vietnamese
+```
+
+禁止：
+- 中文直接翻泰文
+- 中文直接翻西文
+- 中文直接翻印尼文
+- 中文直接翻越南文
+
+### 11.3 翻譯規則
+
 - 保留 segment id
 - 保留 start/end
 - 不自行摘要
@@ -401,16 +434,17 @@ AI 不得：
 - 專有名詞依鎖定翻譯
 - 經典名稱按目標語言慣用名稱
 - 若無標準翻譯，標記 review_required
+- English 必須以 zh-TW.vernacular 為來源
+- th/es/id/vi 必須以 English 為來源
 
 ### 每個語言輸出
-- transcript
-- srt
-- segments json
-- review report
+- `<lang>.txt`
+- `<lang>.srt`
+- `<lang>.json`
 
 ---
 
-## 12. Stage 09｜翻譯人工確認
+## 12. Stage 11｜翻譯人工確認
 
 每個語言需獨立狀態：
 
@@ -423,7 +457,7 @@ AI 不得：
 
 ---
 
-## 13. Stage 10～13｜字幕 / TTS / 影片
+## 13. Stage 12～15｜字幕 / TTS / 影片
 
 ### 字幕
 - 以各語言 final transcript 建立
@@ -433,7 +467,11 @@ AI 不得：
 ### TTS
 - 語言各自生成
 - 保留 segment 對應
+- 第一版使用 Meta MMS-TTS：eng / tha / spa / ind / vie
+- 產出完整 WAV、MP3、逐 segment WAV 壓縮包與 manifest
+- 第一版完整音檔為連續朗讀版；影片配音對齊另由下一階段處理
 - 未來可支援指定講師聲線
+- MMS-TTS 授權為 CC-BY-NC 4.0；若未來涉及商業用途，必須先更換或重新確認 TTS 授權
 
 ### 音訊對齊
 - TTS 音訊不得互相覆蓋
