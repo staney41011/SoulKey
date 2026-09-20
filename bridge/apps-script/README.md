@@ -49,3 +49,47 @@ SoulKey Studio (GitHub Pages)
 - 按「送出橋樑測試」
 
 BRIDGE_KEY 不會寫進 GitHub；Studio 只保留在目前瀏覽器分頁的 sessionStorage。
+
+
+## 任務狀態回報
+
+控制中心試算表現在新增：
+
+```
+執行狀態
+```
+
+欄位：
+- task_id
+- stage
+- status
+- run_id
+- progress
+- message
+- started_at
+- finished_at
+- updated_at
+- error_code
+- error_message
+- input_revision
+- output_revision
+
+新版 `Code.gs` 支援：
+- `action=smoke`：原本 GitHub → Kaggle 測試
+- `action=status_health`：確認狀態表可讀
+- `action=status_batch`：依 task_id 批次讀取最新 stage 狀態
+
+Studio 會透過 hidden iframe + `postMessage` 接收結果，避免把 GitHub Token 暴露到前端。
+
+### 更新既有 Apps Script 部署
+
+GitHub 內的 `bridge/apps-script/Code.gs` 更新後，Google Apps Script 不會自動同步。
+
+請：
+1. 將最新版 `Code.gs` 全部貼回 Apps Script。
+2. 儲存。
+3. 部署 → 管理部署作業 → 編輯。
+4. 建立新版本並重新部署。
+5. Web App URL 可維持同一個 `/exec` URL。
+
+不用更換 `GITHUB_TOKEN` 或 `BRIDGE_KEY`。
