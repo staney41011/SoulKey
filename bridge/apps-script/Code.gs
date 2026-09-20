@@ -448,10 +448,22 @@ function bridgeRequest(request) {
 function authorizeSoulKeyBridge() {
   const ss = SpreadsheetApp.openById(CONTROL_SHEET_ID);
   const root = DriveApp.getFolderById(ROOT_DRIVE_FOLDER_ID);
+
+  // 主動呼叫 UrlFetchApp，讓 Apps Script 在更換 GCP Project 後
+  // 一次要求 script.external_request 權限；正式 Bridge 觸發 GitHub Actions 會用到。
+  const probe = UrlFetchApp.fetch("https://api.github.com/zen", {
+    method: "get",
+    muteHttpExceptions: true,
+    headers: {
+      Accept: "application/vnd.github+json"
+    }
+  });
+
   const token = ScriptApp.getOAuthToken();
 
   Logger.log("Spreadsheet: " + ss.getName());
   Logger.log("Drive root: " + root.getName());
+  Logger.log("External request status: " + probe.getResponseCode());
   Logger.log("OAuth token available: " + (!!token));
 }
 
