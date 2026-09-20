@@ -68,8 +68,11 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head">
+          <div class="panel-head period-head">
             <div><p class="eyebrow">COURSES</p><h3>課程任務</h3></div>
+            <label class="period-selector">查看期數
+              <select id="dashboard-period"></select>
+            </label>
           </div>
           <div id="task-list" class="task-list"></div>
         </div>
@@ -123,6 +126,35 @@
         </div>
       </section>
 
+      <section class="view" id="view-task-detail">
+        <div class="panel task-detail-hero">
+          <div>
+            <p class="eyebrow">COURSE TASK</p>
+            <h3 id="detail-title">課程任務</h3>
+            <div id="detail-meta" class="review-task-context"></div>
+          </div>
+          <div class="task-detail-actions">
+            <button class="ghost" id="detail-review-btn">進入中文校稿</button>
+            <button class="primary" id="detail-next-btn">執行下一步</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">PROGRESS</p><h3>這堂課的處理流程</h3></div>
+            <span class="muted">每一堂課獨立執行、獨立確認</span>
+          </div>
+          <div id="detail-stage-list" class="detail-stage-list"></div>
+        </div>
+
+        <div class="panel" id="detail-current-panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">CURRENT STAGE</p><h3 id="detail-current-title">目前步驟</h3></div>
+          </div>
+          <div id="detail-current-body" class="detail-current-body"></div>
+        </div>
+      </section>
+
       <section class="view" id="view-review">
         <div class="review-toolbar panel">
           <div>
@@ -132,7 +164,7 @@
             <p class="muted">每堂課獨立校稿、人工確認，確認完成後再執行該堂課的下一個流程。</p>
           </div>
           <div class="toolbar-actions">
-            <button class="ghost" id="load-demo">載入介面示範</button>
+            <button class="ghost" id="load-demo">預覽校稿介面</button>
             <button class="primary" id="finalize-zh">中文定稿</button>
           </div>
         </div>
@@ -156,7 +188,7 @@
               <button class="chip" data-filter="changed">AI 已修改</button>
             </div>
             <div id="segment-list" class="segment-list">
-              <div class="empty">目前尚未載入逐字稿。後端完成後會直接從任務資料讀取。</div>
+              <div class="empty">這堂課目前尚未載入逐字稿資料。正式串接 Kaggle / Drive 後，這裡會直接顯示該堂課的 ASR 原文、AI 校稿結果與待人工確認內容。</div>
             </div>
           </div>
         </div>
