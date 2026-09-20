@@ -9,6 +9,7 @@ const STORE = {
 const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const STATUS_POLL_MS = 12000;
+let bridgeClientReady = false;
 
 const seedTerms = [
   ["前賢","道場稱謂","前嫌、前線、淺顯、請醒"],
@@ -484,7 +485,7 @@ function saveLanguagePlanForSelectedTask(){
     if(status) status.textContent="已儲存 "+selected.length+" 種語言設定，正在同步控制中心…";
   }
 
-  const sent=submitBridgePost({
+  const sent=bridgeClientRequest({
     action:"language_plan_save",
     task_id:task.id,
     plan_json:JSON.stringify(plan)
@@ -496,12 +497,12 @@ function saveLanguagePlanForSelectedTask(){
 }
 
 function requestLanguageSettings(){
-  return submitBridgePost({action:"language_settings"});
+  return bridgeClientRequest({action:"language_settings"});
 }
 
 function requestLanguagePlan(taskId){
   if(!taskId) return false;
-  return submitBridgePost({action:"language_plan_get",task_id:taskId});
+  return bridgeClientRequest({action:"language_plan_get",task_id:taskId});
 }
 
 function renderTaskDetail(task){
@@ -1230,6 +1231,43 @@ function submitBridgePost(fields){
   return true;
 }
 
+function initBridgeClient(){
+  const frame=document.getElementById("soulkey-status-bridge");
+  if(!frame) return;
+
+  const endpoint=
+    document.getElementById("bridge-endpoint")?.value.trim() ||
+    localStorage.getItem(BRIDGE_ENDPOINT_KEY) ||
+    cfg.bridgeEndpoint ||
+    "";
+
+  if(!endpoint) return;
+
+  bridgeClientReady=false;
+  const sep=endpoint.includes("?") ? "&" : "?";
+  frame.src=endpoint+sep+"view=client&v=20260920-13";
+}
+
+function bridgeClientRequest(fields){
+  const frame=document.getElementById("soulkey-status-bridge");
+  const key=
+    document.getElementById("bridge-key")?.value.trim() ||
+    sessionStorage.getItem(BRIDGE_SESSION_KEY) ||
+    "";
+
+  if(!frame || !frame.contentWindow || !bridgeClientReady || !key){
+    return false;
+  }
+
+  frame.contentWindow.postMessage({
+    source:"soulkey-studio",
+    type:"bridge_request",
+    request:{...fields,bridge_key:key}
+  },"*");
+
+  return true;
+}
+
 function applyRemoteStatuses(payload){
   const remoteTasks=payload && payload.tasks ? payload.tasks : {};
   let changed=false;
@@ -1271,19 +1309,50 @@ function requestTaskStatuses(){
   const ids=tasks.map(t=>t.id).filter(Boolean).slice(0,20);
   if(!ids.length) return false;
 
-  return submitBridgePost({
+  return bridgeClientRequest({
     action:"status_batch",
     task_ids:ids.join(",")
   });
 }
 
 function requestStatusHealth(){
-  return submitBridgePost({action:"status_health"});
+  return bridgeClientRequest({action:"status_health"});
 }
 
 window.addEventListener("message",event=>{
   const data=event.data || {};
+
+  if(data.source==="soulkey-bridge-client" && data.type==="ready"){
+    bridgeClientReady=true;
+    const syncState=document.getElementById("status-sync-state");
+    const syncText=document.getElementById("status-sync-text");
+    if(syncState){
+      syncState.textContent="Bridge 已連線";
+      syncState.className="ok";
+    }
+    if(syncText){
+      syncText.textContent="正在讀取執行狀態…";
+    }
+    requestStatusHealth();
+    requestTaskStatuses();
+    requestLanguageSettings();
+    return;
+  }
+
   if(data.source!=="soulkey-bridge") return;
+
+  if(data.type==="bridge_error"){
+    const syncState=document.getElementById("status-sync-state");
+    const syncText=document.getElementById("status-sync-text");
+    const reason=data.message || data.error || "未知錯誤";
+    if(syncState){
+      syncState.textContent="Bridge 錯誤";
+      syncState.className="warn";
+    }
+    if(syncText){
+      syncText.textContent="Bridge 錯誤："+reason;
+    }
+  }
 
   if(data.type==="status_result"){
     if(data.ok){
@@ -1364,9 +1433,13 @@ document.getElementById("refresh-language-settings")?.addEventListener("click",(
 
 function initStatusPolling(){
   window.setTimeout(()=>{
+    initBridgeClient();
+  },500);
+
+  window.setTimeout(()=>{
     requestStatusHealth();
     requestTaskStatuses();
-  },1200);
+  },1800);
 
   window.setInterval(()=>{
     requestTaskStatuses();
@@ -1414,6 +1487,7 @@ function initBridgePanel(){
     if(value){
       localStorage.setItem(BRIDGE_ENDPOINT_KEY,value);
       setBridgeStatus("Apps Script Web App URL 已儲存。","ready");
+      window.setTimeout(()=>initBridgeClient(),100);
     }else{
       localStorage.removeItem(BRIDGE_ENDPOINT_KEY);
       setBridgeStatus("尚未設定 Apps Script Web App URL。","idle");
@@ -1424,7 +1498,10 @@ function initBridgePanel(){
     const value=keyInput.value.trim();
     if(value){
       sessionStorage.setItem(BRIDGE_SESSION_KEY,value);
-      window.setTimeout(()=>requestStatusHealth(),250);
+      window.setTimeout(()=>{
+        if(!bridgeClientReady) initBridgeClient();
+        else requestStatusHealth();
+      },250);
     }else{
       sessionStorage.removeItem(BRIDGE_SESSION_KEY);
     }
