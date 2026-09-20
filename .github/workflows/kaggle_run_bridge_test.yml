@@ -52,7 +52,7 @@ jobs:
               "code_file": "bridge_smoke.py",
               "language": "python",
               "kernel_type": "script",
-              "is_private": True,
+              "is_private": False,
               "enable_gpu": False,
               "enable_internet": False,
               "dataset_sources": [],
@@ -72,6 +72,8 @@ jobs:
           set -euo pipefail
           TEST_DIR="${RUNNER_TEMP}/soulkey-kaggle-bridge"
           kaggle kernels push -p "$TEST_DIR" -t 120
+          echo "Published smoke-test kernel:"
+          kaggle kernels list --mine --page-size 20 | grep -i "soulkey-bridge-smoke" || true
 
       - name: Wait for Kaggle run
         shell: bash
