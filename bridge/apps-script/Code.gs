@@ -1445,5 +1445,5 @@ function jsonp_(callback, payload) {
 function json_(payload) {
   return ContentService
     .createTextOutput(JSON.stringify(payload))
-    .setMimeType(ContentService."application/json");
+    .setMimeType(ContentService.MimeType.JSON);
 }
