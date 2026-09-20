@@ -32,16 +32,20 @@ const seedTerms = [
   category:x[1],
   aliases:x[2],
   description:"",
+  en:"",
   status:"正式詞庫"
 }));
+
+const WORKFLOW_VERSION = 2;
 
 const workflow = [
   {key:"metadata", label:"來源資訊", short:"來源", hint:"免 GPU"},
   {key:"asr", label:"ASR 逐字稿", short:"逐字稿", hint:"GPU"},
   {key:"polish", label:"AI 中文校稿", short:"AI校稿", hint:"GPU"},
-  {key:"review", label:"人工中文定稿", short:"定稿", hint:"人工"},
+  {key:"review", label:"人工中文定稿", short:"中定稿", hint:"人工"},
   {key:"vernacular", label:"全文白話化", short:"白話", hint:"GPU"},
   {key:"en", label:"英文翻譯", short:"英文", hint:"GPU"},
+  {key:"en-review", label:"人工英文定稿", short:"英定稿", hint:"人工"},
   {key:"multi", label:"四語翻譯", short:"四語", hint:"GPU"},
   {key:"tts", label:"各國音檔", short:"音檔", hint:"GPU"},
   {key:"video", label:"完成影片", short:"影片", hint:"最後"}
@@ -67,6 +71,7 @@ const titles = {
   "new-task":"建立任務",
   "task-detail":"課程任務",
   review:"中文逐字稿校稿",
+  "en-review":"人工英文定稿",
   glossary:"專有名詞庫",
   knowledge:"經典知識庫",
   system:"系統狀態"
@@ -134,6 +139,14 @@ function renderPipeline(){
 
 function normalizeTask(t){
   if(!Number.isInteger(t.completedStep)) t.completedStep=-1;
+
+  if(!t.workflowVersion || t.workflowVersion < WORKFLOW_VERSION){
+    // 舊版流程在英文翻譯後直接進四語；新版插入「人工英文定稿」。
+    // 已經走到舊 index 6 之後的任務，整體往後平移一格。
+    if(t.completedStep >= 6) t.completedStep += 1;
+    t.workflowVersion = WORKFLOW_VERSION;
+  }
+
   if(!t.status) t.status="等待執行";
   return t;
 }
@@ -281,16 +294,17 @@ function renderTaskDetail(task){
   document.getElementById("detail-stage-list").innerHTML=workflow.map((stage,i)=>{
     const state=stageState(task,i);
     const label=state==="done"?"已完成":state==="current"?"目前步驟":"尚未開放";
-    const reviewStage=stage.key==="polish" || stage.key==="review";
+    const reviewStage=["polish","review","en-review"].includes(stage.key);
     return '<button class="detail-stage '+state+'" data-detail-stage="'+i+'" '+(state==="locked"?"disabled":"")+'>'+
       '<span class="detail-stage-number">'+String(i+1).padStart(2,"0")+'</span>'+
       '<div><b>'+escapeHtml(stage.label)+'</b><small>'+label+'・'+escapeHtml(stage.hint)+'</small></div>'+
-      (reviewStage?'<em>中文校稿</em>':'')+
+      (reviewStage?'<em>'+(stage.key==="en-review"?"英文定稿":"中文校稿")+'</em>':'')+
     '</button>';
   }).join("");
 
   const current=next || workflow[workflow.length-1];
   const isChineseReview = next && ["polish","review"].includes(next.key);
+  const isEnglishReview = next && next.key==="en-review";
   document.getElementById("detail-current-title").textContent=
     next ? next.label : "全部流程完成";
 
@@ -302,6 +316,12 @@ function renderTaskDetail(task){
       '<div class="stage-message review-ready">'+
         '<div><b>現在要進行中文校稿</b><span>進入後可查看 ASR 原文、AI 修改、待人工確認與逐段修正。</span></div>'+
         '<button class="primary" data-open-review-inline="'+escapeHtml(task.id)+'">進入中文校稿</button>'+
+      '</div>';
+  }else if(isEnglishReview){
+    document.getElementById("detail-current-body").innerHTML=
+      '<div class="stage-message review-ready">'+
+        '<div><b>現在要進行人工英文定稿</b><span>逐段查看中文白話底稿與英文翻譯，修正後同步學習專有名詞的正式英文譯法。</span></div>'+
+        '<button class="primary" data-open-en-review-inline="'+escapeHtml(task.id)+'">進入人工英文定稿</button>'+
       '</div>';
   }else{
     document.getElementById("detail-current-body").innerHTML=
@@ -316,11 +336,15 @@ function renderTaskDetail(task){
 
   const nextBtn=document.getElementById("detail-next-btn");
   nextBtn.disabled=!next;
-  nextBtn.textContent=next ? "執行下一步："+next.label : "已全部完成";
-  nextBtn.onclick=()=>confirmNextStage(task.id);
+  nextBtn.textContent=next ? (next.key==="en-review" ? "進入："+next.label : "執行下一步："+next.label) : "已全部完成";
+  nextBtn.onclick=()=>next && next.key==="en-review" ? openEnglishReview(task.id) : confirmNextStage(task.id);
 
   document.querySelectorAll("[data-open-review-inline]").forEach(btn=>{
     btn.addEventListener("click",()=>openTaskReview(btn.dataset.openReviewInline));
+  });
+
+  document.querySelectorAll("[data-open-en-review-inline]").forEach(btn=>{
+    btn.addEventListener("click",()=>openEnglishReview(btn.dataset.openEnReviewInline));
   });
 
   document.querySelectorAll("[data-detail-stage]").forEach(btn=>{
@@ -329,6 +353,8 @@ function renderTaskDetail(task){
       const stage=workflow[index];
       if(["polish","review"].includes(stage.key)){
         openTaskReview(task.id);
+      }else if(stage.key==="en-review"){
+        openEnglishReview(task.id);
       }
     });
   });
@@ -439,6 +465,7 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
       period,
       lesson:"第"+i+"堂",
       completedStep:-1,
+      workflowVersion:WORKFLOW_VERSION,
       createdAt:new Date().toISOString()
     };
 
@@ -483,13 +510,14 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
 function renderTerms(filter=""){
   const q=filter.trim().toLowerCase();
   const rows=terms.filter(t=>
-    !q||[t.name,t.category,t.aliases,t.description].join(" ").toLowerCase().includes(q)
+    !q||[t.name,t.category,t.en,t.aliases,t.description].join(" ").toLowerCase().includes(q)
   );
 
   document.getElementById("term-body").innerHTML=rows.map(t=>
     '<tr>'+
       '<td><b>'+escapeHtml(t.name)+'</b></td>'+
       '<td>'+escapeHtml(t.category)+'</td>'+
+      '<td>'+escapeHtml(t.en||"—")+'</td>'+
       '<td>'+escapeHtml(t.aliases||"—")+'</td>'+
       '<td><span class="badge">'+escapeHtml(t.status||"正式詞庫")+'</span></td>'+
       '<td><button class="mini term" data-delete-term="'+escapeHtml(t.id)+'">刪除</button></td>'+
@@ -523,6 +551,7 @@ document.getElementById("save-term").addEventListener("click",e=>{
     id:"term-"+Date.now(),
     name:document.getElementById("term-name").value.trim(),
     category:document.getElementById("term-category").value,
+    en:document.getElementById("term-en").value.trim(),
     aliases:document.getElementById("term-aliases").value.trim(),
     description:document.getElementById("term-description").value.trim(),
     status:"正式詞庫"
@@ -614,6 +643,171 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
   alert("已標記中文定稿。下一步："+workflow[4].label);
 });
 
+
+
+const demoEnglishReview = [
+  {
+    id: 12,
+    time: "08:20",
+    zh: "尤其是在白陽期裡，更要把修辦的方向確立清楚。",
+    en: "Especially in the White Yang Era, we need to clearly establish the direction of cultivation and Tao propagation.",
+    terms: [
+      {zh:"白陽期", en:"White Yang Era"},
+      {zh:"修辦", en:"cultivation and Tao propagation"}
+    ]
+  },
+  {
+    id: 13,
+    time: "08:51",
+    zh: "我們感恩天恩師德，也感謝各位前賢一路成全。",
+    en: "We are grateful for Heaven's grace and our Teacher's virtue, and for the support of all senior predecessors along the way.",
+    terms: [
+      {zh:"天恩師德", en:"Heaven's grace and our Teacher's virtue"},
+      {zh:"前賢", en:"senior predecessors"}
+    ]
+  },
+  {
+    id: 14,
+    time: "09:14",
+    zh: "修道不是只有自己明白，也要懂得渡化眾生。",
+    en: "Cultivating the Tao is not only about understanding it ourselves; we also need to know how to guide and transform others.",
+    terms: [
+      {zh:"修道", en:"cultivating the Tao"},
+      {zh:"渡化", en:"guide and transform"}
+    ]
+  }
+];
+
+function openEnglishReview(taskId){
+  selectedTaskId=taskId;
+  const task=tasks.find(x=>x.id===taskId);
+  if(!task) return;
+
+  const context=document.getElementById("en-review-task-context");
+  context.innerHTML=
+    '<b>'+escapeHtml(task.id)+'</b>'+
+    '<span>第'+escapeHtml(task.period)+'期・'+escapeHtml(task.lesson)+'</span>'+
+    '<small>'+escapeHtml(task.url)+'</small>';
+
+  showView("en-review");
+}
+
+function renderEnglishReview(items){
+  const list=document.getElementById("en-review-list");
+  const termBox=document.getElementById("en-term-learning");
+  if(!list || !termBox) return;
+
+  list.innerHTML=items.map(item=>
+    '<article class="en-review-row" data-en-segment="'+item.id+'">'+
+      '<div class="en-review-meta">'+
+        '<span>#'+item.id+'</span><span>'+escapeHtml(item.time)+'</span>'+
+      '</div>'+
+      '<div class="en-review-pair">'+
+        '<div class="zh-source">'+escapeHtml(item.zh)+'</div>'+
+        '<textarea class="en-draft">'+escapeHtml(item.en)+'</textarea>'+
+      '</div>'+
+      '<div class="segment-actions">'+
+        '<button class="mini confirm" data-confirm-en-segment="'+item.id+'">確認此段</button>'+
+      '</div>'+
+    '</article>'
+  ).join("");
+
+  const pairs=[];
+  items.forEach(item=>{
+    (item.terms||[]).forEach(pair=>{
+      const key=pair.zh+"|||"+pair.en;
+      if(!pairs.some(x=>x.key===key)) pairs.push({...pair,key});
+    });
+  });
+
+  termBox.innerHTML=pairs.map(pair=>{
+    const existing=terms.find(t=>t.name===pair.zh);
+    const current=existing && existing.en ? existing.en : "";
+    const learned=current && current===pair.en;
+    return '<article class="term-learning-card '+(learned?"learned":"")+'">'+
+      '<div><b>'+escapeHtml(pair.zh)+'</b><span>AI / 目前英文譯法</span></div>'+
+      '<input value="'+escapeHtml(pair.en)+'" data-term-en-input="'+escapeHtml(pair.zh)+'">'+
+      '<small>'+(current?'詞庫目前：'+escapeHtml(current):'詞庫尚未設定英文譯法')+'</small>'+
+      '<button class="'+(learned?"ghost":"primary")+'" data-learn-term="'+escapeHtml(pair.zh)+'">'+
+        (learned?"已學習":"確認並學習")+
+      '</button>'+
+    '</article>';
+  }).join("");
+
+  document.querySelectorAll("[data-confirm-en-segment]").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const row=btn.closest(".en-review-row");
+      row.classList.add("confirmed");
+      btn.textContent="已確認";
+      btn.disabled=true;
+    });
+  });
+
+  document.querySelectorAll("[data-learn-term]").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const zh=btn.dataset.learnTerm;
+      const input=document.querySelector('[data-term-en-input="'+CSS.escape(zh)+'"]');
+      const en=String(input?.value||"").trim();
+      if(!en){
+        alert("請先輸入英文譯法。");
+        return;
+      }
+
+      let term=terms.find(t=>t.name===zh);
+      if(!term){
+        term={
+          id:"learned-"+Date.now(),
+          name:zh,
+          category:"宗教術語",
+          aliases:"",
+          description:"由人工英文定稿同步學習",
+          en:"",
+          status:"正式詞庫"
+        };
+        terms.push(term);
+      }
+
+      term.en=en;
+      term.status="英文已確認";
+      save(STORE.terms,terms);
+      renderTerms(document.getElementById("term-search").value);
+      renderTasks();
+      btn.textContent="已學習";
+      btn.className="ghost";
+      btn.closest(".term-learning-card")?.classList.add("learned");
+    });
+  });
+}
+
+document.getElementById("load-en-demo")?.addEventListener(
+  "click",()=>renderEnglishReview(demoEnglishReview)
+);
+
+document.getElementById("finalize-en")?.addEventListener("click",()=>{
+  if(!selectedTaskId){
+    alert("請先從任務總覽選擇一堂課。");
+    return;
+  }
+
+  const task=tasks.find(x=>x.id===selectedTaskId);
+  if(!task) return;
+
+  const ok=confirm(
+    task.id+"｜"+task.lesson+"\n\n"+
+    "確定英文翻譯已人工確認完成並定稿？\n"+
+    "定稿後，後續泰文／西文／印尼文／越南文都只使用這份英文 Final 作為 Pivot。"
+  );
+  if(!ok) return;
+
+  task.completedStep=Math.max(task.completedStep,6);
+  task.status="英文已定稿";
+  task.workflowVersion=WORKFLOW_VERSION;
+  save(STORE.tasks,tasks);
+  renderTasks();
+
+  alert("英文已定稿。下一步："+workflow[7].label);
+  openTaskDetail(task.id);
+});
 
 function setBridgeStatus(message, state="idle"){
   const status=document.getElementById("bridge-status");
