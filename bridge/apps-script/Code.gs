@@ -17,7 +17,7 @@ const LANGUAGE_SHEET_NAME = "語言設定";
 const LANGUAGE_PLAN_SHEET_NAME = "語言任務設定";
 
 const MACHINE_STAGES = [
-  "metadata", "asr", "polish", "vernacular", "en", "multi", "tts"
+  "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts"
 ];
 const RUNTIME_TTL_MS = 4 * 60 * 60 * 1000;
 
@@ -534,7 +534,7 @@ function workerReport_(nonce, status, message) {
   }
 
   const normalized = String(status || "").trim().toLowerCase();
-  if (["running", "error"].indexOf(normalized) < 0) {
+  if (["running", "needs_review", "done", "error"].indexOf(normalized) < 0) {
     return {
       ok: false,
       error: "unsupported_worker_status"
@@ -546,10 +546,10 @@ function workerReport_(nonce, status, message) {
     job.stage,
     normalized,
     "web-" + nonce.slice(0, 12),
-    normalized === "running" ? 1 : "",
+    normalized === "running" ? 1 : (normalized === "needs_review" ? 95 : (normalized === "done" ? 100 : "")),
     message || "",
     normalized === "running" ? nowText_() : "",
-    normalized === "error" ? nowText_() : "",
+    ["needs_review", "done", "error"].indexOf(normalized) >= 0 ? nowText_() : "",
     normalized === "error" ? "web_worker_error" : "",
     normalized === "error" ? message || "" : "",
     "",
@@ -1232,7 +1232,7 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
     targetFolder = folders.transcript;
     code = "zh-TW.final";
     language = "Traditional Chinese Final";
-    statusStage = "review";
+    statusStage = "zh";
     taskColumn = 9;
   } else if (kind === "vernacular") {
     targetFolder = folders.translation;
