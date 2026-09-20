@@ -15,6 +15,9 @@ LECTURER_PATTERNS = [
     r"(?:講師|主講人|主講|講者|授課老師|授課者)\s+([^\n｜|、,，;；]{2,30})",
 ]
 
+POT_SERVER_HOME = Path("/kaggle/working/bgutil-ytdlp-pot-provider/server")
+POT_SCRIPT = POT_SERVER_HOME / "build" / "generate_once.js"
+
 
 def _cookie_file(workdir: Path):
     value = get_secret("YOUTUBE_COOKIES_B64", required=False)
@@ -62,9 +65,21 @@ def _base_options(workdir: Path, quiet: bool):
     return options, bool(cookiefile)
 
 
+def _pot_profile():
+    if not POT_SCRIPT.exists():
+        return None
+
+    return {
+        "youtube": {
+            "player_client": ["mweb"],
+        },
+        "youtubepot-bgutilscript": {
+            "server_home": [str(POT_SERVER_HOME)],
+        },
+    }
+
+
 def _anonymous_profiles():
-    # 先用官方目前較適合匿名播放的 client。
-    # 第二層再跳過一般 webpage request，降低雲端 IP 被 bot challenge 擋住的機率。
     return [
         {
             "youtube": {
@@ -86,20 +101,41 @@ def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
             return ydl.extract_info(url, download=download)
 
     last_error = None
-    for index, extractor_args in enumerate(_anonymous_profiles(), start=1):
+
+    pot = _pot_profile()
+    if pot:
         attempt = dict(options)
-        attempt["extractor_args"] = extractor_args
-        print(f"[YouTube] 匿名模式第 {index} 層：{extractor_args['youtube']['player_client']}")
+        attempt["extractor_args"] = pot
+        print("[YouTube] PO Token 模式：mweb + bgutil script provider")
         try:
             with YoutubeDL(attempt) as ydl:
                 return ydl.extract_info(url, download=download)
         except DownloadError as exc:
             last_error = exc
-            print(f"[YouTube] 匿名模式第 {index} 層失敗，改試下一層。")
+            print("[YouTube] PO Token 模式失敗，改試匿名 fallback。")
+    else:
+        print(
+            "[YouTube] 尚未安裝 PO Token Provider，"
+            "可先執行 setup_pot_provider.py。"
+        )
+
+    for index, extractor_args in enumerate(_anonymous_profiles(), start=1):
+        attempt = dict(options)
+        attempt["extractor_args"] = extractor_args
+        print(
+            f"[YouTube] 匿名 fallback 第 {index} 層："
+            f"{extractor_args['youtube']['player_client']}"
+        )
+        try:
+            with YoutubeDL(attempt) as ydl:
+                return ydl.extract_info(url, download=download)
+        except DownloadError as exc:
+            last_error = exc
+            print(f"[YouTube] 匿名 fallback 第 {index} 層失敗。")
 
     if last_error:
         raise last_error
-    raise RuntimeError("YouTube 匿名模式失敗")
+    raise RuntimeError("YouTube 取得失敗")
 
 
 def detect_lecturer(info: dict):
