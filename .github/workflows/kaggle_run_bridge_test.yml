@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 10
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KAGGLE_KERNEL: cwlmrcsir/soulkey-bridge-smoke
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-bridge-smoke-test
 
     steps:
       - name: Install Kaggle CLI
@@ -47,7 +47,7 @@ jobs:
           path = Path(os.environ["TEST_DIR"]) / "kernel-metadata.json"
           meta = json.loads(path.read_text(encoding="utf-8"))
           meta.update({
-              "id": "cwlmrcsir/soulkey-bridge-smoke",
+              "id": "cwlmrcsir/soulkey-bridge-smoke-test",
               "title": "SoulKey Bridge Smoke Test",
               "code_file": "bridge_smoke.py",
               "language": "python",
