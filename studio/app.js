@@ -1341,6 +1341,28 @@ window.addEventListener("message",event=>{
 
   if(data.source!=="soulkey-bridge") return;
 
+  if(data.type==="worker_setup"){
+    if(data.ok){
+      setWorkerStatus(
+        "Web Worker 建立工作已送出。完成後請在 Kaggle 的 SoulKey Web Worker 附加 SOULKEY_WEB_TEST 測試 Secret。",
+        "ready"
+      );
+    }else{
+      setWorkerStatus("建立 Web Worker 失敗："+(data.message || data.error || "未知錯誤"),"error");
+    }
+  }
+
+  if(data.type==="worker_secret_test"){
+    if(data.ok){
+      setWorkerStatus(
+        "Secret 測試工作已送出。請等待 GitHub Actions 完成；通過後就可以接正式網頁執行。",
+        "sending"
+      );
+    }else{
+      setWorkerStatus("Secret 測試送出失敗："+(data.message || data.error || "未知錯誤"),"error");
+    }
+  }
+
   if(data.type==="bridge_error"){
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
@@ -1445,6 +1467,53 @@ function initStatusPolling(){
     requestTaskStatuses();
   },STATUS_POLL_MS);
 }
+
+function setWorkerStatus(message,state="idle"){
+  const box=document.getElementById("web-worker-status");
+  const badge=document.getElementById("web-worker-state");
+  if(box) box.textContent=message;
+  if(!badge) return;
+
+  badge.className="badge";
+  if(state==="ready"){
+    badge.classList.add("complete");
+    badge.textContent="已建立";
+  }else if(state==="verified"){
+    badge.classList.add("complete");
+    badge.textContent="Secret 已驗證";
+  }else if(state==="sending"){
+    badge.textContent="處理中";
+  }else if(state==="error"){
+    badge.classList.add("bridge-error");
+    badge.textContent="需要檢查";
+  }else{
+    badge.textContent="尚未驗證";
+  }
+}
+
+document.getElementById("worker-setup")?.addEventListener("click",()=>{
+  const sent=bridgeClientRequest({action:"worker_setup"});
+  if(!sent){
+    setWorkerStatus("Bridge 尚未連線，請先確認 Apps Script 與 Bridge Key。","error");
+    return;
+  }
+  setWorkerStatus(
+    "已送出建立 Web Worker。等 GitHub Actions 完成後，到 Kaggle Worker 附加測試 Secret。",
+    "sending"
+  );
+});
+
+document.getElementById("worker-secret-test")?.addEventListener("click",()=>{
+  const sent=bridgeClientRequest({action:"worker_secret_test"});
+  if(!sent){
+    setWorkerStatus("Bridge 尚未連線，請先確認 Apps Script 與 Bridge Key。","error");
+    return;
+  }
+  setWorkerStatus(
+    "已送出 Secret 測試。GitHub Actions 會觸發 Kaggle CPU 執行並驗證結果。",
+    "sending"
+  );
+});
 
 function setBridgeStatus(message, state="idle"){
   const status=document.getElementById("bridge-status");
