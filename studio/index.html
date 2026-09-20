@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260920-9">
+  <link rel="stylesheet" href="./styles.css?v=20260920-10">
 </head>
 <body>
   <div class="shell">
@@ -321,6 +321,7 @@
               <div><span>Studio 前端</span><b class="ok">已建立</b></div>
               <div><span>任務 API</span><b class="warn" id="api-state">待接安全後端</b></div>
               <div><span>Kaggle 喚醒</span><b class="ok">GitHub → Kaggle 已驗證</b></div>
+              <div><span>任務狀態回報</span><b class="warn" id="status-sync-state">等待同步</b></div>
               <div><span>Firestore</span><b class="warn">待建立專案設定</b></div>
             </div>
           </div>
@@ -354,6 +355,9 @@
           <div class="bridge-status" id="bridge-status">
             先部署 Apps Script 轉接層，再從這裡送出測試。
           </div>
+          <div class="bridge-status status-sync-box" id="status-sync-text">
+            任務狀態尚未同步。
+          </div>
           <p class="muted bridge-note">
             Web App URL 只儲存在這個瀏覽器；Bridge Key 不會寫進 GitHub，只保留在目前分頁。
           </p>
@@ -376,6 +380,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app.js?v=20260920-9"></script>
+  <script src="./app.js?v=20260920-10"></script>
 </body>
 </html>
