@@ -152,10 +152,20 @@ jobs:
 
       - name: Push Kaggle job
         shell: bash
+        env:
+          JOB_STAGE: ${{ inputs.stage }}
         run: |
           set -euo pipefail
           DIR="${RUNNER_TEMP}/soulkey-web-worker"
-          kaggle kernels push -p "$DIR" -t 600
+          STAGE="${JOB_STAGE}"
+
+          if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts)$ ]]; then
+            echo "Launching Kaggle with NvidiaTeslaT4 accelerator; timeout=7200s"
+            kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 7200
+          else
+            echo "Launching Kaggle without accelerator; timeout=3600s"
+            kaggle kernels push -p "$DIR" -t 3600
+          fi
 
       - name: Wait for Kaggle job
         id: wait_job
