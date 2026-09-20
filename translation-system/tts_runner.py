@@ -25,6 +25,7 @@ from google_io import (
 from runner import resolve_lesson_folders
 from translation_engine import LANGUAGE_NAMES
 from tts_engine import synthesize_language
+from status_io import new_run_id, mark_running, mark_done, mark_needs_review, mark_error
 
 
 def now_text():
@@ -135,6 +136,17 @@ def main():
         print("-" * 72)
         print(f"[TASK] {task['task_id']} / 第{task['period']}期 / {task['lesson']}")
 
+        status_stage = "tts" if args.all_langs else f"tts:{args.lang}"
+        run_id = new_run_id(task["task_id"], status_stage)
+        mark_running(
+            task["task_id"],
+            status_stage,
+            sheets=sheets,
+            run_id=run_id,
+            message="多語音檔生成中",
+            progress=0,
+        )
+
         try:
             folders = resolve_lesson_folders(
                 drive,
@@ -227,6 +239,33 @@ def main():
                 status,
                 note,
             )
+
+            if status_stage == "tts":
+                if status == "完成":
+                    mark_done(
+                        task["task_id"],
+                        status_stage,
+                        sheets=sheets,
+                        run_id=run_id,
+                        message=note,
+                    )
+                else:
+                    mark_needs_review(
+                        task["task_id"],
+                        status_stage,
+                        sheets=sheets,
+                        run_id=run_id,
+                        message=note,
+                    )
+            else:
+                mark_done(
+                    task["task_id"],
+                    status_stage,
+                    sheets=sheets,
+                    run_id=run_id,
+                    message=note,
+                )
+
             processed += 1
 
         except Exception as exc:
@@ -238,6 +277,13 @@ def main():
                 task["sheet_row"],
                 "錯誤",
                 message,
+            )
+            mark_error(
+                task["task_id"],
+                status_stage,
+                sheets=sheets,
+                run_id=run_id,
+                exc=exc,
             )
             processed += 1
 
