@@ -83,7 +83,17 @@ def _anonymous_profiles():
 
 def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
     if has_cookies:
-        with YoutubeDL(options) as ydl:
+        # 2026-08 yt-dlp / YouTube known issue:
+        # logged-in extraction may default to tv_downgraded and fail with
+        # "The page needs to be reloaded". Force currently recommended clients.
+        attempt = dict(options)
+        attempt["extractor_args"] = {
+            "youtube": {
+                "player_client": ["default", "web_embedded"],
+            }
+        }
+        print("[YouTube] Cookies 模式：default + web_embedded")
+        with YoutubeDL(attempt) as ydl:
             return ydl.extract_info(url, download=download)
 
     last_error = None
