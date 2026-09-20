@@ -93,3 +93,68 @@ GitHub 內的 `bridge/apps-script/Code.gs` 更新後，Google Apps Script 不會
 5. Web App URL 可維持同一個 `/exec` URL。
 
 不用更換 `GITHUB_TOKEN` 或 `BRIDGE_KEY`。
+
+
+---
+
+## 正式 Web Job（2026-09-20）
+
+已完成的正式執行方向：
+
+```
+SoulKey Studio
+→ Apps Script run_stage
+→ GitHub Actions: Kaggle Web Job
+→ Kaggle Web Worker
+→ translation-system runner
+→ Google Drive / Sheets
+→ 執行狀態
+→ Studio 自動解鎖
+```
+
+### Google OAuth
+
+正式 Web Worker 不再依賴 Kaggle Notebook Secret 保存 Google OAuth。
+
+Apps Script 透過：
+
+```javascript
+ScriptApp.getOAuthToken()
+```
+
+提供短效 Google access token 給具有短效 runtime nonce 的 Kaggle Worker。
+Worker 只在執行該工作時取得，不寫進 GitHub 或 Studio。
+
+最新版 Code.gs 含：
+
+```javascript
+authorizeSoulKeyBridge()
+```
+
+部署新版後，請在 Apps Script 編輯器手動執行一次此函式並完成授權。
+它會要求 Spreadsheet + Drive 權限。
+
+### Web 建立任務
+
+Studio 新建一期四堂課時會：
+- 寫入「任務佇列」
+- 若期數尚不存在，自動在 Google Drive 建立期別／4 堂課／各輸出子資料夾
+- 自動新增「期數設定」
+
+### 人工定稿
+
+最新版 Bridge 支援：
+- review_load：讀取真實中文／白話文／英文內容
+- review_save：把人工定稿寫回 Google Drive
+- 中文：zh-TW.final.json / txt / srt
+- 白話文：zh-TW.vernacular.final.json / txt / srt
+- 英文：en.final.json / txt / srt
+- 英文人工確認的術語會同步回「專有名詞庫」
+
+### Kaggle Secrets 限制
+
+已實測：
+- API / CLI push 新 Kernel version 時，Notebook Secret 不會可靠保留。
+- 私人 Kaggle Dataset 在 API-triggered Worker 中可正常掛載與讀取。
+
+正式 Google OAuth 改採 Apps Script 短效 token，避免把永久 Google 憑證放進 Worker。
