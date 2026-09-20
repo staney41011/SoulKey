@@ -21,33 +21,50 @@ _WPC_PATCHED = False
 
 
 def _patch_wpc_for_kaggle():
-    """Make the WPC Chromium launcher work inside Kaggle's root container."""
+    """Patch installed WPC source without importing the plugin twice."""
     global _WPC_PATCHED
     if _WPC_PATCHED:
         return
 
-    try:
-        import yt_dlp_plugins.extractor.getpot_wpc as wpc
+    import sys
 
-        original = wpc.WPCPTP.get_nodriver_config
-        if getattr(original, "_soulkey_kaggle_patch", False):
-            _WPC_PATCHED = True
+    rel = Path("yt_dlp_plugins/extractor/getpot_wpc.py")
+    for base in map(Path, sys.path):
+        candidate = base / rel
+        if not candidate.exists():
+            continue
+
+        try:
+            text = candidate.read_text(encoding="utf-8")
+
+            patched_signature = "headless=True,"
+            if patched_signature in text and "sandbox=False" in text:
+                _WPC_PATCHED = True
+                print("[YouTube] WPC Kaggle patch：headless + no-sandbox")
+                return
+
+            old = """return nodriver.core.config.Config(
+            headless=False,
+            browser_executable_path=browser_executable_path,
+            browser_args=browser_args
+        )"""
+            new = """return nodriver.core.config.Config(
+            headless=True,
+            browser_executable_path=browser_executable_path,
+            browser_args=browser_args,
+            sandbox=False,
+        )"""
+
+            if old in text:
+                candidate.write_text(text.replace(old, new), encoding="utf-8")
+                _WPC_PATCHED = True
+                print("[YouTube] WPC Kaggle patch：headless + no-sandbox")
+                return
+        except Exception as exc:
+            print(f"[YouTube] WPC Kaggle patch 警告：{type(exc).__name__}: {exc}")
             return
 
-        def patched(self, proxy=None):
-            config = original(self, proxy)
-            # Kaggle runs as root/container. Chromium needs no-sandbox,
-            # and headless avoids needing an X display.
-            config.sandbox = False
-            config.headless = True
-            return config
-
-        patched._soulkey_kaggle_patch = True
-        wpc.WPCPTP.get_nodriver_config = patched
-        _WPC_PATCHED = True
-        print("[YouTube] WPC Kaggle patch：headless + no-sandbox")
-    except Exception as exc:
-        print(f"[YouTube] WPC Kaggle patch 警告：{type(exc).__name__}: {exc}")
+    print("[YouTube] WPC Kaggle patch 警告：找不到 provider 原始碼")
 
 
 def _cookie_file(workdir: Path):
@@ -234,6 +251,13 @@ def detect_lecturer(info: dict):
     title = (info.get("title") or "").strip()
     description = (info.get("description") or "").strip()
     haystack = title + "\n" + description[:5000]
+
+    # Many course uploads use title segments such as:
+    # "心念的力量225 | 中和老師 | 打開心靈的鎖匙253期"
+    for segment in re.split(r"[｜|]", title):
+        segment = segment.strip()
+        if re.fullmatch(r"[\u4e00-\u9fff·]{2,12}老師", segment):
+            return segment, "title_teacher_segment"
 
     for pattern in LECTURER_PATTERNS:
         match = re.search(pattern, haystack, flags=re.IGNORECASE)
