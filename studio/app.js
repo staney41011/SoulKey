@@ -36,14 +36,15 @@ const seedTerms = [
   status:"正式詞庫"
 }));
 
-const WORKFLOW_VERSION = 2;
+const WORKFLOW_VERSION = 3;
 
 const workflow = [
   {key:"metadata", label:"來源資訊", short:"來源", hint:"免 GPU"},
   {key:"asr", label:"ASR 逐字稿", short:"逐字稿", hint:"GPU"},
   {key:"polish", label:"AI 中文校稿", short:"AI校稿", hint:"GPU"},
   {key:"review", label:"人工中文定稿", short:"中定稿", hint:"人工"},
-  {key:"vernacular", label:"全文白話化", short:"白話", hint:"GPU"},
+  {key:"vernacular", label:"AI 白話文", short:"白話AI", hint:"GPU"},
+  {key:"vernacular-review", label:"人工白話文定稿", short:"白定稿", hint:"人工"},
   {key:"en", label:"英文翻譯", short:"英文", hint:"GPU"},
   {key:"en-review", label:"人工英文定稿", short:"英定稿", hint:"人工"},
   {key:"multi", label:"四語翻譯", short:"四語", hint:"GPU"},
@@ -71,6 +72,7 @@ const titles = {
   "new-task":"建立任務",
   "task-detail":"課程任務",
   review:"中文逐字稿校稿",
+  "vernacular-review":"人工白話文定稿",
   "en-review":"人工英文定稿",
   glossary:"專有名詞庫",
   knowledge:"經典知識庫",
@@ -140,13 +142,21 @@ function renderPipeline(){
 function normalizeTask(t){
   if(!Number.isInteger(t.completedStep)) t.completedStep=-1;
 
-  if(!t.workflowVersion || t.workflowVersion < WORKFLOW_VERSION){
-    // 舊版流程在英文翻譯後直接進四語；新版插入「人工英文定稿」。
-    // 已經走到舊 index 6 之後的任務，整體往後平移一格。
+  let version=Number(t.workflowVersion || 1);
+
+  // v2：英文翻譯後加入「人工英文定稿」。
+  if(version < 2){
     if(t.completedStep >= 6) t.completedStep += 1;
-    t.workflowVersion = WORKFLOW_VERSION;
+    version=2;
   }
 
+  // v3：AI 白話文後加入「人工白話文定稿」。
+  if(version < 3){
+    if(t.completedStep >= 5) t.completedStep += 1;
+    version=3;
+  }
+
+  t.workflowVersion=version;
   if(!t.status) t.status="等待執行";
   return t;
 }
@@ -294,16 +304,17 @@ function renderTaskDetail(task){
   document.getElementById("detail-stage-list").innerHTML=workflow.map((stage,i)=>{
     const state=stageState(task,i);
     const label=state==="done"?"已完成":state==="current"?"目前步驟":"尚未開放";
-    const reviewStage=["polish","review","en-review"].includes(stage.key);
+    const reviewStage=["polish","review","vernacular-review","en-review"].includes(stage.key);
     return '<button class="detail-stage '+state+'" data-detail-stage="'+i+'" '+(state==="locked"?"disabled":"")+'>'+
       '<span class="detail-stage-number">'+String(i+1).padStart(2,"0")+'</span>'+
       '<div><b>'+escapeHtml(stage.label)+'</b><small>'+label+'・'+escapeHtml(stage.hint)+'</small></div>'+
-      (reviewStage?'<em>'+(stage.key==="en-review"?"英文定稿":"中文校稿")+'</em>':'')+
+      (reviewStage?'<em>'+(stage.key==="en-review"?"英文定稿":stage.key==="vernacular-review"?"白話定稿":"中文校稿")+'</em>':'')+
     '</button>';
   }).join("");
 
   const current=next || workflow[workflow.length-1];
   const isChineseReview = next && ["polish","review"].includes(next.key);
+  const isVernacularReview = next && next.key==="vernacular-review";
   const isEnglishReview = next && next.key==="en-review";
   document.getElementById("detail-current-title").textContent=
     next ? next.label : "全部流程完成";
@@ -316,6 +327,12 @@ function renderTaskDetail(task){
       '<div class="stage-message review-ready">'+
         '<div><b>現在要進行中文校稿</b><span>進入後可查看 ASR 原文、AI 修改、待人工確認與逐段修正。</span></div>'+
         '<button class="primary" data-open-review-inline="'+escapeHtml(task.id)+'">進入中文校稿</button>'+
+      '</div>';
+  }else if(isVernacularReview){
+    document.getElementById("detail-current-body").innerHTML=
+      '<div class="stage-message review-ready">'+
+        '<div><b>現在要進行人工白話文定稿</b><span>逐段比較中文原文與 AI 白話文，修正完成後才會開放英文翻譯。</span></div>'+
+        '<button class="primary" data-open-vernacular-review-inline="'+escapeHtml(task.id)+'">進入人工白話文定稿</button>'+
       '</div>';
   }else if(isEnglishReview){
     document.getElementById("detail-current-body").innerHTML=
@@ -330,17 +347,31 @@ function renderTaskDetail(task){
       '</div>';
   }
 
+  const previousBtn=document.getElementById("detail-previous-btn");
+  previousBtn.disabled=task.completedStep < 0;
+  previousBtn.onclick=()=>rollbackPreviousStage(task.id);
+
   const reviewBtn=document.getElementById("detail-review-btn");
   reviewBtn.hidden = task.completedStep < 1;
   reviewBtn.onclick=()=>openTaskReview(task.id);
 
   const nextBtn=document.getElementById("detail-next-btn");
   nextBtn.disabled=!next;
-  nextBtn.textContent=next ? (next.key==="en-review" ? "進入："+next.label : "執行下一步："+next.label) : "已全部完成";
-  nextBtn.onclick=()=>next && next.key==="en-review" ? openEnglishReview(task.id) : confirmNextStage(task.id);
+  const humanReviewNext=next && ["vernacular-review","en-review"].includes(next.key);
+  nextBtn.textContent=next ? (humanReviewNext ? "進入："+next.label : "執行下一步："+next.label) : "已全部完成";
+  nextBtn.onclick=()=>{
+    if(!next) return;
+    if(next.key==="vernacular-review") return openVernacularReview(task.id);
+    if(next.key==="en-review") return openEnglishReview(task.id);
+    return confirmNextStage(task.id);
+  };
 
   document.querySelectorAll("[data-open-review-inline]").forEach(btn=>{
     btn.addEventListener("click",()=>openTaskReview(btn.dataset.openReviewInline));
+  });
+
+  document.querySelectorAll("[data-open-vernacular-review-inline]").forEach(btn=>{
+    btn.addEventListener("click",()=>openVernacularReview(btn.dataset.openVernacularReviewInline));
   });
 
   document.querySelectorAll("[data-open-en-review-inline]").forEach(btn=>{
@@ -353,11 +384,43 @@ function renderTaskDetail(task){
       const stage=workflow[index];
       if(["polish","review"].includes(stage.key)){
         openTaskReview(task.id);
+      }else if(stage.key==="vernacular-review"){
+        openVernacularReview(task.id);
       }else if(stage.key==="en-review"){
         openEnglishReview(task.id);
       }
     });
   });
+}
+
+function rollbackPreviousStage(taskId){
+  const task=tasks.find(x=>x.id===taskId);
+  if(!task) return;
+  normalizeTask(task);
+
+  if(task.completedStep < 0){
+    alert("目前已經是第一個步驟，無法再退回。");
+    return;
+  }
+
+  const reopenIndex=task.completedStep;
+  const reopenStage=workflow[reopenIndex];
+
+  const ok=confirm(
+    task.id+"｜"+task.lesson+"\n\n"+
+    "確定退回上一步並重新開啟「"+reopenStage.label+"」？\n\n"+
+    "已產生的檔案不會刪除；正式後端會把後續結果標記為需要重新確認，避免誤用舊版本。"
+  );
+  if(!ok) return;
+
+  task.completedStep=Math.max(-1, task.completedStep-1);
+  task.status="已退回："+reopenStage.label;
+  task.rollbackAt=new Date().toISOString();
+  task.rollbackStage=reopenStage.key;
+
+  save(STORE.tasks,tasks);
+  renderTasks();
+  renderTaskDetail(task);
 }
 
 function openTaskDetail(taskId){
@@ -645,11 +708,104 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
 
 
 
+const demoVernacularReview = [
+  {
+    id: 12,
+    time: "08:20",
+    original: "尤其是白陽期裡面，更是為關法律主。",
+    vernacular: "尤其在白陽期，更要依循關法律主所指示的方向來修辦。"
+  },
+  {
+    id: 13,
+    time: "08:51",
+    original: "老母慈悲，來跟你指點迷津。",
+    vernacular: "老母慈悲地指引我們，在迷惘時找到正確方向。"
+  },
+  {
+    id: 14,
+    time: "09:14",
+    original: "欲成佛道，當要先行佛事。",
+    vernacular: "若想成就佛道，就應先從實際去行佛事、利益眾生做起。"
+  }
+];
+
+function openVernacularReview(taskId){
+  selectedTaskId=taskId;
+  const task=tasks.find(x=>x.id===taskId);
+  if(!task) return;
+
+  const context=document.getElementById("vernacular-review-task-context");
+  context.innerHTML=
+    '<b>'+escapeHtml(task.id)+'</b>'+
+    '<span>第'+escapeHtml(task.period)+'期・'+escapeHtml(task.lesson)+'</span>'+
+    '<small>'+escapeHtml(task.url)+'</small>';
+
+  showView("vernacular-review");
+}
+
+function renderVernacularReview(items){
+  const list=document.getElementById("vernacular-review-list");
+  if(!list) return;
+
+  list.innerHTML=items.map(item=>
+    '<article class="vernacular-review-row" data-vernacular-segment="'+item.id+'">'+
+      '<div class="en-review-meta"><span>#'+item.id+'</span><span>'+escapeHtml(item.time)+'</span></div>'+
+      '<div class="vernacular-review-pair">'+
+        '<div class="zh-source">'+escapeHtml(item.original)+'</div>'+
+        '<textarea class="vernacular-draft">'+escapeHtml(item.vernacular)+'</textarea>'+
+      '</div>'+
+      '<div class="segment-actions">'+
+        '<button class="mini confirm" data-confirm-vernacular-segment="'+item.id+'">確認此段</button>'+
+      '</div>'+
+    '</article>'
+  ).join("");
+
+  document.querySelectorAll("[data-confirm-vernacular-segment]").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const row=btn.closest(".vernacular-review-row");
+      row.classList.add("confirmed");
+      btn.textContent="已確認";
+      btn.disabled=true;
+    });
+  });
+}
+
+document.getElementById("load-vernacular-demo")?.addEventListener(
+  "click",()=>renderVernacularReview(demoVernacularReview)
+);
+
+document.getElementById("finalize-vernacular")?.addEventListener("click",()=>{
+  if(!selectedTaskId){
+    alert("請先從任務總覽選擇一堂課。");
+    return;
+  }
+
+  const task=tasks.find(x=>x.id===selectedTaskId);
+  if(!task) return;
+
+  const ok=confirm(
+    task.id+"｜"+task.lesson+"\n\n"+
+    "確定白話文已逐段人工確認完成並定稿？\n"+
+    "定稿後，英文翻譯只能使用這份人工白話文 Final。"
+  );
+  if(!ok) return;
+
+  task.completedStep=Math.max(task.completedStep,5);
+  task.status="白話文已定稿";
+  task.workflowVersion=WORKFLOW_VERSION;
+  save(STORE.tasks,tasks);
+  renderTasks();
+
+  alert("白話文已定稿。下一步："+workflow[6].label);
+  openTaskDetail(task.id);
+});
+
 const demoEnglishReview = [
   {
     id: 12,
     time: "08:20",
-    zh: "尤其是在白陽期裡，更要把修辦的方向確立清楚。",
+    original: "尤其是白陽期裡面，更是為關法律主。",
+    vernacular: "尤其在白陽期，更要把修辦的方向確立清楚。",
     en: "Especially in the White Yang Era, we need to clearly establish the direction of cultivation and Tao propagation.",
     terms: [
       {zh:"白陽期", en:"White Yang Era"},
@@ -659,7 +815,8 @@ const demoEnglishReview = [
   {
     id: 13,
     time: "08:51",
-    zh: "我們感恩天恩師德，也感謝各位前賢一路成全。",
+    original: "感恩天恩師德，各位前賢一路成全。",
+    vernacular: "我們感恩天恩師德，也感謝各位前賢一路以來的成全。",
     en: "We are grateful for Heaven's grace and our Teacher's virtue, and for the support of all senior predecessors along the way.",
     terms: [
       {zh:"天恩師德", en:"Heaven's grace and our Teacher's virtue"},
@@ -669,7 +826,8 @@ const demoEnglishReview = [
   {
     id: 14,
     time: "09:14",
-    zh: "修道不是只有自己明白，也要懂得渡化眾生。",
+    original: "修道不是只有自己明白，也要懂得渡化眾生。",
+    vernacular: "修道不只是自己明白道理，也要懂得如何引導、渡化他人。",
     en: "Cultivating the Tao is not only about understanding it ourselves; we also need to know how to guide and transform others.",
     terms: [
       {zh:"修道", en:"cultivating the Tao"},
@@ -703,7 +861,8 @@ function renderEnglishReview(items){
         '<span>#'+item.id+'</span><span>'+escapeHtml(item.time)+'</span>'+
       '</div>'+
       '<div class="en-review-pair">'+
-        '<div class="zh-source">'+escapeHtml(item.zh)+'</div>'+
+        '<div class="zh-source original-column">'+escapeHtml(item.original)+'</div>'+
+        '<div class="zh-source vernacular-column">'+escapeHtml(item.vernacular)+'</div>'+
         '<textarea class="en-draft">'+escapeHtml(item.en)+'</textarea>'+
       '</div>'+
       '<div class="segment-actions">'+
@@ -783,6 +942,12 @@ document.getElementById("load-en-demo")?.addEventListener(
   "click",()=>renderEnglishReview(demoEnglishReview)
 );
 
+document.getElementById("toggle-en-vernacular")?.addEventListener("change",e=>{
+  const hidden=!e.target.checked;
+  document.getElementById("en-review-head")?.classList.toggle("hide-vernacular",hidden);
+  document.getElementById("en-review-list")?.classList.toggle("hide-vernacular",hidden);
+});
+
 document.getElementById("finalize-en")?.addEventListener("click",()=>{
   if(!selectedTaskId){
     alert("請先從任務總覽選擇一堂課。");
@@ -799,13 +964,13 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   );
   if(!ok) return;
 
-  task.completedStep=Math.max(task.completedStep,6);
+  task.completedStep=Math.max(task.completedStep,7);
   task.status="英文已定稿";
   task.workflowVersion=WORKFLOW_VERSION;
   save(STORE.tasks,tasks);
   renderTasks();
 
-  alert("英文已定稿。下一步："+workflow[7].label);
+  alert("英文已定稿。下一步："+workflow[8].label);
   openTaskDetail(task.id);
 });
 
