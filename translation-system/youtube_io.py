@@ -38,6 +38,10 @@ def _base_options(workdir: Path, quiet: bool):
         "quiet": quiet,
         "no_warnings": quiet,
         "noplaylist": True,
+        "socket_timeout": 20,
+        "retries": 1,
+        "fragment_retries": 1,
+        "extractor_retries": 1,
     }
 
     cookiefile = _cookie_file(workdir)
