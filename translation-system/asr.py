@@ -74,12 +74,12 @@ def _load_model(model_name: str):
     global _MODEL, _MODEL_KEY
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    compute_type = "float16" if device == "cuda" else "int8"
+    compute_type = "int8_float16" if device == "cuda" else "int8"
     model_source = resolve_model_source(model_name)
     key = (model_source, device, compute_type)
 
     if _MODEL is None or _MODEL_KEY != key:
-        print(f"[ASR] 載入模型: {model_source} / {device} / {compute_type}")
+        print(f"[ASR] 載入模型: {model_source} / {device} / {compute_type}", flush=True)
 
         kwargs = {
             "device": device,
@@ -125,7 +125,7 @@ def transcribe_audio(
     if glossary_terms:
         initial_prompt = "可能出現的專有名詞：" + "、".join(glossary_terms)
 
-    print(f"[ASR] 開始辨識: {audio_path}")
+    print(f"[ASR] 開始辨識: {audio_path}", flush=True)
     segments_iter, info = model.transcribe(
         str(audio_path),
         language="zh",
