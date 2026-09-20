@@ -39,13 +39,14 @@ def build_google_services():
     client_secret = get_secret("GOOGLE_CLIENT_SECRET")
     refresh_token = get_secret("GOOGLE_REFRESH_TOKEN")
 
+    # refresh token 在 Google 授權時已綁定原始 scopes。
+    # Refresh grant 不再額外送 scopes，避免 invalid_scope。
     creds = Credentials(
         token=None,
         refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret,
-        scopes=SCOPES,
     )
     creds.refresh(Request())
 
