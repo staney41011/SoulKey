@@ -35,8 +35,10 @@ python worker.py --task-id P253-L02 --stage polish
 python worker.py --task-id P253-L02 --stage finalize-zh
 python worker.py --task-id P253-L02 --stage translate --lang en
 # 英文人工定稿在 Web / 人工流程完成，不占 Kaggle GPU
-python worker.py --task-id P253-L02 --stage translate-all
+python worker.py --task-id P253-L02 --stage translate-targets --langs th,es
+python worker.py --task-id P253-L02 --stage translate-all  # 舊版相容，不供 Studio 預設使用
 python worker.py --task-id P253-L02 --stage tts --lang en
+python worker.py --task-id P253-L02 --stage tts --langs th,es
 ```
 
 保留目前既有：
@@ -417,3 +419,39 @@ stale
 - output_revision
 
 Web 可透過 Apps Script / 安全 API 讀取，不直接碰 Kaggle Secrets。
+
+
+---
+
+## 19. 語言選擇執行規則
+
+Studio 不再使用「全部語言一次跑完」作為正式預設。
+
+每堂課先保存「語言任務設定」：
+- transcript_source=ai：Worker 才執行該語言翻譯
+- transcript_source=human：Worker 不翻譯，等待人工文稿
+- audio_source=tts：Worker 才執行該語言 TTS
+- audio_source=human：Worker 不做 TTS，等待真人錄音
+- enabled=false：完全跳過
+
+建議正式呼叫：
+```bash
+python translate_runner.py --task-id P253-L02 --stage translate-targets --langs th,es
+python tts_runner.py --task-id P253-L02 --langs th,es
+```
+
+各語言狀態要獨立使用：
+- multi:th
+- multi:es
+- multi:id
+- multi:vi
+- 未來新增語言同樣採 multi:<language_code>
+
+音檔同理：
+- tts:th
+- tts:es
+- ...
+
+Aggregate Stage `multi` / `tts` 只負責表示「本堂課已選項目是否全部完成」。
+
+若單一語言失敗，只需重跑該語言，不重跑其他已完成語言。
