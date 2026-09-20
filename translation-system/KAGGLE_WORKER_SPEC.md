@@ -37,7 +37,6 @@ python worker.py --task-id P253-L02 --stage translate --lang en
 # 英文人工定稿在 Web / 人工流程完成，不占 Kaggle GPU
 python worker.py --task-id P253-L02 --stage translate-all
 python worker.py --task-id P253-L02 --stage tts --lang en
-python worker.py --task-id P253-L02 --stage video --lang en
 ```
 
 保留目前既有：
@@ -110,7 +109,6 @@ Doctor 不應下載大型模型，除非明確執行 setup。
 - 翻譯單語言單堂: 45 分鐘
 - translate-all 單堂: 120 分鐘
 - TTS 單語言: 90 分鐘
-- video: 90 分鐘
 
 若超時：
 - status=error
@@ -269,7 +267,7 @@ Kaggle 本身不需要等待網頁。
 2. glossary learning
 3. translate engine
 4. TTS
-5. video render
+5. 任務狀態回報與 Web 解鎖機制
 
 
 ---
@@ -358,3 +356,64 @@ Worker / 後端規則：
 - stale final 禁止被後續 stage 讀取
 - 人工 final 修改後建立新 revision
 - 只有新 revision 再確認完成後，才能重新啟動下一個 GPU stage
+
+
+---
+
+## 18. 任務狀態回報協定
+
+Kaggle / Worker 不得只靠 exit code 讓 Web 猜測結果。
+
+每個正式 Stage 在生命週期中必須回報：
+
+```text
+queued → running → done
+                 ↘ needs_review
+                 ↘ error
+```
+
+若上游 revision 改變，下游既有成果改為：
+
+```text
+stale
+```
+
+### Worker 寫入時機
+
+- GitHub / bridge 接受工作：`queued`
+- Kaggle 真正開始執行：`running`
+- 成功且無人工關卡：`done`
+- 成功但需要人工定稿：`needs_review`
+- Exception / timeout / 驗證失敗：`error`
+
+### Web 解鎖
+
+只有目前 Stage = `done`，下一個 Stage 的「執行」按鈕才可使用。
+
+若 = `needs_review`：
+- 不開放下一個 GPU Stage
+- 只開放對應人工校正 / 定稿頁
+- 人工 Final 保存成功後才寫 `done`
+
+若 = `error`：
+- 顯示錯誤摘要
+- 只開放重跑
+
+### 建議中央狀態紀錄
+
+建立獨立狀態資料表，不與成果檔混在一起。至少欄位：
+- task_id
+- stage
+- status
+- run_id
+- progress
+- message
+- started_at
+- finished_at
+- updated_at
+- error_code
+- error_message
+- input_revision
+- output_revision
+
+Web 可透過 Apps Script / 安全 API 讀取，不直接碰 Kaggle Secrets。
