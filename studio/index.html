@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260920-4">
+  <link rel="stylesheet" href="./styles.css?v=20260920-5">
 </head>
 <body>
   <div class="shell">
@@ -237,7 +237,7 @@
               <div><span>DM 分享頁</span><b class="ok">完全隔離／未修改</b></div>
               <div><span>Studio 前端</span><b class="ok">已建立</b></div>
               <div><span>任務 API</span><b class="warn" id="api-state">待接安全後端</b></div>
-              <div><span>Kaggle 喚醒</span><b class="warn">待接 GitHub Action</b></div>
+              <div><span>Kaggle 喚醒</span><b class="ok">GitHub → Kaggle 已驗證</b></div>
               <div><span>Firestore</span><b class="warn">待建立專案設定</b></div>
             </div>
           </div>
@@ -246,6 +246,35 @@
             <p class="muted block-copy">YouTube Cookies、Google OAuth、Kaggle Token 永遠不寫進這個網頁，也不提交到 GitHub。前端只拿到任務狀態與必要資料。</p>
             <div class="codebox">Browser → Secure API → GitHub Actions → Kaggle GPU<br>Kaggle Secrets → YouTube / Google Drive</div>
           </div>
+        </div>
+
+        <div class="panel bridge-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">BRIDGE TEST</p>
+              <h3>網頁 → GitHub → Kaggle</h3>
+            </div>
+            <span class="badge" id="bridge-state">尚未設定</span>
+          </div>
+          <p class="muted block-copy">
+            這裡只觸發已驗證過的 Kaggle smoke test，不會啟動正式 ASR、翻譯、TTS，也不會使用 GPU。
+          </p>
+          <div class="bridge-form">
+            <label>Apps Script Web App URL
+              <input id="bridge-endpoint" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+            </label>
+            <label>Bridge Key
+              <input id="bridge-key" type="password" autocomplete="off" placeholder="只保留在目前瀏覽器分頁">
+            </label>
+            <button class="primary" id="bridge-test" type="button">送出橋樑測試</button>
+          </div>
+          <div class="bridge-status" id="bridge-status">
+            先部署 Apps Script 轉接層，再從這裡送出測試。
+          </div>
+          <p class="muted bridge-note">
+            Web App URL 只儲存在這個瀏覽器；Bridge Key 不會寫進 GitHub，只保留在目前分頁。
+          </p>
+          <iframe name="soulkey-bridge-target" id="soulkey-bridge-target" hidden></iframe>
         </div>
       </section>
     </main>
@@ -263,6 +292,6 @@
   </dialog>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=20260920-3"></script>
+  <script src="./app.js?v=20260920-5"></script>
 </body>
 </html>
