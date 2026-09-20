@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 MACHINE_STAGES = {
+    "zh",
     "metadata",
     "asr",
     "polish",
@@ -106,10 +107,38 @@ def main():
             "-r", str(system_dir / "requirements.txt"),
         ])
 
-        if args.stage in {"metadata", "asr"}:
+        if args.stage in {"zh", "metadata", "asr"}:
             run([sys.executable, str(system_dir / "setup_wpc_provider.py")])
 
-        if args.stage == "metadata":
+        if args.stage == "zh":
+            run([
+                sys.executable, str(system_dir / "runner.py"),
+                "--task-id", args.task_id,
+                "--stage", "metadata",
+                "--max-tasks", "1",
+                "--force-metadata",
+            ])
+            run([
+                sys.executable, str(system_dir / "runner.py"),
+                "--task-id", args.task_id,
+                "--stage", "asr",
+                "--max-tasks", "1",
+                "--force-asr",
+            ])
+            run([
+                sys.executable, str(system_dir / "polish_runner.py"),
+                "--task-id", args.task_id,
+                "--max-tasks", "1",
+                "--force",
+            ])
+            report(
+                args.bridge_url,
+                args.runtime_nonce,
+                "needs_review",
+                "中文逐字稿與 AI 中文校稿完成，待人工中文定稿",
+            )
+            cmd = None
+        elif args.stage == "metadata":
             cmd = [
                 sys.executable, str(system_dir / "runner.py"),
                 "--task-id", args.task_id,
@@ -179,7 +208,8 @@ def main():
         else:
             raise RuntimeError("不支援的 stage")
 
-        run(cmd)
+        if cmd:
+            run(cmd)
         print("[WEB-WORKER] 正式 Stage 執行完成。")
 
     except Exception as exc:
