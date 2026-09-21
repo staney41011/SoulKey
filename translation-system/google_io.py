@@ -20,7 +20,7 @@ class BridgeCredentials(Credentials):
         self._bridge_url = str(bridge_url or "").strip()
         self._runtime_nonce = str(runtime_nonce or "").strip()
         # Apps Script OAuth tokens are short lived. Refresh a little early.
-        self.expiry = datetime.now(timezone.utc) + timedelta(minutes=45)
+        self.expiry = datetime.utcnow() + timedelta(minutes=45)
 
     def refresh(self, request):
         if not self._bridge_url or not self._runtime_nonce:
@@ -29,7 +29,7 @@ class BridgeCredentials(Credentials):
         query = urllib.parse.urlencode({
             "action": "worker_runtime",
             "nonce": self._runtime_nonce,
-            "_t": str(int(datetime.now(timezone.utc).timestamp())),
+            "_t": str(int(datetime.utcnow().timestamp())),
         })
         url = self._bridge_url + ("&" if "?" in self._bridge_url else "?") + query
         with urllib.request.urlopen(url, timeout=30) as response:
@@ -46,7 +46,7 @@ class BridgeCredentials(Credentials):
             raise RuntimeError("SoulKey Bridge OAuth refresh returned no token")
 
         self.token = token
-        self.expiry = datetime.now(timezone.utc) + timedelta(minutes=45)
+        self.expiry = datetime.utcnow() + timedelta(minutes=45)
         print("[Google] SoulKey Bridge OAuth token 已自動更新", flush=True)
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
