@@ -76,13 +76,37 @@ def _cookie_file(workdir: Path):
     if not value:
         return None
 
-    try:
-        raw = base64.b64decode(value)
-    except Exception as exc:
-        raise RuntimeError("YOUTUBE_COOKIES_B64 不是有效的 Base64") from exc
+    # 容錯支援兩種輸入：
+    # 1) 正式 Base64 cookies.txt
+    # 2) 使用者不小心直接貼入 Netscape cookies.txt 原文
+    text = str(value).strip()
+    raw = None
+
+    if (
+        text.startswith("# Netscape HTTP Cookie File")
+        or "\t.youtube.com\t" in text
+        or "\t.google.com\t" in text
+    ):
+        raw = text.encode("utf-8")
+        print("[YouTube] Cookies：偵測到原始 cookies.txt，直接使用。")
+    else:
+        compact = "".join(text.split())
+        # Base64 常因複製貼上少了尾端 = padding；自動補齊。
+        compact += "=" * ((4 - len(compact) % 4) % 4)
+        try:
+            raw = base64.b64decode(compact, validate=False)
+        except Exception as exc:
+            raise RuntimeError(
+                "YOUTUBE_COOKIES_B64 無法解析。請貼入 cookies.txt 的 Base64，"
+                "或直接貼入完整 Netscape cookies.txt 內容。"
+            ) from exc
+
+    if not raw or len(raw) < 32:
+        raise RuntimeError("YouTube Cookies 內容過短或為空。")
 
     path = workdir / "youtube_cookies.txt"
     path.write_bytes(raw)
+    print(f"[YouTube] Cookies：已寫入 {path}（{len(raw)} bytes）")
     return str(path)
 
 
