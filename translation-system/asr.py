@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-import torch
+import ctranslate2
 from faster_whisper import WhisperModel
 
 _MODEL = None
@@ -73,13 +73,38 @@ def resolve_model_source(model_name: str):
 def _load_model(model_name: str):
     global _MODEL, _MODEL_KEY
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    try:
+        cuda_device_count = int(ctranslate2.get_cuda_device_count())
+    except Exception as exc:
+        print(
+            f"[ASR] CTranslate2 CUDA 偵測失敗：{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        cuda_device_count = 0
+
+    require_gpu = os.getenv("SOULKEY_REQUIRE_GPU", "").strip() == "1"
+    if require_gpu and cuda_device_count < 1:
+        raise RuntimeError(
+            "GPU_REQUIRED_BUT_UNAVAILABLE: "
+            "CTranslate2 看不到 CUDA GPU，拒絕以 CPU 執行 ASR。"
+        )
+
+    device = "cuda" if cuda_device_count > 0 else "cpu"
     compute_type = "int8_float16" if device == "cuda" else "int8"
     model_source = resolve_model_source(model_name)
     key = (model_source, device, compute_type)
 
+    print(
+        f"[ASR] CTranslate2 CUDA devices={cuda_device_count}; "
+        f"require_gpu={require_gpu}",
+        flush=True,
+    )
+
     if _MODEL is None or _MODEL_KEY != key:
-        print(f"[ASR] 載入模型: {model_source} / {device} / {compute_type}", flush=True)
+        print(
+            f"[ASR] 載入模型: {model_source} / {device} / {compute_type}",
+            flush=True,
+        )
 
         kwargs = {
             "device": device,
