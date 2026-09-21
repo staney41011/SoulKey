@@ -121,6 +121,9 @@ def _base_options(workdir: Path, quiet: bool):
         "retries": 1,
         "fragment_retries": 1,
         "extractor_retries": 1,
+        # Allow yt-dlp to fetch the matching EJS challenge bundle through npm.
+        # This is only used when YouTube presents an n/JS challenge.
+        "remote_components": {"ejs:npm"},
     }
 
     if DENO_MARKER.exists():
