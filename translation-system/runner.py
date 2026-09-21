@@ -160,7 +160,36 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
 
     metadata = dict(metadata or {})
     download_meta["source_type"] = "youtube"
-    metadata["source"] = download_meta
+
+    title = str(download_meta.get("title") or task.get("title") or "").strip()
+    lecturer = str(download_meta.get("lecturer") or task.get("lecturer") or "").strip()
+    if title:
+        task["title"] = title
+    if lecturer:
+        task["lecturer"] = lecturer
+
+    update_task_row(
+        sheets,
+        sheet_row,
+        title=task.get("title") or "",
+        lecturer=task.get("lecturer") or "",
+        updated_at=now_text(),
+        note="YouTube 音訊與 metadata 單次取得完成；開始 ASR",
+    )
+
+    metadata.update({
+        "id": download_meta.get("id"),
+        "title": download_meta.get("title") or task.get("title") or "",
+        "description": download_meta.get("description") or "",
+        "channel": download_meta.get("channel") or "",
+        "uploader": download_meta.get("uploader") or "",
+        "upload_date": download_meta.get("upload_date") or "",
+        "duration": download_meta.get("duration"),
+        "webpage_url": download_meta.get("webpage_url") or youtube_url,
+        "lecturer": download_meta.get("lecturer") or task.get("lecturer") or "",
+        "lecturer_source": download_meta.get("lecturer_source") or "",
+        "source": download_meta,
+    })
     upload_metadata(drive, folders["source"], metadata, task, workdir)
 
     result = transcribe_audio(
@@ -295,9 +324,12 @@ def main():
         )
         try:
             needs_metadata = (
-                args.force_metadata
-                or not task["title"]
-                or not task["lecturer"]
+                args.stage == "metadata"
+                and (
+                    args.force_metadata
+                    or not task["title"]
+                    or not task["lecturer"]
+                )
             )
 
             if needs_metadata:
@@ -312,7 +344,7 @@ def main():
                     print(f"[META] 講師：{task['lecturer']}")
                 except Exception as exc:
                     print(
-                        f"[META] metadata 取得失敗，但 ASR 仍會嘗試："
+                        f"[META] metadata 取得失敗："
                         f"{type(exc).__name__}: {exc}"
                     )
 
