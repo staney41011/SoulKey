@@ -148,14 +148,31 @@ def _anonymous_profiles():
 def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
     if has_cookies:
         last_error = None
+
+        # Fast path: valid login cookies usually do not need Chromium / WPC.
+        print("[YouTube] Cookies 快速模式：direct")
+        try:
+            with YoutubeDL(dict(options)) as ydl:
+                return ydl.extract_info(url, download=download)
+        except DownloadError as exc:
+            last_error = exc
+            print("[YouTube] Cookies direct 失敗，改試相容模式。")
+
+        cookie_profiles = [
+            (
+                "default + web_embedded",
+                {
+                    "youtube": {
+                        "player_client": ["default", "web_embedded"],
+                    }
+                },
+            )
+        ]
+
+        # Only use WPC when it was explicitly prepared already.
         wpc = _wpc_profile()
-
-        # Current yt-dlp recommendation when default YouTube clients fail:
-        # prefer mweb with a GVS PO Token. WPC supports logged-in sessions.
-        cookie_profiles = []
-
         if wpc:
-            cookie_profiles.extend([
+            cookie_profiles.append(
                 (
                     "mweb + WPC",
                     {
@@ -165,39 +182,8 @@ def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
                         },
                         "youtubepot-wpc": wpc["youtubepot-wpc"],
                     },
-                ),
-                (
-                    "web_safari + WPC",
-                    {
-                        "youtube": {
-                            "player_client": ["web_safari"],
-                            "fetch_pot": ["always"],
-                        },
-                        "youtubepot-wpc": wpc["youtubepot-wpc"],
-                    },
-                ),
-                (
-                    "web_creator + WPC",
-                    {
-                        "youtube": {
-                            "player_client": ["web_creator"],
-                            "fetch_pot": ["always"],
-                        },
-                        "youtubepot-wpc": wpc["youtubepot-wpc"],
-                    },
-                ),
-            ])
-
-        cookie_profiles.append(
-            (
-                "default + web_embedded",
-                {
-                    "youtube": {
-                        "player_client": ["default", "web_embedded"],
-                    }
-                },
+                )
             )
-        )
 
         for label, extractor_args in cookie_profiles:
             attempt = dict(options)
@@ -355,11 +341,18 @@ def download_audio(url: str, workdir: Path):
         check=True,
     )
 
+    lecturer, lecturer_source = detect_lecturer(info)
     return normalized, {
         "id": info.get("id"),
-        "title": info.get("title"),
+        "title": info.get("title") or "",
+        "description": info.get("description") or "",
+        "channel": info.get("channel") or "",
+        "uploader": info.get("uploader") or "",
+        "upload_date": info.get("upload_date") or "",
         "duration": info.get("duration"),
         "webpage_url": info.get("webpage_url") or url,
+        "lecturer": lecturer,
+        "lecturer_source": lecturer_source,
     }
 
 
