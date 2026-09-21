@@ -117,6 +117,8 @@ def main():
             raise RuntimeError("Bridge 沒有提供 Google access token")
 
         os.environ["GOOGLE_ACCESS_TOKEN"] = google_token
+        os.environ["SOULKEY_BRIDGE_URL"] = args.bridge_url
+        os.environ["SOULKEY_RUNTIME_NONCE"] = args.runtime_nonce
 
         cookies = str(runtime.get("youtube_cookies_b64") or "").strip()
         if cookies:
