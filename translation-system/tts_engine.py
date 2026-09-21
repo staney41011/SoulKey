@@ -1,4 +1,5 @@
 import gc
+import os
 import json
 import re
 import shutil
@@ -130,7 +131,21 @@ def synthesize_language(
 
     tokenizer = AutoTokenizer.from_pretrained(source)
     model = VitsModel.from_pretrained(source)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    require_gpu = os.getenv("SOULKEY_REQUIRE_GPU", "").strip() == "1"
+    cuda_ok = bool(torch.cuda.is_available())
+    if require_gpu and not cuda_ok:
+        raise RuntimeError(
+            "GPU_REQUIRED_BUT_UNAVAILABLE: "
+            "PyTorch 看不到 CUDA GPU，拒絕以 CPU 執行 TTS。"
+        )
+
+    device = "cuda" if cuda_ok else "cpu"
+    if cuda_ok:
+        print(
+            f"[TTS:{lang}] GPU 模式：{torch.cuda.get_device_name(0)}",
+            flush=True,
+        )
     model = model.to(device)
     model.eval()
 
