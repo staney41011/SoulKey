@@ -144,7 +144,7 @@ def main():
                 str(repo),
             ])
         else:
-            run(["git", "-C", str(repo), "pull", "--ff-only"])
+            print("[BOOT] SoulKey 已由 Kaggle bootstrap 同步，略過第二次 git pull。", flush=True)
 
         run([
             sys.executable, "-m", "pip", "install",
@@ -153,17 +153,10 @@ def main():
         ])
 
         if args.stage in {"zh", "metadata", "asr"}:
-            run([sys.executable, str(system_dir / "setup_wpc_provider.py")])
+            print("[FAST] YouTube 使用 Apps Script Cookies 直連；略過 Chromium / WPC 冷啟動。", flush=True)
 
         if args.stage in {"zh", "metadata"}:
             prepare_asr_runtime()
-            run([
-                sys.executable, str(system_dir / "runner.py"),
-                "--task-id", args.task_id,
-                "--stage", "metadata",
-                "--max-tasks", "1",
-                "--force-metadata",
-            ])
             run([
                 sys.executable, str(system_dir / "runner.py"),
                 "--task-id", args.task_id,
@@ -177,13 +170,12 @@ def main():
                 "--max-tasks", "1",
                 "--force",
             ])
-            if args.stage == "zh":
-                report(
-                    args.bridge_url,
-                    args.runtime_nonce,
-                    "needs_review",
-                    "中文逐字稿與 AI 中文校稿完成，待人工中文定稿",
-                )
+            report(
+                args.bridge_url,
+                args.runtime_nonce,
+                "needs_review",
+                "中文逐字稿與 AI 中文校稿完成，待人工中文定稿",
+            )
             cmd = None
         elif args.stage == "asr":
             prepare_asr_runtime()
