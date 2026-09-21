@@ -121,6 +121,14 @@ def main():
         cookies = str(runtime.get("youtube_cookies_b64") or "").strip()
         if cookies:
             os.environ["YOUTUBE_COOKIES_B64"] = cookies
+            print("[RUNTIME] YouTube Cookies：Apps Script 已提供", flush=True)
+        else:
+            print("[RUNTIME] YouTube Cookies：未設定", flush=True)
+            if args.stage in {"zh", "metadata", "asr"}:
+                raise RuntimeError(
+                    "YouTube Cookies 尚未設定在 Apps Script Script Properties；"
+                    "Kaggle API 觸發不會可靠保留 Notebook Secret。"
+                )
 
         report(
             args.bridge_url,
