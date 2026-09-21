@@ -117,16 +117,38 @@ def _load_model(model_name: str):
     global _MODEL, _TOKENIZER, _MODEL_KEY
 
     source = resolve_polish_model(model_name)
-    key = str(source)
+    require_gpu = os.getenv("SOULKEY_REQUIRE_GPU", "").strip() == "1"
+    cuda_ok = bool(torch.cuda.is_available())
+
+    if require_gpu and not cuda_ok:
+        raise RuntimeError(
+            "GPU_REQUIRED_BUT_UNAVAILABLE: "
+            "PyTorch 看不到 CUDA GPU，拒絕以 CPU 執行 Qwen 校稿。"
+        )
+
+    device_key = "cuda:0" if cuda_ok else "cpu"
+    key = (str(source), device_key)
     if _MODEL is not None and _MODEL_KEY == key:
         return _TOKENIZER, _MODEL
+
+    if cuda_ok:
+        print(
+            f"[POLISH] GPU 模式：{torch.cuda.get_device_name(0)} / CUDA / float16",
+            flush=True,
+        )
+        try:
+            torch.set_float32_matmul_precision("high")
+        except Exception:
+            pass
+    else:
+        print("[POLISH] CPU 模式：float32", flush=True)
 
     print(f"[POLISH] 載入 AI 校稿模型：{source}")
     _TOKENIZER = AutoTokenizer.from_pretrained(source, trust_remote_code=True)
     _MODEL = AutoModelForCausalLM.from_pretrained(
         source,
-        dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto",
+        dtype=torch.float16 if cuda_ok else torch.float32,
+        device_map={"": 0} if cuda_ok else "cpu",
         low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
