@@ -262,6 +262,7 @@ def main():
         return 0
 
     processed = 0
+    failed = 0
     for task in tasks:
         if processed >= args.max_tasks:
             break
@@ -382,9 +383,10 @@ def main():
                 exc=exc,
             )
             processed += 1
+            failed += 1
 
     print("\nRunner 本次處理完成。")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
