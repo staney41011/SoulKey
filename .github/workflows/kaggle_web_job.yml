@@ -88,6 +88,7 @@ jobs:
           meta["enable_internet"] = True
           meta["enable_gpu"] = stage in gpu_stages
           meta["enable_tpu"] = False
+          meta["machine_shape"] = "NvidiaTeslaT4" if stage in gpu_stages else ""
           meta["kernel_sources"] = ["cwlmrcsir/translate-system"]
           meta["dataset_sources"] = []
 
