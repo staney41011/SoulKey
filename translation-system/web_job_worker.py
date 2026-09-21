@@ -64,6 +64,79 @@ def run(cmd, cwd=None):
     subprocess.run(cmd, cwd=cwd, env=env, check=True)
 
 
+def require_gpu_runtime(stage: str):
+    """Formal Kaggle jobs must use a real CUDA GPU; never silently fall back to CPU."""
+    os.environ["SOULKEY_REQUIRE_GPU"] = "1"
+    os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+
+    print("[GPU] 正式工作要求真實 CUDA GPU；開始硬體檢查。", flush=True)
+
+    smi = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-gpu=name,memory.total",
+            "--format=csv,noheader",
+        ],
+        text=True,
+        capture_output=True,
+    )
+    if smi.returncode == 0:
+        gpu_lines = [x.strip() for x in smi.stdout.splitlines() if x.strip()]
+        print(f"[GPU] nvidia-smi: {gpu_lines}", flush=True)
+    else:
+        gpu_lines = []
+        print(f"[GPU] nvidia-smi 不可用：{smi.stderr.strip()}", flush=True)
+
+    import torch
+    import ctranslate2
+
+    torch_ok = bool(torch.cuda.is_available())
+    torch_count = int(torch.cuda.device_count()) if torch_ok else 0
+    torch_names = [
+        torch.cuda.get_device_name(i)
+        for i in range(torch_count)
+    ] if torch_ok else []
+
+    try:
+        ct2_count = int(ctranslate2.get_cuda_device_count())
+    except Exception as exc:
+        print(
+            f"[GPU] CTranslate2 CUDA 偵測失敗：{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        ct2_count = 0
+
+    print(
+        f"[GPU] torch={torch.__version__}; "
+        f"torch.cuda.is_available={torch_ok}; "
+        f"torch_devices={torch_names}; "
+        f"ctranslate2_cuda_devices={ct2_count}",
+        flush=True,
+    )
+
+    needs_ct2 = stage in {"zh", "metadata", "asr"}
+    needs_torch = stage in {
+        "zh", "metadata", "polish", "vernacular", "en", "multi", "tts"
+    }
+
+    failures = []
+    if not gpu_lines:
+        failures.append("nvidia-smi 看不到 GPU")
+    if needs_ct2 and ct2_count < 1:
+        failures.append("CTranslate2 看不到 CUDA GPU")
+    if needs_torch and not torch_ok:
+        failures.append("PyTorch 看不到 CUDA GPU")
+
+    if failures:
+        raise RuntimeError(
+            "GPU_REQUIRED_BUT_UNAVAILABLE: "
+            + "；".join(failures)
+            + "。本次工作直接停止，避免用 CPU 浪費 1~2 小時。"
+        )
+
+    print("[GPU] GPU 驗證通過，後續禁止 CPU fallback。", flush=True)
+
+
 def prepare_asr_runtime():
     root = Path("/kaggle/input")
     matches = []
@@ -153,6 +226,8 @@ def main():
             "--disable-pip-version-check", "-q",
             "-r", str(system_dir / "requirements.txt"),
         ])
+
+        require_gpu_runtime(args.stage)
 
         if args.stage in {"zh", "metadata", "asr"}:
             print("[FAST] YouTube 使用 Apps Script Cookies 直連；略過 Chromium / WPC 冷啟動。", flush=True)
