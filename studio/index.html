@@ -4,8 +4,68 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <script>
+    (() => {
+      const PARAM = "_fresh";
+      const PENDING = "soulkey-force-fresh-pending";
+      const makeToken = () =>
+        Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+
+      try {
+        const url = new URL(window.location.href);
+        const current = url.searchParams.get(PARAM);
+        const pending = sessionStorage.getItem(PENDING);
+
+        // Every document navigation/reload gets one cache-busting redirect.
+        // The second load consumes the pending token and continues normally.
+        if (!current || current !== pending) {
+          const token = makeToken();
+          sessionStorage.setItem(PENDING, token);
+          url.searchParams.set(PARAM, token);
+          window.location.replace(url.toString());
+          return;
+        }
+
+        sessionStorage.removeItem(PENDING);
+
+        // Keep the public URL clean after a confirmed fresh load.
+        url.searchParams.delete(PARAM);
+        history.replaceState(history.state, "", url.toString());
+      } catch (_) {}
+
+      // Clear only SoulKey's programmable caches; preserve local/session data.
+      if ("caches" in window) {
+        caches.keys()
+          .then(keys => Promise.all(keys.map(key => caches.delete(key))))
+          .catch(() => {});
+      }
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistrations()
+          .then(regs => Promise.all(regs.map(reg => reg.unregister())))
+          .catch(() => {});
+      }
+
+      // Safari/Chrome back-forward cache must also reopen on a fresh URL.
+      window.addEventListener("pageshow", event => {
+        if (!event.persisted) return;
+        try {
+          const url = new URL(window.location.href);
+          const token = makeToken();
+          sessionStorage.setItem(PENDING, token);
+          url.searchParams.set(PARAM, token);
+          window.location.replace(url.toString());
+        } catch (_) {
+          window.location.reload();
+        }
+      });
+    })();
+  </script>
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260920-12">
+  <link rel="stylesheet" href="./styles.css?v=20260921-31">
 </head>
 <body>
   <div class="shell">
@@ -385,7 +445,7 @@
               <p class="eyebrow">WEB EXECUTION</p>
               <h3>Kaggle Web Worker</h3>
             </div>
-            <div class="worker-build"><span class="muted">Build 20260921.30</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
+            <div class="worker-build"><span class="muted">Build 20260921.31</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
           </div>
           <p class="muted block-copy">
             私人 Kaggle 資料載體已通過測試。正式流程現在使用「網頁按一下 → Apps Script → GitHub Actions → Kaggle」，並由 Apps Script 提供短效 Google OAuth。
@@ -452,7 +512,7 @@
     </form>
   </dialog>
 
-  <script src="./config.js?v=20260920-6"></script>
-  <script src="./app-20260921-30.js"></script>
+  <script src="./config.js?v=20260921-31"></script>
+  <script src="./app-20260921-31.js"></script>
 </body>
 </html>
