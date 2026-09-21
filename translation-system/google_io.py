@@ -1,11 +1,53 @@
 import io
+import json
 import mimetypes
 import os
 import re
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+
+
+class BridgeCredentials(Credentials):
+    """Short-lived Apps Script OAuth token that can renew itself via worker_runtime."""
+
+    def __init__(self, token: str, bridge_url: str, runtime_nonce: str):
+        super().__init__(token=token)
+        self._bridge_url = str(bridge_url or "").strip()
+        self._runtime_nonce = str(runtime_nonce or "").strip()
+        # Apps Script OAuth tokens are short lived. Refresh a little early.
+        self.expiry = datetime.now(timezone.utc) + timedelta(minutes=45)
+
+    def refresh(self, request):
+        if not self._bridge_url or not self._runtime_nonce:
+            raise RuntimeError("SoulKey Bridge refresh context is missing")
+
+        query = urllib.parse.urlencode({
+            "action": "worker_runtime",
+            "nonce": self._runtime_nonce,
+            "_t": str(int(datetime.now(timezone.utc).timestamp())),
+        })
+        url = self._bridge_url + ("&" if "?" in self._bridge_url else "?") + query
+        with urllib.request.urlopen(url, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        if not payload.get("ok"):
+            raise RuntimeError(
+                "SoulKey Bridge OAuth refresh failed: "
+                + str(payload.get("message") or payload.get("error") or payload)
+            )
+
+        token = str(payload.get("google_access_token") or "").strip()
+        if not token:
+            raise RuntimeError("SoulKey Bridge OAuth refresh returned no token")
+
+        self.token = token
+        self.expiry = datetime.now(timezone.utc) + timedelta(minutes=45)
+        print("[Google] SoulKey Bridge OAuth token 已自動更新", flush=True)
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
@@ -35,7 +77,16 @@ def build_google_services():
 
     if access_token:
         print("[Google] 使用 SoulKey Bridge 提供的短效 OAuth access token")
-        creds = Credentials(token=access_token)
+        bridge_url = os.environ.get("SOULKEY_BRIDGE_URL", "").strip()
+        runtime_nonce = os.environ.get("SOULKEY_RUNTIME_NONCE", "").strip()
+        if bridge_url and runtime_nonce:
+            creds = BridgeCredentials(
+                token=access_token,
+                bridge_url=bridge_url,
+                runtime_nonce=runtime_nonce,
+            )
+        else:
+            creds = Credentials(token=access_token)
     else:
         client_id = get_secret("GOOGLE_CLIENT_ID")
         client_secret = get_secret("GOOGLE_CLIENT_SECRET")
