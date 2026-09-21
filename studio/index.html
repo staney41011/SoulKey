@@ -100,33 +100,33 @@
           <div class="panel">
             <p class="eyebrow">NEW COURSE</p>
             <h3>建立翻譯任務</h3>
-            <p class="muted block-copy">貼入 YouTube 網址後建立任務。正式後端接上後，這裡會直接送入任務佇列，不需要打開 Kaggle。</p>
+            <p class="muted block-copy">可分批建立同一期課程。每次只要填目前已有的 YouTube 網址即可，其餘堂課可留空，之後再補。</p>
             <form id="task-form">
               <label class="period-field">期數
                 <input id="period" type="number" min="1" value="253" required>
               </label>
 
-              <div class="lesson-url-grid">
+              <p class="muted block-copy">每次至少填 1 堂即可；同一期可分多次建立，也可以回來更新已建立課程的網址。</p><div class="lesson-url-grid">
                 <div class="lesson-url-row">
                   <div class="lesson-number"><b>第1堂</b><span id="task-code-1">P253-L01</span></div>
-                  <label>YouTube 網址<input id="youtube-url-1" type="url" required placeholder="https://youtu.be/..."></label>
+                  <label>YouTube 網址<input id="youtube-url-1" type="url" placeholder="https://youtu.be/..."></label>
                 </div>
                 <div class="lesson-url-row">
                   <div class="lesson-number"><b>第2堂</b><span id="task-code-2">P253-L02</span></div>
-                  <label>YouTube 網址<input id="youtube-url-2" type="url" required placeholder="https://youtu.be/..."></label>
+                  <label>YouTube 網址<input id="youtube-url-2" type="url" placeholder="https://youtu.be/..."></label>
                 </div>
                 <div class="lesson-url-row">
                   <div class="lesson-number"><b>第3堂</b><span id="task-code-3">P253-L03</span></div>
-                  <label>YouTube 網址<input id="youtube-url-3" type="url" required placeholder="https://youtu.be/..."></label>
+                  <label>YouTube 網址<input id="youtube-url-3" type="url" placeholder="https://youtu.be/..."></label>
                 </div>
                 <div class="lesson-url-row">
                   <div class="lesson-number"><b>第4堂</b><span id="task-code-4">P253-L04</span></div>
-                  <label>YouTube 網址<input id="youtube-url-4" type="url" required placeholder="https://youtu.be/..."></label>
+                  <label>YouTube 網址<input id="youtube-url-4" type="url" placeholder="https://youtu.be/..."></label>
                 </div>
               </div>
 
               <label>整期備註<textarea id="task-note" rows="3" placeholder="可留空"></textarea></label>
-              <button class="primary full" type="submit">一次建立四堂課</button>
+              <button class="primary full" type="submit">建立已填寫的課程</button>
             </form>
           </div>
           <div class="panel soft">
@@ -385,7 +385,7 @@
               <p class="eyebrow">WEB EXECUTION</p>
               <h3>Kaggle Web Worker</h3>
             </div>
-            <div class="worker-build"><span class="muted">Build 20260920.29</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
+            <div class="worker-build"><span class="muted">Build 20260921.30</span><span class="badge complete" id="web-worker-state">私人執行橋樑已驗證</span></div>
           </div>
           <p class="muted block-copy">
             私人 Kaggle 資料載體已通過測試。正式流程現在使用「網頁按一下 → Apps Script → GitHub Actions → Kaggle」，並由 Apps Script 提供短效 Google OAuth。
@@ -453,6 +453,6 @@
   </dialog>
 
   <script src="./config.js?v=20260920-6"></script>
-  <script src="./app-20260920-29.js"></script>
+  <script src="./app-20260921-30.js"></script>
 </body>
 </html>
