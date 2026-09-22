@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 180
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KAGGLE_KERNEL: cwlmrcsir/soulkey-web-worker
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-gpu-worker
 
     steps:
       - name: Install Kaggle CLI
@@ -51,13 +51,41 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install kaggle
 
-      - name: Pull current Web Worker
+      - name: Prepare dedicated GPU Worker
         shell: bash
         run: |
           set -euo pipefail
           DIR="${RUNNER_TEMP}/soulkey-web-worker"
+          rm -rf "$DIR"
           mkdir -p "$DIR"
-          kaggle kernels pull "$KAGGLE_KERNEL" -p "$DIR" -m
+
+          # Use a separate GPU-only Kaggle kernel so an old CPU kernel/version
+          # cannot carry stale accelerator settings into production jobs.
+          if kaggle kernels pull "$KAGGLE_KERNEL" -p "$DIR" -m; then
+            echo "Pulled existing dedicated GPU worker."
+          else
+            echo "Dedicated GPU worker does not exist yet; creating clean metadata."
+            cat > "$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-gpu-worker",
+            "title": "SoulKey GPU Worker",
+            "code_file": "soulkey-gpu-worker.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "machine_shape": "NvidiaTeslaT4",
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": ["cwlmrcsir/translate-system"],
+            "model_sources": []
+          }
+          JSON
+            printf 'print("SoulKey GPU worker bootstrap")\n' > "$DIR/soulkey-gpu-worker.py"
+          fi
+
           cat "$DIR/kernel-metadata.json"
 
       - name: Build formal SoulKey job
@@ -84,13 +112,23 @@ jobs:
           stage = os.environ["JOB_STAGE"].strip()
           gpu_stages = {"zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts"}
 
+          # Rebind every run to the dedicated GPU-only kernel. Do not preserve
+          # id_no from an older CPU worker because Kaggle prefers id_no over id.
+          meta.pop("id_no", None)
+          meta["id"] = "cwlmrcsir/soulkey-gpu-worker"
+          meta["title"] = "SoulKey GPU Worker"
+          meta["code_file"] = "soulkey-gpu-worker.py"
+          meta["kernel_type"] = "script"
+          meta["language"] = "python"
           meta["is_private"] = True
           meta["enable_internet"] = True
-          meta["enable_gpu"] = stage in gpu_stages
+          meta["enable_gpu"] = True
           meta["enable_tpu"] = False
-          meta["machine_shape"] = "NvidiaTeslaT4" if stage in gpu_stages else ""
+          meta["machine_shape"] = "NvidiaTeslaT4"
           meta["kernel_sources"] = ["cwlmrcsir/translate-system"]
           meta["dataset_sources"] = []
+          meta["competition_sources"] = []
+          meta["model_sources"] = []
 
           meta_path.write_text(
               json.dumps(meta, ensure_ascii=False, indent=2),
@@ -146,7 +184,7 @@ jobs:
           (d / code_file).write_text(bootstrap, encoding="utf-8")
 
           print("Formal job prepared:", job["task_id"], job["stage"])
-          print("GPU:", meta["enable_gpu"])
+          print("GPU forced:", meta["enable_gpu"], meta["machine_shape"])
           PY
 
           cat "$DIR/kernel-metadata.json"
