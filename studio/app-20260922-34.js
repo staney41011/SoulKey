@@ -1325,23 +1325,26 @@ function segmentRowsHtml(items){
   ).join("");
 }
 
+function filteredZhSegments(){
+  if(zhActiveFilter==="all") return currentZhReviewAll;
+  return currentZhReviewAll.filter(x=>(x.flags||[]).includes(zhActiveFilter));
+}
+
 function bindZhReviewRows(){
   document.querySelectorAll(".zh-review-row").forEach(seg=>{
     if(seg.dataset.bound==="1") return;
     seg.dataset.bound="1";
-
     seg.addEventListener("click",()=>{
       document.getElementById("current-time").textContent=seg.dataset.time||"--:--";
     });
-
     const textarea=seg.querySelector(".zh-polished-final");
     textarea?.addEventListener("input",()=>{
       const id=Number(seg.dataset.id);
       const item=currentZhReviewAll.find(x=>Number(x.id)===id);
       if(item) item.text=String(textarea.value||"");
       zhDirtySegmentIds.add(id);
+      writeReviewCache({task_id:selectedTaskId,kind:"zh",segments:currentZhReviewAll,saved_at:Date.now()});
     });
-
     const btn=seg.querySelector(".confirm");
     btn?.addEventListener("click",()=>{
       seg.classList.add("confirmed");
@@ -1349,43 +1352,34 @@ function bindZhReviewRows(){
       btn.disabled=true;
     });
   });
+  document.getElementById("zh-load-more")?.addEventListener("click",()=>{
+    zhVisibleCount+=ZH_RENDER_BATCH;
+    renderZhVisible();
+  });
 }
 
-function renderSegments(items,options={}){
+function renderZhVisible(){
   const el=document.getElementById("segment-list");
-  const append=!!options.append;
-  const preserveMaster=!!options.preserveMaster;
-
-  if(!items.length && !append){
+  const filtered=filteredZhSegments();
+  currentZhReview=filtered;
+  if(!filtered.length){
     el.innerHTML='<div class="empty">沒有符合目前篩選條件的段落。</div>';
     return;
   }
-
-  if(!preserveMaster){
-    if(append){
-      const known=new Set(currentZhReviewAll.map(x=>Number(x.id)));
-      items.forEach(x=>{
-        if(!known.has(Number(x.id))) currentZhReviewAll.push(x);
-      });
-    }else{
-      currentZhReviewAll=items.slice();
-    }
-  }
-
-  currentZhReview=items;
-
-  if(append){
-    el.insertAdjacentHTML("beforeend",segmentRowsHtml(items));
-  }else{
-    el.innerHTML=segmentRowsHtml(items);
-  }
-
-  document.getElementById("stat-uncertain").textContent=
-    currentZhReviewAll.filter(x=>(x.flags||[]).includes("uncertain")).length;
-
+  const visible=filtered.slice(0,zhVisibleCount);
+  const more=filtered.length-visible.length;
+  el.innerHTML=segmentRowsHtml(visible)+(more>0 ? '<div class="load-more-row"><button class="ghost" id="zh-load-more">再顯示 '+Math.min(ZH_RENDER_BATCH,more)+' 段（尚有 '+more+' 段）</button></div>' : "");
+  document.getElementById("stat-uncertain").textContent=currentZhReviewAll.filter(x=>(x.flags||[]).includes("uncertain")).length;
   bindZhReviewRows();
 }
 
+function renderSegments(items,options={}){
+  if(!options.preserveMaster){
+    currentZhReviewAll=Array.isArray(items) ? items.slice() : [];
+  }
+  zhVisibleCount=ZH_RENDER_BATCH;
+  renderZhVisible();
+}
 document.getElementById("load-demo")?.addEventListener(
   "click",()=>renderSegments(demoSegments)
 );
