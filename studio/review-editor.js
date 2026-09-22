@@ -244,7 +244,7 @@ function saveDraft(){
 
 function finalize(){
   if(finalized) return;
-  if(!confirm("確定這堂課已完成中文逐字稿人工定稿？\n\n完成後會寫入 Google Drive Final，這個分享連結也會失效。")) return;
+  if(!confirm("確定這堂課已完成中文逐字稿人工定稿？\n\n完成後會寫入 Google Drive Final。這個固定編輯連結之後仍可再次開啟。")) return;
 
   const p=currentPayload();
   setStatus("寫入正式 Final…","working");
@@ -284,7 +284,7 @@ window.addEventListener("message",event=>{
       $("save-draft").disabled=true;
       $("finalize-review").disabled=true;
       document.querySelectorAll("textarea").forEach(x=>x.disabled=true);
-      alert("中文定稿已完成並寫回 Google Drive。這個分享連結已失效。");
+      alert("中文定稿已完成並寫回 Google Drive。固定編輯連結仍可繼續使用。");
     }else{
       $("save-draft").disabled=false;
       $("finalize-review").disabled=false;
