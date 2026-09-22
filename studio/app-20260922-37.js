@@ -1595,22 +1595,26 @@ document.getElementById("create-review-share")?.addEventListener("click",()=>{
   const task=tasks.find(x=>x.id===selectedTaskId);
   if(!task) return;
 
-  const btn=document.getElementById("create-review-share");
-  if(btn) btn.disabled=true;
+  const videoId=youtubeVideoIdFromUrl(task.url);
+  const url=new URL("./review.html",window.location.href);
+  url.searchParams.set("task",task.id);
+  if(videoId) url.searchParams.set("video",videoId);
+  const shareUrl=url.toString();
+
   const state=document.getElementById("review-share-state");
-  if(state) state.textContent="正在建立專屬編輯連結…";
+  const copied=()=>{
+    if(state) state.textContent="已複製固定編輯連結";
+  };
 
-  const sent=submitBridgePost({
-    action:"review_share_create",
-    task_id:task.id
-  });
-
-  if(!sent){
-    if(btn) btn.disabled=false;
-    if(state) state.textContent="尚未連線控制中心";
-    alert("請先在 Studio 連線控制中心，再建立編輯連結。");
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(shareUrl).then(copied).catch(()=>{
+      window.prompt("請複製這堂課的固定編輯連結：",shareUrl);
+    });
+  }else{
+    window.prompt("請複製這堂課的固定編輯連結：",shareUrl);
   }
 });
+
 
 document.getElementById("finalize-zh").addEventListener("click",()=>{
   if(!selectedTaskId){
@@ -2207,42 +2211,6 @@ window.addEventListener("message",event=>{
       const el=document.getElementById("task-list");
       if(el){
         el.innerHTML='<div class="empty">任務同步失敗：'+escapeHtml(data.message||data.error||"未知錯誤")+'</div>';
-      }
-    }
-  }
-
-  if(data.type==="review_share_created"){
-    const btn=document.getElementById("create-review-share");
-    if(btn) btn.disabled=false;
-
-    if(!data.ok){
-      alert("建立單堂課編輯連結失敗："+(data.message||data.error||"未知錯誤"));
-    }else{
-      const task=tasks.find(x=>x.id===data.task_id);
-      const videoId=task ? youtubeVideoIdFromUrl(task.url) : "";
-      const url=new URL("./review.html",window.location.href);
-      url.searchParams.set("task",data.task_id);
-      if(videoId) url.searchParams.set("video",videoId);
-      url.searchParams.set("token",data.token);
-
-      const shareUrl=url.toString();
-      const expires=data.expires_at ? new Date(data.expires_at).toLocaleString() : "";
-      const copied=()=>{
-        const state=document.getElementById("review-share-state");
-        if(state) state.textContent="已複製編輯連結"+(expires?"・有效至 "+expires:"");
-        alert(
-          "這堂課的專屬編輯連結已建立並複製。\n\n"+
-          "只有這堂課可編輯，連結預設 7 天有效。\n"+
-          (expires?"有效至："+expires:"")
-        );
-      };
-
-      if(navigator.clipboard && window.isSecureContext){
-        navigator.clipboard.writeText(shareUrl).then(copied).catch(()=>{
-          window.prompt("請複製這堂課的專屬編輯連結：",shareUrl);
-        });
-      }else{
-        window.prompt("請複製這堂課的專屬編輯連結：",shareUrl);
       }
     }
   }
