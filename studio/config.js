@@ -3,6 +3,7 @@
 window.SOULKEY_CONFIG = {
   apiBaseUrl: "",
   bridgeEndpoint: "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec",
+  reviewCacheBaseUrl: "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache",
   mode: "prototype",
-  version: "0.1.1"
+  version: "0.1.2"
 };
