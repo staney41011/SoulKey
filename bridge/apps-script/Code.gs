@@ -207,6 +207,14 @@ function doPost(e) {
       });
     }
 
+    if (action === "review_cache_seed") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const result = seedReviewCache_(taskId, githubToken);
+      result.source = "soulkey-bridge";
+      result.type = "review_cache_seeded";
+      return postMessage_(result);
+    }
+
     if (action === "tasks_upsert") {
       const raw = String((e && e.parameter && e.parameter.tasks_json) || "").trim();
       let items = [];
@@ -727,6 +735,51 @@ function workerReviewPublish_(nonce, taskId, contentB64) {
     REF + "/" + path;
   return result;
 }
+function seedReviewCache_(taskId, githubToken) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
+    return {
+      ok: false,
+      error: "invalid_task_id",
+      message: "task_id 格式不正確"
+    };
+  }
+
+  const folders = lessonFolders_(normalizedTaskId);
+  const raw = readJsonFile_(folders.transcript, "segments.json");
+  const polished = readJsonFile_(folders.transcript, "polish_report.json");
+  if (!raw || !polished) {
+    return {
+      ok: false,
+      error: "review_files_missing",
+      message: "找不到既有中文校稿檔案"
+    };
+  }
+
+  const items = zhReviewItems_(raw, polished);
+  const payload = JSON.stringify({
+    version: 2,
+    task_id: normalizedTaskId,
+    generated_at: new Date().toISOString(),
+    total_segments: items.length,
+    segments: items
+  });
+  const contentB64 = Utilities.base64Encode(payload, Utilities.Charset.UTF_8);
+  const path = "studio-review-cache/" + normalizedTaskId + "/zh.json";
+
+  const result = githubUpsertBase64_(
+    githubToken,
+    path,
+    contentB64,
+    "Seed review cache for " + normalizedTaskId
+  );
+  result.task_id = normalizedTaskId;
+  result.raw_url =
+    "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/" +
+    REF + "/" + path;
+  return result;
+}
+
 
 function appendExecutionStatus_(
   taskId,
