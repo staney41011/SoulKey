@@ -231,6 +231,7 @@ def main():
 
         if args.stage in {"zh", "metadata", "asr"}:
             print("[FAST] YouTube 使用 Apps Script Cookies 直連；略過 Chromium / WPC 冷啟動。", flush=True)
+            run([sys.executable, str(system_dir / "setup_js_runtime.py")])
             run([sys.executable, str(system_dir / "prepare_youtube_js.py")])
             run([sys.executable, str(system_dir / "setup_youtube_runtime.py")])
 
