@@ -1238,6 +1238,7 @@ function buildSrt_(segments) {
 }
 
 function loadReview_(taskId, kind) {
+  const startedAt = Date.now();
   if (!taskId) return { ok: false, error: "missing_task_id" };
   const folders = lessonFolders_(taskId);
 
@@ -1258,7 +1259,9 @@ function loadReview_(taskId, kind) {
     return {
       ok: true,
       task_id: taskId,
-      kind: kind,\n      load_ms: Date.now() - startedAt,\n      segments: polishedSegments.map(function(x, i) {
+      kind: kind,
+      load_ms: Date.now() - startedAt,
+      segments: polishedSegments.map(function(x, i) {
         const rawText = rawSegments[i] ? String(rawSegments[i].text || "") : "";
         const flags = [];
         if (rawText !== String(x.text || "")) flags.push("changed");
@@ -1290,7 +1293,9 @@ function loadReview_(taskId, kind) {
     return {
       ok: true,
       task_id: taskId,
-      kind: kind,\n      load_ms: Date.now() - startedAt,\n      segments: draftSegments.map(function(x, i) {
+      kind: kind,
+      load_ms: Date.now() - startedAt,
+      segments: draftSegments.map(function(x, i) {
         return {
           id: Number(x.id !== undefined ? x.id : i),
           start: Number(x.start || 0),
@@ -1328,7 +1333,9 @@ function loadReview_(taskId, kind) {
     return {
       ok: true,
       task_id: taskId,
-      kind: kind,\n      load_ms: Date.now() - startedAt,\n      segments: englishSegments.map(function(x, i) {
+      kind: kind,
+      load_ms: Date.now() - startedAt,
+      segments: englishSegments.map(function(x, i) {
         const zhText = originalSegments[i] ? String(originalSegments[i].text || "") : "";
         const pairs = terms.filter(function(t) {
           return zhText.indexOf(t.zh) >= 0;
