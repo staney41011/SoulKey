@@ -26,7 +26,9 @@ def publish_review_cache(task_id: str, cache_path):
     if not path.exists():
         raise RuntimeError(f"人工定稿快取檔不存在：{path}")
 
-    raw = path.read_bytes()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["task_id"] = task_id
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     content_b64 = base64.b64encode(raw).decode("ascii")
 
     data = urllib.parse.urlencode({
