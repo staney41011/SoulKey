@@ -532,9 +532,9 @@ def polish_segments(
         encoding="utf-8",
     )
 
-    # 人工中文定稿頁專用的輕量分塊資料。
-    # 第一批直接放進 manifest，Studio 可先顯示前 50 段，再背景載入其餘 chunk。
-    review_chunk_size = 50
+    # 人工中文定稿頁專用：產生單一、固定格式的完整 JSON。
+    # Kaggle 完成後會直接發佈到 GitHub：
+    # studio-review-cache/<task_id>/zh.json
     uncertain_ids = {int(x["id"]) for x in all_uncertain if "id" in x}
     review_items = []
     for idx, item in enumerate(polished):
@@ -554,32 +554,15 @@ def polish_segments(
             "flags": flags,
         })
 
-    review_chunk_count = max(
-        1,
-        (len(review_items) + review_chunk_size - 1) // review_chunk_size,
-    )
-    review_chunk_paths = []
-    for chunk_index in range(1, review_chunk_count):
-        start = chunk_index * review_chunk_size
-        chunk_path = output_dir / f"zh-TW.review.{chunk_index:03d}.json"
-        chunk_path.write_text(
-            json.dumps({
-                "version": 1,
-                "chunk_index": chunk_index,
-                "segments": review_items[start:start + review_chunk_size],
-            }, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        review_chunk_paths.append(chunk_path)
-
-    review_manifest_path = output_dir / "zh-TW.review.manifest.json"
-    review_manifest_path.write_text(
+    review_cache_path = output_dir / "zh-TW.review-cache.json"
+    review_cache_path.write_text(
         json.dumps({
-            "version": 1,
+            "version": 2,
+            "generated_at": __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ).isoformat(),
             "total_segments": len(review_items),
-            "chunk_size": review_chunk_size,
-            "chunk_count": review_chunk_count,
-            "first_chunk": review_items[:review_chunk_size],
+            "segments": review_items,
         }, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -589,9 +572,9 @@ def polish_segments(
         "srt": srt_path,
         "readable": readable_path,
         "report": report_path,
-        "review_manifest": review_manifest_path,
-        "review_chunks": review_chunk_paths,
+        "review_cache": review_cache_path,
         "segment_count": len(polished),
         "changed_count": len(review_changes),
         "uncertain_count": len(all_uncertain),
     }
+
