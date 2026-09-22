@@ -2104,7 +2104,8 @@ function responseForAction_(action, payload) {
     language_plan_save: "language_plan_saved",
     tasks_upsert: "tasks_saved",
     run_stage: "run_stage",
-    review_save: "review_saved"
+    review_save: "review_saved",
+    review_share_create: "review_share_created"
   };
 
   if (mapped[action]) {
