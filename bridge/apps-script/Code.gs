@@ -75,6 +75,13 @@ function doPost(e) {
       return json_(workerReport_(nonce, status, message));
     }
 
+    if (action === "worker_review_publish") {
+      const nonce = String((e && e.parameter && e.parameter.nonce) || "").trim();
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const contentB64 = String((e && e.parameter && e.parameter.content_b64) || "").trim();
+      return json_(workerReviewPublish_(nonce, taskId, contentB64));
+    }
+
     const props = PropertiesService.getScriptProperties();
     const expectedKey = String(props.getProperty("BRIDGE_KEY") || "").trim();
     const githubToken = String(props.getProperty("GITHUB_TOKEN") || "").trim();
@@ -576,6 +583,149 @@ function workerReport_(nonce, status, message) {
     stage: job.stage,
     status: normalized
   };
+}
+
+function githubPathEncode_(path) {
+  return String(path || "").split("/").map(function(part) {
+    return encodeURIComponent(part);
+  }).join("/");
+}
+
+function githubUpsertBase64_(githubToken, path, contentB64, message) {
+  if (!githubToken) {
+    return {
+      ok: false,
+      error: "github_token_missing",
+      message: "GITHUB_TOKEN 尚未設定"
+    };
+  }
+
+  const encodedPath = githubPathEncode_(path);
+  const baseUrl =
+    "https://api.github.com/repos/" + OWNER + "/" + REPO +
+    "/contents/" + encodedPath;
+
+  let currentSha = "";
+  const getResponse = UrlFetchApp.fetch(
+    baseUrl + "?ref=" + encodeURIComponent(REF),
+    {
+      method: "get",
+      headers: {
+        Authorization: "Bearer " + githubToken,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2026-03-10"
+      },
+      muteHttpExceptions: true
+    }
+  );
+
+  const getStatus = getResponse.getResponseCode();
+  if (getStatus === 200) {
+    try {
+      currentSha = String(JSON.parse(getResponse.getContentText()).sha || "");
+    } catch (_) {}
+  } else if (getStatus !== 404) {
+    return {
+      ok: false,
+      error: "github_cache_lookup_failed",
+      github_status: getStatus,
+      github_body: String(getResponse.getContentText() || "").slice(0, 800)
+    };
+  }
+
+  const body = {
+    message: message || ("Update " + path),
+    content: contentB64,
+    branch: REF
+  };
+  if (currentSha) body.sha = currentSha;
+
+  const putResponse = UrlFetchApp.fetch(baseUrl, {
+    method: "put",
+    contentType: "application/json",
+    payload: JSON.stringify(body),
+    headers: {
+      Authorization: "Bearer " + githubToken,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2026-03-10"
+    },
+    muteHttpExceptions: true
+  });
+
+  const status = putResponse.getResponseCode();
+  if (status !== 200 && status !== 201) {
+    return {
+      ok: false,
+      error: "github_cache_publish_failed",
+      github_status: status,
+      github_body: String(putResponse.getContentText() || "").slice(0, 800)
+    };
+  }
+
+  let result = {};
+  try {
+    result = JSON.parse(putResponse.getContentText());
+  } catch (_) {}
+
+  return {
+    ok: true,
+    path: path,
+    sha: result && result.content ? result.content.sha || "" : "",
+    commit_sha: result && result.commit ? result.commit.sha || "" : ""
+  };
+}
+
+function workerReviewPublish_(nonce, taskId, contentB64) {
+  const job = getRuntimeJob_(nonce);
+  if (!job) {
+    return {
+      ok: false,
+      error: "invalid_or_expired_nonce",
+      message: "Runtime nonce 不存在或已過期"
+    };
+  }
+
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
+    return {
+      ok: false,
+      error: "invalid_task_id",
+      message: "task_id 格式不正確"
+    };
+  }
+
+  if (String(job.task_id || "").trim() !== normalizedTaskId) {
+    return {
+      ok: false,
+      error: "task_mismatch",
+      message: "Runtime task 與發佈 task 不一致"
+    };
+  }
+
+  if (!contentB64) {
+    return {
+      ok: false,
+      error: "empty_review_cache",
+      message: "沒有可發佈的人工定稿快取內容"
+    };
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const githubToken = String(props.getProperty("GITHUB_TOKEN") || "").trim();
+  const path = "studio-review-cache/" + normalizedTaskId + "/zh.json";
+
+  const result = githubUpsertBase64_(
+    githubToken,
+    path,
+    contentB64,
+    "Publish review cache for " + normalizedTaskId
+  );
+
+  result.task_id = normalizedTaskId;
+  result.raw_url =
+    "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/" +
+    REF + "/" + path;
+  return result;
 }
 
 function appendExecutionStatus_(
