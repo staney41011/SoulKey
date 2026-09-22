@@ -49,7 +49,8 @@ function doGet(e) {
       bridge_key: String((e && e.parameter && e.parameter.bridge_key) || "").trim(),
       task_id: String((e && e.parameter && e.parameter.task_id) || "").trim(),
       task_ids: String((e && e.parameter && e.parameter.task_ids) || "").trim(),
-      kind: String((e && e.parameter && e.parameter.kind) || "").trim()
+      kind: String((e && e.parameter && e.parameter.kind) || "").trim(),
+      chunk_index: String((e && e.parameter && e.parameter.chunk_index) || "0").trim()
     };
     return jsonp_(callback, bridgeRequest(request));
   }
@@ -420,7 +421,8 @@ function bridgeRequest(request) {
     if (action === "review_load") {
       const taskId = String(request.task_id || "").trim();
       const kind = String(request.kind || "").trim();
-      const payload = loadReview_(taskId, kind);
+      const chunkIndex = Math.max(0, Number(request.chunk_index || 0) || 0);
+      const payload = loadReview_(taskId, kind, chunkIndex);
       payload.source = "soulkey-bridge";
       payload.type = "review_data";
       return payload;
@@ -1237,46 +1239,121 @@ function buildSrt_(segments) {
   return out.join("\n");
 }
 
-function loadReview_(taskId, kind) {
+function zhReviewItems_(raw, polished) {
+  const rawSegments = (raw && raw.segments) || [];
+  const polishedSegments = (polished && polished.segments) || [];
+  const uncertain = {};
+  ((polished && polished.uncertain) || []).forEach(function(x) {
+    uncertain[Number(x.id)] = true;
+  });
+
+  return polishedSegments.map(function(x, i) {
+    const rawText = rawSegments[i] ? String(rawSegments[i].text || "") : "";
+    const flags = [];
+    if (rawText !== String(x.text || "")) flags.push("changed");
+    if (uncertain[i]) flags.push("uncertain");
+    return {
+      id: i,
+      start: Number(x.start || 0),
+      end: Number(x.end || 0),
+      time: formatPlainTime_(x.start),
+      raw: rawText,
+      text: String(x.text || ""),
+      flags: flags
+    };
+  });
+}
+
+function buildZhReviewManifest_(folder, raw, polished) {
+  const chunkSize = 50;
+  const items = zhReviewItems_(raw, polished);
+  const chunkCount = Math.max(1, Math.ceil(items.length / chunkSize));
+
+  for (let chunkIndex = 1; chunkIndex < chunkCount; chunkIndex++) {
+    const start = chunkIndex * chunkSize;
+    const chunk = items.slice(start, start + chunkSize);
+    writeTextFile_(
+      folder,
+      "zh-TW.review." + String(chunkIndex).padStart(3, "0") + ".json",
+      JSON.stringify({
+        version: 1,
+        chunk_index: chunkIndex,
+        segments: chunk
+      }),
+      "application/json"
+    );
+  }
+
+  const manifest = {
+    version: 1,
+    total_segments: items.length,
+    chunk_size: chunkSize,
+    chunk_count: chunkCount,
+    generated_at: new Date().toISOString(),
+    first_chunk: items.slice(0, chunkSize)
+  };
+
+  writeTextFile_(
+    folder,
+    "zh-TW.review.manifest.json",
+    JSON.stringify(manifest),
+    "application/json"
+  );
+
+  return manifest;
+}
+
+function loadZhReviewChunk_(folders, taskId, chunkIndex, startedAt) {
+  let manifest = readJsonFile_(folders.transcript, "zh-TW.review.manifest.json");
+
+  // 舊任務第一次開啟時，才由既有 ASR + polish_report 建立一次分塊快取。
+  if (!manifest || !Array.isArray(manifest.first_chunk)) {
+    const raw = readJsonFile_(folders.transcript, "segments.json");
+    const polished = readJsonFile_(folders.transcript, "polish_report.json");
+    if (!raw || !polished) {
+      return {
+        ok: false,
+        error: "review_files_missing",
+        message: "找不到中文校稿檔案"
+      };
+    }
+    manifest = buildZhReviewManifest_(folders.transcript, raw, polished);
+  }
+
+  const chunkCount = Math.max(1, Number(manifest.chunk_count || 1));
+  const safeIndex = Math.max(0, Math.min(Number(chunkIndex || 0), chunkCount - 1));
+  let segments = [];
+
+  if (safeIndex === 0) {
+    segments = Array.isArray(manifest.first_chunk) ? manifest.first_chunk : [];
+  } else {
+    const chunk = readJsonFile_(
+      folders.transcript,
+      "zh-TW.review." + String(safeIndex).padStart(3, "0") + ".json"
+    );
+    segments = chunk && Array.isArray(chunk.segments) ? chunk.segments : [];
+  }
+
+  return {
+    ok: true,
+    task_id: taskId,
+    kind: "zh",
+    load_ms: Date.now() - startedAt,
+    chunk_index: safeIndex,
+    chunk_count: chunkCount,
+    total_segments: Number(manifest.total_segments || segments.length),
+    has_more: safeIndex + 1 < chunkCount,
+    segments: segments
+  };
+}
+
+function loadReview_(taskId, kind, chunkIndex) {
   const startedAt = Date.now();
   if (!taskId) return { ok: false, error: "missing_task_id" };
   const folders = lessonFolders_(taskId);
 
   if (kind === "zh") {
-    const raw = readJsonFile_(folders.transcript, "segments.json");
-    const polished = readJsonFile_(folders.transcript, "polish_report.json");
-    if (!raw || !polished) {
-      return { ok: false, error: "review_files_missing", message: "找不到中文校稿檔案" };
-    }
-
-    const rawSegments = raw.segments || [];
-    const polishedSegments = polished.segments || [];
-    const uncertain = {};
-    (polished.uncertain || []).forEach(function(x) {
-      uncertain[Number(x.id)] = true;
-    });
-
-    return {
-      ok: true,
-      task_id: taskId,
-      kind: kind,
-      load_ms: Date.now() - startedAt,
-      segments: polishedSegments.map(function(x, i) {
-        const rawText = rawSegments[i] ? String(rawSegments[i].text || "") : "";
-        const flags = [];
-        if (rawText !== String(x.text || "")) flags.push("changed");
-        if (uncertain[i]) flags.push("uncertain");
-        return {
-          id: i,
-          start: Number(x.start || 0),
-          end: Number(x.end || 0),
-          time: formatPlainTime_(x.start),
-          raw: rawText,
-          text: String(x.text || ""),
-          flags: flags
-        };
-      })
-    };
+    return loadZhReviewChunk_(folders, taskId, chunkIndex, startedAt);
   }
 
   if (kind === "vernacular") {
