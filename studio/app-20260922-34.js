@@ -1386,19 +1386,15 @@ document.getElementById("load-demo")?.addEventListener(
 
 document.querySelectorAll("[data-filter]").forEach(b=>b.addEventListener("click",()=>{
   if(zhReviewLoading){
-    setZhReviewLoadState("仍在背景載入完整逐字稿，載入完成後即可篩選","working");
+    setZhReviewLoadState("GitHub 最新版仍在同步，完成後即可篩選","working");
     return;
   }
   document.querySelectorAll("[data-filter]").forEach(
     x=>x.classList.toggle("active",x===b)
   );
-  const filter=b.dataset.filter;
-  renderSegments(
-    filter==="all"
-      ? currentZhReviewAll
-      : currentZhReviewAll.filter(x=>(x.flags||[]).includes(filter)),
-    {preserveMaster:true}
-  );
+  zhActiveFilter=b.dataset.filter||"all";
+  zhVisibleCount=ZH_RENDER_BATCH;
+  renderZhVisible();
 }));
 
 document.getElementById("finalize-zh").addEventListener("click",()=>{
@@ -1418,7 +1414,7 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
   if(!ok) return;
 
   if(zhReviewLoading){
-    alert("完整逐字稿仍在背景載入，請等右上角顯示「雲端最新」後再定稿。");
+    alert("GitHub 最新逐字稿仍在同步，請等右上角顯示「GitHub 直讀完成」後再定稿。");
     return;
   }
 
