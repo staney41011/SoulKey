@@ -179,6 +179,35 @@ def transcribe_audio(
             f"{_plain_time(item['end'])} {text}"
         )
 
+    # 某些台灣中文 Whisper/CTranslate2 模型偶爾會回傳異常短的 end timestamp
+    # （例如 start=220.48, end=220.80，但下一段 start=251.98）。
+    # 這會讓人工校稿與 YouTube 原片無法正確核對，也會破壞字幕長度。
+    # 若一段短於 2 秒、但下一段距離起點超過 5 秒，視為異常，
+    # 將 end 修正為下一段的 start。其餘時間戳保持模型原值。
+    repaired = 0
+    for i in range(len(segments) - 1):
+        current = segments[i]
+        nxt = segments[i + 1]
+        start = float(current["start"])
+        end = float(current["end"])
+        next_start = float(nxt["start"])
+        if (
+            next_start > start
+            and (
+                end < start
+                or ((end - start) < 2.0 and (next_start - start) > 5.0)
+            )
+        ):
+            current["end"] = round(next_start, 3)
+            repaired += 1
+
+    if repaired:
+        print(
+            f"[ASR] 修正 {repaired} 個異常短 end timestamp，"
+            "使逐字稿時間軸可直接對齊 YouTube。",
+            flush=True,
+        )
+
     txt_path = output_dir / "zh-TW.txt"
     srt_path = output_dir / "zh-TW.srt"
     json_path = output_dir / "segments.json"
