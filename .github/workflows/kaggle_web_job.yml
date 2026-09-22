@@ -151,7 +151,8 @@ jobs:
 
           cat "$DIR/kernel-metadata.json"
 
-      - name: Push Kaggle job
+      - name: Run Kaggle job with GPU retry
+        id: wait_job
         shell: bash
         env:
           JOB_STAGE: ${{ inputs.stage }}
@@ -159,37 +160,69 @@ jobs:
           set -euo pipefail
           DIR="${RUNNER_TEMP}/soulkey-web-worker"
           STAGE="${JOB_STAGE}"
+          FINAL_STATUS="UNKNOWN"
+          MAX_ATTEMPTS=1
 
           if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts)$ ]]; then
-            echo "Launching Kaggle with NvidiaTeslaT4 accelerator; timeout=7200s"
-            kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 7200
-          else
-            echo "Launching Kaggle without accelerator; timeout=3600s"
-            kaggle kernels push -p "$DIR" -t 3600
+            MAX_ATTEMPTS=3
           fi
 
-      - name: Wait for Kaggle job
-        id: wait_job
-        shell: bash
-        run: |
-          set -euo pipefail
-          FINAL_STATUS="UNKNOWN"
+          for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "============================================================"
+            echo "Kaggle attempt $ATTEMPT / $MAX_ATTEMPTS"
+            echo "============================================================"
 
-          for i in $(seq 1 720); do
-            STATUS="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
-            echo "$STATUS"
+            if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts)$ ]]; then
+              echo "Launching Kaggle with NvidiaTeslaT4 accelerator; timeout=7200s"
+              kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 7200
+            else
+              echo "Launching Kaggle without accelerator; timeout=3600s"
+              kaggle kernels push -p "$DIR" -t 3600
+            fi
 
-            if echo "$STATUS" | grep -Eqi 'complete|completed'; then
+            ATTEMPT_STATUS="UNKNOWN"
+            for i in $(seq 1 720); do
+              STATUS="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+              echo "$STATUS"
+
+              if echo "$STATUS" | grep -Eqi 'complete|completed'; then
+                ATTEMPT_STATUS="COMPLETE"
+                break
+              fi
+
+              if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
+                ATTEMPT_STATUS="ERROR"
+                break
+              fi
+
+              sleep 10
+            done
+
+            if [ "$ATTEMPT_STATUS" = "COMPLETE" ]; then
               FINAL_STATUS="COMPLETE"
               break
             fi
 
-            if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
-              FINAL_STATUS="ERROR"
-              break
+            # Kaggle sometimes accepts the T4 request but still starts a CPU-only
+            # session. The worker intentionally fails fast in that case. Inspect
+            # the kernel log and retry only that allocation failure.
+            OUT="${RUNNER_TEMP}/soulkey-gpu-attempt-$ATTEMPT"
+            rm -rf "$OUT"
+            mkdir -p "$OUT"
+            kaggle kernels output "$KAGGLE_KERNEL" -p "$OUT" -o || true
+            LOG="$(find "$OUT" -type f -name '*.log' | head -n 1 || true)"
+
+            if [ -n "$LOG" ] && grep -q "GPU_REQUIRED_BUT_UNAVAILABLE" "$LOG"; then
+              echo "Kaggle did not attach a real CUDA GPU on attempt $ATTEMPT."
+              if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+                echo "Waiting 20 seconds and retrying T4 allocation..."
+                sleep 20
+                continue
+              fi
             fi
 
-            sleep 10
+            FINAL_STATUS="$ATTEMPT_STATUS"
+            break
           done
 
           echo "final_status=$FINAL_STATUS" >> "$GITHUB_OUTPUT"
