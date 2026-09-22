@@ -9,17 +9,6 @@ const RENDER_BATCH=80;
 const params=new URLSearchParams(location.search);
 const taskId=String(params.get("task")||"").trim();
 const videoId=String(params.get("video")||"").trim();
-const tokenParam=String(params.get("token")||"").trim();
-const tokenKey="soulkey_review_share_token:"+taskId;
-let shareToken=tokenParam||sessionStorage.getItem(tokenKey)||"";
-
-if(tokenParam && taskId){
-  sessionStorage.setItem(tokenKey,tokenParam);
-  const clean=new URL(location.href);
-  clean.searchParams.delete("token");
-  history.replaceState(null,"",clean.toString());
-}
-
 let payload=null;
 let segments=[];
 let dirty=false;
@@ -220,8 +209,8 @@ function currentPayload(){
 }
 
 function submit(fields){
-  if(!BRIDGE_ENDPOINT||!shareToken){
-    setStatus("分享權限不存在","error");
+  if(!BRIDGE_ENDPOINT){
+    setStatus("後端連線不存在","error");
     return false;
   }
   const form=document.createElement("form");
@@ -248,7 +237,6 @@ function saveDraft(){
   $("save-draft").disabled=true;
   submit({
     action:"review_share_draft_save",
-    token:shareToken,
     task_id:taskId,
     payload_json:JSON.stringify(currentPayload())
   });
@@ -265,7 +253,6 @@ function finalize(){
 
   submit({
     action:"review_share_finalize",
-    token:shareToken,
     task_id:taskId,
     payload_json:JSON.stringify(p),
     segments_json:JSON.stringify(p.segments.map(x=>({
@@ -292,9 +279,7 @@ window.addEventListener("message",event=>{
     if(data.ok){
       finalized=true;
       dirty=false;
-      sessionStorage.removeItem(tokenKey);
       localStorage.removeItem("soulkey_shared_draft:"+taskId);
-      shareToken="";
       setStatus("中文定稿完成","ok");
       $("save-draft").disabled=true;
       $("finalize-review").disabled=true;
@@ -314,12 +299,6 @@ async function loadReview(){
     setStatus("課程代號錯誤","error");
     return;
   }
-  if(!shareToken){
-    setStatus("缺少編輯權限","error");
-    $("segment-list").innerHTML='<div class="card empty">這個連結缺少或已遺失編輯 token，請向管理者重新取得分享連結。</div>';
-    return;
-  }
-
   try{
     const url=REVIEW_CACHE_BASE+"/"+encodeURIComponent(taskId)+"/zh.json?_="+Date.now();
     const response=await fetch(url,{cache:"no-store",headers:{"Accept":"application/json"}});
