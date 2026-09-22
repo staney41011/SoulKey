@@ -83,19 +83,17 @@ function doPost(e) {
     }
 
     if (action === "review_share_draft_save") {
-      const token = String((e && e.parameter && e.parameter.token) || "").trim();
       const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
       const payloadJson = String((e && e.parameter && e.parameter.payload_json) || "").trim();
-      return postMessage_(reviewShareDraftSave_(token, taskId, payloadJson));
+      return postMessage_(reviewShareDraftSave_(taskId, payloadJson));
     }
 
     if (action === "review_share_finalize") {
-      const token = String((e && e.parameter && e.parameter.token) || "").trim();
       const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
       const segmentsJson = String((e && e.parameter && e.parameter.segments_json) || "").trim();
       const payloadJson = String((e && e.parameter && e.parameter.payload_json) || "").trim();
       return postMessage_(
-        reviewShareFinalize_(token, taskId, segmentsJson, payloadJson)
+        reviewShareFinalize_(taskId, segmentsJson, payloadJson)
       );
     }
 
@@ -119,14 +117,6 @@ function doPost(e) {
         error: "unauthorized",
         message: "Bridge Key 不正確"
       });
-    }
-
-    if (action === "review_share_create") {
-      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
-      const result = createReviewShare_(taskId);
-      result.source = "soulkey-bridge";
-      result.type = "review_share_created";
-      return postMessage_(result);
     }
 
     if (action === "smoke") {
@@ -795,39 +785,67 @@ function publishReviewSharePayload_(taskId, payload) {
   );
 }
 
-function reviewShareDraftSave_(token, taskId, payloadJson) {
-  const grant = validateReviewShare_(token, taskId);
-  if (!grant.ok) {
-    grant.source = "soulkey-bridge";
-    grant.type = "review_share_draft_saved";
-    return grant;
+function reviewShareDraftSave_(taskId, payloadJson) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_share_draft_saved",
+      ok: false,
+      error: "invalid_task_id",
+      message: "task_id 格式不正確"
+    };
   }
 
-  const normalized = normalizedReviewSharePayload_(taskId, payloadJson);
+  try {
+    taskInfo_(normalizedTaskId);
+  } catch (err) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_share_draft_saved",
+      ok: false,
+      error: "task_not_found",
+      message: String(err && err.message ? err.message : err)
+    };
+  }
+
+  const normalized = normalizedReviewSharePayload_(
+    normalizedTaskId,
+    payloadJson
+  );
   if (!normalized.ok) {
     normalized.source = "soulkey-bridge";
     normalized.type = "review_share_draft_saved";
     return normalized;
   }
 
-  const published = publishReviewSharePayload_(taskId, normalized.payload);
+  const published = publishReviewSharePayload_(
+    normalizedTaskId,
+    normalized.payload
+  );
   return {
     source: "soulkey-bridge",
     type: "review_share_draft_saved",
     ok: !!published.ok,
-    task_id: taskId,
+    task_id: normalizedTaskId,
     saved_at: normalized.payload.draft_saved_at,
     error: published.error || "",
-    message: published.ok ? "進度已儲存" : (published.message || "進度儲存失敗")
+    message: published.ok
+      ? "進度已儲存"
+      : (published.message || "進度儲存失敗")
   };
 }
 
-function reviewShareFinalize_(token, taskId, segmentsJson, payloadJson) {
-  const grant = validateReviewShare_(token, taskId);
-  if (!grant.ok) {
-    grant.source = "soulkey-bridge";
-    grant.type = "review_share_finalized";
-    return grant;
+function reviewShareFinalize_(taskId, segmentsJson, payloadJson) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_share_finalized",
+      ok: false,
+      error: "invalid_task_id",
+      message: "task_id 格式不正確"
+    };
   }
 
   let segments = [];
@@ -842,14 +860,17 @@ function reviewShareFinalize_(token, taskId, segmentsJson, payloadJson) {
     };
   }
 
-  const normalized = normalizedReviewSharePayload_(taskId, payloadJson);
+  const normalized = normalizedReviewSharePayload_(
+    normalizedTaskId,
+    payloadJson
+  );
   if (!normalized.ok) {
     normalized.source = "soulkey-bridge";
     normalized.type = "review_share_finalized";
     return normalized;
   }
 
-  const saved = saveReview_(taskId, "zh", segments, []);
+  const saved = saveReview_(normalizedTaskId, "zh", segments, []);
   if (!saved.ok) {
     saved.source = "soulkey-bridge";
     saved.type = "review_share_finalized";
@@ -857,20 +878,16 @@ function reviewShareFinalize_(token, taskId, segmentsJson, payloadJson) {
   }
 
   normalized.payload.finalized_at = new Date().toISOString();
-  publishReviewSharePayload_(taskId, normalized.payload);
-
-  const props = PropertiesService.getScriptProperties();
-  props.deleteProperty(reviewShareTokenKey_(token));
-  props.deleteProperty(reviewShareTaskKey_(taskId));
+  publishReviewSharePayload_(normalizedTaskId, normalized.payload);
 
   return {
     source: "soulkey-bridge",
     type: "review_share_finalized",
     ok: true,
-    task_id: taskId,
+    task_id: normalizedTaskId,
     segment_count: segments.length,
     finalized_at: normalized.payload.finalized_at,
-    message: "中文定稿完成；此分享連結已失效。"
+    message: "中文定稿完成。固定編輯連結仍可繼續使用。"
   };
 }
 
