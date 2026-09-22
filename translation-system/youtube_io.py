@@ -1,6 +1,7 @@
 import base64
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -126,10 +127,19 @@ def _base_options(workdir: Path, quiet: bool):
         "remote_components": {"ejs:npm"},
     }
 
+    deno = ""
     if DENO_MARKER.exists():
         deno = DENO_MARKER.read_text(encoding="utf-8").strip()
-        if deno and Path(deno).exists():
-            options["js_runtimes"] = {"deno": {"path": deno}}
+    if not deno:
+        deno = shutil.which("deno") or ""
+
+    if deno and Path(deno).exists():
+        options["js_runtimes"] = {"deno": {"path": deno}}
+        # yt-dlp[default] already bundles EJS; npm is an additional self-healing source.
+        options["remote_components"] = ["ejs:npm"]
+        print(f"[YouTube] JS runtime：Deno ({deno})")
+    else:
+        print("[YouTube] JS runtime：未找到 Deno；YouTube n challenge 可能失敗。")
 
     cookiefile = _cookie_file(workdir)
     if cookiefile:
