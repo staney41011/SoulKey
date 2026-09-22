@@ -2078,6 +2078,16 @@ window.addEventListener("message",event=>{
     }
   }
 
+  if(data.type==="review_cache_seeded"){
+    if(data.ok){
+      setZhReviewLoadState("GitHub 快取已建立・正在直讀","working");
+      window.setTimeout(()=>loadZhReviewFromGithub(data.task_id,{allowSeed:false,retry:0}),500);
+    }else{
+      zhReviewLoading=false;
+      setZhFinalizeEnabled(false);
+      setZhReviewLoadState("GitHub 快取建立失敗："+(data.message||data.error||"未知錯誤"),"error");
+    }
+  }
   if(data.type==="review_saved"){
     if(data.ok){
       requestTaskStatuses();
