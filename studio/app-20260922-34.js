@@ -1009,30 +1009,28 @@ function openTaskReview(taskId){
 
   document.getElementById("current-time").textContent="--:--";
   setZhFinalizeEnabled(false);
-
   zhFreshSegments=[];
   zhReviewLoading=true;
   zhReviewTotal=0;
   zhDirtySegmentIds=new Set();
+  zhVisibleCount=ZH_RENDER_BATCH;
+  zhActiveFilter="all";
 
   const cached=readReviewCache(task.id,"zh");
   zhReviewCachedPreview=!!cached;
   if(cached){
-    renderSegments(cached.segments);
-    setZhReviewLoadState("已顯示快取・同步最新版本中","working");
+    currentZhReviewAll=(cached.segments||[]).slice();
+    renderSegments(currentZhReviewAll);
+    setZhReviewLoadState("先顯示本機快取・同步 GitHub 最新版","working");
   }else{
     currentZhReview=[];
     currentZhReviewAll=[];
-    document.getElementById("segment-list").innerHTML='<div class="empty">正在載入第一批中文校稿資料…</div>';
-    setZhReviewLoadState("載入第 1 批…","working");
+    document.getElementById("segment-list").innerHTML='<div class="empty">正在從 GitHub 固定路徑讀取人工定稿資料…</div>';
+    setZhReviewLoadState("GitHub 精準定位中…","working");
   }
 
   showView("review");
-  const sent=requestReviewData(task.id,"zh",0);
-  if(!sent){
-    zhReviewLoading=false;
-    setZhReviewLoadState("尚未連線控制中心","error");
-  }
+  loadZhReviewFromGithub(task.id);
 }
 
 function confirmNextStage(taskId){
