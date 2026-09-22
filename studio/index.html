@@ -266,7 +266,10 @@
             <p class="muted">來源資訊、ASR 與 AI 中文校稿會一次完成。左側保留逐字稿，右側是 AI 校稿結果；右側可直接修正為最終中文稿。</p>
           </div>
           <div class="toolbar-actions">
-            <span class="badge" id="review-load-state">尚未載入</span>\n            <button class="primary" id="finalize-zh">中文定稿</button>
+            <span class="badge" id="review-load-state">尚未載入</span>
+            <span class="muted" id="review-share-state"></span>
+            <button class="ghost" id="create-review-share" type="button">產生單堂課編輯連結</button>
+            <button class="primary" id="finalize-zh">中文定稿</button>
           </div>
         </div>
         <div class="panel zh-review-media-bar">
@@ -522,6 +525,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260922-35.js"></script>
+  <script src="./app-20260922-36.js"></script>
 </body>
 </html>
