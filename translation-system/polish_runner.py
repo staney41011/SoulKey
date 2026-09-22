@@ -167,6 +167,22 @@ def main():
                 drive, folders["transcript"], result["report"], "polish_report.json"
             )
 
+            # Studio 人工中文定稿專用：預先把逐字稿切成小塊。
+            # 這樣進頁面時不必等整堂課 JSON 全部讀完才看到第一段。
+            upload_or_replace_file(
+                drive,
+                folders["transcript"],
+                result["review_manifest"],
+                "zh-TW.review.manifest.json",
+            )
+            for review_chunk in result.get("review_chunks", []):
+                upload_or_replace_file(
+                    drive,
+                    folders["transcript"],
+                    review_chunk,
+                    Path(review_chunk).name,
+                )
+
             update_status(
                 sheets,
                 task["sheet_row"],
