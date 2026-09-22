@@ -82,6 +82,23 @@ function doPost(e) {
       return json_(workerReviewPublish_(nonce, taskId, contentB64));
     }
 
+    if (action === "review_share_draft_save") {
+      const token = String((e && e.parameter && e.parameter.token) || "").trim();
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const payloadJson = String((e && e.parameter && e.parameter.payload_json) || "").trim();
+      return postMessage_(reviewShareDraftSave_(token, taskId, payloadJson));
+    }
+
+    if (action === "review_share_finalize") {
+      const token = String((e && e.parameter && e.parameter.token) || "").trim();
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const segmentsJson = String((e && e.parameter && e.parameter.segments_json) || "").trim();
+      const payloadJson = String((e && e.parameter && e.parameter.payload_json) || "").trim();
+      return postMessage_(
+        reviewShareFinalize_(token, taskId, segmentsJson, payloadJson)
+      );
+    }
+
     const props = PropertiesService.getScriptProperties();
     const expectedKey = String(props.getProperty("BRIDGE_KEY") || "").trim();
     const githubToken = String(props.getProperty("GITHUB_TOKEN") || "").trim();
@@ -102,6 +119,14 @@ function doPost(e) {
         error: "unauthorized",
         message: "Bridge Key 不正確"
       });
+    }
+
+    if (action === "review_share_create") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const result = createReviewShare_(taskId);
+      result.source = "soulkey-bridge";
+      result.type = "review_share_created";
+      return postMessage_(result);
     }
 
     if (action === "smoke") {
@@ -590,6 +615,262 @@ function workerReport_(nonce, status, message) {
     task_id: job.task_id,
     stage: job.stage,
     status: normalized
+  };
+}
+
+function reviewShareTokenKey_(token) {
+  return "REVIEW_SHARE_TOKEN_" + String(token || "");
+}
+
+function reviewShareTaskKey_(taskId) {
+  return "REVIEW_SHARE_TASK_" + String(taskId || "");
+}
+
+function createReviewShare_(taskId) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
+    return {
+      ok: false,
+      error: "invalid_task_id",
+      message: "task_id 格式不正確"
+    };
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const oldToken = String(
+    props.getProperty(reviewShareTaskKey_(normalizedTaskId)) || ""
+  ).trim();
+
+  if (oldToken) {
+    props.deleteProperty(reviewShareTokenKey_(oldToken));
+  }
+
+  const token = (
+    Utilities.getUuid().replace(/-/g, "") +
+    Utilities.getUuid().replace(/-/g, "")
+  ).slice(0, 48);
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  props.setProperty(
+    reviewShareTokenKey_(token),
+    JSON.stringify({
+      task_id: normalizedTaskId,
+      created_at: createdAt.toISOString(),
+      expires_at: expiresAt.toISOString()
+    })
+  );
+  props.setProperty(reviewShareTaskKey_(normalizedTaskId), token);
+
+  return {
+    ok: true,
+    task_id: normalizedTaskId,
+    token: token,
+    expires_at: expiresAt.toISOString()
+  };
+}
+
+function validateReviewShare_(token, taskId) {
+  const normalizedTaskId = String(taskId || "").trim();
+  const normalizedToken = String(token || "").trim();
+
+  if (!normalizedToken || !normalizedTaskId) {
+    return { ok: false, error: "missing_share_token" };
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const activeToken = String(
+    props.getProperty(reviewShareTaskKey_(normalizedTaskId)) || ""
+  ).trim();
+
+  if (!activeToken || activeToken !== normalizedToken) {
+    return {
+      ok: false,
+      error: "share_token_invalid",
+      message: "這個編輯連結已失效，請向管理者取得新的連結。"
+    };
+  }
+
+  const raw = String(
+    props.getProperty(reviewShareTokenKey_(normalizedToken)) || ""
+  ).trim();
+  if (!raw) {
+    return {
+      ok: false,
+      error: "share_token_invalid",
+      message: "這個編輯連結已失效。"
+    };
+  }
+
+  let grant = null;
+  try {
+    grant = JSON.parse(raw);
+  } catch (_) {
+    return { ok: false, error: "share_token_corrupt" };
+  }
+
+  if (String(grant.task_id || "") !== normalizedTaskId) {
+    return { ok: false, error: "share_task_mismatch" };
+  }
+
+  const expires = new Date(String(grant.expires_at || "")).getTime();
+  if (!expires || expires <= Date.now()) {
+    props.deleteProperty(reviewShareTokenKey_(normalizedToken));
+    props.deleteProperty(reviewShareTaskKey_(normalizedTaskId));
+    return {
+      ok: false,
+      error: "share_token_expired",
+      message: "這個編輯連結已過期，請向管理者取得新的連結。"
+    };
+  }
+
+  return { ok: true, grant: grant };
+}
+
+function normalizedReviewSharePayload_(taskId, payloadJson) {
+  let payload = null;
+  try {
+    payload = JSON.parse(String(payloadJson || ""));
+  } catch (_) {
+    return { ok: false, error: "invalid_payload_json" };
+  }
+
+  if (!payload || !Array.isArray(payload.segments) || !payload.segments.length) {
+    return { ok: false, error: "empty_segments" };
+  }
+
+  if (payload.segments.length > 5000) {
+    return { ok: false, error: "too_many_segments" };
+  }
+
+  const segments = payload.segments.map(function(x, i) {
+    const start = Number(x.start || 0);
+    const end = Number(x.end || start);
+    return {
+      id: Number(x.id !== undefined ? x.id : i),
+      start: start,
+      end: Math.max(start, end),
+      time: String(x.time || formatPlainTime_(start)),
+      raw: String(x.raw || ""),
+      text: String(x.text || ""),
+      flags: Array.isArray(x.flags)
+        ? x.flags.map(function(v) { return String(v || ""); }).filter(Boolean)
+        : []
+    };
+  });
+
+  return {
+    ok: true,
+    payload: {
+      version: 3,
+      task_id: String(taskId || "").trim(),
+      draft_saved_at: new Date().toISOString(),
+      total_segments: segments.length,
+      segments: segments
+    }
+  };
+}
+
+function publishReviewSharePayload_(taskId, payload) {
+  const props = PropertiesService.getScriptProperties();
+  const githubToken = String(props.getProperty("GITHUB_TOKEN") || "").trim();
+  if (!githubToken) {
+    return {
+      ok: false,
+      error: "github_token_missing",
+      message: "GITHUB_TOKEN 尚未設定"
+    };
+  }
+
+  const path = "studio-review-cache/" + taskId + "/zh.json";
+  const contentB64 = Utilities.base64Encode(
+    JSON.stringify(payload),
+    Utilities.Charset.UTF_8
+  );
+  return githubUpsertBase64_(
+    githubToken,
+    path,
+    contentB64,
+    "Save shared review draft for " + taskId
+  );
+}
+
+function reviewShareDraftSave_(token, taskId, payloadJson) {
+  const grant = validateReviewShare_(token, taskId);
+  if (!grant.ok) {
+    grant.source = "soulkey-bridge";
+    grant.type = "review_share_draft_saved";
+    return grant;
+  }
+
+  const normalized = normalizedReviewSharePayload_(taskId, payloadJson);
+  if (!normalized.ok) {
+    normalized.source = "soulkey-bridge";
+    normalized.type = "review_share_draft_saved";
+    return normalized;
+  }
+
+  const published = publishReviewSharePayload_(taskId, normalized.payload);
+  return {
+    source: "soulkey-bridge",
+    type: "review_share_draft_saved",
+    ok: !!published.ok,
+    task_id: taskId,
+    saved_at: normalized.payload.draft_saved_at,
+    error: published.error || "",
+    message: published.ok ? "進度已儲存" : (published.message || "進度儲存失敗")
+  };
+}
+
+function reviewShareFinalize_(token, taskId, segmentsJson, payloadJson) {
+  const grant = validateReviewShare_(token, taskId);
+  if (!grant.ok) {
+    grant.source = "soulkey-bridge";
+    grant.type = "review_share_finalized";
+    return grant;
+  }
+
+  let segments = [];
+  try {
+    segments = JSON.parse(String(segmentsJson || ""));
+  } catch (_) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_share_finalized",
+      ok: false,
+      error: "invalid_segments_json"
+    };
+  }
+
+  const normalized = normalizedReviewSharePayload_(taskId, payloadJson);
+  if (!normalized.ok) {
+    normalized.source = "soulkey-bridge";
+    normalized.type = "review_share_finalized";
+    return normalized;
+  }
+
+  const saved = saveReview_(taskId, "zh", segments, []);
+  if (!saved.ok) {
+    saved.source = "soulkey-bridge";
+    saved.type = "review_share_finalized";
+    return saved;
+  }
+
+  normalized.payload.finalized_at = new Date().toISOString();
+  publishReviewSharePayload_(taskId, normalized.payload);
+
+  const props = PropertiesService.getScriptProperties();
+  props.deleteProperty(reviewShareTokenKey_(token));
+  props.deleteProperty(reviewShareTaskKey_(taskId));
+
+  return {
+    source: "soulkey-bridge",
+    type: "review_share_finalized",
+    ok: true,
+    task_id: taskId,
+    segment_count: segments.length,
+    finalized_at: normalized.payload.finalized_at,
+    message: "中文定稿完成；此分享連結已失效。"
   };
 }
 
