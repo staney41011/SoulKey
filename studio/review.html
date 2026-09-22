@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>SoulKey｜單堂課逐字稿編輯</title>
+  <link rel="stylesheet" href="./review-editor.css?v=20260922-1">
+</head>
+<body>
+  <header class="share-header">
+    <div>
+      <p class="eyebrow">SOULKEY REVIEW</p>
+      <h1>單堂課逐字稿編輯</h1>
+      <div class="task-meta">
+        <b id="task-id">—</b>
+        <span id="share-expiry">專屬編輯連結</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="status-pill" id="save-status">載入中</span>
+      <button class="secondary" id="save-draft" type="button" disabled>儲存進度</button>
+      <button class="primary" id="finalize-review" type="button" disabled>完成中文定稿</button>
+    </div>
+  </header>
+
+  <main class="review-layout">
+    <aside class="media-pane">
+      <section class="card video-card">
+        <div id="youtube-player" class="youtube-player">
+          <div class="empty">正在載入 YouTube…</div>
+        </div>
+        <div class="video-toolbar">
+          <div>
+            <span>目前位置</span>
+            <strong id="current-time">00:00:00</strong>
+          </div>
+          <div class="seek-actions">
+            <button type="button" id="back-5">−5 秒</button>
+            <button type="button" id="forward-5">+5 秒</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card guide-card">
+        <h2>編輯方式</h2>
+        <p>按每段的「▶ 聽這段」會直接跳到 YouTube 對應位置。左側是 ASR 原文，右側文字可直接修改。</p>
+        <p>「儲存進度」只更新這堂課的 GitHub 工作稿；「完成中文定稿」才會寫入正式 Drive Final。</p>
+      </section>
+    </aside>
+
+    <section class="editor-pane">
+      <div class="editor-toolbar card">
+        <div>
+          <h2>逐字稿／AI 校稿</h2>
+          <p id="segment-summary">正在讀取資料…</p>
+        </div>
+        <div class="filters" role="group" aria-label="段落篩選">
+          <button class="filter active" data-filter="all" type="button">全部</button>
+          <button class="filter" data-filter="uncertain" type="button">待確認</button>
+          <button class="filter" data-filter="changed" type="button">AI 已修改</button>
+        </div>
+      </div>
+
+      <div id="segment-list" class="segment-list">
+        <div class="card empty">正在從 GitHub 固定路徑載入這堂課的逐字稿…</div>
+      </div>
+
+      <button id="load-more" class="load-more" type="button" hidden>顯示更多</button>
+    </section>
+  </main>
+
+  <iframe name="soulkey-share-target" id="soulkey-share-target" hidden></iframe>
+  <script src="./config.js?v=20260922-34"></script>
+  <script src="./review-editor.js?v=20260922-1"></script>
+</body>
+</html>
