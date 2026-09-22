@@ -16,6 +16,7 @@ from google_io import (
     upload_or_replace_file,
 )
 from polish import polish_segments
+from github_review_cache import publish_review_cache
 from runner import get_glossary_terms, resolve_lesson_folders
 from status_io import new_run_id, mark_running, mark_done, mark_error
 
@@ -167,21 +168,10 @@ def main():
                 drive, folders["transcript"], result["report"], "polish_report.json"
             )
 
-            # Studio 人工中文定稿專用：預先把逐字稿切成小塊。
-            # 這樣進頁面時不必等整堂課 JSON 全部讀完才看到第一段。
-            upload_or_replace_file(
-                drive,
-                folders["transcript"],
-                result["review_manifest"],
-                "zh-TW.review.manifest.json",
-            )
-            for review_chunk in result.get("review_chunks", []):
-                upload_or_replace_file(
-                    drive,
-                    folders["transcript"],
-                    review_chunk,
-                    Path(review_chunk).name,
-                )
+            # 人工中文定稿讀取不再走 Drive。
+            # 直接把完整校稿資料發佈到固定 GitHub 路徑：
+            # studio-review-cache/<task_id>/zh.json
+            publish_review_cache(task["task_id"], result["review_cache"])
 
             update_status(
                 sheets,
