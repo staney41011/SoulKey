@@ -10,6 +10,8 @@ const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
 const STATUS_POLL_MS = 12000;
+const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache").replace(/\/$/,"");
+const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
 let youtubeCookiesConfigured = null;
 
@@ -154,6 +156,8 @@ let zhReviewLoading = false;
 let zhReviewCachedPreview = false;
 let zhReviewTotal = 0;
 let zhDirtySegmentIds = new Set();
+let zhVisibleCount = ZH_RENDER_BATCH;
+let zhActiveFilter = "all";
 let currentVernacularReview = [];
 let currentEnglishReview = [];
 let currentView = "dashboard";
