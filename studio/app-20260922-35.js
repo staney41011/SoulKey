@@ -14,6 +14,11 @@ const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubus
 const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
 let youtubeCookiesConfigured = null;
+let reviewYouTubePlayer = null;
+let reviewYouTubeVideoId = "";
+let reviewYouTubeReady = false;
+let reviewYouTubePendingSeek = null;
+let reviewYouTubeApiPromise = null;
 
 window.addEventListener("error",event=>{
   const message=String(event?.message || "前端執行錯誤");
@@ -511,6 +516,166 @@ function githubReviewUrl(taskId){
   return REVIEW_CACHE_BASE+"/"+encodeURIComponent(String(taskId||""))+"/zh.json?_="+Date.now();
 }
 
+
+function youtubeVideoIdFromUrl(url){
+  try{
+    const u=new URL(String(url||""));
+    if(u.hostname==="youtu.be") return u.pathname.replace(/^\//,"").split("/")[0];
+    if(u.hostname.includes("youtube.com")){
+      if(u.pathname==="/watch") return u.searchParams.get("v")||"";
+      const parts=u.pathname.split("/").filter(Boolean);
+      if(["embed","shorts","live"].includes(parts[0])) return parts[1]||"";
+    }
+  }catch(_){}
+  const m=String(url||"").match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{6,})/);
+  return m ? m[1] : "";
+}
+
+function loadYouTubeIframeApi(){
+  if(window.YT && window.YT.Player) return Promise.resolve(window.YT);
+  if(reviewYouTubeApiPromise) return reviewYouTubeApiPromise;
+
+  reviewYouTubeApiPromise=new Promise((resolve,reject)=>{
+    const prior=window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady=()=>{
+      try{ if(typeof prior==="function") prior(); }catch(_){}
+      resolve(window.YT);
+    };
+
+    if(document.querySelector('script[data-soulkey-youtube-api="1"]')){
+      let tries=0;
+      const timer=window.setInterval(()=>{
+        tries++;
+        if(window.YT && window.YT.Player){
+          window.clearInterval(timer);
+          resolve(window.YT);
+        }else if(tries>100){
+          window.clearInterval(timer);
+          reject(new Error("YouTube Player API 載入逾時"));
+        }
+      },100);
+      return;
+    }
+
+    const script=document.createElement("script");
+    script.src="https://www.youtube.com/iframe_api";
+    script.async=true;
+    script.dataset.soulkeyYoutubeApi="1";
+    script.onerror=()=>reject(new Error("YouTube Player API 載入失敗"));
+    document.head.appendChild(script);
+  });
+
+  return reviewYouTubeApiPromise;
+}
+
+async function mountReviewYouTubePlayer(task){
+  const host=document.getElementById("youtube-review-player");
+  const state=document.getElementById("youtube-review-state");
+  if(!host) return;
+
+  const videoId=youtubeVideoIdFromUrl(task?.url||"");
+  reviewYouTubeVideoId=videoId;
+  reviewYouTubeReady=false;
+  reviewYouTubePendingSeek=null;
+
+  if(!videoId){
+    host.innerHTML='<div class="empty">無法辨識這堂課的 YouTube ID。</div>';
+    if(state) state.textContent="YouTube 網址無法辨識";
+    return;
+  }
+
+  if(state) state.textContent="載入 YouTube…";
+
+  try{
+    await loadYouTubeIframeApi();
+
+    if(reviewYouTubePlayer && typeof reviewYouTubePlayer.destroy==="function"){
+      try{ reviewYouTubePlayer.destroy(); }catch(_){}
+    }
+
+    host.innerHTML='<div id="youtube-review-player-inner"></div>';
+    reviewYouTubePlayer=new YT.Player("youtube-review-player-inner",{
+      width:"100%",
+      height:"100%",
+      videoId,
+      playerVars:{
+        playsinline:1,
+        rel:0,
+        modestbranding:1
+      },
+      events:{
+        onReady:()=>{
+          reviewYouTubeReady=true;
+          if(state) state.textContent="YouTube 已就緒";
+          if(reviewYouTubePendingSeek!==null){
+            const sec=reviewYouTubePendingSeek;
+            reviewYouTubePendingSeek=null;
+            seekReviewYouTube(sec,true);
+          }
+        },
+        onError:(event)=>{
+          if(state) state.textContent="YouTube 播放器錯誤："+event.data;
+        }
+      }
+    });
+  }catch(err){
+    if(state) state.textContent=String(err?.message||err);
+    host.innerHTML='<div class="empty">YouTube 播放器載入失敗。</div>';
+  }
+}
+
+function seekReviewYouTube(seconds,autoplay=true){
+  const sec=Math.max(0,Number(seconds)||0);
+  document.getElementById("current-time").textContent=formatClock(sec);
+
+  if(!reviewYouTubeReady || !reviewYouTubePlayer){
+    reviewYouTubePendingSeek=sec;
+    return;
+  }
+
+  try{
+    reviewYouTubePlayer.seekTo(sec,true);
+    if(autoplay && typeof reviewYouTubePlayer.playVideo==="function"){
+      reviewYouTubePlayer.playVideo();
+    }
+  }catch(_){
+    reviewYouTubePendingSeek=sec;
+  }
+}
+
+function formatClock(seconds){
+  const total=Math.max(0,Math.floor(Number(seconds)||0));
+  const h=String(Math.floor(total/3600)).padStart(2,"0");
+  const m=String(Math.floor((total%3600)/60)).padStart(2,"0");
+  const sec=String(total%60).padStart(2,"0");
+  return h+":"+m+":"+sec;
+}
+
+function repairReviewTimings(items){
+  const list=(Array.isArray(items)?items:[]).map(x=>({...x}));
+  for(let i=0;i<list.length;i++){
+    const cur=list[i];
+    const next=list[i+1];
+    const start=Number(cur.start||0);
+    let end=Number(cur.end||0);
+    if(
+      next &&
+      Number(next.start)>start &&
+      (
+        !Number.isFinite(end) ||
+        end<start ||
+        (end-start<2 && Number(next.start)-start>5)
+      )
+    ){
+      end=Number(next.start);
+    }
+    cur.start=start;
+    cur.end=Math.max(start,end||start);
+    cur.time=formatClock(start);
+  }
+  return list;
+}
+
 async function loadZhReviewFromGithub(taskId,options={}){
   const allowSeed=options.allowSeed!==false;
   const retry=Number(options.retry||0);
@@ -554,7 +719,8 @@ async function loadZhReviewFromGithub(taskId,options={}){
     if(data.task_id && String(data.task_id)!==String(taskId)) throw new Error("GitHub 快取 task_id 不一致");
 
     const currentById=new Map(currentZhReviewAll.map(x=>[Number(x.id),x]));
-    const incoming=data.segments.map(x=>{
+    const repairedSegments=repairReviewTimings(data.segments);
+    const incoming=repairedSegments.map(x=>{
       const id=Number(x.id);
       if(zhDirtySegmentIds.has(id) && currentById.has(id)){
         return {...x,text:currentById.get(id).text};
@@ -1030,6 +1196,7 @@ function openTaskReview(taskId){
   }
 
   showView("review");
+  mountReviewYouTubePlayer(task);
   loadZhReviewFromGithub(task.id);
 }
 
@@ -1318,8 +1485,9 @@ function segmentRowsHtml(items){
         '<textarea class="zh-polished-final">'+escapeHtml(s.text)+'</textarea>'+
       '</div>'+
       '<div class="segment-actions">'+
-        '<button class="mini term">加入詞庫</button>'+
-        '<button class="mini confirm">確認此段</button>'+
+        '<button class="mini play-segment" type="button">▶ 聽這段</button>'+
+        '<button class="mini term" type="button">加入詞庫</button>'+
+        '<button class="mini confirm" type="button">確認此段</button>'+
       '</div>'+
     '</article>'
   ).join("");
@@ -1334,8 +1502,17 @@ function bindZhReviewRows(){
   document.querySelectorAll(".zh-review-row").forEach(seg=>{
     if(seg.dataset.bound==="1") return;
     seg.dataset.bound="1";
-    seg.addEventListener("click",()=>{
+    seg.addEventListener("click",event=>{
       document.getElementById("current-time").textContent=seg.dataset.time||"--:--";
+      if(event.target.closest("textarea,button,input,select,a")) return;
+      seekReviewYouTube(Number(seg.dataset.start||0),false);
+    });
+    const playBtn=seg.querySelector(".play-segment");
+    playBtn?.addEventListener("click",event=>{
+      event.stopPropagation();
+      seekReviewYouTube(Number(seg.dataset.start||0),true);
+      document.querySelectorAll(".zh-review-row.playing").forEach(x=>x.classList.remove("playing"));
+      seg.classList.add("playing");
     });
     const textarea=seg.querySelector(".zh-polished-final");
     textarea?.addEventListener("input",()=>{
@@ -1396,6 +1573,18 @@ document.querySelectorAll("[data-filter]").forEach(b=>b.addEventListener("click"
   zhVisibleCount=ZH_RENDER_BATCH;
   renderZhVisible();
 }));
+
+
+document.getElementById("review-back-5")?.addEventListener("click",()=>{
+  if(reviewYouTubeReady && reviewYouTubePlayer){
+    seekReviewYouTube(Math.max(0,Number(reviewYouTubePlayer.getCurrentTime?.()||0)-5),true);
+  }
+});
+document.getElementById("review-forward-5")?.addEventListener("click",()=>{
+  if(reviewYouTubeReady && reviewYouTubePlayer){
+    seekReviewYouTube(Number(reviewYouTubePlayer.getCurrentTime?.()||0)+5,true);
+  }
+});
 
 document.getElementById("finalize-zh").addEventListener("click",()=>{
   if(!selectedTaskId){
