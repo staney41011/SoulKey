@@ -532,11 +532,65 @@ def polish_segments(
         encoding="utf-8",
     )
 
+    # 人工中文定稿頁專用的輕量分塊資料。
+    # 第一批直接放進 manifest，Studio 可先顯示前 50 段，再背景載入其餘 chunk。
+    review_chunk_size = 50
+    uncertain_ids = {int(x["id"]) for x in all_uncertain if "id" in x}
+    review_items = []
+    for idx, item in enumerate(polished):
+        raw_text = str(raw_segments[idx].get("text") or "").strip()
+        flags = []
+        if raw_text != str(item.get("text") or ""):
+            flags.append("changed")
+        if idx in uncertain_ids:
+            flags.append("uncertain")
+        review_items.append({
+            "id": idx,
+            "start": float(item.get("start", 0)),
+            "end": float(item.get("end", 0)),
+            "time": _plain_time(item.get("start", 0)),
+            "raw": raw_text,
+            "text": str(item.get("text") or ""),
+            "flags": flags,
+        })
+
+    review_chunk_count = max(
+        1,
+        (len(review_items) + review_chunk_size - 1) // review_chunk_size,
+    )
+    review_chunk_paths = []
+    for chunk_index in range(1, review_chunk_count):
+        start = chunk_index * review_chunk_size
+        chunk_path = output_dir / f"zh-TW.review.{chunk_index:03d}.json"
+        chunk_path.write_text(
+            json.dumps({
+                "version": 1,
+                "chunk_index": chunk_index,
+                "segments": review_items[start:start + review_chunk_size],
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        review_chunk_paths.append(chunk_path)
+
+    review_manifest_path = output_dir / "zh-TW.review.manifest.json"
+    review_manifest_path.write_text(
+        json.dumps({
+            "version": 1,
+            "total_segments": len(review_items),
+            "chunk_size": review_chunk_size,
+            "chunk_count": review_chunk_count,
+            "first_chunk": review_items[:review_chunk_size],
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
     return {
         "txt": txt_path,
         "srt": srt_path,
         "readable": readable_path,
         "report": report_path,
+        "review_manifest": review_manifest_path,
+        "review_chunks": review_chunk_paths,
         "segment_count": len(polished),
         "changed_count": len(review_changes),
         "uncertain_count": len(all_uncertain),
