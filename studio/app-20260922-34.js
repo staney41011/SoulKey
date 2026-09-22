@@ -507,6 +507,86 @@ function requestTasksFromControlCenter(){
   return sent;
 }
 
+function githubReviewUrl(taskId){
+  return REVIEW_CACHE_BASE+"/"+encodeURIComponent(String(taskId||""))+"/zh.json?_="+Date.now();
+}
+
+async function loadZhReviewFromGithub(taskId,options={}){
+  const allowSeed=options.allowSeed!==false;
+  const retry=Number(options.retry||0);
+  zhReviewLoading=true;
+  setZhFinalizeEnabled(false);
+  setZhReviewLoadState(retry ? "等待 GitHub 快取同步…" : "GitHub 精準定位中…","working");
+
+  try{
+    const controller=new AbortController();
+    const timeout=window.setTimeout(()=>controller.abort(),10000);
+    let response;
+    try{
+      response=await fetch(githubReviewUrl(taskId),{
+        method:"GET",
+        cache:"no-store",
+        signal:controller.signal,
+        headers:{"Accept":"application/json"}
+      });
+    }finally{
+      window.clearTimeout(timeout);
+    }
+
+    if(response.status===404){
+      if(retry<5 && !allowSeed){
+        window.setTimeout(()=>loadZhReviewFromGithub(taskId,{allowSeed:false,retry:retry+1}),700);
+        return;
+      }
+      if(allowSeed){
+        const sent=submitBridgePost({action:"review_cache_seed",task_id:taskId});
+        if(sent){
+          setZhReviewLoadState("舊課正在一次性搬到 GitHub…","working");
+          return;
+        }
+      }
+      throw new Error("GitHub 固定快取尚未建立");
+    }
+    if(!response.ok) throw new Error("GitHub HTTP "+response.status);
+
+    const data=await response.json();
+    if(!data || !Array.isArray(data.segments)) throw new Error("GitHub 快取格式不正確");
+    if(data.task_id && String(data.task_id)!==String(taskId)) throw new Error("GitHub 快取 task_id 不一致");
+
+    const currentById=new Map(currentZhReviewAll.map(x=>[Number(x.id),x]));
+    const incoming=data.segments.map(x=>{
+      const id=Number(x.id);
+      if(zhDirtySegmentIds.has(id) && currentById.has(id)){
+        return {...x,text:currentById.get(id).text};
+      }
+      return x;
+    });
+
+    zhFreshSegments=incoming.slice();
+    zhReviewTotal=Number(data.total_segments||incoming.length);
+    zhReviewCachedPreview=false;
+    zhReviewLoading=false;
+    currentZhReviewAll=incoming.slice();
+    zhActiveFilter="all";
+    zhVisibleCount=ZH_RENDER_BATCH;
+
+    writeReviewCache({task_id:taskId,kind:"zh",segments:incoming,saved_at:Date.now()});
+    document.querySelectorAll("[data-filter]").forEach(x=>x.classList.toggle("active",x.dataset.filter==="all"));
+    renderSegments(incoming);
+    setZhFinalizeEnabled(true);
+    setZhReviewLoadState("GitHub 直讀完成・"+incoming.length+" 段","ok");
+  }catch(err){
+    zhReviewLoading=false;
+    setZhFinalizeEnabled(false);
+    const reason=err && err.name==="AbortError" ? "GitHub 讀取逾時" : String(err && err.message ? err.message : err);
+    setZhReviewLoadState(reason,"error");
+    const el=document.getElementById("segment-list");
+    if(el && !currentZhReviewAll.length){
+      el.innerHTML='<div class="empty">人工定稿資料讀取失敗：'+escapeHtml(reason)+'</div>';
+    }
+  }
+}
+
 function requestReviewData(taskId,kind,chunkIndex=0){
   startReviewTimer(taskId,kind,chunkIndex);
   return jsonpBridgeRequest({
@@ -516,7 +596,6 @@ function requestReviewData(taskId,kind,chunkIndex=0){
     chunk_index:chunkIndex
   });
 }
-
 function renderTasks(){
   const el=document.getElementById("task-list");
 
