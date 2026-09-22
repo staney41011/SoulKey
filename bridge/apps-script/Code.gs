@@ -995,74 +995,208 @@ function readLatestStatuses_(taskIds) {
   return result;
 }
 
+function parseTaskId_(taskId) {
+  const match = /^P(\d+)-L(\d+)$/i.exec(String(taskId || "").trim());
+  if (!match) return null;
+  return {
+    id: String(taskId || "").trim(),
+    period: Number(match[1]),
+    lessonNumber: Number(match[2]),
+    lesson: "第" + Number(match[2]) + "堂"
+  };
+}
+
 function taskInfo_(taskId) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "task-info-v2:" + String(taskId || "").trim();
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (_) {}
+  }
+
   const sheet = getSheetByName_(TASK_SHEET_NAME);
   const values = sheet.getDataRange().getDisplayValues();
 
   for (let r = 1; r < values.length; r++) {
     if (String(values[r][0] || "").trim() === taskId) {
-      return {
+      const result = {
         row: r + 1,
         id: taskId,
         period: Number(String(values[r][1] || "").replace(/[^0-9]/g, "")),
         lesson: String(values[r][2] || "").trim()
       };
+      cache.put(cacheKey, JSON.stringify(result), 21600);
+      return result;
     }
   }
 
   throw new Error("找不到任務：" + taskId);
 }
 
-function lessonFolders_(taskId) {
-  const task = taskInfo_(taskId);
+function periodFolderId_(period) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "period-folder-v2:" + String(period);
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
   const periodSheet = getSheetByName_(PERIOD_SHEET_NAME);
   const rows = periodSheet.getDataRange().getDisplayValues();
 
-  let periodFolderId = "";
   for (let r = 1; r < rows.length; r++) {
     const num = Number((String(rows[r][0] || "") + String(rows[r][1] || "")).replace(/[^0-9]/g, ""));
-    if (num === task.period) {
+    if (num === Number(period)) {
       const match = String(rows[r][5] || "").match(/folders\/([A-Za-z0-9_-]+)/);
-      if (match) periodFolderId = match[1];
+      if (match) {
+        cache.put(cacheKey, match[1], 21600);
+        return match[1];
+      }
       break;
     }
   }
 
-  if (!periodFolderId) throw new Error("期數設定找不到資料夾");
+  throw new Error("期數設定找不到資料夾");
+}
 
-  const periodFolder = DriveApp.getFolderById(periodFolderId);
-  const courseFolder = requireFolder_(periodFolder, "01_課程");
-  const lessonNumber = Number(String(task.lesson).replace(/[^0-9]/g, ""));
-  const lessonFolder = requireFolder_(
+function cachedChildFolder_(parent, name) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "folder-id-v2:" + parent.getId() + ":" + name;
+  const cachedId = cache.get(cacheKey);
+
+  if (cachedId) {
+    try {
+      return DriveApp.getFolderById(cachedId);
+    } catch (_) {
+      cache.remove(cacheKey);
+    }
+  }
+
+  const iter = parent.getFoldersByName(name);
+  if (!iter.hasNext()) throw new Error("找不到資料夾：" + name);
+  const folder = iter.next();
+  cache.put(cacheKey, folder.getId(), 21600);
+  return folder;
+}
+
+function lessonFolders_(taskId) {
+  // review_load 只需要期數與堂次，直接由 P253-L02 這類 task_id 解析，
+  // 避免每次進人工定稿都先掃完整張「任務佇列」。
+  const parsed = parseTaskId_(taskId);
+  const task = parsed || taskInfo_(taskId);
+  const lessonNumber = parsed
+    ? parsed.lessonNumber
+    : Number(String(task.lesson).replace(/[^0-9]/g, ""));
+
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "lesson-folders-v2:" + String(taskId || "").trim();
+  const cached = cache.get(cacheKey);
+
+  if (cached) {
+    try {
+      const ids = JSON.parse(cached);
+      return {
+        task: task,
+        transcript: DriveApp.getFolderById(ids.transcript),
+        translation: DriveApp.getFolderById(ids.translation)
+      };
+    } catch (_) {
+      cache.remove(cacheKey);
+    }
+  }
+
+  const periodFolder = DriveApp.getFolderById(periodFolderId_(task.period));
+  const courseFolder = cachedChildFolder_(periodFolder, "01_課程");
+  const lessonFolder = cachedChildFolder_(
     courseFolder,
     String(lessonNumber).padStart(2, "0") + "_第" + lessonNumber + "堂"
+  );
+  const transcript = cachedChildFolder_(lessonFolder, "01_中文逐字稿");
+  const translation = cachedChildFolder_(lessonFolder, "02_翻譯稿");
+
+  cache.put(
+    cacheKey,
+    JSON.stringify({
+      transcript: transcript.getId(),
+      translation: translation.getId()
+    }),
+    21600
   );
 
   return {
     task: task,
-    transcript: requireFolder_(lessonFolder, "01_中文逐字稿"),
-    translation: requireFolder_(lessonFolder, "02_翻譯稿")
+    transcript: transcript,
+    translation: translation
   };
 }
 
 function requireFolder_(parent, name) {
-  const iter = parent.getFoldersByName(name);
-  if (!iter.hasNext()) throw new Error("找不到資料夾：" + name);
-  return iter.next();
+  return cachedChildFolder_(parent, name);
+}
+
+function cachedFileId_(folder, name) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "file-id-v2:" + folder.getId() + ":" + name;
+  const cachedId = cache.get(cacheKey);
+
+  if (cachedId) {
+    try {
+      DriveApp.getFileById(cachedId).getName();
+      return cachedId;
+    } catch (_) {
+      cache.remove(cacheKey);
+    }
+  }
+
+  const iter = folder.getFilesByName(name);
+  if (!iter.hasNext()) return null;
+  const file = iter.next();
+  cache.put(cacheKey, file.getId(), 21600);
+  return file.getId();
 }
 
 function readJsonFile_(folder, name) {
-  const iter = folder.getFilesByName(name);
-  if (!iter.hasNext()) return null;
-  return JSON.parse(iter.next().getBlob().getDataAsString("UTF-8"));
+  const fileId = cachedFileId_(folder, name);
+  if (!fileId) return null;
+
+  try {
+    return JSON.parse(
+      DriveApp.getFileById(fileId).getBlob().getDataAsString("UTF-8")
+    );
+  } catch (err) {
+    // 檔案若被刪除後重建，清掉舊 ID 再找一次。
+    const cache = CacheService.getScriptCache();
+    const cacheKey = "file-id-v2:" + folder.getId() + ":" + name;
+    cache.remove(cacheKey);
+
+    const iter = folder.getFilesByName(name);
+    if (!iter.hasNext()) return null;
+    const file = iter.next();
+    cache.put(cacheKey, file.getId(), 21600);
+    return JSON.parse(file.getBlob().getDataAsString("UTF-8"));
+  }
 }
 
 function writeTextFile_(folder, name, content, mimeType) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "file-id-v2:" + folder.getId() + ":" + name;
+  const fileId = cachedFileId_(folder, name);
+
+  if (fileId) {
+    try {
+      DriveApp.getFileById(fileId).setContent(content);
+      return;
+    } catch (_) {
+      cache.remove(cacheKey);
+    }
+  }
+
   const iter = folder.getFilesByName(name);
   if (iter.hasNext()) {
-    iter.next().setContent(content);
+    const file = iter.next();
+    file.setContent(content);
+    cache.put(cacheKey, file.getId(), 21600);
   } else {
-    folder.createFile(name, content, mimeType || "text/plain");
+    const file = folder.createFile(name, content, mimeType || "text/plain");
+    cache.put(cacheKey, file.getId(), 21600);
   }
 }
 
@@ -1124,8 +1258,7 @@ function loadReview_(taskId, kind) {
     return {
       ok: true,
       task_id: taskId,
-      kind: kind,
-      segments: polishedSegments.map(function(x, i) {
+      kind: kind,\n      load_ms: Date.now() - startedAt,\n      segments: polishedSegments.map(function(x, i) {
         const rawText = rawSegments[i] ? String(rawSegments[i].text || "") : "";
         const flags = [];
         if (rawText !== String(x.text || "")) flags.push("changed");
@@ -1157,8 +1290,7 @@ function loadReview_(taskId, kind) {
     return {
       ok: true,
       task_id: taskId,
-      kind: kind,
-      segments: draftSegments.map(function(x, i) {
+      kind: kind,\n      load_ms: Date.now() - startedAt,\n      segments: draftSegments.map(function(x, i) {
         return {
           id: Number(x.id !== undefined ? x.id : i),
           start: Number(x.start || 0),
@@ -1196,8 +1328,7 @@ function loadReview_(taskId, kind) {
     return {
       ok: true,
       task_id: taskId,
-      kind: kind,
-      segments: englishSegments.map(function(x, i) {
+      kind: kind,\n      load_ms: Date.now() - startedAt,\n      segments: englishSegments.map(function(x, i) {
         const zhText = originalSegments[i] ? String(originalSegments[i].text || "") : "";
         const pairs = terms.filter(function(t) {
           return zhText.indexOf(t.zh) >= 0;
