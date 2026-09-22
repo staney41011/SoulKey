@@ -65,7 +65,7 @@
     })();
   </script>
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260921-31">
+  <link rel="stylesheet" href="./styles.css?v=20260922-35">
 </head>
 <body>
   <div class="shell">
@@ -270,14 +270,23 @@
           </div>
         </div>
         <div class="panel zh-review-media-bar">
-          <div class="video-placeholder compact" id="video-placeholder">
-            <div class="play-icon">▶</div>
-            <div><b>影片預覽／原音核對</b><span>選擇段落後可對照該時間位置</span></div>
+          <div class="youtube-review-wrap">
+            <div id="youtube-review-player" class="youtube-review-player">
+              <div class="empty">選擇課程後載入 YouTube 原片。</div>
+            </div>
+            <div class="youtube-review-caption">
+              <b>影片預覽／原音核對</b>
+              <span id="youtube-review-state">尚未載入 YouTube</span>
+            </div>
           </div>
-          <div class="context-card compact">
+          <div class="context-card compact review-time-card">
             <span>目前段落</span>
-            <strong id="current-time">--:--</strong>
-            <small>保留時間軸供人工核對</small>
+            <strong id="current-time">--:--:--</strong>
+            <div class="review-time-actions">
+              <button class="mini ghost" id="review-back-5" type="button">−5 秒</button>
+              <button class="mini ghost" id="review-forward-5" type="button">+5 秒</button>
+            </div>
+            <small>按「▶ 聽這段」會直接跳到該段起始秒數</small>
           </div>
         </div>
 
@@ -513,6 +522,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260922-34.js"></script>
+  <script src="./app-20260922-35.js"></script>
 </body>
 </html>
