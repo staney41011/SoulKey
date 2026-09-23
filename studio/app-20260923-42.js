@@ -60,14 +60,12 @@ const seedTerms = [
   status:"正式詞庫"
 }));
 
-const WORKFLOW_VERSION = 5;
+const WORKFLOW_VERSION = 6;
 
 const workflow = [
   {key:"zh", label:"中文定稿", short:"中文定稿", hint:"來源 → ASR → AI 校稿 → 人工定稿"},
-  {key:"vernacular", label:"AI 白話文", short:"白話AI", hint:"GPU"},
-  {key:"vernacular-review", label:"人工白話文定稿", short:"白定稿", hint:"人工"},
-  {key:"en", label:"英文翻譯", short:"英文", hint:"GPU"},
-  {key:"en-review", label:"人工英文定稿", short:"英定稿", hint:"人工"},
+  {key:"en", label:"英文翻譯", short:"英文", hint:"直接使用中文 Final，不經白話文"},
+  {key:"en-review", label:"人工英文定稿", short:"英定稿", hint:"中文 Final ↔ English"},
   {key:"multi", label:"各國語言翻譯", short:"多語", hint:"依選擇"},
   {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
@@ -328,6 +326,20 @@ function normalizeTask(t){
       t.completedStep = -1;
     }
     version=5;
+  }
+
+  // v6：暫時跳過「AI 白話文」與「人工白話文定稿」。
+  // v5 index: zh=0, vernacular=1, vernacular-review=2, en=3, en-review=4, multi=5, tts=6
+  // v6 index: zh=0, en=1, en-review=2, multi=3, tts=4
+  if(version < 6){
+    if(t.completedStep <= 0){
+      t.completedStep = Math.max(-1,t.completedStep);
+    }else if(t.completedStep <= 2){
+      t.completedStep = 0;
+    }else{
+      t.completedStep = t.completedStep - 2;
+    }
+    version=6;
   }
 
   t.workflowVersion=version;
@@ -1106,18 +1118,17 @@ function renderTaskDetail(task){
     const label=remote
       ? remoteStatusText(remote.status)+(remote.progress ? " "+remote.progress+"%" : "")
       : state==="done"?"已完成":state==="current"?"目前步驟":"尚未開放";
-    const reviewStage=["zh","vernacular-review","en-review"].includes(stage.key);
+    const reviewStage=["zh","en-review"].includes(stage.key);
     return '<button class="detail-stage '+state+'" data-detail-stage="'+i+'" '+(state==="locked"?"disabled":"")+'>'+
       '<span class="detail-stage-number">'+String(i+1).padStart(2,"0")+'</span>'+
       '<div><b>'+escapeHtml(stage.label)+'</b><small>'+label+'・'+escapeHtml(stage.hint)+'</small></div>'+
-      (reviewStage?'<em>'+(stage.key==="en-review"?"英文定稿":stage.key==="vernacular-review"?"白話定稿":"中文定稿")+'</em>':'')+
+      (reviewStage?'<em>'+(stage.key==="en-review"?"英文定稿":"中文定稿")+'</em>':'')+
     '</button>';
   }).join("");
 
   const current=next || workflow[workflow.length-1];
   const zhRemote = next && next.key==="zh" ? remoteStageStatus(task,"zh") : null;
   const isChineseReview = next && next.key==="zh" && zhRemote && zhRemote.status==="needs_review";
-  const isVernacularReview = next && next.key==="vernacular-review";
   const isEnglishReview = next && next.key==="en-review";
   document.getElementById("detail-current-title").textContent=
     next ? next.label : "全部流程完成";
@@ -1131,16 +1142,10 @@ function renderTaskDetail(task){
         '<div><b>現在要進行人工中文定稿</b><span>左側查看 ASR 中文逐字稿，右側查看 AI 中文校稿結果；右側可直接修改成最終版本。</span></div>'+
         '<button class="primary" data-open-review-inline="'+escapeHtml(task.id)+'">進入人工中文定稿</button>'+
       '</div>';
-  }else if(isVernacularReview){
-    document.getElementById("detail-current-body").innerHTML=
-      '<div class="stage-message review-ready">'+
-        '<div><b>現在要進行人工白話文定稿</b><span>逐段比較中文原文與 AI 白話文，修正完成後才會開放英文翻譯。</span></div>'+
-        '<button class="primary" data-open-vernacular-review-inline="'+escapeHtml(task.id)+'">進入人工白話文定稿</button>'+
-      '</div>';
   }else if(isEnglishReview){
     document.getElementById("detail-current-body").innerHTML=
       '<div class="stage-message review-ready">'+
-        '<div><b>現在要進行人工英文定稿</b><span>逐段查看中文白話底稿與英文翻譯，修正後同步學習專有名詞的正式英文譯法。</span></div>'+
+        '<div><b>現在要進行人工英文定稿</b><span>逐段查看中文 Final 與英文翻譯，修正後同步學習專有名詞的正式英文譯法。</span></div>'+
         '<button class="primary" data-open-en-review-inline="'+escapeHtml(task.id)+'">進入人工英文定稿</button>'+
       '</div>';
   }else{
@@ -1163,7 +1168,7 @@ function renderTaskDetail(task){
   const nextBtn=document.getElementById("detail-next-btn");
   const nextRemote=next ? remoteStageStatus(task,next.key) : null;
   nextBtn.disabled=!next || !!(nextRemote && ["queued","running"].includes(nextRemote.status));
-  const humanReviewNext=next && ["vernacular-review","en-review"].includes(next.key);
+  const humanReviewNext=next && next.key==="en-review";
   const zhNeedsReview=next && next.key==="zh" && nextRemote && nextRemote.status==="needs_review";
   nextBtn.textContent=next
     ? (zhNeedsReview ? "進入：人工中文定稿" : humanReviewNext ? "進入："+next.label : "執行下一步："+next.label)
@@ -1171,17 +1176,12 @@ function renderTaskDetail(task){
   nextBtn.onclick=()=>{
     if(!next) return;
     if(next.key==="zh" && nextRemote && nextRemote.status==="needs_review") return openTaskReview(task.id);
-    if(next.key==="vernacular-review") return openVernacularReview(task.id);
     if(next.key==="en-review") return openEnglishReview(task.id);
     return confirmNextStage(task.id);
   };
 
   document.querySelectorAll("[data-open-review-inline]").forEach(btn=>{
     btn.addEventListener("click",()=>openTaskReview(btn.dataset.openReviewInline));
-  });
-
-  document.querySelectorAll("[data-open-vernacular-review-inline]").forEach(btn=>{
-    btn.addEventListener("click",()=>openVernacularReview(btn.dataset.openVernacularReviewInline));
   });
 
   document.querySelectorAll("[data-open-en-review-inline]").forEach(btn=>{
@@ -1195,8 +1195,6 @@ function renderTaskDetail(task){
       if(stage.key==="zh"){
         const zh=remoteStageStatus(task,"zh");
         if(zh && ["needs_review","done"].includes(zh.status)) openTaskReview(task.id);
-      }else if(stage.key==="vernacular-review"){
-        openVernacularReview(task.id);
       }else if(stage.key==="en-review"){
         openEnglishReview(task.id);
       }
@@ -1304,7 +1302,6 @@ function confirmNextStage(taskId){
     );
     return;
   }
-  if(next.key==="vernacular-review") return openVernacularReview(task.id);
   if(next.key==="en-review") return openEnglishReview(task.id);
 
   let langs="";
@@ -1982,6 +1979,8 @@ function openEnglishReview(taskId){
 
 function renderEnglishReview(items){
   currentEnglishReview=items;
+  document.getElementById("en-review-head")?.classList.add("hide-vernacular");
+  document.getElementById("en-review-list")?.classList.add("hide-vernacular");
   const list=document.getElementById("en-review-list");
   const termBox=document.getElementById("en-term-learning");
   if(!list || !termBox) return;
@@ -1993,7 +1992,6 @@ function renderEnglishReview(items){
       '</div>'+
       '<div class="en-review-pair">'+
         '<div class="zh-source original-column">'+escapeHtml(item.original)+'</div>'+
-        '<div class="zh-source vernacular-column">'+escapeHtml(item.vernacular)+'</div>'+
         '<textarea class="en-draft">'+escapeHtml(item.en)+'</textarea>'+
       '</div>'+
       '<div class="segment-actions">'+
