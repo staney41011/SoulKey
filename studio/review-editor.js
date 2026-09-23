@@ -320,10 +320,6 @@ window.addEventListener("message",event=>{
       lastSavedRevision=Math.max(lastSavedRevision,saveRevisionInFlight);
       dirty=revision>lastSavedRevision;
 
-      if(!dirty){
-        persistLocalDraft();
-      }
-
       setStatus(
         saveQueued ? "前一批已同步・繼續同步最新變更…" : "已同步到 GitHub",
         saveQueued ? "working" : "ok"
