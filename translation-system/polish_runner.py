@@ -1,4 +1,5 @@
 import argparse
+import json
 import re
 import sys
 import traceback
@@ -44,6 +45,68 @@ def row_to_task(raw, sheet_row):
         "asr": str(row[COL["asr"]] or "").strip(),
         "zh_review": str(row[COL["zh_review"]] or "").strip(),
     }
+
+
+def attach_english_cc(review_cache_path: Path, english_cc_path: Path | None):
+    payload = json.loads(Path(review_cache_path).read_text(encoding="utf-8"))
+    review_segments = payload.get("segments") or []
+
+    cc_segments = []
+    cc_language = ""
+    if english_cc_path and Path(english_cc_path).exists():
+        try:
+            cc_payload = json.loads(
+                Path(english_cc_path).read_text(encoding="utf-8")
+            )
+            cc_segments = cc_payload.get("segments") or []
+            cc_language = str(cc_payload.get("language") or "en")
+        except Exception as exc:
+            print(
+                f"[CC ALIGN] English CC 讀取失敗：{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+    for item in review_segments:
+        start = float(item.get("start") or 0)
+        end = float(item.get("end") or start)
+        matched = []
+        seen = set()
+
+        for cue in cc_segments:
+            cue_start = float(cue.get("start") or 0)
+            cue_end = float(cue.get("end") or cue_start)
+            if cue_end <= start or cue_start >= end:
+                continue
+            text = re.sub(
+                r"\s+",
+                " ",
+                str(cue.get("text") or ""),
+            ).strip()
+            if text and text not in seen:
+                seen.add(text)
+                matched.append(text)
+
+        source_en = " ".join(matched).strip()
+        item["source_en"] = source_en
+        item["en_text"] = source_en
+        item["en_confirmed"] = False
+
+    payload["version"] = max(5, int(payload.get("version") or 0))
+    payload["english_cc_available"] = bool(cc_segments)
+    payload["english_cc_language"] = cc_language or "en"
+    payload["english_cc_source"] = (
+        "youtube_auto_generated" if cc_segments else ""
+    )
+
+    Path(review_cache_path).write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    print(
+        f"[CC ALIGN] English CC={'有' if cc_segments else '無'}；"
+        f"已對齊到 {len(review_segments)} 個中文 segments。",
+        flush=True,
+    )
 
 
 def update_status(sheets, row, status, note):
@@ -148,11 +211,31 @@ def main():
             segments_path = workdir / "segments.json"
             download_drive_file(drive, source["id"], segments_path)
 
+            english_cc_path = None
+            english_cc = find_file(
+                drive,
+                folders["source"],
+                "youtube.en.json",
+            )
+            if english_cc:
+                english_cc_path = workdir / "youtube.en.json"
+                download_drive_file(
+                    drive,
+                    english_cc["id"],
+                    english_cc_path,
+                )
+
             result = polish_segments(
                 segments_json_path=segments_path,
                 output_dir=workdir / "output",
                 model_name=POLISH_MODEL,
                 glossary_terms=glossary,
+                chunk_size=12,
+                second_pass=False,
+            )
+            attach_english_cc(
+                result["review_cache"],
+                english_cc_path,
             )
 
             upload_or_replace_file(
