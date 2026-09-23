@@ -313,7 +313,7 @@ def main():
             parser.error("--stage translate-targets 必須指定 --langs")
 
     print("=" * 72)
-    print("打開心靈的鎖匙｜白話中文 → English Pivot → 多語翻譯")
+    print("打開心靈的鎖匙｜English Final → 多語翻譯（MVP 相容舊流程）")
     print(f"Model: {TRANSLATION_MODEL}")
     print("=" * 72)
 
@@ -406,6 +406,30 @@ def main():
                     args.lang,
                     force=args.force,
                 )
+
+            if args.stage == "translate-targets":
+                final_en = find_file(
+                    drive,
+                    folders["translation"],
+                    "en.final.json",
+                )
+                if not final_en:
+                    raise RuntimeError(
+                        "快速上線流程需要 en.final.json；"
+                        "請先完成中英對照與英文定稿。"
+                    )
+
+                for target_lang in target_langs:
+                    process_translation(
+                        drive,
+                        sheets,
+                        task,
+                        folders,
+                        glossary_rows,
+                        workdir,
+                        target_lang,
+                        force=args.force,
+                    )
 
             if args.stage in {"translate-all", "all"}:
                 # translate-all 若沒有白話文，就拒絕；all 則已在上面產生。
