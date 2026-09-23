@@ -373,6 +373,8 @@ def polish_segments(
                     "phrase": phrase,
                 })
 
+    second_uncertain = []
+
     if second_pass:
         # 第二輪：用第一輪結果搭配原始 ASR 再做一次「校對者」審稿。
         # 目的不是改寫內容，而是抓出第一輪仍留下的成語、典故、道場稱謂與怪句。
