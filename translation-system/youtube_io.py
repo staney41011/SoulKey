@@ -236,7 +236,11 @@ def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
                 print(f"[YouTube] {label} 失敗，改試下一層。")
 
         if last_error:
-            raise last_error
+            print(
+                "[YouTube] Cookies 模式全部失敗；"
+                "不直接終止，繼續嘗試 WPC / 匿名 fallback。",
+                flush=True,
+            )
 
     last_error = None
 
