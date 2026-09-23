@@ -8,6 +8,7 @@ from pathlib import Path
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
+from youtube_transcript_api import YouTubeTranscriptApi
 
 from google_io import get_secret
 
@@ -376,11 +377,83 @@ def _select_english_auto_caption(info: dict):
     return lang_key, preferred
 
 
+def _download_english_cc_via_transcript_api(video_id: str, workdir: Path):
+    if not video_id:
+        return None
+
+    try:
+        api = YouTubeTranscriptApi()
+        transcript_list = api.list(video_id)
+        selected = None
+
+        for finder in (
+            transcript_list.find_generated_transcript,
+            transcript_list.find_transcript,
+        ):
+            try:
+                selected = finder(["en", "en-US", "en-GB"])
+                break
+            except Exception:
+                pass
+
+        if selected is None:
+            return None
+
+        fetched = selected.fetch()
+        segments = []
+        for snippet in fetched:
+            text = re.sub(r"\s+", " ", str(snippet.text or "")).strip()
+            if not text:
+                continue
+            start = float(snippet.start or 0)
+            duration = max(0.0, float(snippet.duration or 0))
+            segments.append({
+                "start": round(start, 3),
+                "end": round(start + duration, 3),
+                "text": text,
+            })
+
+        if not segments:
+            return None
+
+        out = workdir / "youtube.en.json"
+        out.write_text(
+            json.dumps(
+                {
+                    "source": "youtube_auto_generated_transcript_api",
+                    "language": str(selected.language_code or "en"),
+                    "video_id": video_id,
+                    "segment_count": len(segments),
+                    "segments": segments,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        print(
+            f"[YouTube CC] Transcript API fallback 成功："
+            f"{selected.language_code} / {len(segments)} cues",
+            flush=True,
+        )
+        return out
+    except Exception as exc:
+        print(
+            f"[YouTube CC] Transcript API fallback 失敗："
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        return None
+
+
 def _download_english_auto_cc(info: dict, workdir: Path):
     lang_key, caption = _select_english_auto_caption(info)
     if not caption:
-        print("[YouTube CC] 找不到 English auto-generated 字幕；本堂以中文 ASR 繼續。")
-        return None
+        print("[YouTube CC] yt-dlp 找不到 English auto-generated；改試 Transcript API。")
+        return _download_english_cc_via_transcript_api(
+            str(info.get("id") or ""),
+            workdir,
+        )
 
     url = str(caption.get("url") or "").strip()
     if not url:
@@ -398,11 +471,14 @@ def _download_english_auto_cc(info: dict, workdir: Path):
             raw = response.read()
     except Exception as exc:
         print(
-            f"[YouTube CC] English CC 下載失敗：{type(exc).__name__}: {exc}；"
-            "不阻斷中文 ASR。",
+            f"[YouTube CC] English CC 直連下載失敗：{type(exc).__name__}: {exc}；"
+            "改試 Transcript API。",
             flush=True,
         )
-        return None
+        return _download_english_cc_via_transcript_api(
+            str(info.get("id") or ""),
+            workdir,
+        )
 
     ext = str(caption.get("ext") or "").lower()
     segments = []
@@ -438,10 +514,14 @@ def _download_english_auto_cc(info: dict, workdir: Path):
         raw_path.write_bytes(raw)
         print(
             f"[YouTube CC] 已抓到 English auto-generated ({lang_key})，"
-            f"但目前格式={ext or 'unknown'}，先保存原檔：{raw_path.name}",
+            f"但目前格式={ext or 'unknown'}，先保存原檔：{raw_path.name}；"
+            "改試 Transcript API 轉成統一 JSON。",
             flush=True,
         )
-        return None
+        return _download_english_cc_via_transcript_api(
+            str(info.get("id") or ""),
+            workdir,
+        )
 
     out = workdir / "youtube.en.json"
     out.write_text(
