@@ -1029,7 +1029,16 @@ function reviewFinish_(taskId, planJson) {
     };
   }
 
-  const allowed = ["en", "th", "es", "id", "vi"];
+  const languageSettings = readLanguageSettings_();
+  const enabledByCode = {};
+  languageSettings.forEach(function(lang) {
+    enabledByCode[String(lang.code || "").trim()] = lang;
+  });
+  const allowed = ["en"].concat(
+    languageSettings
+      .map(function(lang) { return String(lang.code || "").trim(); })
+      .filter(function(code) { return !!code && code !== "en"; })
+  );
   const clean = [];
   plan.forEach(function(item) {
     const code = String(item && item.language_code || "").trim();
@@ -1038,7 +1047,9 @@ function reviewFinish_(taskId, planJson) {
     const transcriptEnabled = code === "en"
       ? true
       : !!item.transcript_enabled;
-    const audioEnabled = !!item.audio_enabled;
+    const languageSetting = enabledByCode[code] || null;
+    const audioEnabled = !!item.audio_enabled &&
+      (code === "en" || !!(languageSetting && languageSetting.can_tts));
 
     clean.push({
       language_code: code,
