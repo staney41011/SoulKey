@@ -17,6 +17,7 @@ MACHINE_STAGES = {
     "en",
     "multi",
     "tts",
+    "finish",
 }
 
 
@@ -116,7 +117,7 @@ def require_gpu_runtime(stage: str):
 
     needs_ct2 = stage in {"zh", "metadata", "asr"}
     needs_torch = stage in {
-        "zh", "metadata", "polish", "vernacular", "en", "multi", "tts"
+        "zh", "metadata", "polish", "vernacular", "en", "multi", "tts", "finish"
     }
 
     failures = []
@@ -317,6 +318,46 @@ def main():
                 "--max-tasks", "1",
                 "--force",
             ]
+        elif args.stage == "finish":
+            translate_langs = ",".join(
+                x.strip() for x in args.langs.split(",") if x.strip()
+            )
+            audio_langs = ",".join(
+                x.strip() for x in args.lang.split(",") if x.strip()
+            )
+
+            if translate_langs:
+                run([
+                    sys.executable, str(system_dir / "translate_runner.py"),
+                    "--task-id", args.task_id,
+                    "--stage", "translate-targets",
+                    "--langs", translate_langs,
+                    "--max-tasks", "1",
+                    "--force",
+                ])
+
+            if audio_langs:
+                run([
+                    sys.executable, str(system_dir / "tts_runner.py"),
+                    "--task-id", args.task_id,
+                    "--langs", audio_langs,
+                    "--max-tasks", "1",
+                    "--force",
+                ])
+
+            if not translate_langs and not audio_langs:
+                print("[FINISH] 沒有額外翻譯或音檔；中英 Final 已完成。", flush=True)
+
+            report(
+                args.bridge_url,
+                args.runtime_nonce,
+                "done",
+                "快速上線流程完成；翻譯="
+                + (translate_langs or "無")
+                + "；音檔="
+                + (audio_langs or "無"),
+            )
+            cmd = None
         else:
             raise RuntimeError("不支援的 stage")
 
