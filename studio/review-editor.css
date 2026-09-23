@@ -162,3 +162,6 @@ button:disabled{opacity:.5;cursor:not-allowed}
   .editor-toolbar{align-items:flex-start;flex-direction:column}
   .segment-grid{grid-template-columns:1fr}
 }
+
+.segment-card.confirmed{border-color:#b9dfc9;background:#fbfffc}
+.segment-card.confirmed .segment-meta b{color:var(--ok)}
