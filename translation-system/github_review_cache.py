@@ -49,13 +49,22 @@ def publish_review_cache(task_id: str, cache_path):
         payload = json.loads(response.read().decode("utf-8"))
 
     if not payload.get("ok"):
-        raise RuntimeError(
-            "GitHub 人工定稿快取發佈失敗："
-            + str(payload.get("message") or payload.get("error") or payload)
+        detail = {
+            "error": payload.get("error"),
+            "message": payload.get("message"),
+            "github_status": payload.get("github_status"),
+            "github_body": payload.get("github_body"),
+        }
+        print(
+            "[REVIEW-CACHE] Apps Script 發佈失敗；"
+            "將由 GitHub Actions 完成正式 cache 發佈。"
+            + json.dumps(detail, ensure_ascii=False),
+            flush=True,
         )
+        return payload
 
     print(
-        "[REVIEW-CACHE] GitHub 已更新："
+        "[REVIEW-CACHE] Apps Script GitHub cache 已更新："
         + str(payload.get("path") or f"studio-review-cache/{task_id}/zh.json"),
         flush=True,
     )
