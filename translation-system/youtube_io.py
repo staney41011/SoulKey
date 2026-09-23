@@ -3,6 +3,7 @@ import json
 import re
 import shutil
 import subprocess
+import urllib.request
 from pathlib import Path
 
 from yt_dlp import YoutubeDL
@@ -331,7 +332,139 @@ def extract_metadata(url: str, workdir: Path):
         "webpage_url": info.get("webpage_url") or url,
         "lecturer": lecturer,
         "lecturer_source": lecturer_source,
+        "english_cc_path": str(english_cc_path) if english_cc_path else "",
     }
+
+
+def _select_english_auto_caption(info: dict):
+    captions = info.get("automatic_captions") or {}
+    if not isinstance(captions, dict) or not captions:
+        return None, None
+
+    candidates = []
+    for key in captions:
+        normalized = str(key or "").lower()
+        if normalized == "en":
+            candidates.append((0, key))
+        elif normalized in {"en-us", "en_us"}:
+            candidates.append((1, key))
+        elif normalized.startswith("en-") or normalized.startswith("en_"):
+            candidates.append((2, key))
+
+    if not candidates:
+        return None, None
+
+    candidates.sort(key=lambda x: (x[0], str(x[1])))
+    lang_key = candidates[0][1]
+    formats = captions.get(lang_key) or []
+    if not isinstance(formats, list):
+        return lang_key, None
+
+    preferred = None
+    for ext in ("json3", "vtt", "srv3", "ttml"):
+        for item in formats:
+            if str(item.get("ext") or "").lower() == ext and item.get("url"):
+                preferred = item
+                break
+        if preferred:
+            break
+
+    if not preferred:
+        preferred = next(
+            (x for x in formats if isinstance(x, dict) and x.get("url")),
+            None,
+        )
+    return lang_key, preferred
+
+
+def _download_english_auto_cc(info: dict, workdir: Path):
+    lang_key, caption = _select_english_auto_caption(info)
+    if not caption:
+        print("[YouTube CC] 找不到 English auto-generated 字幕；本堂以中文 ASR 繼續。")
+        return None
+
+    url = str(caption.get("url") or "").strip()
+    if not url:
+        return None
+
+    try:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read()
+    except Exception as exc:
+        print(
+            f"[YouTube CC] English CC 下載失敗：{type(exc).__name__}: {exc}；"
+            "不阻斷中文 ASR。",
+            flush=True,
+        )
+        return None
+
+    ext = str(caption.get("ext") or "").lower()
+    segments = []
+
+    if ext == "json3":
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            for event in payload.get("events") or []:
+                segs = event.get("segs") or []
+                text = "".join(str(x.get("utf8") or "") for x in segs)
+                text = re.sub(r"\s+", " ", text).strip()
+                if not text:
+                    continue
+                start_ms = float(event.get("tStartMs") or 0)
+                duration_ms = float(event.get("dDurationMs") or 0)
+                start = start_ms / 1000.0
+                end = (start_ms + max(0.0, duration_ms)) / 1000.0
+                segments.append({
+                    "start": round(start, 3),
+                    "end": round(max(start, end), 3),
+                    "text": text,
+                })
+        except Exception as exc:
+            print(
+                f"[YouTube CC] json3 解析失敗：{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+    if not segments:
+        # 若 yt-dlp 沒提供 json3，保留原始字幕檔供後續診斷，
+        # 但不讓解析失敗阻斷 ASR。
+        raw_path = workdir / f"youtube.en.{ext or 'subtitle'}"
+        raw_path.write_bytes(raw)
+        print(
+            f"[YouTube CC] 已抓到 English auto-generated ({lang_key})，"
+            f"但目前格式={ext or 'unknown'}，先保存原檔：{raw_path.name}",
+            flush=True,
+        )
+        return None
+
+    out = workdir / "youtube.en.json"
+    out.write_text(
+        json.dumps(
+            {
+                "source": "youtube_auto_generated",
+                "language": str(lang_key or "en"),
+                "video_id": info.get("id"),
+                "segment_count": len(segments),
+                "segments": segments,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(
+        f"[YouTube CC] English auto-generated 已抓取："
+        f"{lang_key} / {len(segments)} cues",
+        flush=True,
+    )
+    return out
 
 
 def download_audio(url: str, workdir: Path):
@@ -377,6 +510,8 @@ def download_audio(url: str, workdir: Path):
         ],
         check=True,
     )
+
+    english_cc_path = _download_english_auto_cc(info, workdir)
 
     lecturer, lecturer_source = detect_lecturer(info)
     return normalized, {
