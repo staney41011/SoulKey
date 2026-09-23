@@ -210,7 +210,7 @@ jobs:
             echo "Kaggle attempt $ATTEMPT / $MAX_ATTEMPTS"
             echo "============================================================"
 
-            if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts)$ ]]; then
+            if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts|finish)$ ]]; then
               echo "Launching Kaggle with NvidiaTeslaT4 accelerator; timeout=7200s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 7200
             else
