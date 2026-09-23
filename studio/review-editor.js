@@ -202,7 +202,9 @@ function updateEnglishSummary(){
   $("english-summary").textContent=
     "English CC 有內容 "+available+" / "+segments.length+" 段・人工修改 "+changed+" 段";
 
-  if(payload?.english_cc_available){
+  const hasEnglishCc=payload?.english_cc_available===true ||
+    segments.some(x=>String(x.source_en||"").trim());
+  if(hasEnglishCc){
     $("cc-notice").className="cc-notice card ok";
     $("cc-notice").textContent=
       "已載入 YouTube English auto-generated CC（"+
@@ -362,7 +364,8 @@ function currentPayload(){
     task_id:taskId,
     zh_finalized_at:String(payload?.zh_finalized_at||""),
     en_finalized_at:String(payload?.en_finalized_at||""),
-    english_cc_available:payload?.english_cc_available===true,
+    english_cc_available:payload?.english_cc_available===true ||
+      segments.some(x=>String(x.source_en||"").trim()),
     english_cc_language:String(payload?.english_cc_language||""),
     english_cc_source:String(payload?.english_cc_source||""),
     total_segments:segments.length,
