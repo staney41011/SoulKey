@@ -728,11 +728,19 @@ function repairReviewTimings(items){
   return list;
 }
 
+function setZhRefreshButtonState(loading){
+  const btn=document.getElementById("refresh-zh-review");
+  if(!btn) return;
+  btn.disabled=!!loading;
+  btn.textContent=loading ? "重新抓取中…" : "重新抓取最新逐字稿";
+}
+
 async function loadZhReviewFromGithub(taskId,options={}){
   const retry=Number(options.retry||0);
   const maxRetries=12;
   zhReviewLoading=true;
   setZhFinalizeEnabled(false);
+  setZhRefreshButtonState(true);
   setZhReviewLoadState(
     retry ? "GitHub 快取同步中・重新讀取 "+retry+"/"+maxRetries : "GitHub 直讀中…",
     "working"
@@ -803,6 +811,7 @@ async function loadZhReviewFromGithub(taskId,options={}){
     zhReviewTotal=Number(data.total_segments||incoming.length);
     zhReviewCachedPreview=false;
     zhReviewLoading=false;
+    setZhRefreshButtonState(false);
     currentZhReviewAll=incoming.slice();
     zhActiveFilter="all";
     zhVisibleCount=ZH_RENDER_BATCH;
@@ -834,6 +843,7 @@ async function loadZhReviewFromGithub(taskId,options={}){
     }
 
     zhReviewLoading=false;
+    setZhRefreshButtonState(false);
     setZhFinalizeEnabled(false);
     const rawReason=String(err && err.message ? err.message : err);
     const reason=isAbort
@@ -1771,6 +1781,19 @@ document.getElementById("review-forward-5")?.addEventListener("click",()=>{
   if(reviewYouTubeReady && reviewYouTubePlayer){
     seekReviewYouTube(Number(reviewYouTubePlayer.getCurrentTime?.()||0)+5,true);
   }
+});
+
+document.getElementById("refresh-zh-review")?.addEventListener("click",()=>{
+  if(!selectedTaskId){
+    alert("請先選擇一堂課。");
+    return;
+  }
+
+  const task=tasks.find(x=>x.id===selectedTaskId);
+  if(!task) return;
+
+  setZhReviewLoadState("手動重新抓取 GitHub 最新逐字稿…","working");
+  loadZhReviewFromGithub(task.id,{retry:0});
 });
 
 document.getElementById("create-review-share")?.addEventListener("click",()=>{
