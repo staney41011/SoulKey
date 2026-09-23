@@ -1180,7 +1180,7 @@ function renderTaskDetail(task){
   }else if(isEnglishReview){
     document.getElementById("detail-current-body").innerHTML=
       '<div class="stage-message review-ready">'+
-        '<div><b>現在要進行English CC 定稿</b><span>逐段查看中文 Final 與 YouTube English CC，修正後同步學習專有名詞的正式英文譯法。</span></div>'+
+        '<div><b>現在要進行English CC 定稿</b><span>逐段查看中文 Final 與英文稿（YouTube CC 或 AI 翻譯），修正後同步學習專有名詞的正式英文譯法。</span></div>'+
         '<button class="primary" data-open-en-review-inline="'+escapeHtml(task.id)+'">進入English CC 定稿</button>'+
       '</div>';
   }else{
@@ -2050,13 +2050,7 @@ async function waitForEnglishCcRefresh(taskId,button,statusEl){
     }catch(_){}
   }
 
-  if(statusEl){
-    statusEl.textContent="補抓尚未成功。可再試一次，或檢查 YouTube 是否確實有 English (auto-generated)。";
-  }
-  if(button){
-    button.disabled=false;
-    button.textContent="重新補抓 English CC";
-  }
+  showNoEnglishCcFallback(taskId);
 }
 
 function dispatchEnglishCcRefresh(taskId,button,statusEl){
@@ -2081,6 +2075,128 @@ function dispatchEnglishCcRefresh(taskId,button,statusEl){
   waitForEnglishCcRefresh(taskId,button,statusEl);
 }
 
+async function waitForAiEnglishTranslation(taskId,button,statusEl){
+  const maxAttempts=72;
+  for(let attempt=1;attempt<=maxAttempts;attempt++){
+    if(statusEl){
+      statusEl.textContent="中文 → 英文 AI 翻譯中… "+attempt+"/"+maxAttempts;
+    }
+
+    requestTaskStatuses();
+    await new Promise(resolve=>setTimeout(resolve,5000));
+
+    const task=tasks.find(x=>x.id===taskId);
+    const remote=remoteStageStatus(task,"en");
+
+    if(remote && remote.status==="done"){
+      if(statusEl) statusEl.textContent="英文翻譯完成，正在載入人工定稿資料…";
+      const requested=requestReviewData(taskId,"en",0);
+      if(!requested && statusEl){
+        statusEl.textContent="英文翻譯已完成，但目前無法讀取英文定稿資料。";
+      }
+      return;
+    }
+
+    if(remote && ["error","stale"].includes(remote.status)){
+      if(statusEl){
+        statusEl.textContent=
+          "中文 → 英文翻譯失敗："+String(remote.message||remoteStatusText(remote.status));
+      }
+      if(button){
+        button.disabled=false;
+        button.textContent="重新執行中文 → 英文";
+      }
+      return;
+    }
+  }
+
+  if(statusEl){
+    statusEl.textContent="英文翻譯仍在執行或尚未回報，可稍後重新整理後再進入此頁。";
+  }
+  if(button){
+    button.disabled=false;
+    button.textContent="重新檢查／執行中文 → 英文";
+  }
+}
+
+function dispatchAiEnglishTranslation(taskId,button,statusEl){
+  const ok=confirm(
+    "這堂課目前沒有可用的 YouTube English CC。\n\n"+
+    "要改用已完成的中文 Final 直接進行 AI 中文 → 英文翻譯嗎？"
+  );
+  if(!ok) return;
+
+  const sent=submitBridgePost({
+    action:"run_stage",
+    task_id:taskId,
+    stage:"en",
+    lang:"",
+    langs:""
+  });
+
+  if(!sent){
+    if(statusEl) statusEl.textContent="尚未連線 Apps Script 或缺少 Bridge Key。";
+    return;
+  }
+
+  const task=tasks.find(x=>x.id===taskId);
+  if(task){
+    task.remoteStages=task.remoteStages||{};
+    task.remoteStages.en={
+      task_id:taskId,
+      stage:"en",
+      status:"queued",
+      progress:"0",
+      message:"已送出中文 → 英文 AI 翻譯"
+    };
+    task.status="排隊中：中文 → 英文";
+    save(STORE.tasks,tasks);
+  }
+
+  if(button){
+    button.disabled=true;
+    button.textContent="已送出中文 → 英文";
+  }
+  if(statusEl){
+    statusEl.textContent="已送出。來源為中文 Final，不需要重新跑 ASR 或中文校稿。";
+  }
+
+  window.setTimeout(()=>requestTaskStatuses(),1200);
+  waitForAiEnglishTranslation(taskId,button,statusEl);
+}
+
+function showNoEnglishCcFallback(taskId){
+  const list=document.getElementById("en-review-list");
+  if(!list) return;
+
+  list.innerHTML=
+    '<div class="empty">'+
+      '<b>擷取不到 English CC 字幕，或此影片沒有 English auto-generated CC。</b>'+
+      '<br><br>你可以再嘗試擷取一次；如果確認影片本身沒有 CC，'+
+      '可以直接改用已完成的中文 Final 進行中文 → 英文 AI 翻譯。'+
+      '<br><br>'+
+      '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">'+
+        '<button class="ghost" id="refresh-en-cc">重新嘗試擷取 CC</button>'+
+        '<button class="primary" id="translate-zh-en">改用中文 → 英文 AI 翻譯</button>'+
+      '</div>'+
+      '<div class="muted" id="en-fallback-status" style="margin-top:12px"></div>'+
+    '</div>';
+
+  currentEnglishReview=[];
+
+  const refreshBtn=document.getElementById("refresh-en-cc");
+  const translateBtn=document.getElementById("translate-zh-en");
+  const statusEl=document.getElementById("en-fallback-status");
+
+  refreshBtn?.addEventListener("click",()=>{
+    dispatchEnglishCcRefresh(taskId,refreshBtn,statusEl);
+  });
+
+  translateBtn?.addEventListener("click",()=>{
+    dispatchAiEnglishTranslation(taskId,translateBtn,statusEl);
+  });
+}
+
 async function openEnglishReview(taskId){
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
@@ -2093,7 +2209,7 @@ async function openEnglishReview(taskId){
     '<small>'+escapeHtml(task.url)+'</small>';
 
   document.getElementById("en-review-list").innerHTML=
-    '<div class="empty">正在直接讀取 YouTube English CC…</div>';
+    '<div class="empty">正在讀取英文來源（優先 YouTube English CC）…</div>';
   showView("en-review");
 
   try{
@@ -2115,19 +2231,7 @@ async function openEnglishReview(taskId){
     }
 
     if(!available){
-      document.getElementById("en-review-list").innerHTML=
-        '<div class="empty">'+
-          '<b>這堂課目前還沒有抓到 YouTube English CC。</b>'+
-          '<br><br>不需要重跑中文 ASR，直接補抓字幕即可。'+
-          '<br><br><button class="primary" id="refresh-en-cc">補抓 English CC</button>'+
-          '<div class="muted" id="refresh-en-cc-status" style="margin-top:12px"></div>'+
-        '</div>';
-      currentEnglishReview=[];
-      const refreshBtn=document.getElementById("refresh-en-cc");
-      const refreshStatus=document.getElementById("refresh-en-cc-status");
-      refreshBtn?.addEventListener("click",()=>{
-        dispatchEnglishCcRefresh(taskId,refreshBtn,refreshStatus);
-      });
+      showNoEnglishCcFallback(taskId);
       return;
     }
 
@@ -2215,7 +2319,7 @@ function renderEnglishReview(items){
           name:zh,
           category:"宗教術語",
           aliases:"",
-          description:"由English CC 定稿同步學習",
+          description:"由英文人工定稿同步學習",
           en:"",
           status:"正式詞庫"
         };
@@ -2251,7 +2355,7 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
 
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
-    "確定YouTube English CC 已人工確認完成並定稿？\n"+
+    "確定英文稿已人工確認完成並定稿？\n"+
     "定稿會寫回 Google Drive；其他語言會直接使用這份 English Final。"
   );
   if(!ok) return;
