@@ -1018,6 +1018,17 @@ function reviewFinish_(taskId, planJson) {
     };
   }
 
+  const folders = lessonFolders_(normalizedTaskId);
+  if (!cachedFileId_(folders.translation, "en.final.json")) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_finish_queued",
+      ok: false,
+      error: "english_final_missing",
+      message: "找不到 en.final.json，請先完成英文定稿。"
+    };
+  }
+
   const allowed = ["en", "th", "es", "id", "vi"];
   const clean = [];
   plan.forEach(function(item) {
@@ -1052,6 +1063,20 @@ function reviewFinish_(taskId, planJson) {
     .map(function(x) { return x.language_code; });
 
   if (!translateLangs.length && !audioLangs.length) {
+    appendExecutionStatus_(
+      normalizedTaskId,
+      "finish",
+      "done",
+      "human-" + new Date().getTime(),
+      100,
+      "中英文 Final 已完成；沒有勾選額外輸出",
+      "",
+      nowText_(),
+      "",
+      "",
+      "",
+      new Date().toISOString()
+    );
     return {
       source: "soulkey-bridge",
       type: "review_finish_queued",
