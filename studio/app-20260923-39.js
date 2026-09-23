@@ -767,6 +767,20 @@ function requestReviewData(taskId,kind,chunkIndex=0){
     chunk_index:chunkIndex
   });
 }
+function quickReviewUrl(task){
+  const videoId=youtubeVideoIdFromUrl(task?.url||"");
+  const url=new URL("./review.html",window.location.href);
+  url.searchParams.set("task",String(task?.id||""));
+  if(videoId) url.searchParams.set("video",videoId);
+  return url.toString();
+}
+
+function openQuickReview(taskId){
+  const task=tasks.find(x=>x.id===taskId);
+  if(!task) return;
+  window.open(quickReviewUrl(task),"_blank","noopener");
+}
+
 function renderTasks(){
   const el=document.getElementById("task-list");
 
@@ -815,6 +829,9 @@ function renderTasks(){
           '<button class="ghost task-review-btn" data-review-task="'+escapeHtml(t.id)+'" '+
             (!(remoteStageStatus(t,"zh") && ["needs_review","done"].includes(remoteStageStatus(t,"zh").status)) ? "disabled" : "")+
             '>人工中文定稿</button>'+
+          '<button class="ghost task-quick-btn" data-quick-task="'+escapeHtml(t.id)+'" '+
+            (!(remoteStageStatus(t,"zh") && ["needs_review","done"].includes(remoteStageStatus(t,"zh").status)) ? "disabled" : "")+
+            '>快速流程</button>'+
           '<button class="primary task-next-btn" data-next-task="'+escapeHtml(t.id)+'" '+
             (complete || (nextRemote && ["queued","running"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
             (complete
@@ -842,6 +859,13 @@ function renderTasks(){
       btn.addEventListener("click",e=>{
         e.stopPropagation();
         openTaskReview(btn.dataset.reviewTask);
+      });
+    });
+
+    document.querySelectorAll("[data-quick-task]").forEach(btn=>{
+      btn.addEventListener("click",e=>{
+        e.stopPropagation();
+        openQuickReview(btn.dataset.quickTask);
       });
     });
 
@@ -1081,8 +1105,8 @@ function renderTaskDetail(task){
   const reviewBtn=document.getElementById("detail-review-btn");
   const zhStatus=remoteStageStatus(task,"zh");
   reviewBtn.hidden = !(zhStatus && ["needs_review","done"].includes(zhStatus.status));
-  reviewBtn.textContent="人工中文定稿";
-  reviewBtn.onclick=()=>openTaskReview(task.id);
+  reviewBtn.textContent="開啟快速流程";
+  reviewBtn.onclick=()=>openQuickReview(task.id);
 
   const nextBtn=document.getElementById("detail-next-btn");
   const nextRemote=next ? remoteStageStatus(task,next.key) : null;
@@ -1510,7 +1534,7 @@ function filteredZhSegments(){
 
 function zhGithubPayload(){
   return {
-    version:4,
+    version:5,
     task_id:selectedTaskId,
     total_segments:currentZhReviewAll.length,
     segments:currentZhReviewAll.map(item=>({
@@ -1521,7 +1545,10 @@ function zhGithubPayload(){
       raw:String(item.raw||""),
       text:String(item.text||""),
       flags:Array.isArray(item.flags)?item.flags:[],
-      confirmed:item.confirmed===true
+      confirmed:item.confirmed===true,
+      source_en:String(item.source_en||""),
+      en_text:String(item.en_text||item.source_en||""),
+      en_confirmed:item.en_confirmed===true
     }))
   };
 }
@@ -1671,11 +1698,7 @@ document.getElementById("create-review-share")?.addEventListener("click",()=>{
   const task=tasks.find(x=>x.id===selectedTaskId);
   if(!task) return;
 
-  const videoId=youtubeVideoIdFromUrl(task.url);
-  const url=new URL("./review.html",window.location.href);
-  url.searchParams.set("task",task.id);
-  if(videoId) url.searchParams.set("video",videoId);
-  const shareUrl=url.toString();
+  const shareUrl=quickReviewUrl(task);
 
   const state=document.getElementById("review-share-state");
   const copied=()=>{
