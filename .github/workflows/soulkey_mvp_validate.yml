@@ -8,7 +8,7 @@ on:
       - "studio/review.html"
       - "studio/review-editor.js"
       - "studio/review-editor.css"
-      - "studio/app-20260923-43.js"
+      - "studio/app-20260923-44.js"
       - "bridge/apps-script/Code.gs"
       - ".github/workflows/kaggle_web_job.yml"
       - ".github/workflows/soulkey_mvp_validate.yml"
@@ -30,7 +30,7 @@ jobs:
       - name: JavaScript syntax
         run: |
           node --check studio/review-editor.js
-          node --check studio/app-20260923-43.js
+          node --check studio/app-20260923-44.js
           cp bridge/apps-script/Code.gs /tmp/Code.js
           node --check /tmp/Code.js
 
@@ -44,12 +44,13 @@ jobs:
           grep -q 'review_share_finalize_en' bridge/apps-script/Code.gs
           grep -q '"finish"' bridge/apps-script/Code.gs
           grep -q 'zh-TW.final.json' translation-system/translate_runner.py
-          grep -q 'WORKFLOW_VERSION = 7' studio/app-20260923-43.js
+          grep -q 'WORKFLOW_VERSION = 7' studio/app-20260923-44.js
           grep -q 'youtube_auto_generated_explicit_ytdlp' translation-system/youtube_io.py
           grep -q 'youtube_auto_generated_watch_page' translation-system/youtube_io.py
           grep -q 'youtube_auto_generated_direct_timedtext' translation-system/youtube_io.py
-          grep -q 'lang:"cc-refresh"' studio/app-20260923-43.js
+          grep -q 'lang:"cc-refresh"' studio/app-20260923-44.js
           grep -q 'args.lang == "cc-refresh"' translation-system/web_job_worker.py
           grep -q 'meta\["enable_gpu"\] = stage in gpu_stages' .github/workflows/kaggle_web_job.yml
           grep -q 'meta.get("machine_shape", "none")' .github/workflows/kaggle_web_job.yml
-          ! grep -q 'key:"en", label:"英文翻譯"' studio/app-20260923-43.js
+          ! grep -q 'key:"en", label:"英文翻譯"' studio/app-20260923-44.js
+          grep -q 'applyLatestPeriodToNewTask' studio/app-20260923-44.js
