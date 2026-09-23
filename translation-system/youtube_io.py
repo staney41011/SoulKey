@@ -683,6 +683,26 @@ def _download_english_auto_cc(info: dict, workdir: Path, video_url: str = ""):
     return out
 
 
+
+def download_english_cc(url: str, workdir: Path):
+    """Fetch only English auto-generated CC without downloading audio."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    options, has_cookies = _base_options(workdir, quiet=False)
+    options["skip_download"] = True
+
+    info = _extract_info(
+        url=url,
+        options=options,
+        download=False,
+        has_cookies=has_cookies,
+    )
+    return _download_english_auto_cc(
+        info,
+        workdir,
+        video_url=url,
+    )
+
+
 def download_audio(url: str, workdir: Path):
     workdir.mkdir(parents=True, exist_ok=True)
     raw_template = str(workdir / "source.%(ext)s")
