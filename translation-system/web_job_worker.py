@@ -240,10 +240,14 @@ def main():
             or args.stage == "cc"
         )
         if needs_youtube_runtime:
-            print("[YouTube] 準備 Deno + EJS + WPC runtime。", flush=True)
+            print(
+                "[YouTube] 準備 Deno + EJS + bgutil Subs POT + WPC runtime。",
+                flush=True,
+            )
             run([sys.executable, str(system_dir / "setup_js_runtime.py")])
             run([sys.executable, str(system_dir / "prepare_youtube_js.py")])
             run([sys.executable, str(system_dir / "setup_youtube_runtime.py")])
+            run([sys.executable, str(system_dir / "setup_wpc_provider.py")])
 
         if args.stage in {"zh", "metadata"}:
             prepare_asr_runtime()
