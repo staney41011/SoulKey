@@ -256,7 +256,8 @@ def polish_segments(
     output_dir: Path,
     model_name: str,
     glossary_terms=None,
-    chunk_size=8,
+    chunk_size=12,
+    second_pass=False,
 ):
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = json.loads(Path(segments_json_path).read_text(encoding="utf-8"))
@@ -372,105 +373,109 @@ def polish_segments(
                     "phrase": phrase,
                 })
 
-    # 第二輪：用第一輪結果搭配原始 ASR 再做一次「校對者」審稿。
-    # 目的不是改寫內容，而是抓出第一輪仍留下的成語、典故、道場稱謂與怪句。
-    REVIEW_PROMPT = """你是第二輪逐字稿審稿員。
-請比較 raw（原始 ASR）與 current（第一輪校稿），找出 current 仍殘留的明顯辨識錯誤。
+    if second_pass:
+        # 第二輪：用第一輪結果搭配原始 ASR 再做一次「校對者」審稿。
+        # 目的不是改寫內容，而是抓出第一輪仍留下的成語、典故、道場稱謂與怪句。
+        REVIEW_PROMPT = """你是第二輪逐字稿審稿員。
+    請比較 raw（原始 ASR）與 current（第一輪校稿），找出 current 仍殘留的明顯辨識錯誤。
 
-規則：
-1. 不改變講者原意，不自行增加內容。
-2. 必須修正高度確定的成語、典故、歷史人物與道場固定稱謂。
-3. 特別注意：百鍊成鋼、萬事俱備只欠東風、關法律主、金線傳承、扶圓補缺、前賢、白陽期等。
-4. current 若仍有語意不通、像隨機同音字拼出的詞，必須檢查；能確定就修，不能確定就放 uncertain。
-5. 標點改為自然繁體中文，不要滿篇驚嘆號。
-6. 每個 id 必須保留，不得增刪 segment。
-7. 只輸出 JSON：
-{"segments":[{"id":0,"text":"最終校正版","uncertain":["仍待人工確認"]}]}
-"""
+    規則：
+    1. 不改變講者原意，不自行增加內容。
+    2. 必須修正高度確定的成語、典故、歷史人物與道場固定稱謂。
+    3. 特別注意：百鍊成鋼、萬事俱備只欠東風、關法律主、金線傳承、扶圓補缺、前賢、白陽期等。
+    4. current 若仍有語意不通、像隨機同音字拼出的詞，必須檢查；能確定就修，不能確定就放 uncertain。
+    5. 標點改為自然繁體中文，不要滿篇驚嘆號。
+    6. 每個 id 必須保留，不得增刪 segment。
+    7. 只輸出 JSON：
+    {"segments":[{"id":0,"text":"最終校正版","uncertain":["仍待人工確認"]}]}
+    """
 
-    second_pass = []
-    second_uncertain = []
+        second_pass = []
+        second_uncertain = []
 
-    for chunk_start in range(0, len(polished), chunk_size):
-        target = polished[chunk_start:chunk_start + chunk_size]
-        review_items = []
-        for offset, seg in enumerate(target):
-            idx = chunk_start + offset
-            review_items.append({
-                "id": idx,
-                "raw": str(raw_segments[idx].get("text") or "").strip(),
-                "current": seg["text"],
-            })
-
-        before = "\n".join(
-            x["text"] for x in polished[max(0, chunk_start - 2):chunk_start]
-        )
-        after = "\n".join(
-            x["text"]
-            for x in polished[
-                chunk_start + chunk_size:
-                min(len(polished), chunk_start + chunk_size + 2)
-            ]
-        )
-
-        review_user = f"""道場專有名詞：
-{glossary_text}
-
-前文：
-{before}
-
-要審稿的內容：
-{json.dumps(review_items, ensure_ascii=False)}
-
-後文：
-{after}
-
-請做第二輪審稿並回傳 JSON。"""
-
-        print(
-            f"[POLISH-2] 複核 segments "
-            f"{chunk_start + 1}-{min(chunk_start + chunk_size, len(polished))}"
-            f"/{len(polished)}"
-        )
-
-        response = _generate_json(
-            tokenizer,
-            model,
-            [
-                {"role": "system", "content": REVIEW_PROMPT},
-                {"role": "user", "content": review_user},
-            ],
-        )
-        parsed = _extract_json_object(response)
-        returned = parsed.get("segments") or []
-        by_id = {
-            int(item["id"]): item
-            for item in returned
-            if isinstance(item, dict) and "id" in item
-        }
-
-        for offset, seg in enumerate(target):
-            idx = chunk_start + offset
-            item = by_id.get(idx, {})
-            text = str(item.get("text") or seg["text"]).strip()
-            uncertain = item.get("uncertain") or []
-            if isinstance(uncertain, str):
-                uncertain = [uncertain]
-            uncertain = [str(x).strip() for x in uncertain if str(x).strip()]
-
-            second_pass.append({
-                "start": seg["start"],
-                "end": seg["end"],
-                "text": text,
-            })
-            for phrase in uncertain:
-                second_uncertain.append({
+        for chunk_start in range(0, len(polished), chunk_size):
+            target = polished[chunk_start:chunk_start + chunk_size]
+            review_items = []
+            for offset, seg in enumerate(target):
+                idx = chunk_start + offset
+                review_items.append({
                     "id": idx,
-                    "start": seg["start"],
-                    "phrase": phrase,
+                    "raw": str(raw_segments[idx].get("text") or "").strip(),
+                    "current": seg["text"],
                 })
 
-    polished = second_pass
+            before = "\n".join(
+                x["text"] for x in polished[max(0, chunk_start - 2):chunk_start]
+            )
+            after = "\n".join(
+                x["text"]
+                for x in polished[
+                    chunk_start + chunk_size:
+                    min(len(polished), chunk_start + chunk_size + 2)
+                ]
+            )
+
+            review_user = f"""道場專有名詞：
+    {glossary_text}
+
+    前文：
+    {before}
+
+    要審稿的內容：
+    {json.dumps(review_items, ensure_ascii=False)}
+
+    後文：
+    {after}
+
+    請做第二輪審稿並回傳 JSON。"""
+
+            print(
+                f"[POLISH-2] 複核 segments "
+                f"{chunk_start + 1}-{min(chunk_start + chunk_size, len(polished))}"
+                f"/{len(polished)}"
+            )
+
+            response = _generate_json(
+                tokenizer,
+                model,
+                [
+                    {"role": "system", "content": REVIEW_PROMPT},
+                    {"role": "user", "content": review_user},
+                ],
+            )
+            parsed = _extract_json_object(response)
+            returned = parsed.get("segments") or []
+            by_id = {
+                int(item["id"]): item
+                for item in returned
+                if isinstance(item, dict) and "id" in item
+            }
+
+            for offset, seg in enumerate(target):
+                idx = chunk_start + offset
+                item = by_id.get(idx, {})
+                text = str(item.get("text") or seg["text"]).strip()
+                uncertain = item.get("uncertain") or []
+                if isinstance(uncertain, str):
+                    uncertain = [uncertain]
+                uncertain = [str(x).strip() for x in uncertain if str(x).strip()]
+
+                second_pass.append({
+                    "start": seg["start"],
+                    "end": seg["end"],
+                    "text": text,
+                })
+                for phrase in uncertain:
+                    second_uncertain.append({
+                        "id": idx,
+                        "start": seg["start"],
+                        "phrase": phrase,
+                    })
+
+        polished = second_pass
+
+    else:
+        print("[POLISH] 快速模式：略過第二輪複核，只保留一輪校稿 + 專有名詞提示。", flush=True)
 
     # 重新依「最終結果」產生修改報告，並合併兩輪 uncertain。
     review_changes = []
