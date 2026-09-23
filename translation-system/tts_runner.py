@@ -193,12 +193,8 @@ def main():
                     progress=0,
                 )
 
-                translation_status = task.get(lang, "")
-                if translation_status not in {"完成", "待人工確認"}:
-                    raise RuntimeError(
-                        f"{LANGUAGE_NAMES[lang]} 翻譯尚未產生，不能做 TTS。"
-                    )
-
+                # 新增語言不佔用「任務佇列」固定欄位；
+                # 直接以 Drive 是否已有該語言翻譯檔作為 TTS 前置條件。
                 print(f"[TTS] {LANGUAGE_NAMES[lang]} ({lang})")
                 segments = load_translation_from_drive(
                     drive,
