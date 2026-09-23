@@ -64,7 +64,7 @@ const WORKFLOW_VERSION = 7;
 
 const workflow = [
   {key:"zh", label:"中文定稿", short:"中文定稿", hint:"來源 → ASR → AI 校稿 → 人工定稿"},
-  {key:"en-review", label:"English CC 定稿", short:"英定稿", hint:"中文 Final ↔ YouTube English CC"},
+  {key:"en-review", label:"英文定稿", short:"英定稿", hint:"優先 YouTube English CC；無 CC 時中文 → 英文 AI"},
   {key:"multi", label:"各國語言翻譯", short:"多語", hint:"依選擇"},
   {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
@@ -178,7 +178,7 @@ const titles = {
   "task-detail":"課程任務",
   review:"人工中文定稿",
   "vernacular-review":"人工白話文定稿",
-  "en-review":"English CC 定稿",
+  "en-review":"英文定稿",
   glossary:"專有名詞庫",
   knowledge:"經典知識庫",
   system:"系統狀態"
@@ -2231,6 +2231,14 @@ async function openEnglishReview(taskId){
     }
 
     if(!available){
+      const enRemote=remoteStageStatus(task,"en");
+      if(enRemote && enRemote.status==="done"){
+        document.getElementById("en-review-list").innerHTML=
+          '<div class="empty">偵測到中文 → 英文 AI 翻譯已完成，正在載入英文稿…</div>';
+        requestReviewData(taskId,"en",0);
+        return;
+      }
+
       showNoEnglishCcFallback(taskId);
       return;
     }
