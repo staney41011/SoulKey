@@ -2177,15 +2177,15 @@ function loadReview_(taskId, kind, chunkIndex) {
 
   if (kind === "en") {
     const original =
-      readJsonFile_(folders.transcript, "zh-TW.final.json") ||
-      readJsonFile_(folders.transcript, "polish_report.json");
-    const vernacular =
-      readJsonFile_(folders.translation, "zh-TW.vernacular.final.json") ||
-      readJsonFile_(folders.translation, "zh-TW.vernacular.json");
+      readJsonFile_(folders.transcript, "zh-TW.final.json");
     const english = readJsonFile_(folders.translation, "en.json");
 
-    if (!original || !vernacular || !english) {
-      return { ok: false, error: "review_files_missing", message: "找不到英文定稿檔案" };
+    if (!original || !english) {
+      return {
+        ok: false,
+        error: "review_files_missing",
+        message: "找不到中文 Final 或英文翻譯檔案"
+      };
     }
 
     const glossary = getSheetByName_("專有名詞庫").getDataRange().getDisplayValues();
@@ -2194,7 +2194,6 @@ function loadReview_(taskId, kind, chunkIndex) {
     }).filter(function(x) { return x.zh; });
 
     const originalSegments = original.segments || [];
-    const vernacularSegments = vernacular.segments || [];
     const englishSegments = english.segments || [];
 
     return {
@@ -2213,7 +2212,7 @@ function loadReview_(taskId, kind, chunkIndex) {
           end: Number(x.end || 0),
           time: formatPlainTime_(x.start),
           original: zhText,
-          vernacular: vernacularSegments[i] ? String(vernacularSegments[i].text || "") : "",
+          vernacular: "",
           en: String(x.text || ""),
           terms: pairs
         };
