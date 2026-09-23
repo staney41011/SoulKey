@@ -2042,8 +2042,8 @@ function dispatchEnglishCcRefresh(taskId,button,statusEl){
   const sent=submitBridgePost({
     action:"run_stage",
     task_id:taskId,
-    stage:"cc",
-    lang:"",
+    stage:"en",
+    lang:"cc-refresh",
     langs:""
   });
 
