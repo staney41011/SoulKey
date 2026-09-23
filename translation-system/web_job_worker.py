@@ -234,8 +234,13 @@ def main():
         else:
             print("[CC] 補抓字幕不需要 GPU。", flush=True)
 
-        if args.stage in {"zh", "metadata", "asr"}:
-            print("[FAST] YouTube 使用 Apps Script Cookies 直連；略過 Chromium / WPC 冷啟動。", flush=True)
+        needs_youtube_runtime = (
+            args.stage in {"zh", "metadata", "asr"}
+            or (args.stage == "en" and args.lang == "cc-refresh")
+            or args.stage == "cc"
+        )
+        if needs_youtube_runtime:
+            print("[YouTube] 準備 Deno + EJS + WPC runtime。", flush=True)
             run([sys.executable, str(system_dir / "setup_js_runtime.py")])
             run([sys.executable, str(system_dir / "prepare_youtube_js.py")])
             run([sys.executable, str(system_dir / "setup_youtube_runtime.py")])
