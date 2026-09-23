@@ -110,7 +110,9 @@ jobs:
           meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
           stage = os.environ["JOB_STAGE"].strip()
+          lang = os.environ["JOB_LANG"].strip()
           gpu_stages = {"zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish"}
+          cc_refresh = stage == "en" and lang == "cc-refresh"
 
           # Rebind every run to the dedicated GPU-only kernel. Do not preserve
           # id_no from an older CPU worker because Kaggle prefers id_no over id.
@@ -122,7 +124,7 @@ jobs:
           meta["language"] = "python"
           meta["is_private"] = True
           meta["enable_internet"] = True
-          meta["enable_gpu"] = stage in gpu_stages
+          meta["enable_gpu"] = stage in gpu_stages and not cc_refresh
           meta["enable_tpu"] = False
           if meta["enable_gpu"]:
               meta["machine_shape"] = "NvidiaTeslaT4"
@@ -141,7 +143,7 @@ jobs:
           job = {
               "task_id": os.environ["JOB_TASK_ID"].strip(),
               "stage": stage,
-              "lang": os.environ["JOB_LANG"].strip(),
+              "lang": lang,
               "langs": os.environ["JOB_LANGS"].strip(),
               "runtime_nonce": os.environ["JOB_RUNTIME_NONCE"].strip(),
               "bridge_url": os.environ["JOB_BRIDGE_URL"].strip(),
@@ -197,14 +199,16 @@ jobs:
         shell: bash
         env:
           JOB_STAGE: ${{ inputs.stage }}
+          JOB_LANG: ${{ inputs.lang }}
         run: |
           set -euo pipefail
           DIR="${RUNNER_TEMP}/soulkey-web-worker"
           STAGE="${JOB_STAGE}"
+          LANG="${JOB_LANG}"
           FINAL_STATUS="UNKNOWN"
           MAX_ATTEMPTS=1
 
-          if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts|finish)$ ]]; then
+          if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts|finish)$ ]] && [[ "$LANG" != "cc-refresh" ]]; then
             MAX_ATTEMPTS=3
           fi
 
