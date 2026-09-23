@@ -122,9 +122,12 @@ jobs:
           meta["language"] = "python"
           meta["is_private"] = True
           meta["enable_internet"] = True
-          meta["enable_gpu"] = True
+          meta["enable_gpu"] = stage in gpu_stages
           meta["enable_tpu"] = False
-          meta["machine_shape"] = "NvidiaTeslaT4"
+          if meta["enable_gpu"]:
+              meta["machine_shape"] = "NvidiaTeslaT4"
+          else:
+              meta.pop("machine_shape", None)
           meta["kernel_sources"] = ["cwlmrcsir/translate-system"]
           meta["dataset_sources"] = []
           meta["competition_sources"] = []
