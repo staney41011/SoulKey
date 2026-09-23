@@ -163,6 +163,11 @@ let zhReviewTotal = 0;
 let zhDirtySegmentIds = new Set();
 let zhVisibleCount = ZH_RENDER_BATCH;
 let zhActiveFilter = "all";
+let zhGithubSaveInFlight = false;
+let zhGithubSaveQueued = false;
+let zhGithubRevision = 0;
+let zhGithubLastSavedRevision = 0;
+let zhGithubSaveRevisionInFlight = 0;
 let currentVernacularReview = [];
 let currentEnglishReview = [];
 let currentView = "dashboard";
@@ -1181,6 +1186,11 @@ function openTaskReview(taskId){
   zhDirtySegmentIds=new Set();
   zhVisibleCount=ZH_RENDER_BATCH;
   zhActiveFilter="all";
+  zhGithubSaveInFlight=false;
+  zhGithubSaveQueued=false;
+  zhGithubRevision=0;
+  zhGithubLastSavedRevision=0;
+  zhGithubSaveRevisionInFlight=0;
 
   const cached=readReviewCache(task.id,"zh");
   zhReviewCachedPreview=!!cached;
@@ -1474,7 +1484,7 @@ const demoSegments=[
 
 function segmentRowsHtml(items){
   return items.map((s,i)=>
-    '<article class="zh-review-row '+(s.flags||[]).join(" ")+'" data-id="'+escapeHtml(s.id ?? i)+'" data-start="'+escapeHtml(s.start ?? 0)+'" data-end="'+escapeHtml(s.end ?? 0)+'" data-time="'+escapeHtml(s.time)+'">'+
+    '<article class="zh-review-row '+(s.flags||[]).join(" ")+' '+(s.confirmed===true?"confirmed":"")+'" data-id="'+escapeHtml(s.id ?? i)+'" data-start="'+escapeHtml(s.start ?? 0)+'" data-end="'+escapeHtml(s.end ?? 0)+'" data-time="'+escapeHtml(s.time)+'">'+
       '<div class="zh-review-row-meta">'+
         '<span>#'+escapeHtml((s.id ?? i)+1)+'</span>'+
         '<span>'+escapeHtml(s.time)+'</span>'+
@@ -1487,7 +1497,7 @@ function segmentRowsHtml(items){
       '<div class="segment-actions">'+
         '<button class="mini play-segment" type="button">▶ 聽這段</button>'+
         '<button class="mini term" type="button">加入詞庫</button>'+
-        '<button class="mini confirm" type="button">確認此段</button>'+
+        '<button class="mini confirm '+(s.confirmed===true?"confirmed":"")+'" type="button">'+(s.confirmed===true?"✓ 已確認":"確認此段")+'</button>'+
       '</div>'+
     '</article>'
   ).join("");
@@ -1496,6 +1506,51 @@ function segmentRowsHtml(items){
 function filteredZhSegments(){
   if(zhActiveFilter==="all") return currentZhReviewAll;
   return currentZhReviewAll.filter(x=>(x.flags||[]).includes(zhActiveFilter));
+}
+
+function zhGithubPayload(){
+  return {
+    version:4,
+    task_id:selectedTaskId,
+    total_segments:currentZhReviewAll.length,
+    segments:currentZhReviewAll.map(item=>({
+      id:Number(item.id),
+      start:Number(item.start||0),
+      end:Number(item.end||0),
+      time:String(item.time||formatClock(item.start)),
+      raw:String(item.raw||""),
+      text:String(item.text||""),
+      flags:Array.isArray(item.flags)?item.flags:[],
+      confirmed:item.confirmed===true
+    }))
+  };
+}
+
+function queueZhGithubSave(){
+  if(!selectedTaskId) return false;
+
+  if(zhGithubSaveInFlight){
+    zhGithubSaveQueued=true;
+    setZhReviewLoadState("GitHub 同步中・最新確認已排隊","working");
+    return true;
+  }
+
+  zhGithubSaveInFlight=true;
+  zhGithubSaveQueued=false;
+  zhGithubSaveRevisionInFlight=zhGithubRevision;
+  setZhReviewLoadState("正在同步確認狀態到 GitHub…","working");
+
+  const sent=submitBridgePost({
+    action:"review_share_draft_save",
+    task_id:selectedTaskId,
+    payload_json:JSON.stringify(zhGithubPayload())
+  });
+
+  if(!sent){
+    zhGithubSaveInFlight=false;
+    setZhReviewLoadState("GitHub 同步失敗：尚未連線控制中心","error");
+  }
+  return sent;
 }
 
 function bindZhReviewRows(){
@@ -1524,9 +1579,23 @@ function bindZhReviewRows(){
     });
     const btn=seg.querySelector(".confirm");
     btn?.addEventListener("click",()=>{
-      seg.classList.add("confirmed");
-      btn.textContent="已確認";
-      btn.disabled=true;
+      const id=Number(seg.dataset.id);
+      const item=currentZhReviewAll.find(x=>Number(x.id)===id);
+      if(!item) return;
+
+      item.confirmed=item.confirmed!==true;
+      zhGithubRevision++;
+      writeReviewCache({
+        task_id:selectedTaskId,
+        kind:"zh",
+        segments:currentZhReviewAll,
+        saved_at:Date.now()
+      });
+
+      seg.classList.toggle("confirmed",item.confirmed===true);
+      btn.classList.toggle("confirmed",item.confirmed===true);
+      btn.textContent=item.confirmed===true?"✓ 已確認":"確認此段";
+      queueZhGithubSave();
     });
   });
   document.getElementById("zh-load-more")?.addEventListener("click",()=>{
@@ -1547,6 +1616,13 @@ function renderZhVisible(){
   const more=filtered.length-visible.length;
   el.innerHTML=segmentRowsHtml(visible)+(more>0 ? '<div class="load-more-row"><button class="ghost" id="zh-load-more">再顯示 '+Math.min(ZH_RENDER_BATCH,more)+' 段（尚有 '+more+' 段）</button></div>' : "");
   document.getElementById("stat-uncertain").textContent=currentZhReviewAll.filter(x=>(x.flags||[]).includes("uncertain")).length;
+  const confirmedCount=currentZhReviewAll.filter(x=>x.confirmed===true).length;
+  setZhReviewLoadState(
+    zhReviewLoading
+      ? "GitHub 最新版仍在同步"
+      : "GitHub 直讀完成・已確認 "+confirmedCount+"/"+currentZhReviewAll.length+" 段",
+    zhReviewLoading ? "working" : "ok"
+  );
   bindZhReviewRows();
 }
 
@@ -2212,6 +2288,35 @@ window.addEventListener("message",event=>{
       if(el){
         el.innerHTML='<div class="empty">任務同步失敗：'+escapeHtml(data.message||data.error||"未知錯誤")+'</div>';
       }
+    }
+  }
+
+  if(data.type==="review_share_draft_saved"){
+    zhGithubSaveInFlight=false;
+
+    if(data.ok){
+      zhGithubLastSavedRevision=Math.max(
+        zhGithubLastSavedRevision,
+        zhGithubSaveRevisionInFlight
+      );
+
+      const confirmedCount=currentZhReviewAll.filter(x=>x.confirmed===true).length;
+      setZhReviewLoadState(
+        zhGithubSaveQueued
+          ? "前一批已同步・繼續同步最新確認…"
+          : "GitHub 已同步・已確認 "+confirmedCount+"/"+currentZhReviewAll.length+" 段",
+        zhGithubSaveQueued ? "working" : "ok"
+      );
+
+      if(zhGithubSaveQueued){
+        zhGithubSaveQueued=false;
+        window.setTimeout(()=>queueZhGithubSave(),0);
+      }
+    }else{
+      setZhReviewLoadState(
+        "GitHub 同步失敗："+(data.message||data.error||"未知錯誤"),
+        "error"
+      );
     }
   }
 
