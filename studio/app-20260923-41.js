@@ -701,8 +701,7 @@ async function loadZhReviewFromGithub(taskId,options={}){
         cache:"no-store",
         signal:controller.signal,
         headers:{
-          "Accept":"application/json",
-          "Cache-Control":"no-cache"
+          "Accept":"application/json"
         }
       });
     }finally{
@@ -789,9 +788,12 @@ async function loadZhReviewFromGithub(taskId,options={}){
 
     zhReviewLoading=false;
     setZhFinalizeEnabled(false);
+    const rawReason=String(err && err.message ? err.message : err);
     const reason=isAbort
       ? "GitHub 讀取逾時"
-      : String(err && err.message ? err.message : err);
+      : (/load failed|failed to fetch/i.test(rawReason)
+          ? "GitHub 連線被瀏覽器阻擋，請重新整理後再試"
+          : rawReason);
     setZhReviewLoadState(reason,"error");
 
     const el=document.getElementById("segment-list");
