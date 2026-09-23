@@ -377,6 +377,144 @@ def _select_english_auto_caption(info: dict):
     return lang_key, preferred
 
 
+def _segments_from_json3_bytes(raw: bytes):
+    payload = json.loads(raw.decode("utf-8"))
+    segments = []
+    for event in payload.get("events") or []:
+        segs = event.get("segs") or []
+        text = "".join(str(x.get("utf8") or "") for x in segs)
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            continue
+        start_ms = float(event.get("tStartMs") or 0)
+        duration_ms = float(event.get("dDurationMs") or 0)
+        start = start_ms / 1000.0
+        end = (start_ms + max(0.0, duration_ms)) / 1000.0
+        segments.append({
+            "start": round(start, 3),
+            "end": round(max(start, end), 3),
+            "text": text,
+        })
+    return segments
+
+
+def _write_english_cc_json(
+    workdir: Path,
+    segments,
+    video_id: str,
+    language: str,
+    source: str,
+):
+    if not segments:
+        return None
+
+    out = workdir / "youtube.en.json"
+    out.write_text(
+        json.dumps(
+            {
+                "source": source,
+                "language": str(language or "en"),
+                "video_id": video_id,
+                "segment_count": len(segments),
+                "segments": segments,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return out
+
+
+def _download_english_cc_explicit_ytdlp(video_url: str, workdir: Path):
+    if not video_url:
+        return None
+
+    # 第二條獨立字幕路徑：即使音訊 extraction 的 info 沒帶回
+    # automatic_captions，也明確要求 yt-dlp 寫出 English auto-subs。
+    try:
+        for old in workdir.glob("youtube_cc*.json3"):
+            try:
+                old.unlink()
+            except Exception:
+                pass
+
+        options, has_cookies = _base_options(workdir, quiet=False)
+        options.update(
+            {
+                "skip_download": True,
+                "writeautomaticsub": True,
+                "writesubtitles": False,
+                "subtitleslangs": ["en", "en-US", "en-GB"],
+                "subtitlesformat": "json3",
+                "outtmpl": str(workdir / "youtube_cc.%(ext)s"),
+            }
+        )
+
+        info = _extract_info(
+            url=video_url,
+            options=options,
+            download=True,
+            has_cookies=has_cookies,
+        )
+
+        candidates = list(workdir.glob("youtube_cc*.json3"))
+        candidates.sort(
+            key=lambda p: (
+                0 if ".en." in p.name else
+                1 if ".en-US." in p.name else
+                2 if ".en-GB." in p.name else 9,
+                p.name,
+            )
+        )
+
+        for candidate in candidates:
+            try:
+                segments = _segments_from_json3_bytes(candidate.read_bytes())
+            except Exception as exc:
+                print(
+                    f"[YouTube CC] explicit yt-dlp 解析 {candidate.name} 失敗："
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                continue
+
+            if segments:
+                language = "en"
+                name = candidate.name
+                if ".en-US." in name:
+                    language = "en-US"
+                elif ".en-GB." in name:
+                    language = "en-GB"
+
+                out = _write_english_cc_json(
+                    workdir,
+                    segments,
+                    str(info.get("id") or ""),
+                    language,
+                    "youtube_auto_generated_explicit_ytdlp",
+                )
+                print(
+                    f"[YouTube CC] explicit yt-dlp 成功："
+                    f"{language} / {len(segments)} cues",
+                    flush=True,
+                )
+                return out
+
+        print(
+            "[YouTube CC] explicit yt-dlp 沒有產生 English json3 字幕檔。",
+            flush=True,
+        )
+    except Exception as exc:
+        print(
+            f"[YouTube CC] explicit yt-dlp fallback 失敗："
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+
+    return None
+
+
 def _download_english_cc_via_transcript_api(video_id: str, workdir: Path):
     if not video_id:
         return None
@@ -446,10 +584,21 @@ def _download_english_cc_via_transcript_api(video_id: str, workdir: Path):
         return None
 
 
-def _download_english_auto_cc(info: dict, workdir: Path):
+def _download_english_auto_cc(info: dict, workdir: Path, video_url: str = ""):
     lang_key, caption = _select_english_auto_caption(info)
     if not caption:
-        print("[YouTube CC] yt-dlp 找不到 English auto-generated；改試 Transcript API。")
+        print(
+            "[YouTube CC] metadata 沒帶回 English auto-generated；"
+            "改用 explicit yt-dlp 字幕下載。",
+            flush=True,
+        )
+        explicit = _download_english_cc_explicit_ytdlp(video_url, workdir)
+        if explicit:
+            return explicit
+        print("[YouTube CC] explicit yt-dlp 失敗；再試 Transcript API。")
+        explicit = _download_english_cc_explicit_ytdlp(video_url, workdir)
+        if explicit:
+            return explicit
         return _download_english_cc_via_transcript_api(
             str(info.get("id") or ""),
             workdir,
@@ -485,22 +634,7 @@ def _download_english_auto_cc(info: dict, workdir: Path):
 
     if ext == "json3":
         try:
-            payload = json.loads(raw.decode("utf-8"))
-            for event in payload.get("events") or []:
-                segs = event.get("segs") or []
-                text = "".join(str(x.get("utf8") or "") for x in segs)
-                text = re.sub(r"\s+", " ", text).strip()
-                if not text:
-                    continue
-                start_ms = float(event.get("tStartMs") or 0)
-                duration_ms = float(event.get("dDurationMs") or 0)
-                start = start_ms / 1000.0
-                end = (start_ms + max(0.0, duration_ms)) / 1000.0
-                segments.append({
-                    "start": round(start, 3),
-                    "end": round(max(start, end), 3),
-                    "text": text,
-                })
+            segments = _segments_from_json3_bytes(raw)
         except Exception as exc:
             print(
                 f"[YouTube CC] json3 解析失敗：{type(exc).__name__}: {exc}",
@@ -518,6 +652,9 @@ def _download_english_auto_cc(info: dict, workdir: Path):
             "改試 Transcript API 轉成統一 JSON。",
             flush=True,
         )
+        explicit = _download_english_cc_explicit_ytdlp(video_url, workdir)
+        if explicit:
+            return explicit
         return _download_english_cc_via_transcript_api(
             str(info.get("id") or ""),
             workdir,
@@ -590,7 +727,7 @@ def download_audio(url: str, workdir: Path):
         check=True,
     )
 
-    english_cc_path = _download_english_auto_cc(info, workdir)
+    english_cc_path = _download_english_auto_cc(info, workdir, video_url=url)
 
     lecturer, lecturer_source = detect_lecturer(info)
     return normalized, {
