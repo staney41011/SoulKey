@@ -57,11 +57,13 @@ SYSTEM_PROMPT = """你是「打開心靈的鎖匙」課程的繁體中文逐字�
 3. 優先使用提供的「道場專有名詞」。
 4. 對上下文高度確定的常識性誤辨必須主動修正，不要因為「保守」而留下明顯錯字。例如「學護五車→學富五車」「竹繭→竹簡」「商國→三國」「擺煉成鋼→百鍊成鋼」「萬事具備，只見東→萬事俱備，只欠東風」。
 5. 道場稱謂與固定用語要優先判斷，例如「關法律主」「金線傳承」「扶圓補缺」「前賢」「白陽期」。
-6. 將 ASR 造成的大量驚嘆號改成自然的繁體中文標點與清楚斷句；仍保留口語感，但要讓一般讀者能順暢閱讀。
-7. 如果一個詞句在語意、成語、歷史典故或上下文上明顯不成立，必須再次檢查；能高度確定就修正，不能確定就保留並放進 uncertain。uncertain 要偏向多抓，不要漏掉可疑詞。
-8. 台語俗諺、人名、佛規禮節或特殊道場用語若無法高度確定，不可自行編造。
-9. 每個 segment 必須保留相同 id，不可合併、刪除或新增 segment。
-10. 輸出必須是 JSON，不要加 Markdown、說明或思考過程。
+6. 標點採「台灣課堂逐字稿」風格：一般敘述以「，」「。」為主；真正問句才用「？」。
+7. 「！」只能用在明確呼喊、強烈驚嘆或情緒爆發，普通敘述、勸勉、強調、語助詞都不要使用驚嘆號。原始 ASR 若大量出現「！」，原則上改成「，」或「。」；單一 segment 最多只允許 1 個「！」，而且必須語意上非常明確。
+8. 不要為了看起來有文采而增加標點強度；這是逐字稿，不是演講稿潤飾。
+9. 如果一個詞句在語意、成語、歷史典故或上下文上明顯不成立，必須再次檢查；能高度確定就修正，不能確定就保留並放進 uncertain。uncertain 要偏向多抓，不要漏掉可疑詞。
+10. 台語俗諺、人名、佛規禮節或特殊道場用語若無法高度確定，不可自行編造。
+11. 每個 segment 必須保留相同 id，不可合併、刪除或新增 segment。
+12. 輸出必須是 JSON，不要加 Markdown、說明或思考過程。
 
 輸出格式：
 {"segments":[{"id":0,"text":"校正後文字","uncertain":["不確定詞句"]}]}
@@ -165,6 +167,36 @@ def _deterministic_fix(text: str):
     for wrong, correct in COMMON_ASR_FIXES.items():
         out = out.replace(wrong, correct)
     return out
+
+
+def _normalize_lecture_punctuation(text: str):
+    """Keep punctuation natural for spoken-course transcripts."""
+    out = str(text or "").strip()
+    out = out.replace("!", "！").replace("?", "？")
+
+    # 只有非常明確的驚嘆句才保留一個驚嘆號。
+    explicit_exclamation = bool(
+        re.search(r"(?:^|[，。？])(?:哇|太好了|太棒了|好棒|真棒)", out)
+    )
+
+    if explicit_exclamation:
+        first = out.find("！")
+        if first >= 0:
+            out = (
+                out[:first + 1]
+                + out[first + 1:].replace("！", "。")
+            )
+    else:
+        out = out.replace("！", "。")
+
+    # 清掉 ASR / LLM 常見的連續強標點。
+    out = re.sub(r"[。]{2,}", "。", out)
+    out = re.sub(r"[？]{2,}", "？", out)
+    out = re.sub(r"[，]{2,}", "，", out)
+    out = out.replace("？！", "？").replace("！？", "？")
+    out = re.sub(r"。([，。])", "。", out)
+
+    return out.strip()
 
 
 def _extract_json_object(text: str):
@@ -343,7 +375,9 @@ def polish_segments(
             idx = chunk_start + offset
             pre_fixed = prepared[offset]["text"]
             item = by_id.get(idx, {})
-            corrected = str(item.get("text") or pre_fixed).strip()
+            corrected = _normalize_lecture_punctuation(
+                str(item.get("text") or pre_fixed).strip()
+            )
             uncertain = item.get("uncertain") or []
             if isinstance(uncertain, str):
                 uncertain = [uncertain]
@@ -456,7 +490,9 @@ def polish_segments(
             for offset, seg in enumerate(target):
                 idx = chunk_start + offset
                 item = by_id.get(idx, {})
-                text = str(item.get("text") or seg["text"]).strip()
+                text = _normalize_lecture_punctuation(
+                    str(item.get("text") or seg["text"]).strip()
+                )
                 uncertain = item.get("uncertain") or []
                 if isinstance(uncertain, str):
                     uncertain = [uncertain]
