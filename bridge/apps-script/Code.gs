@@ -1806,7 +1806,8 @@ function taskInfo_(taskId) {
 
 function periodFolderId_(period) {
   const cache = CacheService.getScriptCache();
-  const cacheKey = "period-folder-v2:" + String(period);
+  const targetPeriod = Number(period);
+  const cacheKey = "period-folder-v3:" + String(targetPeriod);
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
@@ -1814,18 +1815,38 @@ function periodFolderId_(period) {
   const rows = periodSheet.getDataRange().getDisplayValues();
 
   for (let r = 1; r < rows.length; r++) {
-    const num = Number((String(rows[r][0] || "") + String(rows[r][1] || "")).replace(/[^0-9]/g, ""));
-    if (num === Number(period)) {
-      const match = String(rows[r][5] || "").match(/folders\/([A-Za-z0-9_-]+)/);
-      if (match) {
-        cache.put(cacheKey, match[1], 21600);
-        return match[1];
-      }
-      break;
+    // 不可把「P254」與「第254期」直接串接，否則會變成 254254。
+    // 優先以期數代碼欄判斷，期數名稱只作 fallback。
+    const codeText = String(rows[r][0] || "").trim();
+    const nameText = String(rows[r][1] || "").trim();
+
+    const codeMatch = codeText.match(/(\d+)/);
+    const nameMatch = nameText.match(/(\d+)/);
+    const codePeriod = codeMatch ? Number(codeMatch[1]) : NaN;
+    const namePeriod = nameMatch ? Number(nameMatch[1]) : NaN;
+
+    if (codePeriod !== targetPeriod && namePeriod !== targetPeriod) {
+      continue;
+    }
+
+    const folderValue = String(rows[r][5] || "").trim();
+    const folderMatch =
+      folderValue.match(/\/folders\/([A-Za-z0-9_-]+)/) ||
+      folderValue.match(/[?&]id=([A-Za-z0-9_-]+)/) ||
+      (/^[A-Za-z0-9_-]{10,}$/.test(folderValue)
+        ? [folderValue, folderValue]
+        : null);
+
+    if (folderMatch && folderMatch[1]) {
+      cache.put(cacheKey, folderMatch[1], 21600);
+      return folderMatch[1];
     }
   }
 
-  throw new Error("期數設定找不到資料夾");
+  throw new Error(
+    "期數設定找不到第" + targetPeriod +
+    "期的資料夾 URL，請確認「期數設定」的資料夾URL欄位"
+  );
 }
 
 function cachedChildFolder_(parent, name) {
