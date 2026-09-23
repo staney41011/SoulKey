@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       stage:
-        description: zh/vernacular/en/multi/tts
+        description: zh/vernacular/en/multi/tts/finish
         required: true
         type: string
       lang:
@@ -110,7 +110,7 @@ jobs:
           meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
           stage = os.environ["JOB_STAGE"].strip()
-          gpu_stages = {"zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts"}
+          gpu_stages = {"zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish"}
 
           # Rebind every run to the dedicated GPU-only kernel. Do not preserve
           # id_no from an older CPU worker because Kaggle prefers id_no over id.
@@ -201,7 +201,7 @@ jobs:
           FINAL_STATUS="UNKNOWN"
           MAX_ATTEMPTS=1
 
-          if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts)$ ]]; then
+          if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts|finish)$ ]]; then
             MAX_ATTEMPTS=3
           fi
 
