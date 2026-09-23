@@ -17,7 +17,7 @@ const LANGUAGE_SHEET_NAME = "語言設定";
 const LANGUAGE_PLAN_SHEET_NAME = "語言任務設定";
 
 const MACHINE_STAGES = [
-  "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts"
+  "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish"
 ];
 const RUNTIME_TTL_MS = 4 * 60 * 60 * 1000;
 
@@ -95,6 +95,21 @@ function doPost(e) {
       return postMessage_(
         reviewShareFinalize_(taskId, segmentsJson, payloadJson)
       );
+    }
+
+    if (action === "review_share_finalize_en") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const segmentsJson = String((e && e.parameter && e.parameter.segments_json) || "").trim();
+      const payloadJson = String((e && e.parameter && e.parameter.payload_json) || "").trim();
+      return postMessage_(
+        reviewShareFinalizeEnglish_(taskId, segmentsJson, payloadJson)
+      );
+    }
+
+    if (action === "review_finish") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const planJson = String((e && e.parameter && e.parameter.plan_json) || "").trim();
+      return postMessage_(reviewFinish_(taskId, planJson));
     }
 
     const props = PropertiesService.getScriptProperties();
@@ -746,16 +761,24 @@ function normalizedReviewSharePayload_(taskId, payloadJson) {
       flags: Array.isArray(x.flags)
         ? x.flags.map(function(v) { return String(v || ""); }).filter(Boolean)
         : [],
-      confirmed: x.confirmed === true
+      confirmed: x.confirmed === true,
+      source_en: String(x.source_en || ""),
+      en_text: String(x.en_text || x.source_en || ""),
+      en_confirmed: x.en_confirmed === true
     };
   });
 
   return {
     ok: true,
     payload: {
-      version: 4,
+      version: 5,
       task_id: String(taskId || "").trim(),
       draft_saved_at: new Date().toISOString(),
+      zh_finalized_at: String(payload.zh_finalized_at || payload.finalized_at || ""),
+      en_finalized_at: String(payload.en_finalized_at || ""),
+      english_cc_available: payload.english_cc_available === true,
+      english_cc_language: String(payload.english_cc_language || ""),
+      english_cc_source: String(payload.english_cc_source || ""),
       total_segments: segments.length,
       segments: segments
     }
@@ -878,7 +901,7 @@ function reviewShareFinalize_(taskId, segmentsJson, payloadJson) {
     return saved;
   }
 
-  normalized.payload.finalized_at = new Date().toISOString();
+  normalized.payload.zh_finalized_at = new Date().toISOString();
   publishReviewSharePayload_(normalizedTaskId, normalized.payload);
 
   return {
@@ -887,10 +910,229 @@ function reviewShareFinalize_(taskId, segmentsJson, payloadJson) {
     ok: true,
     task_id: normalizedTaskId,
     segment_count: segments.length,
-    finalized_at: normalized.payload.finalized_at,
-    message: "中文定稿完成。固定編輯連結仍可繼續使用。"
+    finalized_at: normalized.payload.zh_finalized_at,
+    message: "中文定稿完成。請進入中英對照，修正 English CC。"
   };
 }
+
+function reviewShareFinalizeEnglish_(taskId, segmentsJson, payloadJson) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_share_en_finalized",
+      ok: false,
+      error: "invalid_task_id",
+      message: "task_id 格式不正確"
+    };
+  }
+
+  let segments = [];
+  try {
+    segments = JSON.parse(String(segmentsJson || ""));
+  } catch (_) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_share_en_finalized",
+      ok: false,
+      error: "invalid_segments_json"
+    };
+  }
+
+  const normalized = normalizedReviewSharePayload_(
+    normalizedTaskId,
+    payloadJson
+  );
+  if (!normalized.ok) {
+    normalized.source = "soulkey-bridge";
+    normalized.type = "review_share_en_finalized";
+    return normalized;
+  }
+
+  if (!normalized.payload.zh_finalized_at) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_share_en_finalized",
+      ok: false,
+      error: "zh_not_finalized",
+      message: "請先完成中文定稿。"
+    };
+  }
+
+  const saved = saveReview_(normalizedTaskId, "en", segments, []);
+  if (!saved.ok) {
+    saved.source = "soulkey-bridge";
+    saved.type = "review_share_en_finalized";
+    return saved;
+  }
+
+  normalized.payload.en_finalized_at = new Date().toISOString();
+  publishReviewSharePayload_(normalizedTaskId, normalized.payload);
+
+  return {
+    source: "soulkey-bridge",
+    type: "review_share_en_finalized",
+    ok: true,
+    task_id: normalizedTaskId,
+    segment_count: segments.length,
+    finalized_at: normalized.payload.en_finalized_at,
+    message: "英文定稿完成。接著選擇需要的逐字稿與音檔。"
+  };
+}
+
+function reviewFinish_(taskId, planJson) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_finish_queued",
+      ok: false,
+      error: "invalid_task_id",
+      message: "task_id 格式不正確"
+    };
+  }
+
+  let plan = [];
+  try {
+    plan = JSON.parse(String(planJson || "[]"));
+  } catch (_) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_finish_queued",
+      ok: false,
+      error: "invalid_plan_json"
+    };
+  }
+
+  if (!Array.isArray(plan)) plan = [];
+
+  try {
+    taskInfo_(normalizedTaskId);
+  } catch (err) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_finish_queued",
+      ok: false,
+      error: "task_not_found",
+      message: String(err && err.message ? err.message : err)
+    };
+  }
+
+  const allowed = ["en", "th", "es", "id", "vi"];
+  const clean = [];
+  plan.forEach(function(item) {
+    const code = String(item && item.language_code || "").trim();
+    if (allowed.indexOf(code) < 0) return;
+
+    const transcriptEnabled = code === "en"
+      ? true
+      : !!item.transcript_enabled;
+    const audioEnabled = !!item.audio_enabled;
+
+    clean.push({
+      language_code: code,
+      language_name: String(item.language_name || code),
+      transcript_enabled: transcriptEnabled || audioEnabled,
+      transcript_source: code === "en" ? "human" : "ai",
+      audio_enabled: audioEnabled,
+      audio_source: audioEnabled ? "tts" : String(item.audio_source || "tts")
+    });
+  });
+
+  saveLanguagePlan_(normalizedTaskId, clean);
+
+  const translateLangs = clean
+    .filter(function(x) {
+      return x.language_code !== "en" && x.transcript_enabled;
+    })
+    .map(function(x) { return x.language_code; });
+
+  const audioLangs = clean
+    .filter(function(x) { return x.audio_enabled; })
+    .map(function(x) { return x.language_code; });
+
+  if (!translateLangs.length && !audioLangs.length) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_finish_queued",
+      ok: true,
+      task_id: normalizedTaskId,
+      translate_langs: [],
+      audio_langs: [],
+      message: "沒有勾選額外輸出；中英文 Final 已完成。"
+    };
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const githubToken = String(props.getProperty("GITHUB_TOKEN") || "").trim();
+  if (!githubToken) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_finish_queued",
+      ok: false,
+      error: "github_token_missing",
+      message: "GITHUB_TOKEN 尚未設定"
+    };
+  }
+
+  const nonce = createRuntimeJob_(
+    normalizedTaskId,
+    "finish",
+    audioLangs.join(","),
+    translateLangs.join(",")
+  );
+  const bridgeUrl = ScriptApp.getService().getUrl();
+  const dispatch = dispatchWorkflow_(
+    githubToken,
+    WORKFLOW_WEB_JOB,
+    {
+      task_id: normalizedTaskId,
+      stage: "finish",
+      lang: audioLangs.join(","),
+      langs: translateLangs.join(","),
+      runtime_nonce: nonce,
+      bridge_url: bridgeUrl
+    }
+  );
+
+  if (!dispatch.ok) {
+    props.deleteProperty("JOB_" + nonce);
+    return {
+      source: "soulkey-bridge",
+      type: "review_finish_queued",
+      ok: false,
+      error: dispatch.error || "dispatch_failed",
+      message: "輸出工作送出失敗"
+    };
+  }
+
+  appendExecutionStatus_(
+    normalizedTaskId,
+    "finish",
+    "queued",
+    String(dispatch.workflow_run_id || nonce.slice(0, 12)),
+    0,
+    "已送出最終輸出工作",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  );
+
+  return {
+    source: "soulkey-bridge",
+    type: "review_finish_queued",
+    ok: true,
+    task_id: normalizedTaskId,
+    translate_langs: translateLangs,
+    audio_langs: audioLangs,
+    workflow_run_id: dispatch.workflow_run_id || null,
+    message: "已送出翻譯與音檔工作。"
+  };
+}
+
 
 function githubPathEncode_(path) {
   return String(path || "").split("/").map(function(part) {
