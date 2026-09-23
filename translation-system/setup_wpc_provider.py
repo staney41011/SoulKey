@@ -10,6 +10,10 @@ BROWSER_MARKER = Path("/kaggle/working/wpc_browser_path.txt")
 DENO_MARKER = Path("/kaggle/working/deno_path.txt")
 DENO_DIR = Path("/kaggle/working/deno-bin")
 DENO_BIN = DENO_DIR / "deno"
+BGUTIL_ROOT = Path("/kaggle/working/bgutil-ytdlp-pot-provider")
+BGUTIL_SERVER = BGUTIL_ROOT / "server"
+BGUTIL_MARKER = Path("/kaggle/working/bgutil_server_home.txt")
+BGUTIL_VERSION = "2.0.0"
 
 
 def run(cmd, check=True):
@@ -107,15 +111,44 @@ def patch_installed_wpc():
     print(f"✅ WPC 已修正為 headless + no-sandbox：{path}")
 
 
+def setup_bgutil(deno_bin: str):
+    if BGUTIL_ROOT.exists():
+        print(f"bgutil repo 已存在：{BGUTIL_ROOT}")
+    else:
+        run([
+            "git", "clone", "--depth", "1",
+            "--branch", BGUTIL_VERSION,
+            "https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git",
+            str(BGUTIL_ROOT),
+        ])
+
+    if not BGUTIL_SERVER.exists():
+        raise RuntimeError("bgutil server 目錄不存在")
+
+    # v2.0.0 官方 Deno 安裝方式。第一次較久，後續 Kaggle 同一 session 可重用。
+    deno_cmd = [
+        deno_bin,
+        "install",
+        "--allow-scripts=npm:canvas",
+        "--frozen",
+    ]
+    print("準備 bgutil server dependencies...")
+    subprocess.run(
+        deno_cmd,
+        cwd=str(BGUTIL_SERVER),
+        check=True,
+    )
+
+    BGUTIL_MARKER.write_text(str(BGUTIL_SERVER) + "\n", encoding="utf-8")
+    print(f"✅ bgutil subs PO Token provider ready：{BGUTIL_SERVER}")
+
+
 def main():
     run([
-        sys.executable, "-m", "pip", "uninstall", "-y",
-        "bgutil-ytdlp-pot-provider",
-    ], check=False)
-
-    run([
         sys.executable, "-m", "pip", "install", "-U",
-        "yt-dlp[default]", "yt-dlp-getpot-wpc",
+        "yt-dlp[default]",
+        "yt-dlp-getpot-wpc",
+        "bgutil-ytdlp-pot-provider==2.0.0",
     ])
 
     browser = install_browser()
@@ -124,6 +157,7 @@ def main():
     deno = install_deno()
     DENO_MARKER.write_text(deno + "\n", encoding="utf-8")
 
+    setup_bgutil(deno)
     patch_installed_wpc()
 
     print("\n✅ YouTube Runtime 準備完成")
@@ -132,6 +166,7 @@ def main():
     print(f"Deno: {deno}")
     print(f"Browser marker: {BROWSER_MARKER}")
     print(f"Deno marker: {DENO_MARKER}")
+    print(f"bgutil marker: {BGUTIL_MARKER}")
 
 
 if __name__ == "__main__":
