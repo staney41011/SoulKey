@@ -321,7 +321,7 @@ window.addEventListener("message",event=>{
       dirty=revision>lastSavedRevision;
 
       if(!dirty){
-        localStorage.removeItem("soulkey_shared_draft:"+taskId);
+        persistLocalDraft();
       }
 
       setStatus(
@@ -374,7 +374,16 @@ async function loadReview(){
     if(localRaw){
       try{
         const local=JSON.parse(localRaw);
-        if(Array.isArray(local.segments)&&local.segments.length===segments.length){
+        const remoteSavedAt=Date.parse(
+          String(payload.draft_saved_at||payload.generated_at||"")
+        )||0;
+        const localSavedAt=Number(local.saved_at||0);
+
+        if(
+          localSavedAt>remoteSavedAt &&
+          Array.isArray(local.segments) &&
+          local.segments.length===segments.length
+        ){
           const localById=new Map(local.segments.map(x=>[Number(x.id),x]));
           segments=segments.map(x=>{
             const draft=localById.get(Number(x.id));
@@ -387,7 +396,7 @@ async function loadReview(){
           revision=Number(local.revision||1);
           lastSavedRevision=0;
           dirty=true;
-          setStatus("已恢復此裝置未送出的修改","working");
+          setStatus("已恢復此裝置較新的未送出修改","working");
         }
       }catch(_){}
     }
