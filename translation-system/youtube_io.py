@@ -688,23 +688,61 @@ def _download_english_auto_cc(info: dict, workdir: Path, video_url: str = ""):
 
 
 
+def _video_id_from_url(url: str):
+    text = str(url or "").strip()
+    patterns = [
+        r"(?:youtu\.be/)([A-Za-z0-9_-]{6,})",
+        r"(?:[?&]v=)([A-Za-z0-9_-]{6,})",
+        r"(?:youtube\.com/(?:embed|shorts|live)/)([A-Za-z0-9_-]{6,})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
+    return ""
+
+
 def download_english_cc(url: str, workdir: Path):
     """Fetch only English auto-generated CC without downloading audio."""
     workdir.mkdir(parents=True, exist_ok=True)
     options, has_cookies = _base_options(workdir, quiet=False)
     options["skip_download"] = True
 
-    info = _extract_info(
-        url=url,
-        options=options,
-        download=False,
-        has_cookies=has_cookies,
-    )
-    return _download_english_auto_cc(
-        info,
-        workdir,
-        video_url=url,
-    )
+    try:
+        info = _extract_info(
+            url=url,
+            options=options,
+            download=False,
+            has_cookies=has_cookies,
+        )
+        result = _download_english_auto_cc(
+            info,
+            workdir,
+            video_url=url,
+        )
+        if result:
+            return result
+    except Exception as exc:
+        print(
+            f"[YouTube CC] yt-dlp metadata 最終仍失敗："
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+
+    video_id = _video_id_from_url(url)
+    if video_id:
+        print(
+            "[YouTube CC] 改以 video id 直接嘗試 Transcript API。",
+            flush=True,
+        )
+        result = _download_english_cc_via_transcript_api(
+            video_id,
+            workdir,
+        )
+        if result:
+            return result
+
+    return None
 
 
 def download_audio(url: str, workdir: Path):
