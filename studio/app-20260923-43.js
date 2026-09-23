@@ -60,12 +60,11 @@ const seedTerms = [
   status:"正式詞庫"
 }));
 
-const WORKFLOW_VERSION = 6;
+const WORKFLOW_VERSION = 7;
 
 const workflow = [
   {key:"zh", label:"中文定稿", short:"中文定稿", hint:"來源 → ASR → AI 校稿 → 人工定稿"},
-  {key:"en", label:"英文翻譯", short:"英文", hint:"直接使用中文 Final，不經白話文"},
-  {key:"en-review", label:"人工英文定稿", short:"英定稿", hint:"中文 Final ↔ English"},
+  {key:"en-review", label:"English CC 定稿", short:"英定稿", hint:"中文 Final ↔ YouTube English CC"},
   {key:"multi", label:"各國語言翻譯", short:"多語", hint:"依選擇"},
   {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
@@ -179,7 +178,7 @@ const titles = {
   "task-detail":"課程任務",
   review:"人工中文定稿",
   "vernacular-review":"人工白話文定稿",
-  "en-review":"人工英文定稿",
+  "en-review":"English CC 定稿",
   glossary:"專有名詞庫",
   knowledge:"經典知識庫",
   system:"系統狀態"
@@ -302,7 +301,7 @@ function normalizeTask(t){
 
   let version=Number(t.workflowVersion || 1);
 
-  // v2：英文翻譯後加入「人工英文定稿」。
+  // v2：英文翻譯後加入「English CC 定稿」。
   if(version < 2){
     if(t.completedStep >= 6) t.completedStep += 1;
     version=2;
@@ -340,6 +339,21 @@ function normalizeTask(t){
       t.completedStep = t.completedStep - 2;
     }
     version=6;
+  }
+
+  // v7：有 YouTube English CC 時，直接進English CC 定稿，不再跑 AI 英文翻譯。
+  // v6 index: zh=0, en=1, en-review=2, multi=3, tts=4
+  // v7 index: zh=0, en-review=1, multi=2, tts=3
+  if(version < 7){
+    if(t.completedStep <= 0){
+      t.completedStep = Math.max(-1,t.completedStep);
+    }else if(t.completedStep === 1){
+      // 舊版只完成 AI 英文翻譯，仍需English CC 定稿。
+      t.completedStep = 0;
+    }else{
+      t.completedStep = t.completedStep - 1;
+    }
+    version=7;
   }
 
   t.workflowVersion=version;
@@ -1001,7 +1015,7 @@ function renderLanguagePlan(task){
         '<label class="output-toggle"><input type="checkbox" data-plan-transcript '+(item.transcript_enabled?"checked":"")+' '+(english?"disabled":"")+'> '+(english?"英文定稿":"需要文稿")+'</label>'+
         '<select data-plan-transcript-source '+((!item.transcript_enabled||english)?"disabled":"")+'>'+
           '<option value="ai" '+(item.transcript_source==="ai"?"selected":"")+' '+(aiDisabled?"disabled":"")+'>AI 翻譯</option>'+
-          '<option value="human" '+(item.transcript_source==="human"?"selected":"")+'>'+(english?"人工英文定稿":"真人翻譯／人工提供")+'</option>'+
+          '<option value="human" '+(item.transcript_source==="human"?"selected":"")+'>'+(english?"English CC 定稿":"真人翻譯／人工提供")+'</option>'+
         '</select>'+
       '</div>'+
       '<div class="language-output-cell">'+
@@ -1145,8 +1159,8 @@ function renderTaskDetail(task){
   }else if(isEnglishReview){
     document.getElementById("detail-current-body").innerHTML=
       '<div class="stage-message review-ready">'+
-        '<div><b>現在要進行人工英文定稿</b><span>逐段查看中文 Final 與英文翻譯，修正後同步學習專有名詞的正式英文譯法。</span></div>'+
-        '<button class="primary" data-open-en-review-inline="'+escapeHtml(task.id)+'">進入人工英文定稿</button>'+
+        '<div><b>現在要進行English CC 定稿</b><span>逐段查看中文 Final 與英文翻譯，修正後同步學習專有名詞的正式英文譯法。</span></div>'+
+        '<button class="primary" data-open-en-review-inline="'+escapeHtml(task.id)+'">進入English CC 定稿</button>'+
       '</div>';
   }else{
     document.getElementById("detail-current-body").innerHTML=
@@ -1961,7 +1975,34 @@ const demoEnglishReview = [
   }
 ];
 
-function openEnglishReview(taskId){
+function englishReviewItemsFromGithub(payload){
+  const segments=repairReviewTimings(
+    Array.isArray(payload?.segments) ? payload.segments : []
+  );
+
+  return segments.map((item,i)=>{
+    const zhText=String(item.text||"").trim();
+    const sourceEn=String(item.source_en||"").trim();
+    const editableEn=String(item.en_text||sourceEn).trim();
+    const pairs=terms
+      .filter(t=>t && t.name && zhText.includes(String(t.name)))
+      .map(t=>({zh:String(t.name),en:String(t.en||"")}));
+
+    return {
+      id:Number(item.id!==undefined?item.id:i),
+      start:Number(item.start||0),
+      end:Number(item.end||0),
+      time:String(item.time||formatClock(item.start)),
+      original:zhText,
+      vernacular:"",
+      en:editableEn,
+      source_en:sourceEn,
+      terms:pairs
+    };
+  });
+}
+
+async function openEnglishReview(taskId){
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
@@ -1972,9 +2013,47 @@ function openEnglishReview(taskId){
     '<span>第'+escapeHtml(task.period)+'期・'+escapeHtml(task.lesson)+'</span>'+
     '<small>'+escapeHtml(task.url)+'</small>';
 
-  document.getElementById("en-review-list").innerHTML='<div class="empty">正在讀取英文翻譯資料…</div>';
+  document.getElementById("en-review-list").innerHTML=
+    '<div class="empty">正在直接讀取 YouTube English CC…</div>';
   showView("en-review");
-  requestReviewData(task.id,"en");
+
+  try{
+    const response=await fetch(githubReviewUrl(task.id),{
+      method:"GET",
+      cache:"no-store",
+      headers:{"Accept":"application/json"}
+    });
+    if(!response.ok){
+      throw new Error("GitHub HTTP "+response.status);
+    }
+
+    const payload=await response.json();
+    const items=englishReviewItemsFromGithub(payload);
+    const available=items.filter(x=>String(x.en||"").trim()).length;
+
+    if(!items.length){
+      throw new Error("這堂課目前沒有可用的人工定稿段落。");
+    }
+
+    if(!available){
+      document.getElementById("en-review-list").innerHTML=
+        '<div class="empty">這堂課沒有抓到可用的 YouTube English CC。'+
+        '<br><br>快速流程不會自動多跑英文翻譯；請先確認該影片是否有 English auto-generated CC。</div>';
+      currentEnglishReview=[];
+      return;
+    }
+
+    renderEnglishReview(items);
+  }catch(err){
+    document.getElementById("en-review-list").innerHTML=
+      '<div class="empty">English CC 讀取失敗：'+
+      escapeHtml(String(err?.message||err))+
+      '<br><br><button class="ghost" id="retry-en-cc">重新讀取</button></div>';
+    document.getElementById("retry-en-cc")?.addEventListener(
+      "click",
+      ()=>openEnglishReview(taskId)
+    );
+  }
 }
 
 function renderEnglishReview(items){
@@ -2048,7 +2127,7 @@ function renderEnglishReview(items){
           name:zh,
           category:"宗教術語",
           aliases:"",
-          description:"由人工英文定稿同步學習",
+          description:"由English CC 定稿同步學習",
           en:"",
           status:"正式詞庫"
         };
@@ -2067,10 +2146,6 @@ function renderEnglishReview(items){
   });
 }
 
-document.getElementById("load-en-demo")?.addEventListener(
-  "click",()=>renderEnglishReview(demoEnglishReview)
-);
-
 document.getElementById("toggle-en-vernacular")?.addEventListener("change",e=>{
   const hidden=!e.target.checked;
   document.getElementById("en-review-head")?.classList.toggle("hide-vernacular",hidden);
@@ -2088,8 +2163,8 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
 
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
-    "確定英文翻譯已人工確認完成並定稿？\n"+
-    "定稿會寫回 Google Drive；其他語言會優先使用這份 English Final。"
+    "確定YouTube English CC 已人工確認完成並定稿？\n"+
+    "定稿會寫回 Google Drive；其他語言會直接使用這份 English Final。"
   );
   if(!ok) return;
 
