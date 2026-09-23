@@ -745,14 +745,15 @@ function normalizedReviewSharePayload_(taskId, payloadJson) {
       text: String(x.text || ""),
       flags: Array.isArray(x.flags)
         ? x.flags.map(function(v) { return String(v || ""); }).filter(Boolean)
-        : []
+        : [],
+      confirmed: x.confirmed === true
     };
   });
 
   return {
     ok: true,
     payload: {
-      version: 3,
+      version: 4,
       task_id: String(taskId || "").trim(),
       draft_saved_at: new Date().toISOString(),
       total_segments: segments.length,
