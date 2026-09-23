@@ -18,6 +18,7 @@ MACHINE_STAGES = {
     "multi",
     "tts",
     "finish",
+    "cc",
 }
 
 
@@ -228,7 +229,10 @@ def main():
             "-r", str(system_dir / "requirements.txt"),
         ])
 
-        require_gpu_runtime(args.stage)
+        if args.stage != "cc":
+            require_gpu_runtime(args.stage)
+        else:
+            print("[CC] 補抓字幕不需要 GPU。", flush=True)
 
         if args.stage in {"zh", "metadata", "asr"}:
             print("[FAST] YouTube 使用 Apps Script Cookies 直連；略過 Chromium / WPC 冷啟動。", flush=True)
@@ -281,6 +285,11 @@ def main():
                 "--stage", "modernize",
                 "--max-tasks", "1",
                 "--force",
+            ]
+        elif args.stage == "cc":
+            cmd = [
+                sys.executable, str(system_dir / "cc_runner.py"),
+                "--task-id", args.task_id,
             ]
         elif args.stage == "en":
             cmd = [
