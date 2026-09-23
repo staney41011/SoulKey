@@ -4,25 +4,39 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <title>SoulKey｜單堂課逐字稿編輯</title>
-  <link rel="stylesheet" href="./review-editor.css?v=20260923-2">
+  <title>SoulKey｜單堂課快速翻譯流程</title>
+  <link rel="stylesheet" href="./review-editor.css?v=20260923-5">
 </head>
 <body>
   <header class="share-header">
     <div>
-      <p class="eyebrow">SOULKEY REVIEW</p>
-      <h1>單堂課逐字稿編輯</h1>
+      <p class="eyebrow">SOULKEY QUICK REVIEW</p>
+      <h1>單堂課快速翻譯流程</h1>
       <div class="task-meta">
         <b id="task-id">—</b>
-        <span id="share-expiry">固定編輯連結</span>
+        <span>固定編輯連結</span>
       </div>
     </div>
     <div class="header-actions">
       <span class="status-pill" id="save-status">載入中</span>
       <button class="secondary" id="save-draft" type="button" disabled>儲存進度</button>
-      <button class="primary" id="finalize-review" type="button" disabled>完成中文定稿</button>
     </div>
   </header>
+
+  <nav class="workflow-steps" aria-label="快速翻譯流程">
+    <button class="workflow-step active" data-go-step="1" type="button">
+      <span>1</span><b>中文逐字稿</b><small>ASR + 輕量校稿</small>
+    </button>
+    <button class="workflow-step" data-go-step="2" type="button">
+      <span>2</span><b>中英對照</b><small>修改 English CC</small>
+    </button>
+    <button class="workflow-step" data-go-step="3" type="button">
+      <span>3</span><b>選擇輸出</b><small>逐字稿 / 音檔</small>
+    </button>
+    <button class="workflow-step" data-go-step="4" type="button">
+      <span>4</span><b>完成</b><small>翻譯 + TTS</small>
+    </button>
+  </nav>
 
   <main class="review-layout">
     <aside class="media-pane">
@@ -43,35 +57,123 @@
       </section>
 
       <section class="card guide-card">
-        <h2>編輯方式</h2>
-        <p>按每段的「▶ 聽這段」會直接跳到 YouTube 對應位置。左側是 ASR 原文，右側文字可直接修改。</p>
-        <p>「儲存進度」只更新這堂課的 GitHub 工作稿；「完成中文定稿」才會寫入正式 Drive Final。</p>
+        <h2 id="guide-title">STEP 1｜中文逐字稿</h2>
+        <p id="guide-text">聽 YouTube 原音，核對 Taiwan Breeze 中文逐字稿與輕量 AI 校稿。按「確認此段」會立即同步 GitHub。</p>
       </section>
     </aside>
 
     <section class="editor-pane">
-      <div class="editor-toolbar card">
-        <div>
-          <h2>逐字稿／AI 校稿</h2>
-          <p id="segment-summary">正在讀取資料…</p>
+      <section class="flow-step-panel active" id="step-zh">
+        <div class="editor-toolbar card">
+          <div>
+            <p class="eyebrow">STEP 1</p>
+            <h2>中文逐字稿／輕量 AI 校稿</h2>
+            <p id="segment-summary">正在讀取資料…</p>
+          </div>
+          <div class="toolbar-stack">
+            <div class="filters" role="group" aria-label="段落篩選">
+              <button class="filter active" data-filter="all" type="button">全部</button>
+              <button class="filter" data-filter="uncertain" type="button">待確認</button>
+              <button class="filter" data-filter="changed" type="button">AI 已修改</button>
+            </div>
+            <button class="primary" id="finalize-zh" type="button" disabled>完成中文定稿 →</button>
+          </div>
         </div>
-        <div class="filters" role="group" aria-label="段落篩選">
-          <button class="filter active" data-filter="all" type="button">全部</button>
-          <button class="filter" data-filter="uncertain" type="button">待確認</button>
-          <button class="filter" data-filter="changed" type="button">AI 已修改</button>
+
+        <div class="bilingual-label card">
+          <span>ASR 原文</span>
+          <span>AI 校稿 / 中文 Final</span>
         </div>
-      </div>
+        <div id="zh-segment-list" class="segment-list">
+          <div class="card empty">正在從 GitHub 固定路徑載入這堂課的逐字稿…</div>
+        </div>
+        <button id="load-more-zh" class="load-more" type="button" hidden>顯示更多</button>
+      </section>
 
-      <div id="segment-list" class="segment-list">
-        <div class="card empty">正在從 GitHub 固定路徑載入這堂課的逐字稿…</div>
-      </div>
+      <section class="flow-step-panel" id="step-en">
+        <div class="editor-toolbar card">
+          <div>
+            <p class="eyebrow">STEP 2</p>
+            <h2>中文 Final ↔ YouTube English CC</h2>
+            <p id="english-summary">等待中文定稿。</p>
+          </div>
+          <button class="primary" id="finalize-en" type="button" disabled>完成英文定稿 →</button>
+        </div>
 
-      <button id="load-more" class="load-more" type="button" hidden>顯示更多</button>
+        <div class="cc-notice card" id="cc-notice">
+          English CC 尚未載入。
+        </div>
+        <div class="bilingual-label card">
+          <span>中文 Final（唯讀）</span>
+          <span>English CC / English Final（可修改）</span>
+        </div>
+        <div id="en-segment-list" class="segment-list">
+          <div class="card empty">完成中文定稿後，這裡會顯示中英對照。</div>
+        </div>
+        <button id="load-more-en" class="load-more" type="button" hidden>顯示更多</button>
+      </section>
+
+      <section class="flow-step-panel" id="step-output">
+        <div class="editor-toolbar card">
+          <div>
+            <p class="eyebrow">STEP 3</p>
+            <h2>選擇要生成的語言</h2>
+            <p>英文已是人工 Final；其他語言會直接從 English Final 翻譯。勾選音檔時會自動包含該語言逐字稿。</p>
+          </div>
+        </div>
+
+        <div class="output-grid" id="output-grid">
+          <article class="card output-row" data-output-lang="en">
+            <div><b>English</b><small>en・人工 Final</small></div>
+            <label><input type="checkbox" data-output-transcript checked disabled> 逐字稿</label>
+            <label><input type="checkbox" data-output-audio> 音檔</label>
+          </article>
+          <article class="card output-row" data-output-lang="th">
+            <div><b>ภาษาไทย</b><small>th</small></div>
+            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
+            <label><input type="checkbox" data-output-audio> 音檔</label>
+          </article>
+          <article class="card output-row" data-output-lang="es">
+            <div><b>Español</b><small>es</small></div>
+            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
+            <label><input type="checkbox" data-output-audio> 音檔</label>
+          </article>
+          <article class="card output-row" data-output-lang="id">
+            <div><b>Bahasa Indonesia</b><small>id</small></div>
+            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
+            <label><input type="checkbox" data-output-audio> 音檔</label>
+          </article>
+          <article class="card output-row" data-output-lang="vi">
+            <div><b>Tiếng Việt</b><small>vi</small></div>
+            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
+            <label><input type="checkbox" data-output-audio> 音檔</label>
+          </article>
+        </div>
+
+        <div class="finish-card card">
+          <div>
+            <b>確認後直接完成後續流程</b>
+            <p id="output-summary">目前只有 English Final。</p>
+          </div>
+          <button class="primary finish-button" id="finish-workflow" type="button" disabled>開始翻譯與音檔 →</button>
+        </div>
+      </section>
+
+      <section class="flow-step-panel" id="step-done">
+        <div class="done-card card">
+          <div class="done-mark">✓</div>
+          <p class="eyebrow">STEP 4</p>
+          <h2>工作已送出</h2>
+          <p id="done-message">系統正在依照你的勾選內容產生翻譯與音檔。</p>
+          <div class="done-detail" id="done-detail"></div>
+          <button class="secondary" id="back-to-output" type="button">查看輸出選擇</button>
+        </div>
+      </section>
     </section>
   </main>
 
   <iframe name="soulkey-share-target" id="soulkey-share-target" hidden></iframe>
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./review-editor.js?v=20260923-4"></script>
+  <script src="./review-editor.js?v=20260923-5"></script>
 </body>
 </html>
