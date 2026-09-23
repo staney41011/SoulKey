@@ -3,6 +3,7 @@ import json
 import re
 import shutil
 import subprocess
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -519,6 +520,245 @@ def _download_english_cc_explicit_ytdlp(video_url: str, workdir: Path):
     return None
 
 
+def _fetch_bytes(url: str, headers=None, timeout=30):
+    request = urllib.request.Request(
+        url,
+        headers=headers or {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/153.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def _json_after_marker(text: str, marker: str):
+    index = text.find(marker)
+    if index < 0:
+        return None
+    start = index + len(marker)
+    while start < len(text) and text[start] in " \t\r\n:=":
+        start += 1
+    try:
+        value, _ = json.JSONDecoder().raw_decode(text[start:])
+        return value
+    except Exception:
+        return None
+
+
+def _caption_tracks_from_watch_page(video_id: str):
+    if not video_id:
+        return []
+
+    watch_url = (
+        "https://www.youtube.com/watch?"
+        + urllib.parse.urlencode({"v": video_id, "hl": "en"})
+    )
+    try:
+        raw = _fetch_bytes(
+            watch_url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/153.0.0.0 Safari/537.36"
+                ),
+                "Accept": (
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                    "image/avif,image/webp,*/*;q=0.8"
+                ),
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache",
+            },
+            timeout=30,
+        )
+        html = raw.decode("utf-8", errors="replace")
+    except Exception as exc:
+        print(
+            f"[YouTube CC] watch page 讀取失敗："
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        return []
+
+    player = None
+    for marker in (
+        "ytInitialPlayerResponse =",
+        "var ytInitialPlayerResponse =",
+        'window["ytInitialPlayerResponse"] =',
+        '"ytInitialPlayerResponse":',
+    ):
+        player = _json_after_marker(html, marker)
+        if isinstance(player, dict):
+            break
+
+    tracks = []
+    if isinstance(player, dict):
+        tracks = (
+            player.get("captions", {})
+            .get("playerCaptionsTracklistRenderer", {})
+            .get("captionTracks", [])
+        ) or []
+
+    if not tracks:
+        marker = '"captionTracks":'
+        index = html.find(marker)
+        if index >= 0:
+            start = index + len(marker)
+            while start < len(html) and html[start] in " \t\r\n":
+                start += 1
+            try:
+                decoded, _ = json.JSONDecoder().raw_decode(html[start:])
+                if isinstance(decoded, list):
+                    tracks = decoded
+            except Exception:
+                pass
+
+    print(
+        f"[YouTube CC] watch page captionTracks：{len(tracks)} 軌",
+        flush=True,
+    )
+    return tracks
+
+
+def _download_english_cc_from_watch_page(video_id: str, workdir: Path):
+    tracks = _caption_tracks_from_watch_page(video_id)
+    if not tracks:
+        return None
+
+    ranked = []
+    for track in tracks:
+        if not isinstance(track, dict):
+            continue
+        language = str(track.get("languageCode") or "").lower()
+        vss_id = str(track.get("vssId") or "").lower()
+        kind = str(track.get("kind") or "").lower()
+        base_url = str(track.get("baseUrl") or "").strip()
+        if not base_url:
+            continue
+        if language == "en":
+            rank = 0
+        elif language in {"en-us", "en_us"}:
+            rank = 1
+        elif language.startswith("en-") or language.startswith("en_"):
+            rank = 2
+        elif vss_id in {".en", "a.en"} or vss_id.endswith(".en"):
+            rank = 3
+        else:
+            continue
+        if kind == "asr" or vss_id.startswith("a."):
+            rank -= 0.25
+        ranked.append((rank, track))
+
+    if not ranked:
+        print(
+            "[YouTube CC] watch page 有字幕軌，但沒有 English 軌。",
+            flush=True,
+        )
+        return None
+
+    ranked.sort(key=lambda x: x[0])
+    for _, track in ranked:
+        base_url = str(track.get("baseUrl") or "").strip()
+        language = str(track.get("languageCode") or "en")
+        try:
+            parts = urllib.parse.urlsplit(base_url)
+            query = dict(urllib.parse.parse_qsl(parts.query, keep_blank_values=True))
+            query["fmt"] = "json3"
+            json3_url = urllib.parse.urlunsplit(
+                (
+                    parts.scheme,
+                    parts.netloc,
+                    parts.path,
+                    urllib.parse.urlencode(query),
+                    parts.fragment,
+                )
+            )
+            raw = _fetch_bytes(json3_url, timeout=30)
+            segments = _segments_from_json3_bytes(raw)
+            if not segments:
+                continue
+            out = _write_english_cc_json(
+                workdir,
+                segments,
+                video_id,
+                language,
+                "youtube_auto_generated_watch_page",
+            )
+            print(
+                f"[YouTube CC] watch page captionTracks 成功："
+                f"{language} / {len(segments)} cues",
+                flush=True,
+            )
+            return out
+        except Exception as exc:
+            print(
+                f"[YouTube CC] watch page English 軌下載失敗："
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+    return None
+
+
+def _download_english_cc_direct_timedtext(video_id: str, workdir: Path):
+    if not video_id:
+        return None
+
+    variants = [
+        {"v": video_id, "lang": "en", "fmt": "json3", "kind": "asr"},
+        {
+            "v": video_id,
+            "lang": "en",
+            "fmt": "json3",
+            "kind": "asr",
+            "caps": "asr",
+            "xorb": "2",
+            "xorp": "true",
+        },
+        {"v": video_id, "lang": "en-US", "fmt": "json3", "kind": "asr"},
+        {"v": video_id, "lang": "en", "fmt": "json3"},
+    ]
+
+    for params in variants:
+        url = (
+            "https://www.youtube.com/api/timedtext?"
+            + urllib.parse.urlencode(params)
+        )
+        try:
+            raw = _fetch_bytes(url, timeout=20)
+            if not raw or len(raw) < 8:
+                continue
+            segments = _segments_from_json3_bytes(raw)
+            if not segments:
+                continue
+            out = _write_english_cc_json(
+                workdir,
+                segments,
+                video_id,
+                str(params.get("lang") or "en"),
+                "youtube_auto_generated_direct_timedtext",
+            )
+            print(
+                f"[YouTube CC] direct timedtext 成功："
+                f"{len(segments)} cues",
+                flush=True,
+            )
+            return out
+        except Exception as exc:
+            print(
+                f"[YouTube CC] direct timedtext variant 失敗："
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+    return None
+
+
 def _download_english_cc_via_transcript_api(video_id: str, workdir: Path):
     if not video_id:
         return None
@@ -599,12 +839,20 @@ def _download_english_auto_cc(info: dict, workdir: Path, video_url: str = ""):
         explicit = _download_english_cc_explicit_ytdlp(video_url, workdir)
         if explicit:
             return explicit
-        print("[YouTube CC] explicit yt-dlp 失敗；再試 Transcript API。")
-        explicit = _download_english_cc_explicit_ytdlp(video_url, workdir)
-        if explicit:
-            return explicit
+
+        video_id = str(info.get("id") or "") or _video_id_from_url(video_url)
+        print("[YouTube CC] explicit yt-dlp 失敗；改讀播放器 captionTracks。")
+        browser_cc = _download_english_cc_from_watch_page(video_id, workdir)
+        if browser_cc:
+            return browser_cc
+
+        timedtext = _download_english_cc_direct_timedtext(video_id, workdir)
+        if timedtext:
+            return timedtext
+
+        print("[YouTube CC] 播放器／timedtext 仍失敗；最後試 Transcript API。")
         return _download_english_cc_via_transcript_api(
-            str(info.get("id") or ""),
+            video_id,
             workdir,
         )
 
@@ -628,8 +876,15 @@ def _download_english_auto_cc(info: dict, workdir: Path, video_url: str = ""):
             "改試 Transcript API。",
             flush=True,
         )
+        video_id = str(info.get("id") or "") or _video_id_from_url(video_url)
+        browser_cc = _download_english_cc_from_watch_page(video_id, workdir)
+        if browser_cc:
+            return browser_cc
+        timedtext = _download_english_cc_direct_timedtext(video_id, workdir)
+        if timedtext:
+            return timedtext
         return _download_english_cc_via_transcript_api(
-            str(info.get("id") or ""),
+            video_id,
             workdir,
         )
 
@@ -659,8 +914,15 @@ def _download_english_auto_cc(info: dict, workdir: Path, video_url: str = ""):
         explicit = _download_english_cc_explicit_ytdlp(video_url, workdir)
         if explicit:
             return explicit
+        video_id = str(info.get("id") or "") or _video_id_from_url(video_url)
+        browser_cc = _download_english_cc_from_watch_page(video_id, workdir)
+        if browser_cc:
+            return browser_cc
+        timedtext = _download_english_cc_direct_timedtext(video_id, workdir)
+        if timedtext:
+            return timedtext
         return _download_english_cc_via_transcript_api(
-            str(info.get("id") or ""),
+            video_id,
             workdir,
         )
 
@@ -732,7 +994,19 @@ def download_english_cc(url: str, workdir: Path):
     video_id = _video_id_from_url(url)
     if video_id:
         print(
-            "[YouTube CC] 改以 video id 直接嘗試 Transcript API。",
+            "[YouTube CC] 改以播放器頁面直接找 captionTracks。",
+            flush=True,
+        )
+        result = _download_english_cc_from_watch_page(video_id, workdir)
+        if result:
+            return result
+
+        result = _download_english_cc_direct_timedtext(video_id, workdir)
+        if result:
+            return result
+
+        print(
+            "[YouTube CC] 播放器路徑仍失敗；最後嘗試 Transcript API。",
             flush=True,
         )
         result = _download_english_cc_via_transcript_api(
