@@ -46,6 +46,6 @@ jobs:
           grep -q 'zh-TW.final.json' translation-system/translate_runner.py
           grep -q 'WORKFLOW_VERSION = 7' studio/app-20260923-43.js
           grep -q 'youtube_auto_generated_explicit_ytdlp' translation-system/youtube_io.py
-          grep -q 'stage:"cc"' studio/app-20260923-43.js
-          grep -q '"cc"' translation-system/web_job_worker.py
+          grep -q 'lang:"cc-refresh"' studio/app-20260923-43.js
+          grep -q 'args.lang == "cc-refresh"' translation-system/web_job_worker.py
           ! grep -q 'key:"en", label:"英文翻譯"' studio/app-20260923-43.js
