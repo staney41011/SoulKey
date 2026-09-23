@@ -154,6 +154,7 @@ def main():
         return 0
 
     processed = 0
+    failed = 0
     for task in tasks:
         if processed >= args.max_tasks:
             break
@@ -284,6 +285,7 @@ def main():
             processed += 1
 
         except Exception as exc:
+            failed += 1
             message = f"{type(exc).__name__}: {exc}"
             print(f"[ERROR] {message}", file=sys.stderr)
             traceback.print_exc()
@@ -298,6 +300,9 @@ def main():
             processed += 1
 
     print("")
+    if failed:
+        print(f"AI 中文校稿完成，但有 {failed} 個任務失敗。", file=sys.stderr)
+        return 1
     print("AI 中文校稿本次處理完成。")
     return 0
 
