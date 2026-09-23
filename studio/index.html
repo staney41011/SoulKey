@@ -356,7 +356,7 @@
             <p class="eyebrow">EN REVIEW</p>
             <h3>人工英文定稿</h3>
             <div class="review-task-context" id="en-review-task-context">尚未選擇課程任務</div>
-            <p class="muted">逐段對照中文原文、人工定稿白話文與英文翻譯。人工確認後，專有名詞的英文譯法會同步學習進詞庫。</p>
+            <p class="muted">逐段對照中文 Final 與英文翻譯。人工確認後，專有名詞的英文譯法會同步學習進詞庫。</p>
           </div>
           <div class="toolbar-actions">
             <button class="primary" id="finalize-en">英文定稿</button>
@@ -367,13 +367,12 @@
           <div class="panel-head">
             <div>
               <p class="eyebrow">BILINGUAL REVIEW</p>
-              <h3>原文／白話文／英文段落對照</h3>
+              <h3>中文 Final／英文段落對照</h3>
             </div>
-            <label class="inline-toggle"><input id="toggle-en-vernacular" type="checkbox" checked> 顯示白話文</label>
+            <span class="muted">白話文步驟暫時跳過</span>
           </div>
-          <div class="trilingual-head" id="en-review-head">
-            <span>中文原文</span>
-            <span class="vernacular-column">白話文 Final</span>
+          <div class="trilingual-head hide-vernacular" id="en-review-head">
+            <span>中文 Final</span>
             <span>English Draft / Final</span>
           </div>
           <div id="en-review-list" class="en-review-list">
@@ -525,6 +524,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-41.js"></script>
+  <script src="./app-20260923-42.js"></script>
 </body>
 </html>
