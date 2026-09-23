@@ -332,7 +332,6 @@ def extract_metadata(url: str, workdir: Path):
         "webpage_url": info.get("webpage_url") or url,
         "lecturer": lecturer,
         "lecturer_source": lecturer_source,
-        "english_cc_path": str(english_cc_path) if english_cc_path else "",
     }
 
 
@@ -525,6 +524,7 @@ def download_audio(url: str, workdir: Path):
         "webpage_url": info.get("webpage_url") or url,
         "lecturer": lecturer,
         "lecturer_source": lecturer_source,
+        "english_cc_path": str(english_cc_path) if english_cc_path else "",
     }
 
 
