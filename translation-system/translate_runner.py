@@ -85,9 +85,11 @@ def update_note(sheets, row, note):
 
 def update_lang_status(sheets, row, lang, status, note=""):
     updates = {
-        f"任務佇列!{LANG_COLUMN[lang]}{row}": status,
         f"任務佇列!S{row}": now_text(),
     }
+    legacy_col = LANG_COLUMN.get(lang)
+    if legacy_col:
+        updates[f"任務佇列!{legacy_col}{row}"] = status
     if note:
         updates[f"任務佇列!T{row}"] = note[:450]
     update_cells(sheets, SPREADSHEET_ID, updates)
@@ -192,9 +194,19 @@ def process_translation(
     lang,
     force=False,
 ):
-    if not force and task.get(lang) == "完成":
-        print(f"[TRANSLATE:{lang}] 已完成，略過。")
-        return None
+    if not force:
+        if lang in LANG_COLUMN and task.get(lang) == "完成":
+            print(f"[TRANSLATE:{lang}] 已完成，略過。")
+            return None
+        if lang not in LANG_COLUMN:
+            existing = find_file(
+                drive,
+                folders["translation"],
+                f"{lang}.json",
+            )
+            if existing:
+                print(f"[TRANSLATE:{lang}] Drive 已有 {lang}.json，略過。")
+                return None
 
     update_lang_status(
         sheets,
@@ -441,7 +453,7 @@ def main():
                         "請先執行 --stage modernize。"
                     )
 
-                for lang in ["en", "th", "es", "id", "vi"]:
+                for lang in ["en", "th", "es", "id", "vi", "sd", "ta"]:
                     if lang != "en":
                         en_file = find_file(
                             drive,
