@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       stage:
-        description: zh/vernacular/en/multi/tts/finish
+        description: zh/cc/en/multi/tts/finish
         required: true
         type: string
       lang:
