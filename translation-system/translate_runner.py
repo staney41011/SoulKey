@@ -207,21 +207,18 @@ def process_translation(
     if lang == "en":
         final_item = find_file(
             drive,
-            folders["translation"],
-            "zh-TW.vernacular.final.json",
+            folders["transcript"],
+            "zh-TW.final.json",
         )
-        if final_item:
-            source_path = workdir / "zh-TW.vernacular.final.json"
-            download_drive_file(drive, final_item["id"], source_path)
-        else:
-            source_path = download_translation_json(
-                drive,
-                folders["translation"],
-                "zh-TW.vernacular",
-                workdir,
+        if not final_item:
+            raise RuntimeError(
+                "找不到 zh-TW.final.json；請先完成中文人工定稿。"
             )
+
+        source_path = workdir / "zh-TW.final.json"
+        download_drive_file(drive, final_item["id"], source_path)
         source_segments = load_segments_json(source_path)
-        source_language = "Traditional Chinese vernacular"
+        source_language = "Traditional Chinese Final"
     else:
         final_item = find_file(
             drive,
@@ -255,7 +252,7 @@ def process_translation(
     note = (
         f"{LANGUAGE_NAMES[lang]} 完成；"
         f"翻譯待確認={result['review_required_count']}；"
-        f"來源={'白話中文' if lang == 'en' else 'English'}"
+        f"來源={'中文 Final' if lang == 'en' else 'English Final'}"
     )
     update_lang_status(
         sheets,
