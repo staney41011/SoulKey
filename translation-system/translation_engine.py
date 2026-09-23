@@ -11,6 +11,8 @@ LANGUAGE_NAMES = {
     "es": "Spanish",
     "id": "Indonesian",
     "vi": "Vietnamese",
+    "sd": "Sindhi",
+    "ta": "Tamil",
 }
 
 GLOSSARY_TARGET_COLUMN = {
