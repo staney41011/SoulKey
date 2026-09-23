@@ -260,10 +260,19 @@ def process_translation(
     )
     upload_result_set(drive, folders["translation"], result)
 
-    status = "待人工確認" if result["review_required_count"] else "完成"
+    # English Final 仍由獨立的人工作業完成；
+    # English Final 之後的目標語言不再設人工確認關卡。
+    # review_required_count 僅保留在輸出報告供日後抽查，不阻擋流程。
+    if lang == "en":
+        status = "完成"
+        review_note = f"AI標記疑義={result['review_required_count']}；待英文人工定稿"
+    else:
+        status = "完成"
+        review_note = f"AI標記疑義={result['review_required_count']}（不阻擋流程）"
+
     note = (
         f"{LANGUAGE_NAMES[lang]} 完成；"
-        f"翻譯待確認={result['review_required_count']}；"
+        f"{review_note}；"
         f"來源={'中文 Final' if lang == 'en' else 'English Final'}"
     )
     update_lang_status(
