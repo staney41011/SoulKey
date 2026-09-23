@@ -248,6 +248,22 @@ function updateBackButton(){
   button.hidden=currentView==="dashboard";
 }
 
+function latestPeriodForNewTask(){
+  const periods=availablePeriods();
+  if(periods.length) return periods[0];
+
+  const fallback=Number(selectedPeriod)||Number(document.getElementById("period")?.value)||1;
+  return fallback>0 ? fallback : 1;
+}
+
+function applyLatestPeriodToNewTask(){
+  const input=document.getElementById("period");
+  if(!input) return;
+  const latest=latestPeriodForNewTask();
+  input.value=String(latest);
+  updateTaskCodes();
+}
+
 function showView(name, options={}){
   const {fromBack=false, replace=false}=options;
   if(!document.getElementById("view-"+name)) return;
@@ -264,6 +280,11 @@ function showView(name, options={}){
   document.getElementById("view-title").textContent=titles[name]||"SoulKey Studio";
   currentView=name;
   updateBackButton();
+
+  if(name==="new-task"){
+    applyLatestPeriodToNewTask();
+  }
+
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
