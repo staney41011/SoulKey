@@ -1159,7 +1159,7 @@ function renderTaskDetail(task){
   }else if(isEnglishReview){
     document.getElementById("detail-current-body").innerHTML=
       '<div class="stage-message review-ready">'+
-        '<div><b>現在要進行English CC 定稿</b><span>逐段查看中文 Final 與英文翻譯，修正後同步學習專有名詞的正式英文譯法。</span></div>'+
+        '<div><b>現在要進行English CC 定稿</b><span>逐段查看中文 Final 與 YouTube English CC，修正後同步學習專有名詞的正式英文譯法。</span></div>'+
         '<button class="primary" data-open-en-review-inline="'+escapeHtml(task.id)+'">進入English CC 定稿</button>'+
       '</div>';
   }else{
@@ -2002,6 +2002,64 @@ function englishReviewItemsFromGithub(payload){
   });
 }
 
+async function waitForEnglishCcRefresh(taskId,button,statusEl){
+  const maxAttempts=36;
+  for(let attempt=1;attempt<=maxAttempts;attempt++){
+    if(statusEl){
+      statusEl.textContent="補抓進行中… "+attempt+"/"+maxAttempts;
+    }
+    await new Promise(resolve=>setTimeout(resolve,5000));
+
+    try{
+      const response=await fetch(githubReviewUrl(taskId),{
+        method:"GET",
+        cache:"no-store",
+        headers:{"Accept":"application/json"}
+      });
+      if(!response.ok) continue;
+      const refreshed=await response.json();
+      const available=(refreshed.segments||[]).filter(
+        x=>String(x.source_en||x.en_text||"").trim()
+      ).length;
+      if(available>0){
+        if(statusEl) statusEl.textContent="English CC 補抓完成，正在載入…";
+        await openEnglishReview(taskId);
+        return;
+      }
+    }catch(_){}
+  }
+
+  if(statusEl){
+    statusEl.textContent="補抓尚未成功。可再試一次，或檢查 YouTube 是否確實有 English (auto-generated)。";
+  }
+  if(button){
+    button.disabled=false;
+    button.textContent="重新補抓 English CC";
+  }
+}
+
+function dispatchEnglishCcRefresh(taskId,button,statusEl){
+  const sent=submitBridgePost({
+    action:"run_stage",
+    task_id:taskId,
+    stage:"cc",
+    lang:"",
+    langs:""
+  });
+
+  if(!sent){
+    if(statusEl) statusEl.textContent="尚未連線 Apps Script 或缺少 Bridge Key。";
+    return;
+  }
+
+  if(button){
+    button.disabled=true;
+    button.textContent="已送出補抓工作";
+  }
+  if(statusEl) statusEl.textContent="已送出，只補抓 English CC，不重跑中文。";
+  waitForEnglishCcRefresh(taskId,button,statusEl);
+}
+
 async function openEnglishReview(taskId){
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
@@ -2037,9 +2095,18 @@ async function openEnglishReview(taskId){
 
     if(!available){
       document.getElementById("en-review-list").innerHTML=
-        '<div class="empty">這堂課沒有抓到可用的 YouTube English CC。'+
-        '<br><br>快速流程不會自動多跑英文翻譯；請先確認該影片是否有 English auto-generated CC。</div>';
+        '<div class="empty">'+
+          '<b>這堂課目前還沒有抓到 YouTube English CC。</b>'+
+          '<br><br>不需要重跑中文 ASR，直接補抓字幕即可。'+
+          '<br><br><button class="primary" id="refresh-en-cc">補抓 English CC</button>'+
+          '<div class="muted" id="refresh-en-cc-status" style="margin-top:12px"></div>'+
+        '</div>';
       currentEnglishReview=[];
+      const refreshBtn=document.getElementById("refresh-en-cc");
+      const refreshStatus=document.getElementById("refresh-en-cc-status");
+      refreshBtn?.addEventListener("click",()=>{
+        dispatchEnglishCcRefresh(taskId,refreshBtn,refreshStatus);
+      });
       return;
     }
 
