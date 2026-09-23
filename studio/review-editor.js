@@ -18,6 +18,11 @@ let player=null;
 let playerReady=false;
 let pendingSeek=null;
 let finalized=false;
+let revision=0;
+let lastSavedRevision=0;
+let saveInFlight=false;
+let saveQueued=false;
+let saveRevisionInFlight=0;
 
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??"")
@@ -68,8 +73,9 @@ function render(){
   const filtered=filteredSegments();
   const shown=filtered.slice(0,visibleCount);
 
+  const confirmedCount=segments.filter(x=>x.confirmed===true).length;
   $("segment-summary").textContent=
-    "共 "+segments.length+" 段・待確認 "+
+    "已確認 "+confirmedCount+" / "+segments.length+" 段・待人工確認 "+
     segments.filter(x=>(x.flags||[]).includes("uncertain")).length+
     " 段";
 
@@ -77,7 +83,7 @@ function render(){
     list.innerHTML='<div class="card empty">沒有符合目前篩選條件的段落。</div>';
   }else{
     list.innerHTML=shown.map((s,i)=>`
-      <article class="card segment-card ${(s.flags||[]).join(" ")}" data-id="${esc(s.id??i)}" data-start="${esc(s.start)}">
+      <article class="card segment-card ${(s.flags||[]).join(" ")} ${s.confirmed===true?"confirmed":""}" data-id="${esc(s.id??i)}" data-start="${esc(s.start)}">
         <div class="segment-meta">
           <b>#${esc((s.id??i)+1)}</b>
           <span>${esc(s.time||clock(s.start))}</span>
@@ -89,7 +95,7 @@ function render(){
         </div>
         <div class="segment-actions">
           <button class="play-segment" type="button">▶ 聽這段</button>
-          <button class="confirm-segment" type="button">確認此段</button>
+          <button class="confirm-segment ${s.confirmed===true?"confirmed":""}" type="button">${s.confirmed===true?"✓ 已確認":"確認此段"}</button>
         </div>
       </article>
     `).join("");
@@ -104,6 +110,15 @@ function render(){
   bindRows();
 }
 
+function persistLocalDraft(){
+  localStorage.setItem("soulkey_shared_draft:"+taskId,JSON.stringify({
+    task_id:taskId,
+    saved_at:Date.now(),
+    revision,
+    segments
+  }));
+}
+
 function bindRows(){
   document.querySelectorAll(".segment-card").forEach(card=>{
     const id=Number(card.dataset.id);
@@ -111,13 +126,10 @@ function bindRows(){
     textarea?.addEventListener("input",()=>{
       const item=segments.find(x=>Number(x.id)===id);
       if(item) item.text=textarea.value;
+      revision++;
       dirty=true;
       setStatus("尚未儲存","working");
-      localStorage.setItem("soulkey_shared_draft:"+taskId,JSON.stringify({
-        task_id:taskId,
-        saved_at:Date.now(),
-        segments
-      }));
+      persistLocalDraft();
     });
 
     card.querySelector(".play-segment")?.addEventListener("click",()=>{
@@ -127,8 +139,26 @@ function bindRows(){
     });
 
     card.querySelector(".confirm-segment")?.addEventListener("click",event=>{
-      event.currentTarget.classList.add("confirmed");
-      event.currentTarget.textContent="已確認";
+      const item=segments.find(x=>Number(x.id)===id);
+      if(!item) return;
+
+      item.confirmed=item.confirmed!==true;
+      revision++;
+      dirty=true;
+      persistLocalDraft();
+
+      card.classList.toggle("confirmed",item.confirmed===true);
+      event.currentTarget.classList.toggle("confirmed",item.confirmed===true);
+      event.currentTarget.textContent=item.confirmed===true?"✓ 已確認":"確認此段";
+
+      const confirmedCount=segments.filter(x=>x.confirmed===true).length;
+      $("segment-summary").textContent=
+        "已確認 "+confirmedCount+" / "+segments.length+" 段・待人工確認 "+
+        segments.filter(x=>(x.flags||[]).includes("uncertain")).length+
+        " 段";
+
+      setStatus(item.confirmed===true?"同步確認狀態到 GitHub…":"同步取消確認到 GitHub…","working");
+      requestDraftSave("confirm");
     });
   });
 }
@@ -193,7 +223,7 @@ function seekTo(seconds,autoplay=true){
 
 function currentPayload(){
   return {
-    version:3,
+    version:4,
     task_id:taskId,
     total_segments:segments.length,
     segments:segments.map(x=>({
@@ -203,7 +233,8 @@ function currentPayload(){
       time:String(x.time||clock(x.start)),
       raw:String(x.raw||""),
       text:String(x.text||""),
-      flags:Array.isArray(x.flags)?x.flags:[]
+      flags:Array.isArray(x.flags)?x.flags:[],
+      confirmed:x.confirmed===true
     }))
   };
 }
@@ -231,15 +262,31 @@ function submit(fields){
   return true;
 }
 
-function saveDraft(){
+function requestDraftSave(reason="manual"){
   if(finalized) return;
-  setStatus("儲存進度中…","working");
+
+  if(saveInFlight){
+    saveQueued=true;
+    setStatus("已有同步進行中・下一次變更已排隊","working");
+    return;
+  }
+
+  saveInFlight=true;
+  saveQueued=false;
+  saveRevisionInFlight=revision;
+  setStatus(reason==="confirm"?"同步確認狀態到 GitHub…":"儲存進度到 GitHub…","working");
   $("save-draft").disabled=true;
-  submit({
+
+  const sent=submit({
     action:"review_share_draft_save",
     task_id:taskId,
     payload_json:JSON.stringify(currentPayload())
   });
+
+  if(!sent){
+    saveInFlight=false;
+    $("save-draft").disabled=false;
+  }
 }
 
 function finalize(){
@@ -266,12 +313,29 @@ window.addEventListener("message",event=>{
   if(data.source!=="soulkey-bridge") return;
 
   if(data.type==="review_share_draft_saved"){
+    saveInFlight=false;
     $("save-draft").disabled=false;
+
     if(data.ok){
-      dirty=false;
-      setStatus("進度已儲存","ok");
+      lastSavedRevision=Math.max(lastSavedRevision,saveRevisionInFlight);
+      dirty=revision>lastSavedRevision;
+
+      if(!dirty){
+        localStorage.removeItem("soulkey_shared_draft:"+taskId);
+      }
+
+      setStatus(
+        saveQueued ? "前一批已同步・繼續同步最新變更…" : "已同步到 GitHub",
+        saveQueued ? "working" : "ok"
+      );
+
+      if(saveQueued){
+        saveQueued=false;
+        window.setTimeout(()=>requestDraftSave("queued"),0);
+      }
     }else{
-      setStatus(data.message||data.error||"儲存失敗","error");
+      dirty=true;
+      setStatus(data.message||data.error||"GitHub 同步失敗","error");
     }
   }
 
@@ -314,8 +378,14 @@ async function loadReview(){
           const localById=new Map(local.segments.map(x=>[Number(x.id),x]));
           segments=segments.map(x=>{
             const draft=localById.get(Number(x.id));
-            return draft?{...x,text:String(draft.text??x.text)}:x;
+            return draft?{
+              ...x,
+              text:String(draft.text??x.text),
+              confirmed:draft.confirmed===true
+            }:x;
           });
+          revision=Number(local.revision||1);
+          lastSavedRevision=0;
           dirty=true;
           setStatus("已恢復此裝置未送出的修改","working");
         }
@@ -344,7 +414,7 @@ $("load-more").addEventListener("click",()=>{
   visibleCount+=RENDER_BATCH;
   render();
 });
-$("save-draft").addEventListener("click",saveDraft);
+$("save-draft").addEventListener("click",()=>requestDraftSave("manual"));
 $("finalize-review").addEventListener("click",finalize);
 $("back-5").addEventListener("click",()=>{
   if(playerReady&&player) seekTo(Math.max(0,Number(player.getCurrentTime()||0)-5),true);
