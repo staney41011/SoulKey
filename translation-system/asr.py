@@ -149,8 +149,18 @@ def _clean_asr_text(text: str):
 
 def _join_word_text(parts):
     text = "".join(parts).strip()
-    # faster-whisper 的中文 word token 偶爾帶前置空白。
-    text = re.sub(r"\s+", "", text)
+    # 中文 token 之間不保留多餘空白，但英文詞組仍保留自然空格。
+    text = re.sub(
+        r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"\s+([，。？；：、])",
+        r"\1",
+        text,
+    )
+    text = re.sub(r"\s+", " ", text)
     return _clean_asr_text(text)
 
 
@@ -202,6 +212,11 @@ def _regroup_words(word_items):
             if (
                 gap >= strong_pause
                 or (gap >= medium_pause and chars >= min_chars_for_medium)
+                or (
+                    chars >= 10
+                    and current_text().endswith(("。", "？"))
+                    and gap >= 0.18
+                )
                 or (chars >= target_chars and gap >= 0.28)
                 or chars >= hard_chars
                 or duration >= hard_seconds
@@ -272,10 +287,10 @@ def transcribe_audio(
             })
 
         for word in (getattr(seg, "words", None) or []):
-            word_text = str(getattr(word, "word", "") or "").strip()
+            word_text = str(getattr(word, "word", "") or "")
             word_start = getattr(word, "start", None)
             word_end = getattr(word, "end", None)
-            if not word_text or word_start is None or word_end is None:
+            if not word_text.strip() or word_start is None or word_end is None:
                 continue
             word_items.append({
                 "start": float(word_start),
