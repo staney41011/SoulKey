@@ -112,7 +112,6 @@ jobs:
           stage = os.environ["JOB_STAGE"].strip()
           lang = os.environ["JOB_LANG"].strip()
           gpu_stages = {"zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish"}
-          cc_refresh = stage == "en" and lang == "cc-refresh"
 
           # Rebind every run to the dedicated GPU-only kernel. Do not preserve
           # id_no from an older CPU worker because Kaggle prefers id_no over id.
@@ -124,7 +123,7 @@ jobs:
           meta["language"] = "python"
           meta["is_private"] = True
           meta["enable_internet"] = True
-          meta["enable_gpu"] = stage in gpu_stages and not cc_refresh
+          meta["enable_gpu"] = stage in gpu_stages
           meta["enable_tpu"] = False
           if meta["enable_gpu"]:
               meta["machine_shape"] = "NvidiaTeslaT4"
@@ -189,7 +188,11 @@ jobs:
           (d / code_file).write_text(bootstrap, encoding="utf-8")
 
           print("Formal job prepared:", job["task_id"], job["stage"])
-          print("GPU forced:", meta["enable_gpu"], meta["machine_shape"])
+          print(
+              "GPU forced:",
+              meta["enable_gpu"],
+              meta.get("machine_shape", "none"),
+          )
           PY
 
           cat "$DIR/kernel-metadata.json"
@@ -208,7 +211,7 @@ jobs:
           FINAL_STATUS="UNKNOWN"
           MAX_ATTEMPTS=1
 
-          if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts|finish)$ ]] && [[ "$LANG" != "cc-refresh" ]]; then
+          if [[ "$STAGE" =~ ^(zh|metadata|asr|polish|vernacular|en|multi|tts|finish)$ ]]; then
             MAX_ATTEMPTS=3
           fi
 
