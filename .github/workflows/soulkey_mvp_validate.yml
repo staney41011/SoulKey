@@ -8,7 +8,7 @@ on:
       - "studio/review.html"
       - "studio/review-editor.js"
       - "studio/review-editor.css"
-      - "studio/app-20260923-42.js"
+      - "studio/app-20260923-43.js"
       - "bridge/apps-script/Code.gs"
       - ".github/workflows/kaggle_web_job.yml"
       - ".github/workflows/soulkey_mvp_validate.yml"
@@ -30,7 +30,7 @@ jobs:
       - name: JavaScript syntax
         run: |
           node --check studio/review-editor.js
-          node --check studio/app-20260923-42.js
+          node --check studio/app-20260923-43.js
           cp bridge/apps-script/Code.gs /tmp/Code.js
           node --check /tmp/Code.js
 
@@ -44,4 +44,6 @@ jobs:
           grep -q 'review_share_finalize_en' bridge/apps-script/Code.gs
           grep -q '"finish"' bridge/apps-script/Code.gs
           grep -q 'zh-TW.final.json' translation-system/translate_runner.py
-          grep -q 'WORKFLOW_VERSION = 6' studio/app-20260923-42.js
+          grep -q 'WORKFLOW_VERSION = 7' studio/app-20260923-43.js
+          grep -q 'youtube_auto_generated_explicit_ytdlp' translation-system/youtube_io.py
+          ! grep -q 'key:"en", label:"英文翻譯"' studio/app-20260923-43.js
