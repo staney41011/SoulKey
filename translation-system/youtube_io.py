@@ -3,6 +3,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -25,6 +26,7 @@ LECTURER_PATTERNS = [
 
 WPC_BROWSER_MARKER = Path("/kaggle/working/wpc_browser_path.txt")
 DENO_MARKER = Path("/kaggle/working/deno_path.txt")
+BGUTIL_SERVER_MARKER = Path("/kaggle/working/bgutil_server_home.txt")
 _WPC_PATCHED = False
 
 
@@ -165,6 +167,28 @@ def _wpc_profile():
         },
         "youtubepot-wpc": {
             "browser_path": [browser],
+        },
+    }
+
+
+def _bgutil_profile(client: str):
+    if not BGUTIL_SERVER_MARKER.exists():
+        return None
+
+    server_home = BGUTIL_SERVER_MARKER.read_text(
+        encoding="utf-8"
+    ).strip()
+    if not server_home or not Path(server_home).exists():
+        return None
+
+    return {
+        "youtube": {
+            "player_client": [client],
+            "fetch_pot": ["always"],
+            "pot_trace": ["true"],
+        },
+        "youtubepot-bgutilscript": {
+            "server_home": [server_home],
         },
     }
 
@@ -429,6 +453,147 @@ def _write_english_cc_json(
         encoding="utf-8",
     )
     return out
+
+
+def _download_english_cc_bgutil_retry(
+    video_url: str,
+    workdir: Path,
+    max_rounds: int = 8,
+):
+    if not video_url:
+        return None
+
+    profile_probe = _bgutil_profile("web")
+    if not profile_probe:
+        print(
+            "[YouTube CC] bgutil subs provider 尚未準備，略過主力重試。",
+            flush=True,
+        )
+        return None
+
+    # 目前 yt-dlp PO Token 文件：web 字幕可能需要 subs token。
+    # mweb / embedded 作為 client fallback；所有嘗試優先不用舊 cookies，
+    # 避免過期帳號 session 反而觸發 LOGIN_REQUIRED。
+    clients = ["web", "web_safari", "mweb", "web_embedded"]
+    waits = [5, 8, 12, 18, 25, 35, 45, 45]
+
+    for round_no in range(1, max_rounds + 1):
+        print(
+            f"[YouTube CC] bgutil PO Token 重試輪次 "
+            f"{round_no}/{max_rounds}",
+            flush=True,
+        )
+
+        for client in clients:
+            for old in workdir.glob("youtube_bgutil_cc*.json3"):
+                try:
+                    old.unlink()
+                except Exception:
+                    pass
+
+            try:
+                options, _ = _base_options(workdir, quiet=False)
+                # Public captions: guest session first. Stale account cookies
+                # are a common source of LOGIN_REQUIRED and token mismatch.
+                options.pop("cookiefile", None)
+                options.update(
+                    {
+                        "skip_download": True,
+                        "writeautomaticsub": True,
+                        "writesubtitles": False,
+                        "subtitleslangs": ["en.*"],
+                        "subtitlesformat": "json3",
+                        "outtmpl": str(
+                            workdir / "youtube_bgutil_cc.%(ext)s"
+                        ),
+                        "extractor_args": _bgutil_profile(client),
+                    }
+                )
+
+                print(
+                    f"[YouTube CC] bgutil client={client} "
+                    f"fetch_pot=always / target=en.*",
+                    flush=True,
+                )
+
+                with YoutubeDL(options) as ydl:
+                    info = ydl.extract_info(video_url, download=True)
+
+                candidates = list(
+                    workdir.glob("youtube_bgutil_cc*.json3")
+                )
+                candidates.sort(key=lambda p: p.name)
+
+                for candidate in candidates:
+                    try:
+                        segments = _segments_from_json3_bytes(
+                            candidate.read_bytes()
+                        )
+                    except Exception as exc:
+                        print(
+                            f"[YouTube CC] bgutil 解析 "
+                            f"{candidate.name} 失敗："
+                            f"{type(exc).__name__}: {exc}",
+                            flush=True,
+                        )
+                        continue
+
+                    if not segments:
+                        continue
+
+                    language = "en"
+                    name = candidate.name
+                    match = re.search(
+                        r"\.([A-Za-z]{2}(?:-[A-Za-z0-9]+)?)\.json3$",
+                        name,
+                    )
+                    if match:
+                        language = match.group(1)
+
+                    out = _write_english_cc_json(
+                        workdir,
+                        segments,
+                        str((info or {}).get("id") or ""),
+                        language,
+                        "youtube_auto_generated_bgutil_subs_pot",
+                    )
+                    print(
+                        f"[YouTube CC] ✅ bgutil 成功："
+                        f"client={client} / {language} / "
+                        f"{len(segments)} cues",
+                        flush=True,
+                    )
+                    return out
+
+                print(
+                    f"[YouTube CC] bgutil client={client} "
+                    "沒有產生 English json3。",
+                    flush=True,
+                )
+            except Exception as exc:
+                print(
+                    f"[YouTube CC] bgutil client={client} 失敗："
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+
+        if round_no < max_rounds:
+            wait_seconds = waits[
+                min(round_no - 1, len(waits) - 1)
+            ]
+            print(
+                f"[YouTube CC] 本輪全部失敗，"
+                f"{wait_seconds} 秒後再試下一輪。",
+                flush=True,
+            )
+            time.sleep(wait_seconds)
+
+    print(
+        "[YouTube CC] bgutil 多輪重試仍未成功，"
+        "進入 WPC / player / timedtext / Transcript API 備援。",
+        flush=True,
+    )
+    return None
 
 
 def _download_english_cc_explicit_ytdlp(video_url: str, workdir: Path):
@@ -833,7 +998,19 @@ def _download_english_auto_cc(info: dict, workdir: Path, video_url: str = ""):
     if not caption:
         print(
             "[YouTube CC] metadata 沒帶回 English auto-generated；"
-            "改用 explicit yt-dlp 字幕下載。",
+            "先試 bgutil Subs PO Token。",
+            flush=True,
+        )
+        bgutil = _download_english_cc_bgutil_retry(
+            video_url,
+            workdir,
+            max_rounds=3,
+        )
+        if bgutil:
+            return bgutil
+
+        print(
+            "[YouTube CC] bgutil 未成功；改用 explicit yt-dlp。",
             flush=True,
         )
         explicit = _download_english_cc_explicit_ytdlp(video_url, workdir)
@@ -967,6 +1144,16 @@ def _video_id_from_url(url: str):
 def download_english_cc(url: str, workdir: Path):
     """Fetch only English auto-generated CC without downloading audio."""
     workdir.mkdir(parents=True, exist_ok=True)
+
+    # 2026 主路徑：bgutil 自動取得 web Subs PO Token。
+    bgutil = _download_english_cc_bgutil_retry(
+        url,
+        workdir,
+        max_rounds=8,
+    )
+    if bgutil:
+        return bgutil
+
     options, has_cookies = _base_options(workdir, quiet=False)
     options["skip_download"] = True
 
