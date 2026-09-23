@@ -48,4 +48,6 @@ jobs:
           grep -q 'youtube_auto_generated_explicit_ytdlp' translation-system/youtube_io.py
           grep -q 'lang:"cc-refresh"' studio/app-20260923-43.js
           grep -q 'args.lang == "cc-refresh"' translation-system/web_job_worker.py
+          grep -q 'meta\["enable_gpu"\] = stage in gpu_stages' .github/workflows/kaggle_web_job.yml
+          grep -q 'meta.get("machine_shape", "none")' .github/workflows/kaggle_web_job.yml
           ! grep -q 'key:"en", label:"英文翻譯"' studio/app-20260923-43.js
