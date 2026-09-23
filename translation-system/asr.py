@@ -135,6 +135,101 @@ def _plain_time(seconds: float):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def _clean_asr_text(text: str):
+    text = str(text or "").strip()
+    # Whisper 常把一般敘述誤標成驚嘆語氣；ASR 原始稿先做最保守的標點正規化。
+    text = text.replace("!", "。").replace("！", "。")
+    text = text.replace("??", "？").replace("？？", "？")
+    text = text.replace("..", "。").replace("。。", "。")
+    text = re.sub(r"[，,]{2,}", "，", text)
+    text = re.sub(r"[。]{2,}", "。", text)
+    return text.strip()
+
+
+def _join_word_text(parts):
+    text = "".join(parts).strip()
+    # faster-whisper 的中文 word token 偶爾帶前置空白。
+    text = re.sub(r"\s+", "", text)
+    return _clean_asr_text(text)
+
+
+def _regroup_words(word_items):
+    """
+    將 word timestamp 重新組成適合課堂逐字稿的段落。
+    目標：依真實停頓切句，避免 Whisper segment 邊界造成奇怪時間點。
+    """
+    if not word_items:
+        return []
+
+    result = []
+    current = []
+
+    strong_pause = 0.72
+    medium_pause = 0.42
+    min_chars_for_medium = 16
+    target_chars = 28
+    hard_chars = 46
+    hard_seconds = 18.0
+    min_segment_chars = 6
+
+    def current_text():
+        return _join_word_text([x["word"] for x in current])
+
+    def flush():
+        nonlocal current
+        if not current:
+            return
+        text = current_text()
+        if not text:
+            current = []
+            return
+        result.append({
+            "start": round(float(current[0]["start"]), 3),
+            "end": round(float(current[-1]["end"]), 3),
+            "text": text,
+        })
+        current = []
+
+    for index, item in enumerate(word_items):
+        if current:
+            prev = current[-1]
+            gap = max(0.0, float(item["start"]) - float(prev["end"]))
+            chars = len(current_text())
+            duration = float(prev["end"]) - float(current[0]["start"])
+
+            # 長句優先在自然停頓處切；真的太長才強制切。
+            if (
+                gap >= strong_pause
+                or (gap >= medium_pause and chars >= min_chars_for_medium)
+                or (chars >= target_chars and gap >= 0.28)
+                or chars >= hard_chars
+                or duration >= hard_seconds
+            ):
+                flush()
+
+        current.append(item)
+
+    flush()
+
+    # 避免「嗯、好、那」等極短碎段獨立存在；若與相鄰段間隔很短則合併。
+    merged = []
+    for seg in result:
+        if (
+            merged
+            and len(seg["text"]) < min_segment_chars
+            and float(seg["start"]) - float(merged[-1]["end"]) < 0.85
+            and len(merged[-1]["text"]) + len(seg["text"]) <= hard_chars
+        ):
+            merged[-1]["end"] = seg["end"]
+            merged[-1]["text"] = _clean_asr_text(
+                merged[-1]["text"] + seg["text"]
+            )
+        else:
+            merged.append(seg)
+
+    return merged
+
+
 def transcribe_audio(
     audio_path: str,
     output_dir: Path,
@@ -157,33 +252,60 @@ def transcribe_audio(
         task="transcribe",
         beam_size=5,
         vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
+        vad_parameters={"min_silence_duration_ms": 350},
         condition_on_previous_text=True,
         initial_prompt=initial_prompt,
-        word_timestamps=False,
+        word_timestamps=True,
     )
 
-    segments = []
+    model_segments = []
+    word_items = []
+
     for seg in segments_iter:
-        text = (seg.text or "").strip()
-        if not text:
-            continue
-        item = {
-            "start": round(float(seg.start), 3),
-            "end": round(float(seg.end), 3),
-            "text": text,
-        }
-        segments.append(item)
+        text = _clean_asr_text(seg.text or "")
+        if text:
+            model_segments.append({
+                "start": round(float(seg.start), 3),
+                "end": round(float(seg.end), 3),
+                "text": text,
+            })
+
+        for word in (getattr(seg, "words", None) or []):
+            word_text = str(getattr(word, "word", "") or "").strip()
+            word_start = getattr(word, "start", None)
+            word_end = getattr(word, "end", None)
+            if not word_text or word_start is None or word_end is None:
+                continue
+            word_items.append({
+                "start": float(word_start),
+                "end": float(word_end),
+                "word": word_text,
+            })
+
+    if word_items:
+        segments = _regroup_words(word_items)
         print(
-            f"[ASR] {_plain_time(item['start'])} -> "
-            f"{_plain_time(item['end'])} {text}"
+            f"[ASR] 使用 word timestamps 重新斷句："
+            f"{len(word_items)} 詞 → {len(segments)} 段",
+            flush=True,
+        )
+    else:
+        segments = model_segments
+        print(
+            "[ASR] 模型未提供 word timestamps；退回 Whisper 原始 segments。",
+            flush=True,
         )
 
-    # 某些台灣中文 Whisper/CTranslate2 模型偶爾會回傳異常短的 end timestamp
-    # （例如 start=220.48, end=220.80，但下一段 start=251.98）。
-    # 這會讓人工校稿與 YouTube 原片無法正確核對，也會破壞字幕長度。
-    # 若一段短於 2 秒、但下一段距離起點超過 5 秒，視為異常，
-    # 將 end 修正為下一段的 start。其餘時間戳保持模型原值。
+    for item in segments:
+        print(
+            f"[ASR] {_plain_time(item['start'])} -> "
+            f"{_plain_time(item['end'])} {item['text']}"
+        )
+
+    # 若模型沒有 word timestamp 或極少數 timestamp 異常，保留最後一道修復。
+    # word timestamp 正常時幾乎不會進入此分支。
+    # 僅修正 end < start 這種明確無效時間，不再把 end 拉到下一段 start，
+    # 避免把真實停頓誤吃進字幕時間軸。
     repaired = 0
     for i in range(len(segments) - 1):
         current = segments[i]
@@ -191,20 +313,13 @@ def transcribe_audio(
         start = float(current["start"])
         end = float(current["end"])
         next_start = float(nxt["start"])
-        if (
-            next_start > start
-            and (
-                end < start
-                or ((end - start) < 2.0 and (next_start - start) > 5.0)
-            )
-        ):
-            current["end"] = round(next_start, 3)
+        if end < start and next_start > start:
+            current["end"] = round(min(next_start, start + 0.5), 3)
             repaired += 1
 
     if repaired:
         print(
-            f"[ASR] 修正 {repaired} 個異常短 end timestamp，"
-            "使逐字稿時間軸可直接對齊 YouTube。",
+            f"[ASR] 修正 {repaired} 個無效 end timestamp。",
             flush=True,
         )
 
