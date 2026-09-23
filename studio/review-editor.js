@@ -482,7 +482,9 @@ const LANG_NAMES={
   th:"ภาษาไทย",
   es:"Español",
   id:"Bahasa Indonesia",
-  vi:"Tiếng Việt"
+  vi:"Tiếng Việt",
+  sd:"سنڌي",
+  ta:"தமிழ்"
 };
 
 function collectOutputPlan(){
