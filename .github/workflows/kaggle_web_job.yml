@@ -172,7 +172,7 @@ jobs:
               "--task-id", job["task_id"],
               "--stage", job["stage"],
               "--bridge-url", job["bridge_url"],
-              "--runtime-nonce", job["runtime_nonce"],
+              "--runtime-nonce=" + job["runtime_nonce"],
           ]
           if job.get("lang"):
               cmd += ["--lang", job["lang"]]
