@@ -8,7 +8,7 @@ on:
       - "studio/review.html"
       - "studio/review-editor.js"
       - "studio/review-editor.css"
-      - "studio/app-20260923-47.js"
+      - "studio/app-20260923-48.js"
       - "bridge/apps-script/Code.gs"
       - ".github/workflows/kaggle_web_job.yml"
       - ".github/workflows/soulkey_mvp_validate.yml"
@@ -30,7 +30,7 @@ jobs:
       - name: JavaScript syntax
         run: |
           node --check studio/review-editor.js
-          node --check studio/app-20260923-47.js
+          node --check studio/app-20260923-48.js
           cp bridge/apps-script/Code.gs /tmp/Code.js
           node --check /tmp/Code.js
 
@@ -44,21 +44,21 @@ jobs:
           grep -q 'review_share_finalize_en' bridge/apps-script/Code.gs
           grep -q '"finish"' bridge/apps-script/Code.gs
           grep -q 'zh-TW.final.json' translation-system/translate_runner.py
-          grep -q 'WORKFLOW_VERSION = 7' studio/app-20260923-47.js
+          grep -q 'WORKFLOW_VERSION = 7' studio/app-20260923-48.js
           grep -q 'youtube_auto_generated_explicit_ytdlp' translation-system/youtube_io.py
           grep -q 'youtube_auto_generated_watch_page' translation-system/youtube_io.py
           grep -q 'youtube_auto_generated_direct_timedtext' translation-system/youtube_io.py
-          grep -q 'lang:"cc-refresh"' studio/app-20260923-47.js
+          grep -q 'lang:"cc-refresh"' studio/app-20260923-48.js
           grep -q 'args.lang == "cc-refresh"' translation-system/web_job_worker.py
           grep -q 'meta\["enable_gpu"\] = stage in gpu_stages' .github/workflows/kaggle_web_job.yml
           grep -q 'meta.get("machine_shape", "none")' .github/workflows/kaggle_web_job.yml
-          ! grep -q 'key:"en", label:"英文翻譯"' studio/app-20260923-47.js
-          grep -q 'applyLatestPeriodToNewTask' studio/app-20260923-47.js
-          grep -q 'showNoEnglishCcFallback' studio/app-20260923-47.js
-          grep -q 'dispatchAiEnglishTranslation' studio/app-20260923-47.js
-          grep -q 'refresh-zh-review' studio/app-20260923-47.js
-          grep -q 'code:"sd"' studio/app-20260923-47.js
-          grep -q 'code:"ta"' studio/app-20260923-47.js
+          ! grep -q 'key:"en", label:"英文翻譯"' studio/app-20260923-48.js
+          grep -q 'applyLatestPeriodToNewTask' studio/app-20260923-48.js
+          grep -q 'showNoEnglishCcFallback' studio/app-20260923-48.js
+          grep -q 'dispatchAiEnglishTranslation' studio/app-20260923-48.js
+          grep -q 'refresh-zh-review' studio/app-20260923-48.js
+          grep -q 'code:"sd"' studio/app-20260923-48.js
+          grep -q 'code:"ta"' studio/app-20260923-48.js
           grep -q '"sd": "Sindhi"' translation-system/translation_engine.py
           grep -q '"ta": "Tamil"' translation-system/translation_engine.py
           grep -q '不阻擋流程' translation-system/translate_runner.py
@@ -69,6 +69,7 @@ jobs:
           grep -q '但其他語言繼續' translation-system/translate_runner.py
           grep -q '單一語言錯誤不阻擋其他語言' translation-system/tts_runner.py
           grep -q 'read_planned_target_languages' translation-system/translate_runner.py
+          grep -q 'completedStep=i-1' studio/app-20260923-48.js
           grep -q '3 次重翻 + 2 次強制修復' translation-system/translation_engine.py
           ! grep -q 'status = "待人工確認" if result\["review_required_count"\]' translation-system/translate_runner.py
           grep -q 'facebook/mms-tts-snd' translation-system/config.py
