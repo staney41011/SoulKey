@@ -27,8 +27,8 @@ jobs:
 
           cat > "$DIR/kernel-metadata.json" <<'JSON'
           {
-            "id": "cwlmrcsir/soulkey-gemini-p254-persistent-test",
-            "title": "SoulKey Gemini P254 Persistent Test",
+            "id": "cwlmrcsir/soulkey-gemini-shadow-smoke",
+            "title": "SoulKey Gemini Shadow Smoke",
             "code_file": "run_test.py",
             "language": "python",
             "kernel_type": "script",
@@ -139,7 +139,7 @@ jobs:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           set -euo pipefail
-          KERNEL="cwlmrcsir/soulkey-gemini-p254-persistent-test"
+          KERNEL="cwlmrcsir/soulkey-gemini-shadow-smoke"
           for i in $(seq 1 150); do
             STATUS="$(kaggle kernels status "$KERNEL" 2>&1 || true)"
             echo "$STATUS"
@@ -161,7 +161,7 @@ jobs:
           set -euo pipefail
           OUT="$RUNNER_TEMP/soulkey-persistent-output"
           mkdir -p "$OUT"
-          kaggle kernels output cwlmrcsir/soulkey-gemini-p254-persistent-test -p "$OUT" -o || true
+          kaggle kernels output cwlmrcsir/soulkey-gemini-shadow-smoke -p "$OUT" -o || true
           find "$OUT" -maxdepth 2 -type f -print
           if [ ! -f "$OUT/persistent_test_result.json" ]; then
             echo "persistent_test_result.json missing"
