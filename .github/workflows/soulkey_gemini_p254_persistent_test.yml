@@ -1,0 +1,179 @@
+name: SoulKey Gemini P254 Persistent Test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/soulkey_gemini_p254_persistent_test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Install Kaggle CLI
+        run: python -m pip install kaggle
+
+      - name: Push isolated Kaggle test kernel
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/soulkey-gemini-persistent-test"
+          mkdir -p "$DIR"
+
+          cat > "$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-gemini-p254-persistent-test",
+            "title": "SoulKey Gemini P254 Persistent Test",
+            "code_file": "run_test.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_internet": true,
+            "dataset_sources": [],
+            "kernel_sources": [],
+            "competition_sources": []
+          }
+          JSON
+
+          cat > "$DIR/run_test.py" <<'PY'
+          import json
+          import shutil
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          ROOT = Path("/kaggle/working")
+          REPO = ROOT / "SoulKey"
+          RESULT = ROOT / "persistent_test_result.json"
+
+          def run(cmd):
+              print("+", " ".join(cmd), flush=True)
+              p = subprocess.run(cmd, text=True, capture_output=True)
+              print(p.stdout, flush=True)
+              if p.stderr:
+                  print(p.stderr, file=sys.stderr, flush=True)
+              return p
+
+          result = {
+              "clone_ok": False,
+              "first_run_code": None,
+              "second_run_code": None,
+              "checkpoint_survived_local_delete": False,
+              "error": ""
+          }
+
+          try:
+              p = run([
+                  "git", "clone", "--depth", "1",
+                  "https://github.com/staney41011/SoulKey.git",
+                  str(REPO)
+              ])
+              if p.returncode != 0:
+                  raise RuntimeError("git clone failed")
+              result["clone_ok"] = True
+
+              try:
+                  import google.genai
+              except Exception:
+                  p = run([sys.executable, "-m", "pip", "install", "-q", "google-genai"])
+                  if p.returncode != 0:
+                      raise RuntimeError("google-genai install failed")
+
+              runner = REPO / "translation-system" / "gemini_full_lesson_shadow.py"
+
+              p1 = run([
+                  sys.executable, str(runner),
+                  "--task-id", "P254-L03"
+              ])
+              result["first_run_code"] = p1.returncode
+              result["first_run_tail"] = (p1.stdout + "\n" + p1.stderr)[-12000:]
+
+              if p1.returncode != 0:
+                  raise RuntimeError("first full-lesson run failed")
+
+              local_shadow = ROOT / "gemini-shadow-P254-L03"
+              if local_shadow.exists():
+                  shutil.rmtree(local_shadow)
+              print("[TEST] deleted local shadow directory", flush=True)
+
+              p2 = run([
+                  sys.executable, str(runner),
+                  "--task-id", "P254-L03"
+              ])
+              result["second_run_code"] = p2.returncode
+              result["second_run_tail"] = (p2.stdout + "\n" + p2.stderr)[-12000:]
+
+              combined = result["second_run_tail"]
+              result["checkpoint_survived_local_delete"] = (
+                  p2.returncode == 0
+                  and "Resume checkpoint:" in combined
+                  and "Remaining: 0" in combined
+              )
+
+              if not result["checkpoint_survived_local_delete"]:
+                  raise RuntimeError("persistent checkpoint resume assertion failed")
+
+          except Exception as exc:
+              result["error"] = f"{type(exc).__name__}: {exc}"
+
+          RESULT.write_text(
+              json.dumps(result, ensure_ascii=False, indent=2),
+              encoding="utf-8"
+          )
+          print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+
+          if result["error"]:
+              raise SystemExit(2)
+          PY
+
+          kaggle kernels push -p "$DIR" -t 600
+
+      - name: Wait for Kaggle kernel
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          KERNEL="cwlmrcsir/soulkey-gemini-p254-persistent-test"
+          for i in $(seq 1 150); do
+            STATUS="$(kaggle kernels status "$KERNEL" 2>&1 || true)"
+            echo "$STATUS"
+            if echo "$STATUS" | grep -Eqi 'complete'; then
+              exit 0
+            fi
+            if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for Kaggle test"
+          exit 1
+
+      - name: Download result
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/soulkey-persistent-output"
+          mkdir -p "$OUT"
+          kaggle kernels output cwlmrcsir/soulkey-gemini-p254-persistent-test -p "$OUT" -o || true
+          find "$OUT" -maxdepth 2 -type f -print
+          if [ ! -f "$OUT/persistent_test_result.json" ]; then
+            echo "persistent_test_result.json missing"
+            exit 2
+          fi
+          cat "$OUT/persistent_test_result.json"
+          python - "$OUT/persistent_test_result.json" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert data["clone_ok"] is True, data
+          assert data["first_run_code"] == 0, data
+          assert data["second_run_code"] == 0, data
+          assert data["checkpoint_survived_local_delete"] is True, data
+          print("SOULKEY PERSISTENT GEMINI TEST: PASS")
+          PY
