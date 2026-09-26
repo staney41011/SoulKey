@@ -1,3 +1,4 @@
+import difflib
 import json
 import re
 from pathlib import Path
@@ -307,6 +308,55 @@ JSON 格式：
     )
 
 
+TARGET_SCRIPT_PATTERNS = {
+    "th": re.compile(r"[\u0E00-\u0E7F]"),
+    "sd": re.compile(r"[\u0600-\u06FF]"),
+    "ta": re.compile(r"[\u0B80-\u0BFF]"),
+}
+
+
+def _translation_quality_issue(text: str, source_text: str, target_code: str):
+    text = str(text or "").strip()
+    source_text = str(source_text or "").strip()
+
+    if not text:
+        return "empty_translation"
+
+    if target_code != "en" and source_text:
+        compact_text = re.sub(r"\W+", "", text.lower())
+        compact_source = re.sub(r"\W+", "", source_text.lower())
+        if len(compact_text) >= 24 and len(compact_source) >= 24:
+            similarity = difflib.SequenceMatcher(
+                None,
+                compact_text,
+                compact_source,
+            ).ratio()
+            if similarity >= 0.82:
+                return "source_text_copied"
+
+    pattern = TARGET_SCRIPT_PATTERNS.get(target_code)
+    if pattern:
+        script_count = len(pattern.findall(text))
+        latin_count = len(re.findall(r"[A-Za-z]", text))
+        meaningful = script_count + latin_count
+
+        if script_count < 4:
+            return "missing_target_script"
+
+        # 允許專有名詞保留英文，但不能讓整段主要內容仍是英文。
+        if meaningful >= 20:
+            ratio = script_count / meaningful
+            if ratio < 0.70 and latin_count > 15:
+                return "target_script_ratio_too_low"
+
+        # 防止整段中文誤混入泰文／辛迪文／泰米爾文。
+        han_count = len(re.findall(r"[\u3400-\u9FFF]", text))
+        if han_count >= 8 and han_count > script_count * 0.25:
+            return "unexpected_chinese_content"
+
+    return ""
+
+
 def translate_segments(
     source_segments,
     source_language: str,
@@ -432,6 +482,92 @@ Translate all requested segments into {target_language}."""
             missing = not text
             if missing:
                 text = raw["text"]
+
+            quality_issue = _translation_quality_issue(
+                text,
+                raw["text"],
+                target_code,
+            )
+
+            if quality_issue:
+                print(
+                    f"[WARN] TRANSLATE:{target_code} segment "
+                    f"{raw['id']} 語言檢查失敗：{quality_issue}；"
+                    "自動單段重翻。",
+                    flush=True,
+                )
+
+                repaired = None
+                last_issue = quality_issue
+
+                for repair_attempt in range(1, 4):
+                    repair_prompt = f"""Translate this ONE segment into {target_language}.
+
+Source language: {source_language}
+Target language: {target_language}
+
+Requirements:
+- Translate the complete meaning.
+- Do NOT copy the source sentence.
+- Do NOT leave full sentences in English or Chinese unless they are unavoidable proper nouns.
+- The main body MUST be written in {target_language}.
+- Return exactly one JSON object:
+{{"segments":[{{"id":{raw['id']},"text":"translation","review_required":false,"notes":""}}]}}
+
+Source segment:
+{json.dumps(raw["text"], ensure_ascii=False)}
+"""
+
+                    parsed_repair = _generate_parsed_json(
+                        tokenizer,
+                        model,
+                        [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You are a strict translation repair engine. "
+                                    f"Output only {target_language} translation JSON."
+                                ),
+                            },
+                            {"role": "user", "content": repair_prompt},
+                        ],
+                        max_new_tokens=1800,
+                        label=(
+                            f"TRANSLATE:{target_code} repair "
+                            f"segment {raw['id']} attempt {repair_attempt}"
+                        ),
+                    )
+
+                    repaired_item = _normalize_returned(
+                        parsed_repair.get("segments")
+                    ).get(raw["id"], {})
+                    repaired_text = str(
+                        repaired_item.get("text") or ""
+                    ).strip()
+
+                    last_issue = _translation_quality_issue(
+                        repaired_text,
+                        raw["text"],
+                        target_code,
+                    )
+
+                    if not last_issue:
+                        repaired = repaired_item
+                        text = repaired_text
+                        item = repaired_item
+                        print(
+                            f"[TRANSLATE:{target_code}] segment "
+                            f"{raw['id']} 自動重翻成功。",
+                            flush=True,
+                        )
+                        break
+
+                if repaired is None:
+                    raise RuntimeError(
+                        f"{target_language} segment {raw['id']} "
+                        f"連續重翻後仍未通過語言檢查：{last_issue}"
+                    )
+
             review_required = bool(item.get("review_required", False)) or missing
             notes = str(item.get("notes") or "").strip()
             if missing and not notes:
