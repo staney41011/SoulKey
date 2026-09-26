@@ -1,0 +1,154 @@
+name: SoulKey Gemini Kaggle Live Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/soulkey_gemini_kaggle_smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install Kaggle CLI
+        run: python -m pip install kaggle
+
+      - name: Prepare isolated Kaggle smoke kernel
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/gemini-shadow-smoke"
+          mkdir -p "$DIR"
+
+          cat > "$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-gemini-shadow-smoke",
+            "title": "SoulKey Gemini Shadow Smoke",
+            "code_file": "gemini-shadow-smoke.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_internet": true,
+            "dataset_sources": [],
+            "kernel_sources": [],
+            "competition_sources": []
+          }
+          JSON
+
+          cat > "$DIR/gemini-shadow-smoke.py" <<'PY'
+          import json
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          from kaggle_secrets import UserSecretsClient
+
+          result = {
+              "secret_found": False,
+              "api_http_status": None,
+              "model": "gemini-3.8-flash",
+              "endpoint": "v1beta/interactions",
+              "response_ok": False,
+              "error": "",
+          }
+
+          try:
+              key = str(UserSecretsClient().get_secret("GEMINI_API_KEY") or "").strip()
+              result["secret_found"] = bool(key)
+              if not key:
+                  raise RuntimeError("GEMINI_API_KEY is empty")
+
+              payload = {
+                  "model": "gemini-3.8-flash",
+                  "input": "Reply with exactly this token and nothing else: SOULKEY_GEMINI_OK",
+                  "generation_config": {"thinking_level": "low"}
+              }
+              req = urllib.request.Request(
+                  "https://generativelanguage.googleapis.com/v1beta/interactions",
+                  data=json.dumps(payload).encode("utf-8"),
+                  headers={
+                      "Content-Type": "application/json",
+                      "x-goog-api-key": key,
+                  },
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      status = int(response.status)
+                      body = response.read().decode("utf-8", errors="replace")
+              except urllib.error.HTTPError as exc:
+                  status = int(exc.code)
+                  body = exc.read().decode("utf-8", errors="replace")
+
+              result["api_http_status"] = status
+              result["response_ok"] = (
+                  200 <= status < 300 and "SOULKEY_GEMINI_OK" in body
+              )
+
+              if not result["response_ok"]:
+                  # Never write the key. Keep only a short API response/error excerpt.
+                  result["error"] = body[:1200]
+
+          except Exception as exc:
+              result["error"] = f"{type(exc).__name__}: {exc}"
+
+          Path("/kaggle/working/gemini_smoke_result.json").write_text(
+              json.dumps(result, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+
+          print("GEMINI_SECRET_FOUND=", result["secret_found"])
+          print("GEMINI_HTTP_STATUS=", result["api_http_status"])
+          print("GEMINI_RESPONSE_OK=", result["response_ok"])
+          if result["error"]:
+              print("GEMINI_ERROR=", result["error"][:1200])
+
+          if not result["response_ok"]:
+              raise SystemExit(2)
+          PY
+
+          kaggle kernels push -p "$DIR" -t 600
+
+      - name: Wait for Kaggle smoke kernel
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          KERNEL="cwlmrcsir/soulkey-gemini-shadow-smoke"
+          for i in $(seq 1 80); do
+            STATUS="$(kaggle kernels status "$KERNEL" 2>&1 || true)"
+            echo "$STATUS"
+            if echo "$STATUS" | grep -Eqi 'complete'; then
+              exit 0
+            fi
+            if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for Kaggle smoke kernel"
+          exit 1
+
+      - name: Download and verify result
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/gemini-shadow-output"
+          mkdir -p "$OUT"
+          kaggle kernels output cwlmrcsir/soulkey-gemini-shadow-smoke -p "$OUT" -o
+          cat "$OUT/gemini_smoke_result.json"
+          python - "$OUT/gemini_smoke_result.json" <<'PY'
+          import json, sys
+          data=json.load(open(sys.argv[1], encoding="utf-8"))
+          assert data.get("secret_found") is True, data
+          assert data.get("api_http_status") == 200, data
+          assert data.get("response_ok") is True, data
+          print("SOULKEY GEMINI LIVE SMOKE: PASS")
+          PY
