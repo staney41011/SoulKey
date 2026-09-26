@@ -1,0 +1,83 @@
+name: SoulKey Gemini Shadow Live Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tts:
+        description: "Also test Gemini 3.8 Flash TTS"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require API key
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::Repository secret GEMINI_API_KEY is not configured."
+            exit 1
+          fi
+
+      - name: Text API smoke
+        working-directory: translation-system
+        run: |
+          python gemini_shadow_runner.py \
+            --mode smoke \
+            --output-dir /tmp/gemini-shadow/smoke
+
+      - name: Six-language translation + QA
+        working-directory: translation-system
+        run: |
+          set -euo pipefail
+          for lang in th es id vi sd ta; do
+            echo "===== GEMINI SHADOW $lang ====="
+            python gemini_shadow_runner.py \
+              --mode translate \
+              --source-json tests/fixtures/gemini_shadow_en.json \
+              --glossary-json tests/fixtures/gemini_shadow_glossary.json \
+              --lang "$lang" \
+              --output-dir "/tmp/gemini-shadow/$lang"
+          done
+
+      - name: Chinese semantic polish + glossary RAG
+        working-directory: translation-system
+        run: |
+          python gemini_shadow_runner.py \
+            --mode polish \
+            --source-json tests/fixtures/gemini_shadow_zh.json \
+            --glossary-json tests/fixtures/gemini_shadow_glossary.json \
+            --output-dir /tmp/gemini-shadow/zh
+
+      - name: TTS smoke
+        if: ${{ inputs.run_tts }}
+        working-directory: translation-system
+        run: |
+          python gemini_shadow_runner.py \
+            --mode tts \
+            --text "Welcome to the SoulKey multilingual course shadow test." \
+            --voice Kore \
+            --output-dir /tmp/gemini-shadow/tts
+
+      - name: Summarize shadow results
+        if: always()
+        run: |
+          find /tmp/gemini-shadow -maxdepth 3 -type f -printf '%p %s bytes\n' || true
+
+      - name: Upload shadow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-shadow-live-results
+          path: /tmp/gemini-shadow
+          if-no-files-found: warn
+          retention-days: 7
