@@ -77,3 +77,33 @@ Workflow：
 7. 人工抽看 Gemini 與現行 Qwen 結果後再切 feature flag
 
 正式切換前，`translate_runner.py` 與 `web_job_worker.py` 維持 Qwen production，不引用 Gemini Shadow。
+
+
+## Persistent full-lesson Shadow checkpoint
+
+Full-lesson six-language tests must not treat `/kaggle/working` as durable storage.
+
+Use:
+
+```bash
+python gemini_full_lesson_shadow.py --task-id P254-L03
+```
+
+The runner uses the approved `02_翻譯稿/en.final.json` source and translates
+`th/es/id/vi/sd/ta` in 12-segment multi-language batches.
+
+Checkpoint rules:
+
+- exact Drive name: `02_翻譯稿/gemini-shadow-checkpoint.json`
+- exact GitHub path when launched through the Studio runtime bridge:
+  `translation-shadow-cache/<task_id>/gemini/checkpoint.json`
+- translation output is checkpointed immediately before semantic QA
+- each QA batch is checkpointed immediately after QA
+- resume reads both GitHub and Drive and chooses the newest `checkpoint_seq`
+- local `/kaggle/working` is only a disposable mirror
+- a changed English Final fingerprint stops resume; use `--reset-checkpoint`
+  only when intentionally starting a new Shadow revision
+
+Manual Kaggle runs always persist to Drive and therefore survive runtime resets
+without requiring a GitHub credential. Studio-launched runs additionally publish
+the same checkpoint to GitHub through the authenticated runtime bridge.
