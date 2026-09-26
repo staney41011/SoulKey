@@ -1,0 +1,3 @@
+# Gemini Shadow only. Production Qwen/Kaggle requirements stay unchanged.
+# The first Shadow implementation talks to the Interactions REST API with stdlib urllib,
+# so this file is intentionally minimal and reserved for future SDK-only features.
