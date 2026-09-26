@@ -23,7 +23,7 @@ from google_io import (
     update_cells,
     upload_or_replace_file,
 )
-from runner import resolve_lesson_folders
+from lesson_paths import resolve_lesson_folders
 from status_io import new_run_id, mark_running, mark_done, mark_error
 from translation_engine import (
     LANGUAGE_NAMES,
