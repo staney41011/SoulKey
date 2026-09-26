@@ -65,6 +65,9 @@ jobs:
           grep -q 'en.final.json' translation-system/tts_runner.py
           grep -q '_translation_quality_issue' translation-system/translation_engine.py
           grep -q '自動單段重翻' translation-system/translation_engine.py
+          grep -q 'STRICT FALLBACK TRANSLATION' translation-system/translation_engine.py
+          grep -q '但其他語言繼續' translation-system/translate_runner.py
+          grep -q '單一語言錯誤不阻擋其他語言' translation-system/tts_runner.py
           ! grep -q 'status = "待人工確認" if result\["review_required_count"\]' translation-system/translate_runner.py
           grep -q 'facebook/mms-tts-snd' translation-system/config.py
           grep -q 'facebook/mms-tts-tam' translation-system/config.py
