@@ -82,6 +82,13 @@ function doPost(e) {
       return json_(workerReviewPublish_(nonce, taskId, contentB64));
     }
 
+    if (action === "worker_translation_checkpoint_publish") {
+      const nonce = String((e && e.parameter && e.parameter.nonce) || "").trim();
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const contentB64 = String((e && e.parameter && e.parameter.content_b64) || "").trim();
+      return json_(workerTranslationCheckpointPublish_(nonce, taskId, contentB64));
+    }
+
     if (action === "review_share_draft_save") {
       const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
       const payloadJson = String((e && e.parameter && e.parameter.payload_json) || "").trim();
@@ -1312,6 +1319,61 @@ function workerReviewPublish_(nonce, taskId, contentB64) {
     REF + "/" + path;
   return result;
 }
+
+function workerTranslationCheckpointPublish_(nonce, taskId, contentB64) {
+  const job = getRuntimeJob_(nonce);
+  if (!job) {
+    return {
+      ok: false,
+      error: "invalid_or_expired_nonce",
+      message: "Runtime nonce 不存在或已過期"
+    };
+  }
+
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
+    return {
+      ok: false,
+      error: "invalid_task_id",
+      message: "task_id 格式不正確"
+    };
+  }
+
+  if (String(job.task_id || "").trim() !== normalizedTaskId) {
+    return {
+      ok: false,
+      error: "task_mismatch",
+      message: "Runtime task 與 checkpoint task 不一致"
+    };
+  }
+
+  if (!contentB64) {
+    return {
+      ok: false,
+      error: "empty_translation_checkpoint",
+      message: "沒有可發佈的翻譯 checkpoint 內容"
+    };
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const githubToken = String(props.getProperty("GITHUB_TOKEN") || "").trim();
+  const path =
+    "translation-shadow-cache/" + normalizedTaskId + "/gemini/checkpoint.json";
+
+  const result = githubUpsertBase64_(
+    githubToken,
+    path,
+    contentB64,
+    "Publish Gemini translation checkpoint for " + normalizedTaskId
+  );
+
+  result.task_id = normalizedTaskId;
+  result.raw_url =
+    "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/" +
+    REF + "/" + path;
+  return result;
+}
+
 function seedReviewCache_(taskId, githubToken) {
   const normalizedTaskId = String(taskId || "").trim();
   if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
