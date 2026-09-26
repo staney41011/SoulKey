@@ -40,6 +40,7 @@ LANG_COLUMN = {
     "id": "M",
     "vi": "N",
 }
+LANGUAGE_PLAN_RANGE = "語言任務設定!A2:J"
 
 
 def now_text():
@@ -286,6 +287,35 @@ def process_translation(
     return result
 
 
+def _sheet_bool(value):
+    return str(value or "").strip().lower() in {
+        "true", "1", "yes", "y", "是", "啟用"
+    }
+
+
+def read_planned_target_languages(sheets, task_id):
+    rows = read_values(
+        sheets,
+        SPREADSHEET_ID,
+        LANGUAGE_PLAN_RANGE,
+    )
+    planned = []
+    for raw in rows:
+        row = list(raw) + [""] * max(0, 10 - len(raw))
+        if str(row[0] or "").strip() != task_id:
+            continue
+        code = str(row[1] or "").strip()
+        transcript_enabled = _sheet_bool(row[3])
+        if (
+            code
+            and code != "en"
+            and code in LANGUAGE_NAMES
+            and transcript_enabled
+        ):
+            planned.append(code)
+    return list(dict.fromkeys(planned))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -362,6 +392,26 @@ def main():
         print("")
         print("-" * 72)
         print(f"[TASK] {task['task_id']} / 第{task['period']}期 / {task['lesson']}")
+
+        effective_target_langs = list(target_langs)
+        if args.stage == "translate-targets":
+            planned_langs = read_planned_target_languages(
+                sheets,
+                task["task_id"],
+            )
+            if planned_langs:
+                effective_target_langs = planned_langs
+                print(
+                    "[MULTI] 依語言任務設定執行："
+                    + ",".join(effective_target_langs),
+                    flush=True,
+                )
+            else:
+                print(
+                    "[MULTI] 語言任務設定無可用資料；沿用 Job 參數："
+                    + ",".join(effective_target_langs),
+                    flush=True,
+                )
 
         if args.stage == "modernize":
             status_stage = "vernacular"
@@ -440,7 +490,7 @@ def main():
                 translated_ok = []
                 translated_failed = []
 
-                for target_lang in target_langs:
+                for target_lang in effective_target_langs:
                     try:
                         process_translation(
                             drive,
