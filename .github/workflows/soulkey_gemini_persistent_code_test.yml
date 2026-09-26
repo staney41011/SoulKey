@@ -29,6 +29,7 @@ jobs:
           python -m py_compile             translation-system/lesson_paths.py             translation-system/gemini_checkpoint.py             translation-system/gemini_full_lesson_shadow.py
 
       - name: Live Gemini structured-output smoke
+        if: ${{ env.GEMINI_API_KEY != '' }}
         working-directory: translation-system
         run: |
           python - <<'PY'
@@ -74,7 +75,12 @@ jobs:
           print("LIVE STRUCTURED OUTPUT: PASS")
           PY
 
+      - name: Note unavailable live secret
+        if: ${{ env.GEMINI_API_KEY == '' }}
+        run: echo "LIVE GEMINI SKIPPED - GitHub Actions GEMINI_API_KEY is not configured"
+
       - name: Checkpoint selection logic
+        if: always()
         working-directory: translation-system
         run: |
           python - <<'PY'
