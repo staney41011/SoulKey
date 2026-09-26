@@ -289,3 +289,12 @@ en.tts_manifest.json
 `segments.zip` 仍保留每一段獨立音訊，供未來需要時使用。
 
 > MMS-TTS 模型授權為 CC-BY-NC 4.0。若未來用途涉及商業化，需在上線前改用允許商業使用的 TTS 模型或服務。
+
+
+## Gemini API 後續工作排程
+
+Gemini API 導入順序與術語資料庫學習架構詳見：
+
+- `translation-system/GEMINI_ROADMAP.md`
+
+優先順序固定為：多語正式翻譯 → 翻譯 QA / 自動修復 → Gemini TTS → 中文第二層語意校稿 + 專有名詞資料庫 RAG。
