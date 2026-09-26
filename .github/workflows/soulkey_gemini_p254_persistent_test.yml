@@ -49,7 +49,7 @@ jobs:
           from pathlib import Path
 
           ROOT = Path("/kaggle/working")
-          REPO = ROOT / "SoulKey"
+          REPO = Path("/tmp/SoulKey")
           RESULT = ROOT / "persistent_test_result.json"
 
           def run(cmd):
