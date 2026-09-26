@@ -437,17 +437,55 @@ def main():
                         "請先完成中英對照與英文定稿。"
                     )
 
+                translated_ok = []
+                translated_failed = []
+
                 for target_lang in target_langs:
-                    process_translation(
-                        drive,
-                        sheets,
-                        task,
-                        folders,
-                        glossary_rows,
-                        workdir,
-                        target_lang,
-                        force=args.force,
+                    try:
+                        process_translation(
+                            drive,
+                            sheets,
+                            task,
+                            folders,
+                            glossary_rows,
+                            workdir,
+                            target_lang,
+                            force=args.force,
+                        )
+                        translated_ok.append(target_lang)
+                    except Exception as lang_exc:
+                        lang_message = (
+                            f"{type(lang_exc).__name__}: {lang_exc}"
+                        )
+                        translated_failed.append({
+                            "lang": target_lang,
+                            "error": lang_message,
+                        })
+                        print(
+                            f"[ERROR] {LANGUAGE_NAMES[target_lang]} "
+                            f"翻譯失敗，但其他語言繼續：{lang_message}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        update_lang_status(
+                            sheets,
+                            task["sheet_row"],
+                            target_lang,
+                            "錯誤",
+                            lang_message,
+                        )
+
+                summary = (
+                    "多語翻譯執行完畢；成功="
+                    + (",".join(translated_ok) or "無")
+                )
+                if translated_failed:
+                    summary += (
+                        "；失敗="
+                        + ",".join(x["lang"] for x in translated_failed)
                     )
+
+                print(f"[MULTI] {summary}", flush=True)
 
             if args.stage in {"translate-all", "all"}:
                 # translate-all 若沒有白話文，就拒絕；all 則已在上面產生。
@@ -484,12 +522,20 @@ def main():
                         force=args.force,
                     )
 
+            if args.stage == "translate-targets":
+                done_message = summary
+            else:
+                done_message = (
+                    f"翻譯流程完成：{args.stage}"
+                    + (f" / {args.lang}" if args.lang else "")
+                )
+
             mark_done(
                 task["task_id"],
                 status_stage,
                 sheets=sheets,
                 run_id=run_id,
-                message=f"翻譯流程完成：{args.stage}" + (f" / {args.lang}" if args.lang else ""),
+                message=done_message,
             )
             processed += 1
 
