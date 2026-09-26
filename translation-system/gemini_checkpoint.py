@@ -166,32 +166,54 @@ def load_persistent_checkpoint(
     translation_folder_id=None,
     workdir="/kaggle/working",
 ):
-    """Load in deterministic order: GitHub -> Drive -> local.
+    """Load all deterministic backends and choose the newest checkpoint.
 
-    GitHub is preferred for Studio-launched runs. Manual Kaggle runs normally
-    fall back to Drive, which survives runtime resets without another secret.
+    checkpoint_seq is authoritative when present. This avoids a stale GitHub
+    copy hiding a newer Drive copy after a manual Kaggle run.
     """
     task_id = _normalize_task_id(task_id)
+    candidates = []
 
-    payload = load_github_checkpoint(task_id)
-    if payload is not None:
-        return payload, "github"
+    github_payload = load_github_checkpoint(task_id)
+    if github_payload is not None:
+        candidates.append(("github", github_payload))
 
     if drive is not None and translation_folder_id:
-        payload = load_drive_checkpoint(
+        drive_payload = load_drive_checkpoint(
             drive,
             translation_folder_id,
             workdir,
         )
-        if payload is not None:
-            return payload, "drive"
+        if drive_payload is not None:
+            candidates.append(("drive", drive_payload))
 
     local_path = Path(workdir) / DRIVE_CHECKPOINT_NAME
     if local_path.exists():
-        print("[CHECKPOINT] 僅找到 local checkpoint", flush=True)
-        return _read_json(local_path), "local"
+        try:
+            candidates.append(("local", _read_json(local_path)))
+        except Exception as exc:
+            print(f"[CHECKPOINT] local checkpoint 無法解析：{exc}", flush=True)
 
-    return None, None
+    if not candidates:
+        return None, None
+
+    def rank(item):
+        source, payload = item
+        try:
+            seq = int(payload.get("checkpoint_seq") or 0)
+        except Exception:
+            seq = 0
+        updated = str(payload.get("updated_at") or "")
+        persistent_bonus = 1 if source in {"github", "drive"} else 0
+        return (seq, updated, persistent_bonus)
+
+    source, payload = max(candidates, key=rank)
+    print(
+        f"[CHECKPOINT] 採用 {source} checkpoint；"
+        f"seq={payload.get('checkpoint_seq', 0)}",
+        flush=True,
+    )
+    return payload, source
 
 
 def save_persistent_checkpoint(
