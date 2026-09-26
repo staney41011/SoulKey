@@ -1,0 +1,41 @@
+name: SoulKey Gemini Shadow Validate
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "translation-system/gemini_*.py"
+      - "translation-system/tests/test_gemini_engine.py"
+      - "translation-system/requirements-gemini.txt"
+      - ".github/workflows/soulkey_gemini_shadow_validate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  shadow-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          python -m py_compile \
+            translation-system/gemini_engine.py \
+            translation-system/gemini_shadow_runner.py \
+            translation-system/tests/test_gemini_engine.py
+
+      - name: Gemini shadow unit tests
+        working-directory: translation-system
+        run: |
+          python -m unittest -v tests/test_gemini_engine.py
+
+      - name: Production isolation assertions
+        run: |
+          ! grep -q 'gemini_engine' translation-system/translate_runner.py
+          ! grep -q 'gemini_shadow_runner' translation-system/web_job_worker.py
+          ! grep -q 'GEMINI_API_KEY' bridge/apps-script/Code.gs
+          grep -q 'gemini-3.8-flash' translation-system/gemini_engine.py
+          grep -q 'gemini-3.8-flash-tts' translation-system/gemini_engine.py
+          grep -q 'response_format' translation-system/gemini_engine.py
