@@ -366,9 +366,9 @@ def relevant_glossary(glossary, source_text, target_code, limit=80):
             score += 4
         if en and en.lower() in haystack:
             score += 4
-        if item.get("locked"):
-            score += 1
         if score:
+            if item.get("locked"):
+                score += 1
             scored.append((score, item, target))
     scored.sort(key=lambda x: -x[0])
     return [x[1] for x in scored[:limit]]
@@ -524,8 +524,13 @@ def translate_and_qa(
             local_issue = local_language_issue(
                 item["text"], item["source_text"], target_code
             )
-            passed = bool(verdict.get("pass")) and not local_issue
+            passed = (
+                bool(verdict.get("pass"))
+                and bool(verdict.get("tts_ready"))
+                and not local_issue
+            )
             last_issue = local_issue or "; ".join(verdict.get("issues") or [])
+            repairs_used = 0
 
             for repair_no in range(1, int(repair_attempts) + 1):
                 if passed:
@@ -541,6 +546,7 @@ def translate_and_qa(
                         "current_translation": item["text"],
                     }, ensure_ascii=False)
                 )
+                repairs_used = repair_no
                 repaired, rep_usage = client.structured(
                     repair_prompt,
                     TRANSLATION_SCHEMA,
@@ -582,18 +588,18 @@ def translate_and_qa(
                 total_usage.output_tokens += check_usage.output_tokens
                 total_usage.thought_tokens += check_usage.thought_tokens
                 total_usage.total_tokens += check_usage.total_tokens
-                passed = bool(verdict.get("pass")) and not local_issue
+                passed = (
+                    bool(verdict.get("pass"))
+                    and bool(verdict.get("tts_ready"))
+                    and not local_issue
+                )
                 last_issue = local_issue or "; ".join(verdict.get("issues") or [])
 
             item["qa_pass"] = passed
             item["qa_issues"] = [] if passed else (
                 [last_issue] if last_issue else list(verdict.get("issues") or [])
             )
-            item["repair_attempts"] = 0 if bool(qa_by_id[item["id"]].get("pass")) and not local_language_issue(
-                candidate_batch[[x["id"] for x in candidate_batch].index(item["id"])]["text"],
-                item["source_text"],
-                target_code,
-            ) else int(repair_attempts if not passed else 1)
+            item["repair_attempts"] = repairs_used
             translated.append(item)
             qa_items.append({
                 "id": item["id"],
@@ -661,14 +667,38 @@ def semantic_polish_zh(
 
         for src in batch:
             row = by_id[src["id"]]
+            polished_text = str(row["text"]).strip()
+            notes = str(row.get("notes") or "").strip()
+            changed = bool(row.get("changed"))
+
+            required_locked = [
+                item["zh"]
+                for item in glossary
+                if item.get("locked")
+                and item.get("zh")
+                and item["zh"] in src["text"]
+            ]
+            missing_locked = [
+                term for term in required_locked
+                if term not in polished_text
+            ]
+            if missing_locked:
+                polished_text = src["text"]
+                changed = False
+                guard_note = (
+                    "locked_term_guard:"
+                    + ",".join(missing_locked)
+                )
+                notes = (notes + "；" + guard_note).strip("；")
+
             out.append({
                 "id": src["id"],
                 "start": src["start"],
                 "end": src["end"],
                 "source_text": src["text"],
-                "text": str(row["text"]).strip(),
-                "changed": bool(row.get("changed")),
-                "notes": str(row.get("notes") or "").strip(),
+                "text": polished_text,
+                "changed": changed,
+                "notes": notes,
                 "term_candidates": [
                     str(x).strip()
                     for x in (row.get("term_candidates") or [])
