@@ -202,7 +202,9 @@ def main():
             )
 
             completed = []
+            failed = []
             over_duration = []
+
             for lang in langs:
                 lang_stage = f"tts:{lang}"
                 lang_run_id = new_run_id(task["task_id"], lang_stage)
@@ -215,69 +217,106 @@ def main():
                     progress=0,
                 )
 
-                # 新增語言不佔用「任務佇列」固定欄位；
-                # 直接以 Drive 是否已有該語言翻譯檔作為 TTS 前置條件。
-                print(f"[TTS] {LANGUAGE_NAMES[lang]} ({lang})")
-                segments = load_translation_from_drive(
-                    drive,
-                    folders["translation"],
-                    lang,
-                    workdir,
-                )
-                source_duration = max(
-                    float(seg.get("end", 0) or 0)
-                    for seg in segments
-                )
-                result = synthesize_language(
-                    segments=segments,
-                    lang=lang,
-                    model_id=TTS_MODELS[lang],
-                    output_dir=workdir / f"tts-{lang}",
-                    target_duration=source_duration,
-                )
-                upload_tts_outputs(drive, folders["audio"], result)
-                completed.append(lang)
-                if not result["within_source_duration"]:
-                    over_duration.append({
-                        "lang": lang,
-                        "over": result["over_by_seconds"],
-                    })
-                    lang_note = (
-                        f"{LANGUAGE_NAMES[lang]} 音檔已產生；"
-                        f"自然朗讀超過原片 {result['over_by_seconds']:.1f}s；"
-                        "未調速、未截斷"
+                try:
+                    # 新增語言不佔用「任務佇列」固定欄位；
+                    # 直接以 Drive 是否已有該語言翻譯檔作為 TTS 前置條件。
+                    print(f"[TTS] {LANGUAGE_NAMES[lang]} ({lang})")
+                    segments = load_translation_from_drive(
+                        drive,
+                        folders["translation"],
+                        lang,
+                        workdir,
                     )
-                    print(
-                        f"[WARN] {lang}: 自然朗讀超過原片 "
-                        f"{result['over_by_seconds']:.1f}s；未調速、未截斷。"
+                    source_duration = max(
+                        float(seg.get("end", 0) or 0)
+                        for seg in segments
                     )
-                    mark_needs_review(
-                        task["task_id"],
-                        lang_stage,
-                        sheets=sheets,
-                        run_id=lang_run_id,
-                        message=lang_note,
+                    result = synthesize_language(
+                        segments=segments,
+                        lang=lang,
+                        model_id=TTS_MODELS[lang],
+                        output_dir=workdir / f"tts-{lang}",
+                        target_duration=source_duration,
                     )
-                else:
-                    lang_note = (
-                        f"{LANGUAGE_NAMES[lang]} 音檔完成；"
-                        f"speech={result['speech_duration']:.1f}s；"
-                        f"target={result['target_duration']:.1f}s"
-                    )
-                    print(
-                        f"[DONE] {lang}: speech={result['speech_duration']:.1f}s / "
-                        f"target={result['target_duration']:.1f}s / "
-                        f"尾端靜音={result['remaining_silence']:.1f}s"
-                    )
-                    mark_done(
-                        task["task_id"],
-                        lang_stage,
-                        sheets=sheets,
-                        run_id=lang_run_id,
-                        message=lang_note,
-                    )
+                    upload_tts_outputs(drive, folders["audio"], result)
+                    completed.append(lang)
 
-            if over_duration:
+                    if not result["within_source_duration"]:
+                        over_duration.append({
+                            "lang": lang,
+                            "over": result["over_by_seconds"],
+                        })
+                        lang_note = (
+                            f"{LANGUAGE_NAMES[lang]} 音檔已產生；"
+                            f"自然朗讀超過原片 {result['over_by_seconds']:.1f}s；"
+                            "未調速、未截斷"
+                        )
+                        print(
+                            f"[WARN] {lang}: 自然朗讀超過原片 "
+                            f"{result['over_by_seconds']:.1f}s；未調速、未截斷。"
+                        )
+                        mark_needs_review(
+                            task["task_id"],
+                            lang_stage,
+                            sheets=sheets,
+                            run_id=lang_run_id,
+                            message=lang_note,
+                        )
+                    else:
+                        lang_note = (
+                            f"{LANGUAGE_NAMES[lang]} 音檔完成；"
+                            f"speech={result['speech_duration']:.1f}s；"
+                            f"target={result['target_duration']:.1f}s"
+                        )
+                        print(
+                            f"[DONE] {lang}: speech={result['speech_duration']:.1f}s / "
+                            f"target={result['target_duration']:.1f}s / "
+                            f"尾端靜音={result['remaining_silence']:.1f}s"
+                        )
+                        mark_done(
+                            task["task_id"],
+                            lang_stage,
+                            sheets=sheets,
+                            run_id=lang_run_id,
+                            message=lang_note,
+                        )
+
+                except Exception as lang_exc:
+                    lang_message = (
+                        f"{type(lang_exc).__name__}: {lang_exc}"
+                    )
+                    failed.append({
+                        "lang": lang,
+                        "error": lang_message,
+                    })
+                    print(
+                        f"[ERROR] TTS:{lang} 失敗，但其他語言繼續："
+                        f"{lang_message}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    mark_error(
+                        task["task_id"],
+                        lang_stage,
+                        sheets=sheets,
+                        run_id=lang_run_id,
+                        exc=lang_exc,
+                    )
+                    continue
+
+            if failed:
+                status = "部分完成"
+                note = (
+                    f"TTS完成：{','.join(completed) or '無'}；"
+                    f"失敗：{','.join(x['lang'] for x in failed)}；"
+                    "單一語言錯誤不阻擋其他語言"
+                )
+                if over_duration:
+                    note += "；另有超時：" + ",".join(
+                        f"{item['lang']}+{item['over']:.1f}s"
+                        for item in over_duration
+                    )
+            elif over_duration:
                 status = "待人工確認"
                 over_text = ",".join(
                     f"{item['lang']}+{item['over']:.1f}s"
@@ -295,7 +334,7 @@ def main():
                     "本次指定語言皆在原片總長內結束；較短音檔只在尾端補靜音"
                 )
             else:
-                status = "部分完成：" + ",".join(completed)
+                status = "部分完成"
                 note = (
                     f"TTS完成：{','.join(completed)}；"
                     "已輸出 WAV/MP3/segments.zip；不做逐段時間對齊或調速"
@@ -308,7 +347,7 @@ def main():
                 note,
             )
 
-            if status == "完成":
+            if status in {"完成", "部分完成"}:
                 mark_done(
                     task["task_id"],
                     status_stage,
