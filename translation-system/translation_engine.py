@@ -500,43 +500,75 @@ Translate all requested segments into {target_language}."""
                 repaired = None
                 last_issue = quality_issue
 
-                for repair_attempt in range(1, 4):
-                    repair_prompt = f"""Translate this ONE segment into {target_language}.
+                repair_styles = [
+                    (
+                        "faithful",
+                        "Translate faithfully and naturally. Preserve every idea, but make the "
+                        f"main body fully {target_language}."
+                    ),
+                    (
+                        "literal",
+                        "Use a more literal sentence-by-sentence translation. Do not paraphrase "
+                        f"back into English or Chinese. Every ordinary sentence must be {target_language}."
+                    ),
+                    (
+                        "clean",
+                        "Rewrite the translation from scratch. Ignore any previous translation. "
+                        f"Use only {target_language} except unavoidable proper nouns, names, and numbers."
+                    ),
+                ]
+
+                for repair_attempt, (repair_style, repair_instruction) in enumerate(
+                    repair_styles,
+                    start=1,
+                ):
+                    repair_prompt = f"""Repair one failed translation segment.
 
 Source language: {source_language}
 Target language: {target_language}
+Failure reason: {last_issue}
+Repair strategy: {repair_style}
+
+{repair_instruction}
 
 Requirements:
-- Translate the complete meaning.
+- Preserve the complete meaning.
 - Do NOT copy the source sentence.
 - Do NOT leave full sentences in English or Chinese unless they are unavoidable proper nouns.
-- The main body MUST be written in {target_language}.
-- Return exactly one JSON object:
+- Return exactly one JSON object and exactly one segment id.
+- The translated text must be usable directly by {target_language} TTS.
+
+JSON:
 {{"segments":[{{"id":{raw['id']},"text":"translation","review_required":false,"notes":""}}]}}
 
 Source segment:
 {json.dumps(raw["text"], ensure_ascii=False)}
 """
 
-                    parsed_repair = _generate_parsed_json(
-                        tokenizer,
-                        model,
-                        [
-                            {
-                                "role": "system",
-                                "content": (
-                                    "You are a strict translation repair engine. "
-                                    f"Output only {target_language} translation JSON."
-                                ),
-                            },
-                            {"role": "user", "content": repair_prompt},
-                        ],
-                        max_new_tokens=1800,
-                        label=(
-                            f"TRANSLATE:{target_code} repair "
-                            f"segment {raw['id']} attempt {repair_attempt}"
-                        ),
-                    )
+                    try:
+                        parsed_repair = _generate_parsed_json(
+                            tokenizer,
+                            model,
+                            [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "You are a strict translation repair engine. "
+                                        f"The final text must be written in {target_language}. "
+                                        f"Repair strategy={repair_style}."
+                                    ),
+                                },
+                                {"role": "user", "content": repair_prompt},
+                            ],
+                            max_new_tokens=1800,
+                            label=(
+                                f"TRANSLATE:{target_code} repair "
+                                f"segment {raw['id']} attempt {repair_attempt}"
+                            ),
+                        )
+                    except RuntimeError as repair_exc:
+                        last_issue = f"repair_generation_error:{type(repair_exc).__name__}"
+                        continue
 
                     repaired_item = _normalize_returned(
                         parsed_repair.get("segments")
@@ -557,15 +589,88 @@ Source segment:
                         item = repaired_item
                         print(
                             f"[TRANSLATE:{target_code}] segment "
-                            f"{raw['id']} 自動重翻成功。",
+                            f"{raw['id']} 第 {repair_attempt} 次自動重翻成功。",
                             flush=True,
                         )
                         break
 
+                # 第二層：前 3 種一般修復仍失敗時，改成極簡逐句強制翻譯。
+                if repaired is None:
+                    for force_attempt in range(1, 3):
+                        force_mode = (
+                            "Translate sentence by sentence, then join the sentences."
+                            if force_attempt == 1
+                            else
+                            "Translate clause by clause with short simple sentences. "
+                            "Do not preserve source-language wording."
+                        )
+                        force_prompt = f"""STRICT FALLBACK TRANSLATION.
+
+Translate the source below completely into {target_language}.
+{force_mode}
+
+Hard rules:
+1. The final answer MUST be in {target_language}.
+2. Do not output any full English or Chinese sentence.
+3. Proper nouns and numbers may remain unchanged.
+4. Do not summarize or omit content.
+5. Output JSON only.
+
+{{"segments":[{{"id":{raw['id']},"text":"FULL {target_language} TRANSLATION","review_required":false,"notes":"strict_fallback"}}]}}
+
+SOURCE:
+{json.dumps(raw["text"], ensure_ascii=False)}
+"""
+                        try:
+                            parsed_force = _generate_parsed_json(
+                                tokenizer,
+                                model,
+                                [
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            f"Translate strictly into {target_language}. "
+                                            "No explanation. No source-language sentences."
+                                        ),
+                                    },
+                                    {"role": "user", "content": force_prompt},
+                                ],
+                                max_new_tokens=2200,
+                                label=(
+                                    f"TRANSLATE:{target_code} strict-fallback "
+                                    f"segment {raw['id']} attempt {force_attempt}"
+                                ),
+                            )
+                        except RuntimeError as force_exc:
+                            last_issue = f"strict_generation_error:{type(force_exc).__name__}"
+                            continue
+
+                        force_item = _normalize_returned(
+                            parsed_force.get("segments")
+                        ).get(raw["id"], {})
+                        force_text = str(force_item.get("text") or "").strip()
+                        last_issue = _translation_quality_issue(
+                            force_text,
+                            raw["text"],
+                            target_code,
+                        )
+
+                        if not last_issue:
+                            repaired = force_item
+                            text = force_text
+                            item = force_item
+                            print(
+                                f"[TRANSLATE:{target_code}] segment "
+                                f"{raw['id']} 第二層強制修復成功 "
+                                f"({force_attempt}/2)。",
+                                flush=True,
+                            )
+                            break
+
                 if repaired is None:
                     raise RuntimeError(
                         f"{target_language} segment {raw['id']} "
-                        f"連續重翻後仍未通過語言檢查：{last_issue}"
+                        f"3 次重翻 + 2 次強制修復後仍未通過語言檢查：{last_issue}"
                     )
 
             review_required = bool(item.get("review_required", False)) or missing
