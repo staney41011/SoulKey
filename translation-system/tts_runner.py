@@ -70,16 +70,38 @@ def update_audio_status(sheets, row, status, note):
 
 
 def load_translation_from_drive(drive, folder_id, lang, workdir):
-    name = f"{lang}.json"
-    item = find_file(drive, folder_id, name)
+    # English 已經有人工 Final，TTS 必須讀 en.final.json。
+    # 其他目標語言則直接讀 AI 翻譯輸出的 <lang>.json。
+    candidates = (
+        ["en.final.json", "en.json"]
+        if lang == "en"
+        else [f"{lang}.json"]
+    )
+
+    item = None
+    selected_name = ""
+    for name in candidates:
+        item = find_file(drive, folder_id, name)
+        if item:
+            selected_name = name
+            break
+
     if not item:
-        raise RuntimeError(f"找不到翻譯檔 {name}")
-    path = workdir / name
+        raise RuntimeError(
+            "找不到翻譯檔：" + " / ".join(candidates)
+        )
+
+    path = workdir / selected_name
     download_drive_file(drive, item["id"], path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     segments = payload.get("segments") or []
     if not segments:
-        raise RuntimeError(f"{name} 沒有 segments")
+        raise RuntimeError(f"{selected_name} 沒有 segments")
+
+    print(
+        f"[TTS:{lang}] 使用翻譯稿：{selected_name}",
+        flush=True,
+    )
     return segments
 
 
