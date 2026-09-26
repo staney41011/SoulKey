@@ -128,7 +128,8 @@ jobs:
               exit 0
             fi
             if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
-              exit 1
+              echo "Kaggle kernel ended with an error state; downloading outputs for diagnosis."
+              exit 0
             fi
             sleep 10
           done
@@ -142,7 +143,13 @@ jobs:
           set -euo pipefail
           OUT="$RUNNER_TEMP/gemini-shadow-output"
           mkdir -p "$OUT"
-          kaggle kernels output cwlmrcsir/soulkey-gemini-shadow-smoke -p "$OUT" -o
+          kaggle kernels output cwlmrcsir/soulkey-gemini-shadow-smoke -p "$OUT" -o || true
+          echo "Downloaded files:"
+          find "$OUT" -maxdepth 2 -type f -print
+          if [ ! -f "$OUT/gemini_smoke_result.json" ]; then
+            echo "gemini_smoke_result.json was not produced."
+            exit 2
+          fi
           cat "$OUT/gemini_smoke_result.json"
           python - "$OUT/gemini_smoke_result.json" <<'PY'
           import json, sys
