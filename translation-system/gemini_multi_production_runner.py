@@ -1,0 +1,646 @@
+import argparse
+import json
+import os
+import re
+import sys
+import time
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+
+from config import COL, GLOSSARY_FULL_RANGE, SPREADSHEET_ID, TASK_SHEET_RANGE
+from gemini_checkpoint import load_persistent_checkpoint, save_persistent_checkpoint
+from gemini_engine import DEFAULT_TEXT_MODEL, GeminiClient, local_language_issue, normalize_segments
+from google_io import (
+    build_google_services,
+    download_drive_file,
+    find_file,
+    get_secret,
+    read_values,
+    update_cells,
+    upload_or_replace_file,
+)
+from lesson_paths import digits, resolve_lesson_folders
+from status_io import new_run_id, mark_done, mark_error, mark_running
+
+
+LANGS = ["th", "es", "id", "vi", "sd", "ta"]
+LANGUAGE_NAMES = {
+    "th": "Thai",
+    "es": "Spanish",
+    "id": "Indonesian",
+    "vi": "Vietnamese",
+    "sd": "Sindhi",
+    "ta": "Tamil",
+}
+LEGACY_COLS = {"th": "K", "es": "L", "id": "M", "vi": "N"}
+REPAIR_MODEL = os.getenv("GEMINI_REPAIR_MODEL", "gemini-3.8-flash")
+
+MULTI_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "segments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "segment_id": {"type": "integer"},
+                    "th": {"type": "string"},
+                    "es": {"type": "string"},
+                    "id": {"type": "string"},
+                    "vi": {"type": "string"},
+                    "sd": {"type": "string"},
+                    "ta": {"type": "string"},
+                },
+                "required": ["segment_id", "th", "es", "id", "vi", "sd", "ta"],
+            },
+        }
+    },
+    "required": ["segments"],
+}
+
+QA_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "failures": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "segment_id": {"type": "integer"},
+                    "lang": {"type": "string"},
+                    "issue": {"type": "string"},
+                },
+                "required": ["segment_id", "lang", "issue"],
+            },
+        }
+    },
+    "required": ["failures"],
+}
+
+REPAIR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "repairs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "segment_id": {"type": "integer"},
+                    "lang": {"type": "string"},
+                    "text": {"type": "string"},
+                },
+                "required": ["segment_id", "lang", "text"],
+            },
+        }
+    },
+    "required": ["repairs"],
+}
+
+
+def pad_row(row, length=20):
+    return list(row) + [""] * max(0, length - len(row))
+
+
+def find_task(sheets, task_id):
+    for index, raw in enumerate(read_values(sheets, SPREADSHEET_ID, TASK_SHEET_RANGE), start=2):
+        row = pad_row(raw, 20)
+        if str(row[COL["task_id"]] or "").strip() == task_id:
+            return {
+                "sheet_row": index,
+                "task_id": task_id,
+                "period": digits(row[COL["period"]]),
+                "lesson": str(row[COL["lesson"]] or "").strip(),
+            }
+    return None
+
+
+def format_srt_time(seconds):
+    ms = max(0, int(round(float(seconds) * 1000)))
+    h, rem = divmod(ms, 3600000)
+    m, rem = divmod(rem, 60000)
+    s, milli = divmod(rem, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{milli:03d}"
+
+
+def write_language_set(output_dir, lang, source_segments, translations, model):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    by_id = {int(x["segment_id"]): x for x in translations}
+    segments = []
+    for src in source_segments:
+        sid = int(src["id"])
+        segments.append({
+            "id": sid,
+            "start": float(src["start"]),
+            "end": float(src["end"]),
+            "text": str(by_id[sid][lang]).strip(),
+        })
+
+    json_path = output_dir / f"{lang}.json"
+    txt_path = output_dir / f"{lang}.txt"
+    srt_path = output_dir / f"{lang}.srt"
+
+    json_path.write_text(
+        json.dumps(
+            {
+                "language": lang,
+                "language_name": LANGUAGE_NAMES[lang],
+                "engine": "gemini",
+                "model": model,
+                "source": "en.final.json",
+                "segments": segments,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    txt_path.write_text("\n".join(x["text"] for x in segments) + "\n", encoding="utf-8")
+
+    blocks = []
+    for order, seg in enumerate(segments, start=1):
+        blocks.append(
+            f"{order}\n"
+            f"{format_srt_time(seg['start'])} --> {format_srt_time(seg['end'])}\n"
+            f"{seg['text']}"
+        )
+    srt_path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+    return [json_path, txt_path, srt_path]
+
+
+def glossary_text(rows):
+    lines = []
+    for raw in rows or []:
+        row = list(raw) + [""] * max(0, 10 - len(raw))
+        zh = str(row[0] or "").strip()
+        en = str(row[3] or "").strip()
+        if not (zh or en):
+            continue
+        parts = [f"source={en or zh}"]
+        for code, idx in [("th", 4), ("es", 5), ("id", 6), ("vi", 7)]:
+            value = str(row[idx] or "").strip()
+            if value:
+                parts.append(f"{code}={value}")
+        locked = str(row[8] or "").strip().lower() in {"true", "1", "yes", "y", "是"}
+        if locked:
+            parts.append("LOCKED")
+        lines.append("- " + " | ".join(parts))
+    return "\n".join(lines[:120]) or "(no glossary entries)"
+
+
+def translation_prompt(batch, glossary):
+    payload = [{"segment_id": int(x["id"]), "english": x["text"]} for x in batch]
+    return f"""
+Translate every approved English segment into all six languages:
+th Thai, es Spanish, id Indonesian, vi Vietnamese, sd Sindhi, ta Tamil.
+
+Rules:
+- segment_id is the source segment number; id is Indonesian.
+- Preserve every idea, number, name, example, and logical relationship.
+- Do not summarize, merge, split, reorder, or add doctrine.
+- Produce natural language suitable for TTS.
+- Follow LOCKED glossary mappings when the target mapping exists.
+- Return every language for every segment.
+
+Glossary:
+{glossary}
+
+SOURCE:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+
+
+def qa_prompt(batch, rows):
+    by_id = {int(x["segment_id"]): x for x in rows}
+    payload = []
+    for src in batch:
+        sid = int(src["id"])
+        row = by_id[sid]
+        payload.append({
+            "segment_id": sid,
+            "en": src["text"],
+            **{lang: row[lang] for lang in LANGS},
+        })
+    return f"""
+Audit these six-language translations against the approved English source.
+Only report real failures: missing important meaning, materially wrong meaning,
+invented content, wrong target language, changed/missing important number,
+or serious glossary violation.
+Do not fail natural non-literal wording or harmless style differences.
+If everything passes return failures=[].
+
+DATA:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+
+
+def local_failures(batch, rows):
+    by_id = {int(x["segment_id"]): x for x in rows}
+    failures = []
+    for src in batch:
+        sid = int(src["id"])
+        english = str(src["text"])
+        numbers = re.findall(r"\d+(?:\.\d+)?", english)
+        for lang in LANGS:
+            target = str(by_id[sid].get(lang) or "").strip()
+            issues = []
+            issue = local_language_issue(target, english, lang)
+            if issue:
+                issues.append(issue)
+            for number in numbers:
+                if number not in target:
+                    issues.append(f"missing_number:{number}")
+            if issues:
+                failures.append({"segment_id": sid, "lang": lang, "issues": issues})
+    return failures
+
+
+def combine_failures(local_rows, semantic_rows):
+    combined = {}
+    for item in local_rows:
+        key = (int(item["segment_id"]), str(item["lang"]))
+        combined.setdefault(key, [])
+        for issue in item.get("issues") or []:
+            if issue not in combined[key]:
+                combined[key].append(str(issue))
+    for item in semantic_rows:
+        lang = str(item.get("lang") or "").strip()
+        if lang not in LANGS:
+            continue
+        key = (int(item["segment_id"]), lang)
+        combined.setdefault(key, [])
+        issue = str(item.get("issue") or "semantic_qa_fail")
+        if issue not in combined[key]:
+            combined[key].append(issue)
+    return combined
+
+
+def repair_failed_pairs(client, source_map, translations, failures, glossary):
+    if not failures:
+        return [], REPAIR_MODEL
+
+    repair_input = []
+    for (sid, lang), issues in sorted(failures.items()):
+        repair_input.append({
+            "segment_id": sid,
+            "lang": lang,
+            "language": LANGUAGE_NAMES[lang],
+            "english": source_map[sid]["text"],
+            "current_translation": translations[sid][lang],
+            "issues": issues,
+        })
+
+    prompt = f"""
+Repair only the listed failed translations.
+Preserve all English meaning, names, numbers, examples, and doctrine.
+Fix the stated QA issue. Do not explain. Keep segment_id and lang unchanged.
+Return only the requested repaired target-language text.
+
+Glossary:
+{glossary}
+
+FAILED PAIRS:
+{json.dumps(repair_input, ensure_ascii=False)}
+"""
+
+    model_used = REPAIR_MODEL
+    try:
+        parsed, _ = client.structured(
+            prompt,
+            REPAIR_SCHEMA,
+            system_instruction="You are a precise multilingual translation repair engine.",
+            model=REPAIR_MODEL,
+            thinking_level="low",
+        )
+    except Exception as exc:
+        print(
+            f"[REPAIR] {REPAIR_MODEL} 失敗，改用 {client.text_model}: {type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        model_used = client.text_model
+        parsed, _ = client.structured(
+            prompt,
+            REPAIR_SCHEMA,
+            system_instruction="You are a precise multilingual translation repair engine.",
+            model=client.text_model,
+            thinking_level="low",
+        )
+
+    repairs = parsed.get("repairs") or []
+    expected = {(x["segment_id"], x["lang"]) for x in repair_input}
+    got = {(int(x["segment_id"]), str(x["lang"])) for x in repairs}
+    if expected != got:
+        raise RuntimeError(f"Repair 回傳不完整：expected={expected}, got={got}")
+
+    for item in repairs:
+        sid = int(item["segment_id"])
+        lang = str(item["lang"])
+        text = str(item["text"] or "").strip()
+        if not text:
+            raise RuntimeError(f"Repair 回傳空文字：{sid}/{lang}")
+        translations[sid][lang] = text
+
+    return repairs, model_used
+
+
+def checkpoint_payload(task_id, source_count, translations, qa_batches, seq):
+    return {
+        "version": 2,
+        "task_id": task_id,
+        "engine": "gemini-production-multi",
+        "model": DEFAULT_TEXT_MODEL,
+        "source_segments": source_count,
+        "checkpoint_seq": seq,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "translations": [translations[k] for k in sorted(translations)],
+        "qa_batches": qa_batches,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task-id", required=True)
+    parser.add_argument("--langs", default="th,es,id,vi,sd,ta")
+    parser.add_argument("--batch-size", type=int, default=12)
+    parser.add_argument("--wait-seconds", type=int, default=15)
+    parser.add_argument("--reset-checkpoint", action="store_true")
+    args = parser.parse_args()
+
+    requested = [x.strip() for x in args.langs.split(",") if x.strip()]
+    if set(requested) != set(LANGS):
+        raise RuntimeError("Gemini production multi 目前固定一次產生 th,es,id,vi,sd,ta 六語")
+
+    drive, sheets = build_google_services()
+    task = find_task(sheets, args.task_id)
+    if not task:
+        raise RuntimeError(f"找不到任務：{args.task_id}")
+    if task["period"] is None or not task["lesson"]:
+        raise RuntimeError("任務缺少期數或堂次")
+
+    folders = resolve_lesson_folders(drive, sheets, int(task["period"]), task["lesson"])
+    workdir = Path("/kaggle/working/gemini-multi") / args.task_id
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    source_item = find_file(drive, folders["translation"], "en.final.json")
+    if not source_item:
+        raise RuntimeError("找不到 en.final.json；六語正式翻譯只接受 English Final")
+
+    source_path = workdir / "en.final.json"
+    download_drive_file(drive, source_item["id"], source_path)
+    source_segments = normalize_segments(json.loads(source_path.read_text(encoding="utf-8")))
+    source_map = {int(x["id"]): x for x in source_segments}
+    glossary = glossary_text(read_values(sheets, SPREADSHEET_ID, GLOSSARY_FULL_RANGE))
+
+    api_key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not api_key:
+        api_key = get_secret("GEMINI_API_KEY")
+    client = GeminiClient(
+        api_key=api_key,
+        text_model=DEFAULT_TEXT_MODEL,
+        max_attempts=1,
+        timeout=120,
+    )
+
+    run_id = new_run_id(args.task_id, "multi")
+    mark_running(
+        args.task_id,
+        "multi",
+        sheets=sheets,
+        run_id=run_id,
+        message="Gemini 六語翻譯 + QA 執行中",
+        progress=5,
+    )
+
+    try:
+        translations = {}
+        qa_batches = {}
+        seq = 0
+
+        if not args.reset_checkpoint:
+            checkpoint, source = load_persistent_checkpoint(
+                args.task_id,
+                drive=drive,
+                translation_folder_id=folders["translation"],
+                workdir=workdir,
+            )
+            if checkpoint and checkpoint.get("engine") == "gemini-production-multi":
+                for row in checkpoint.get("translations") or []:
+                    translations[int(row["segment_id"])] = row
+                qa_batches = dict(checkpoint.get("qa_batches") or {})
+                seq = int(checkpoint.get("checkpoint_seq") or 0)
+                print(
+                    f"[RESUME] {source}; translations={len(translations)}; qa={len(qa_batches)}",
+                    flush=True,
+                )
+
+        remaining = [x for x in source_segments if int(x["id"]) not in translations]
+        batches = [
+            remaining[i:i + args.batch_size]
+            for i in range(0, len(remaining), args.batch_size)
+        ]
+
+        for batch_no, batch in enumerate(batches, start=1):
+            ids = [int(x["id"]) for x in batch]
+            key = f"{ids[0]}-{ids[-1]}"
+            print(f"\n[BATCH {batch_no}/{len(batches)}] {ids[0]} -> {ids[-1]}", flush=True)
+
+            parsed, _ = client.structured(
+                translation_prompt(batch, glossary),
+                MULTI_SCHEMA,
+                system_instruction=(
+                    "You are the production multilingual translation engine for SoulKey."
+                ),
+                thinking_level="low",
+            )
+            rows = parsed.get("segments") or []
+            expected = sorted(ids)
+            got = sorted(int(x["segment_id"]) for x in rows)
+            if expected != got:
+                raise RuntimeError(f"Translation ids 不完整：expected={expected}, got={got}")
+
+            for row in rows:
+                sid = int(row["segment_id"])
+                for lang in LANGS:
+                    if not str(row.get(lang) or "").strip():
+                        raise RuntimeError(f"segment {sid} 缺少 {lang}")
+                translations[sid] = row
+
+            seq += 1
+            save_persistent_checkpoint(
+                args.task_id,
+                checkpoint_payload(args.task_id, len(source_segments), translations, qa_batches, seq),
+                drive=drive,
+                translation_folder_id=folders["translation"],
+                workdir=workdir,
+                require_persistent=True,
+            )
+            print("✅ Translation persistent checkpoint saved", flush=True)
+
+            local = local_failures(batch, rows)
+            if args.wait_seconds:
+                time.sleep(args.wait_seconds)
+
+            qa, _ = client.structured(
+                qa_prompt(batch, rows),
+                QA_SCHEMA,
+                system_instruction="You are an exacting multilingual translation QA engine.",
+                thinking_level="low",
+            )
+            semantic = qa.get("failures") or []
+            failures = combine_failures(local, semantic)
+
+            repairs = []
+            repair_model = ""
+            if failures:
+                if args.wait_seconds:
+                    time.sleep(args.wait_seconds)
+                repairs, repair_model = repair_failed_pairs(
+                    client, source_map, translations, failures, glossary
+                )
+                repaired_rows = [translations[sid] for sid in ids]
+                local2 = local_failures(batch, repaired_rows)
+                if args.wait_seconds:
+                    time.sleep(args.wait_seconds)
+                qa2, _ = client.structured(
+                    qa_prompt(batch, repaired_rows),
+                    QA_SCHEMA,
+                    system_instruction="Verify only the repaired multilingual translations.",
+                    thinking_level="low",
+                )
+                semantic2 = qa2.get("failures") or []
+                failures = combine_failures(local2, semantic2)
+                local = local2
+                semantic = semantic2
+
+            qa_batches[key] = {
+                "segment_ids": ids,
+                "local_failures": local,
+                "semantic_failures": semantic,
+                "repairs": repairs,
+                "repair_model": repair_model,
+                "unresolved": [
+                    {"segment_id": sid, "lang": lang, "issues": issues}
+                    for (sid, lang), issues in sorted(failures.items())
+                ],
+            }
+
+            seq += 1
+            save_persistent_checkpoint(
+                args.task_id,
+                checkpoint_payload(args.task_id, len(source_segments), translations, qa_batches, seq),
+                drive=drive,
+                translation_folder_id=folders["translation"],
+                workdir=workdir,
+                require_persistent=True,
+            )
+            print(
+                f"✅ QA checkpoint saved; unresolved={len(failures)}",
+                flush=True,
+            )
+
+            if failures:
+                raise RuntimeError(
+                    "Targeted Repair 後仍有翻譯 QA failure：" +
+                    json.dumps(qa_batches[key]["unresolved"], ensure_ascii=False)
+                )
+
+            if batch_no < len(batches) and args.wait_seconds:
+                time.sleep(args.wait_seconds)
+
+        missing = [int(x["id"]) for x in source_segments if int(x["id"]) not in translations]
+        if missing:
+            raise RuntimeError(f"仍有未翻譯 segments：{missing}")
+
+        unresolved = []
+        for data in qa_batches.values():
+            unresolved.extend(data.get("unresolved") or [])
+        if unresolved:
+            raise RuntimeError("既有 checkpoint 仍有 unresolved QA failure")
+
+        rows = [translations[int(x["id"])] for x in source_segments]
+        outdir = workdir / "final"
+        outdir.mkdir(parents=True, exist_ok=True)
+        for lang in LANGS:
+            for path in write_language_set(
+                outdir,
+                lang,
+                source_segments,
+                rows,
+                DEFAULT_TEXT_MODEL,
+            ):
+                upload_or_replace_file(
+                    drive,
+                    folders["translation"],
+                    path,
+                    path.name,
+                )
+
+        qa_path = outdir / "gemini.qa.json"
+        qa_path.write_text(
+            json.dumps(
+                {
+                    "task_id": args.task_id,
+                    "engine": "gemini",
+                    "model": DEFAULT_TEXT_MODEL,
+                    "qa_batches": qa_batches,
+                    "unresolved": [],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        upload_or_replace_file(drive, folders["translation"], qa_path, qa_path.name)
+
+        updates = {
+            f"任務佇列!S{task['sheet_row']}": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            f"任務佇列!T{task['sheet_row']}": (
+                f"Gemini六語翻譯+QA完成；{len(source_segments)}段；QA unresolved=0"
+            ),
+        }
+        for lang, col in LEGACY_COLS.items():
+            updates[f"任務佇列!{col}{task['sheet_row']}"] = "完成"
+        update_cells(sheets, SPREADSHEET_ID, updates)
+
+        final_cp = checkpoint_payload(
+            args.task_id,
+            len(source_segments),
+            translations,
+            qa_batches,
+            seq + 1,
+        )
+        final_cp["status"] = "complete"
+        save_persistent_checkpoint(
+            args.task_id,
+            final_cp,
+            drive=drive,
+            translation_folder_id=folders["translation"],
+            workdir=workdir,
+            require_persistent=True,
+        )
+
+        mark_done(
+            args.task_id,
+            "multi",
+            sheets=sheets,
+            run_id=run_id,
+            message="Gemini 六語翻譯 + QA 完成；unresolved=0",
+        )
+        print("[DONE] Gemini 六語正式翻譯完成；QA unresolved=0", flush=True)
+        return 0
+
+    except Exception as exc:
+        mark_error(
+            args.task_id,
+            "multi",
+            sheets=sheets,
+            run_id=run_id,
+            exc=exc,
+        )
+        print(f"[ERROR] {type(exc).__name__}: {exc}", file=sys.stderr)
+        traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
