@@ -585,6 +585,7 @@ function workerRuntime_(nonce) {
     task_id: job.task_id,
     stage: job.stage,
     google_access_token: ScriptApp.getOAuthToken(),
+    gemini_api_key: String(props.getProperty("GEMINI_API_KEY") || ""),
     youtube_cookies_b64: String(props.getProperty("YOUTUBE_COOKIES_B64") || ""),
     expires_at: job.expires_at
   };
