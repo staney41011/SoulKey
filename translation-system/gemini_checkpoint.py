@@ -117,9 +117,18 @@ def publish_github_checkpoint(task_id: str, payload):
         result = json.loads(response.read().decode("utf-8"))
 
     if not result.get("ok"):
+        detail = (
+            result.get("message")
+            or result.get("error")
+            or result
+        )
+        status = result.get("github_status")
+        body = result.get("github_body")
         raise RuntimeError(
             "GitHub checkpoint 發佈失敗："
-            + str(result.get("message") or result.get("error") or result)
+            + str(detail)
+            + (f"；status={status}" if status else "")
+            + (f"；body={body}" if body else "")
         )
 
     print(
@@ -251,10 +260,24 @@ def save_persistent_checkpoint(
         )
         persistent_ok = True
 
-    github_result = publish_github_checkpoint(task_id, payload)
-    result["github"] = github_result
-    if github_result.get("ok"):
-        persistent_ok = True
+    try:
+        github_result = publish_github_checkpoint(task_id, payload)
+        result["github"] = github_result
+        if github_result.get("ok"):
+            persistent_ok = True
+    except Exception as exc:
+        # GitHub is a secondary mirror. A successful Drive checkpoint is already
+        # durable and must never be turned into a failed translation job merely
+        # because the GitHub mirror could not be updated.
+        result["github"] = {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        print(
+            "[CHECKPOINT] GitHub mirror 更新失敗，但 Drive checkpoint 已保留："
+            + str(exc),
+            flush=True,
+        )
 
     if require_persistent and not persistent_ok:
         raise RuntimeError(
