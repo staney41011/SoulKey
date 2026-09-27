@@ -11,8 +11,9 @@ from typing import Callable
 
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-DEFAULT_TEXT_MODEL = os.getenv("GEMINI_TEXT_MODEL", "gemini-3.8-flash")
-DEFAULT_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts")
+DEFAULT_TEXT_MODEL = os.getenv("GEMINI_TEXT_MODEL", "gemini-3.1-flash-lite")
+DEFAULT_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts")
+DEFAULT_VIDEO_MODEL = os.getenv("GEMINI_VIDEO_MODEL", "gemini-3.8-flash")
 
 LANGUAGE_NAMES = {
     "en": "English",
@@ -265,6 +266,59 @@ class GeminiClient:
         except json.JSONDecodeError as exc:
             raise GeminiAPIError(
                 f"Gemini Structured Output 無法解析：{exc}"
+            ) from exc
+
+        return parsed, self.usage(response)
+
+    def structured_video(
+        self,
+        youtube_url,
+        prompt,
+        schema,
+        *,
+        model=None,
+        thinking_level="low",
+        processing=None,
+    ):
+        """Structured Gemini response over a public YouTube URL.
+
+        Used only as a content-understanding/transcription engine. Whether a
+        real YouTube caption track exists is still determined by YouTube I/O,
+        not inferred by Gemini.
+        """
+        video = {
+            "type": "video",
+            "uri": str(youtube_url),
+        }
+        if processing:
+            video["processing"] = str(processing)
+
+        payload = {
+            "model": model or DEFAULT_VIDEO_MODEL,
+            "input": [
+                video,
+                {"type": "text", "text": str(prompt)},
+            ],
+            "response_format": {
+                "type": "text",
+                "mime_type": "application/json",
+                "schema": schema,
+            },
+            "generation_config": {
+                "thinking_level": thinking_level,
+            },
+        }
+
+        response = self._request(payload)
+        content = self._last_content(response, "text")
+        if not content or not str(content.get("text") or "").strip():
+            raise GeminiAPIError("Gemini Video Structured Output 沒有文字輸出")
+
+        try:
+            parsed = json.loads(content["text"])
+        except json.JSONDecodeError as exc:
+            raise GeminiAPIError(
+                f"Gemini Video Structured Output 無法解析：{exc}"
             ) from exc
 
         return parsed, self.usage(response)
