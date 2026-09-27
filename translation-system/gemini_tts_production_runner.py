@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -38,6 +39,7 @@ LANGUAGE_NAMES = {
 }
 VOICE = os.getenv("GEMINI_TTS_VOICE", "Kore")
 MAX_CHARS = int(os.getenv("GEMINI_TTS_MAX_CHARS", "3500"))
+TTS_CHECKPOINT_VERSION = 1
 
 
 def pad_row(row, length=20):
@@ -55,6 +57,72 @@ def find_task(sheets, task_id):
                 "lesson": str(row[COL["lesson"]] or "").strip(),
             }
     return None
+
+
+def source_fingerprint(segments):
+    payload = [
+        {
+            "id": int(seg.get("id", i)),
+            "text": re.sub(r"\\s+", " ", str(seg.get("text") or "")).strip(),
+        }
+        for i, seg in enumerate(segments)
+    ]
+    raw = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def tts_checkpoint_name(lang):
+    return f"{lang}.tts_checkpoint.json"
+
+
+def tts_part_name(lang, index):
+    return f"{lang}.tts.part.{int(index):04d}.wav"
+
+
+def existing_final_tts(drive, audio_folder_id, lang):
+    names = [
+        f"{lang}.wav",
+        f"{lang}.mp3",
+        f"{lang}.tts_manifest.json",
+    ]
+    found = [find_file(drive, audio_folder_id, name) for name in names]
+    return all(found)
+
+
+def load_tts_checkpoint(drive, audio_folder_id, lang, local_dir):
+    item = find_file(drive, audio_folder_id, tts_checkpoint_name(lang))
+    if not item:
+        return None
+
+    path = local_dir / tts_checkpoint_name(lang)
+    download_drive_file(drive, item["id"], path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    if int(payload.get("version") or 0) != TTS_CHECKPOINT_VERSION:
+        return None
+    return payload
+
+
+def save_tts_checkpoint(drive, audio_folder_id, lang, local_dir, payload):
+    path = local_dir / tts_checkpoint_name(lang)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    upload_or_replace_file(
+        drive,
+        audio_folder_id,
+        path,
+        tts_checkpoint_name(lang),
+    )
 
 
 def load_segments(drive, folder_id, lang, workdir):
@@ -195,16 +263,79 @@ def wav_to_mp3(wav_path, mp3_path):
     )
 
 
-def synthesize_language(client, lang, segments, outdir):
+def synthesize_language(
+    client,
+    lang,
+    segments,
+    outdir,
+    *,
+    drive,
+    audio_folder_id,
+):
     lang_dir = outdir / f"tts-{lang}"
     chunk_dir = lang_dir / f"{lang}_segments"
     chunk_dir.mkdir(parents=True, exist_ok=True)
 
     chunks = split_text_segments(segments)
+    fingerprint = source_fingerprint(segments)
+    checkpoint = load_tts_checkpoint(
+        drive,
+        audio_folder_id,
+        lang,
+        lang_dir,
+    )
+
+    completed = {}
+    if (
+        checkpoint
+        and checkpoint.get("source_fingerprint") == fingerprint
+        and checkpoint.get("model") == DEFAULT_TTS_MODEL
+        and checkpoint.get("voice") == VOICE
+        and int(checkpoint.get("chunk_count") or 0) == len(chunks)
+    ):
+        for item in checkpoint.get("chunks") or []:
+            try:
+                completed[int(item["chunk"])] = item
+            except Exception:
+                continue
+        print(
+            f"[TTS:{lang}] resume checkpoint: "
+            f"{len(completed)}/{len(chunks)} chunks",
+            flush=True,
+        )
+    else:
+        checkpoint = {
+            "version": TTS_CHECKPOINT_VERSION,
+            "language": lang,
+            "model": DEFAULT_TTS_MODEL,
+            "voice": VOICE,
+            "source_fingerprint": fingerprint,
+            "chunk_count": len(chunks),
+            "chunks": [],
+            "status": "running",
+        }
+
     chunk_paths = []
     manifest_chunks = []
 
     for index, chunk in enumerate(chunks, start=1):
+        path = chunk_dir / f"{index:04d}.wav"
+        part_name = tts_part_name(lang, index)
+        cached = completed.get(index)
+
+        if cached:
+            item = find_file(drive, audio_folder_id, part_name)
+            if item:
+                download_drive_file(drive, item["id"], path)
+                chunk_paths.append(path)
+                manifest_chunks.append(cached)
+                print(
+                    f"[Gemini TTS:{lang}] chunk {index}/{len(chunks)} "
+                    "resume from Drive",
+                    flush=True,
+                )
+                continue
+
         text = "\n".join(x["text"] for x in chunk)
         style = (
             "calm, clear, warm educational lecture narration; "
@@ -222,10 +353,18 @@ def synthesize_language(client, lang, segments, outdir):
             style=style,
             model=DEFAULT_TTS_MODEL,
         )
-        path = chunk_dir / f"{index:04d}.wav"
         path.write_bytes(audio)
-        chunk_paths.append(path)
-        manifest_chunks.append({
+
+        # Persist every successful TTS request immediately. A quota error or
+        # Kaggle reset must never force this audio chunk to be generated again.
+        upload_or_replace_file(
+            drive,
+            audio_folder_id,
+            path,
+            part_name,
+        )
+
+        entry = {
             "chunk": index,
             "first_segment_id": chunk[0]["id"],
             "last_segment_id": chunk[-1]["id"],
@@ -233,7 +372,27 @@ def synthesize_language(client, lang, segments, outdir):
             "mime_type": mime,
             "tokens": usage.total_tokens,
             "file": path.name,
-        })
+            "drive_file": part_name,
+        }
+        completed[index] = entry
+        manifest_chunks.append(entry)
+
+        checkpoint["chunks"] = [
+            completed[key] for key in sorted(completed)
+        ]
+        checkpoint["status"] = "running"
+        save_tts_checkpoint(
+            drive,
+            audio_folder_id,
+            lang,
+            lang_dir,
+            checkpoint,
+        )
+        print(
+            f"✅ [TTS:{lang}] chunk {index} persistent checkpoint saved",
+            flush=True,
+        )
+        chunk_paths.append(path)
 
     target_duration = max(float(x.get("end") or 0) for x in segments)
     wav_path = lang_dir / f"{lang}.wav"
@@ -252,6 +411,7 @@ def synthesize_language(client, lang, segments, outdir):
         "engine": "gemini",
         "model": DEFAULT_TTS_MODEL,
         "voice": VOICE,
+        "source_fingerprint": fingerprint,
         "timeline_aligned": False,
         "duration_policy": "natural_speech_no_speed_change",
         "target_duration": round(target_duration, 3),
@@ -272,6 +432,17 @@ def synthesize_language(client, lang, segments, outdir):
         for path in chunk_paths:
             zf.write(path, arcname=path.name)
 
+    checkpoint["chunks"] = manifest_chunks
+    checkpoint["status"] = "complete"
+    checkpoint["manifest"] = manifest
+    save_tts_checkpoint(
+        drive,
+        audio_folder_id,
+        lang,
+        lang_dir,
+        checkpoint,
+    )
+
     return {
         "wav": wav_path,
         "mp3": mp3_path,
@@ -285,6 +456,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--langs", required=True)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="重新生成即使 Drive 已有完整 TTS 成果",
+    )
     args = parser.parse_args()
 
     langs = list(dict.fromkeys(x.strip() for x in args.langs.split(",") if x.strip()))
@@ -337,6 +513,24 @@ def main():
 
         for lang in langs:
             lang_run = new_run_id(args.task_id, f"tts:{lang}")
+
+            if (
+                not args.force
+                and existing_final_tts(drive, folders["audio"], lang)
+            ):
+                print(
+                    f"[TTS:{lang}] Drive 已有完整 wav/mp3/manifest，略過重做",
+                    flush=True,
+                )
+                completed.append(lang)
+                mark_done(
+                    args.task_id,
+                    f"tts:{lang}",
+                    sheets=sheets,
+                    run_id=lang_run,
+                    message=f"Gemini {LANGUAGE_NAMES[lang]} TTS 已存在，略過重做",
+                )
+                continue
             mark_running(
                 args.task_id,
                 f"tts:{lang}",
@@ -357,6 +551,8 @@ def main():
                 lang,
                 segments,
                 workdir,
+                drive=drive,
+                audio_folder_id=folders["audio"],
             )
             for key in ("wav", "mp3", "manifest", "segments_zip"):
                 path = result[key]
