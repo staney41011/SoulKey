@@ -196,10 +196,16 @@ def main():
         os.environ["SOULKEY_RUNTIME_NONCE"] = args.runtime_nonce
 
         gemini_api_key = str(runtime.get("gemini_api_key") or "").strip()
+        gemini_stages = {
+            "zh", "asr", "polish", "vernacular",
+            "en", "multi", "tts", "finish"
+        }
         if gemini_api_key:
             os.environ["GEMINI_API_KEY"] = gemini_api_key
             print("[RUNTIME] Gemini API Key：Apps Script 已提供", flush=True)
-        elif args.stage in {"multi", "finish"}:
+        elif args.stage in gemini_stages and not (
+            args.stage == "en" and args.lang == "cc-refresh"
+        ):
             raise RuntimeError(
                 "Apps Script 尚未設定 GEMINI_API_KEY；"
                 "請在 Script Properties 新增後重新部署 Web App。"
@@ -233,23 +239,23 @@ def main():
         else:
             print("[BOOT] SoulKey 已由 Kaggle bootstrap 同步，略過第二次 git pull。", flush=True)
 
+        gemini_stages = {
+            "zh", "asr", "polish", "vernacular",
+            "en", "multi", "tts", "finish"
+        }
+        requirements_file = (
+            system_dir / "requirements-gemini.txt"
+            if args.stage in gemini_stages
+            and not (args.stage == "en" and args.lang == "cc-refresh")
+            else system_dir / "requirements.txt"
+        )
         run([
             sys.executable, "-m", "pip", "install",
             "--disable-pip-version-check", "-q",
-            "-r", str(system_dir / "requirements.txt"),
+            "-r", str(requirements_file),
         ])
 
-        if args.stage != "cc":
-            require_gpu_runtime(args.stage)
-        else:
-            print("[CC] 補抓字幕不需要 GPU。", flush=True)
-
-        needs_youtube_runtime = (
-            args.stage in {"zh", "metadata", "asr"}
-            or (args.stage == "en" and args.lang == "cc-refresh")
-            or args.stage == "cc"
-        )
-        if needs_youtube_runtime:
+        def prepare_youtube_runtime():
             print(
                 "[YouTube] 準備 Deno + EJS + bgutil Subs POT + WPC runtime。",
                 flush=True,
@@ -259,7 +265,19 @@ def main():
             run([sys.executable, str(system_dir / "setup_youtube_runtime.py")])
             run([sys.executable, str(system_dir / "setup_wpc_provider.py")])
 
-        if args.stage in {"zh", "metadata"}:
+        def run_local_asr_fallback():
+            print(
+                "[GEMINI] YouTube transcript 失敗；"
+                "啟動 Taiwan-Breeze ASR 最後 fallback。",
+                flush=True,
+            )
+            run([
+                sys.executable, "-m", "pip", "install",
+                "--disable-pip-version-check", "-q",
+                "-r", str(system_dir / "requirements.txt"),
+            ])
+            require_gpu_runtime("asr")
+            prepare_youtube_runtime()
             prepare_asr_runtime()
             run([
                 sys.executable, str(system_dir / "runner.py"),
@@ -268,77 +286,102 @@ def main():
                 "--max-tasks", "1",
                 "--force-asr",
             ])
+
+        if args.stage == "cc" or (
+            args.stage == "en" and args.lang == "cc-refresh"
+        ):
+            prepare_youtube_runtime()
+
+        if args.stage == "zh":
+            try:
+                run([
+                    sys.executable, str(system_dir / "gemini_source_runner.py"),
+                    "--task-id", args.task_id,
+                    "--force",
+                ])
+            except subprocess.CalledProcessError:
+                run_local_asr_fallback()
+
             run([
-                sys.executable, str(system_dir / "polish_runner.py"),
+                sys.executable,
+                str(system_dir / "gemini_text_production_runner.py"),
                 "--task-id", args.task_id,
-                "--max-tasks", "1",
-                "--force",
+                "--stage", "polish",
             ])
             report(
                 args.bridge_url,
                 args.runtime_nonce,
                 "needs_review",
-                "中文逐字稿與 AI 中文校稿完成，待人工中文定稿",
+                "Gemini逐字稿/校稿完成，待人工中文定稿",
             )
             cmd = None
-        elif args.stage == "asr":
-            prepare_asr_runtime()
+
+        elif args.stage == "metadata":
             cmd = [
                 sys.executable, str(system_dir / "runner.py"),
                 "--task-id", args.task_id,
-                "--stage", "asr",
+                "--stage", "metadata",
                 "--max-tasks", "1",
-                "--force-asr",
+                "--force-metadata",
             ]
+
+        elif args.stage == "asr":
+            try:
+                run([
+                    sys.executable, str(system_dir / "gemini_source_runner.py"),
+                    "--task-id", args.task_id,
+                    "--force",
+                ])
+                cmd = None
+            except subprocess.CalledProcessError:
+                run_local_asr_fallback()
+                cmd = None
+
         elif args.stage == "polish":
             cmd = [
-                sys.executable, str(system_dir / "polish_runner.py"),
+                sys.executable,
+                str(system_dir / "gemini_text_production_runner.py"),
                 "--task-id", args.task_id,
-                "--max-tasks", "1",
-                "--force",
+                "--stage", "polish",
             ]
+
         elif args.stage == "vernacular":
             cmd = [
-                sys.executable, str(system_dir / "translate_runner.py"),
+                sys.executable,
+                str(system_dir / "gemini_text_production_runner.py"),
                 "--task-id", args.task_id,
-                "--stage", "modernize",
-                "--max-tasks", "1",
-                "--force",
+                "--stage", "vernacular",
             ]
+
         elif args.stage == "cc":
             cmd = [
                 sys.executable, str(system_dir / "cc_runner.py"),
                 "--task-id", args.task_id,
             ]
+
         elif args.stage == "en" and args.lang == "cc-refresh":
             print("[CC] 使用相容模式：stage=en / lang=cc-refresh", flush=True)
             cmd = [
                 sys.executable, str(system_dir / "cc_runner.py"),
                 "--task-id", args.task_id,
             ]
+
         elif args.stage == "en":
             cmd = [
-                sys.executable, str(system_dir / "translate_runner.py"),
+                sys.executable,
+                str(system_dir / "gemini_text_production_runner.py"),
                 "--task-id", args.task_id,
-                "--stage", "translate",
-                "--lang", "en",
-                "--max-tasks", "1",
-                "--force",
+                "--stage", "en",
             ]
+
         elif args.stage == "multi":
-            langs = ",".join(
-                x.strip() for x in args.langs.split(",") if x.strip()
-            )
-            if not langs:
-                raise RuntimeError("各國語言翻譯沒有指定任何 AI 語言")
             cmd = [
-                sys.executable, str(system_dir / "translate_runner.py"),
+                sys.executable,
+                str(system_dir / "gemini_multi_production_runner.py"),
                 "--task-id", args.task_id,
-                "--stage", "translate-targets",
-                "--langs", langs,
-                "--max-tasks", "1",
-                "--force",
+                "--langs", "th,es,id,vi,sd,ta",
             ]
+
         elif args.stage == "tts":
             langs = ",".join(
                 x.strip() for x in args.langs.split(",") if x.strip()
@@ -346,12 +389,12 @@ def main():
             if not langs:
                 raise RuntimeError("TTS 沒有指定任何語言")
             cmd = [
-                sys.executable, str(system_dir / "tts_runner.py"),
+                sys.executable,
+                str(system_dir / "gemini_tts_production_runner.py"),
                 "--task-id", args.task_id,
                 "--langs", langs,
-                "--max-tasks", "1",
-                "--force",
             ]
+
         elif args.stage == "finish":
             translate_langs = ",".join(
                 x.strip() for x in args.langs.split(",") if x.strip()
@@ -362,21 +405,18 @@ def main():
 
             if translate_langs:
                 run([
-                    sys.executable, str(system_dir / "translate_runner.py"),
+                    sys.executable,
+                    str(system_dir / "gemini_multi_production_runner.py"),
                     "--task-id", args.task_id,
-                    "--stage", "translate-targets",
-                    "--langs", translate_langs,
-                    "--max-tasks", "1",
-                    "--force",
+                    "--langs", "th,es,id,vi,sd,ta",
                 ])
 
             if audio_langs:
                 run([
-                    sys.executable, str(system_dir / "tts_runner.py"),
+                    sys.executable,
+                    str(system_dir / "gemini_tts_production_runner.py"),
                     "--task-id", args.task_id,
                     "--langs", audio_langs,
-                    "--max-tasks", "1",
-                    "--force",
                 ])
 
             if not translate_langs and not audio_langs:
@@ -386,14 +426,12 @@ def main():
                 args.bridge_url,
                 args.runtime_nonce,
                 "done",
-                "快速上線流程完成；翻譯="
+                "Gemini快速上線流程完成；翻譯="
                 + (translate_langs or "無")
                 + "；音檔="
                 + (audio_langs or "無"),
             )
             cmd = None
-        else:
-            raise RuntimeError("不支援的 stage")
 
         if cmd:
             run(cmd)
