@@ -145,3 +145,45 @@ Taiwan Breeze ASR
 4. P4 中文第二層語意校稿 + 資料庫術語 RAG
 
 每完成一項先用 P254-L03 做回歸測試，再擴到新課程。
+
+
+## 2026-09-27 — Gemini-first production ownership
+
+SoulKey production now routes every AI-capable stage to Gemini by default.
+
+### Gemini-owned stages
+
+- Public YouTube understanding / Traditional Chinese transcript:
+  `gemini_source_runner.py` using `gemini-3.8-flash`.
+  If the Gemini YouTube path fails, Taiwan-Breeze ASR remains an emergency fallback.
+- Chinese semantic polish:
+  `gemini_text_production_runner.py --stage polish`.
+- Vernacular Traditional Chinese rewrite:
+  `gemini_text_production_runner.py --stage vernacular`.
+- English draft translation:
+  `gemini_text_production_runner.py --stage en`.
+- Six-language translation from approved `en.final.json`:
+  `gemini_multi_production_runner.py`.
+- Multilingual semantic QA and targeted repair:
+  built into `gemini_multi_production_runner.py`.
+- Multilingual TTS:
+  `gemini_tts_production_runner.py` using
+  `gemini-3.8-flash-lite-tts`.
+
+### Non-Gemini responsibilities kept intentionally
+
+- YouTube metadata / real caption-track existence: deterministic YouTube I/O.
+- Human Final gates: Chinese, vernacular, and English approval remain human.
+- Structural/local QA: Python validates IDs, missing text, scripts, and numbers.
+- Google Drive / Sheets / checkpoint / status management: infrastructure code.
+- Taiwan-Breeze: emergency ASR fallback only.
+
+### Default models
+
+- Bulk text work: `gemini-3.1-flash-lite`
+- YouTube video understanding: `gemini-3.8-flash`
+- Targeted stronger repair: `gemini-3.8-flash` with Flash-Lite fallback
+- TTS: `gemini-3.8-flash-lite-tts`
+
+The web worker routes these stages to Gemini by default. Only `zh/asr`
+retain GPU allocation because the local ASR emergency fallback may need CUDA.
