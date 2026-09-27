@@ -1,3 +1,5 @@
-# Gemini Shadow only. Production Qwen/Kaggle requirements stay unchanged.
-# The first Shadow implementation talks to the Interactions REST API with stdlib urllib,
-# so this file is intentionally minimal and reserved for future SDK-only features.
+# Gemini-first production runtime.
+# Keep this small: Gemini text/video/TTS calls use stdlib urllib via gemini_engine.py.
+google-api-python-client
+google-auth
+google-auth-httplib2
