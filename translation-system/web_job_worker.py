@@ -195,6 +195,16 @@ def main():
         os.environ["SOULKEY_BRIDGE_URL"] = args.bridge_url
         os.environ["SOULKEY_RUNTIME_NONCE"] = args.runtime_nonce
 
+        gemini_api_key = str(runtime.get("gemini_api_key") or "").strip()
+        if gemini_api_key:
+            os.environ["GEMINI_API_KEY"] = gemini_api_key
+            print("[RUNTIME] Gemini API Key：Apps Script 已提供", flush=True)
+        elif args.stage in {"multi", "finish"}:
+            raise RuntimeError(
+                "Apps Script 尚未設定 GEMINI_API_KEY；"
+                "請在 Script Properties 新增後重新部署 Web App。"
+            )
+
         cookies = str(runtime.get("youtube_cookies_b64") or "").strip()
         if cookies:
             os.environ["YOUTUBE_COOKIES_B64"] = cookies
