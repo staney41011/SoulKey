@@ -215,7 +215,7 @@ jobs:
           FINAL_STATUS="UNKNOWN"
           MAX_ATTEMPTS=1
 
-          if [[ "$STAGE" =~ ^(zh|asr|tts)$ ]] || { [[ "$STAGE" == "finish" ]] && [[ -n "$LANG" ]]; }; then
+          if [[ "$STAGE" =~ ^(zh|asr|tts|batch)$ ]] || { [[ "$STAGE" == "finish" ]] && [[ -n "$LANG" ]]; }; then
             MAX_ATTEMPTS=3
           fi
 
@@ -224,7 +224,10 @@ jobs:
             echo "Kaggle attempt $ATTEMPT / $MAX_ATTEMPTS"
             echo "============================================================"
 
-            if [[ "$STAGE" =~ ^(zh|asr|tts)$ ]] || { [[ "$STAGE" == "finish" ]] && [[ -n "$LANG" ]]; }; then
+            if [[ "$STAGE" == "batch" ]]; then
+              echo "Launching Kaggle batch with NvidiaTeslaT4 accelerator; timeout=14400s"
+              kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
+            elif [[ "$STAGE" =~ ^(zh|asr|tts)$ ]] || { [[ "$STAGE" == "finish" ]] && [[ -n "$LANG" ]]; }; then
               echo "Launching Kaggle with NvidiaTeslaT4 accelerator; timeout=7200s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 7200
             else
@@ -233,7 +236,13 @@ jobs:
             fi
 
             ATTEMPT_STATUS="UNKNOWN"
-            for i in $(seq 1 720); do
+            if [[ "$STAGE" == "batch" ]]; then
+              POLL_LIMIT=1440
+            else
+              POLL_LIMIT=720
+            fi
+
+            for i in $(seq 1 "$POLL_LIMIT"); do
               STATUS="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
               echo "$STATUS"
 
