@@ -12,6 +12,8 @@ on:
       - "translation-system/gemini_multi_production_runner.py"
       - "translation-system/gemini_tts_production_runner.py"
       - "translation-system/web_job_worker.py"
+      - "translation-system/tts_runner.py"
+      - "translation-system/tts_engine.py"
 
 permissions:
   contents: read
@@ -36,7 +38,9 @@ jobs:
             translation-system/gemini_text_production_runner.py \
             translation-system/gemini_multi_production_runner.py \
             translation-system/gemini_tts_production_runner.py \
-            translation-system/web_job_worker.py
+            translation-system/web_job_worker.py \
+            translation-system/tts_runner.py \
+            translation-system/tts_engine.py
 
       - name: Live Gemini structured-output smoke
         if: ${{ env.GEMINI_API_KEY != '' }}
