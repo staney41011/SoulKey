@@ -154,9 +154,10 @@ SoulKey production now routes every AI-capable stage to Gemini by default.
 
 ### Gemini-owned stages
 
-- Public YouTube understanding / Traditional Chinese transcript:
-  `gemini_source_runner.py` using `gemini-3.8-flash`.
-  If the Gemini YouTube path fails, Taiwan-Breeze ASR remains an emergency fallback.
+- Primary Traditional Chinese transcript:
+  Taiwan-Breeze ASR on Kaggle GPU, chosen specifically to retain Mandarin + Taigi
+  code-switching support. If Taiwan-Breeze fails, `gemini_source_runner.py`
+  may be used as an emergency source fallback.
 - Chinese semantic polish:
   `gemini_text_production_runner.py --stage polish`.
 - Vernacular Traditional Chinese rewrite:
@@ -178,7 +179,7 @@ SoulKey production now routes every AI-capable stage to Gemini by default.
 - Human Final gates: Chinese, vernacular, and English approval remain human.
 - Structural/local QA: Python validates IDs, missing text, scripts, and numbers.
 - Google Drive / Sheets / checkpoint / status management: infrastructure code.
-- Taiwan-Breeze: emergency ASR fallback only.
+- Taiwan-Breeze: primary production ASR.
 
 ### Default models
 
@@ -205,3 +206,17 @@ Final production split:
 - Meta MMS-TTS / VITS: default seven-language audio generation on Kaggle GPU.
 - Gemini TTS: optional high-quality mode only; never required for normal batch
   production and never allowed to block normal production because of API quota.
+
+
+## 2026-09-28 — Taiwan-Breeze-first production ASR
+
+The production source order is now:
+
+1. Taiwan-Breeze ASR on Kaggle GPU.
+2. Gemini YouTube understanding only as an emergency source fallback.
+3. Gemini semantic polish runs after the transcript is produced.
+4. Human Chinese Final remains the authoritative gate.
+
+This keeps Taigi / Mandarin code-switching support in the primary speech
+recognition path while reserving Gemini for semantic correction, translation,
+QA, and targeted repair.
