@@ -30,7 +30,53 @@ def _find_named_model(root: Path, dirname: str):
     return None
 
 
+def _convert_original_mms_model(language: str, output_dir: Path):
+    """Convert Meta's original MMS checkpoint to HF VITS format on demand."""
+    if _looks_like_hf_model(output_dir):
+        return str(output_dir)
+
+    print(
+        f"[TTS] 轉換 Meta MMS 原始 checkpoint：{language} -> {output_dir}",
+        flush=True,
+    )
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from transformers.models.vits.convert_original_checkpoint import (
+            convert_checkpoint,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "目前 transformers 套件缺少 MMS VITS checkpoint converter"
+        ) from exc
+
+    convert_checkpoint(
+        pytorch_dump_folder_path=str(output_dir),
+        language=language,
+    )
+    if not _looks_like_hf_model(output_dir):
+        raise RuntimeError(
+            f"Meta MMS {language} 轉換完成後找不到 config.json"
+        )
+    return str(output_dir)
+
+
 def resolve_tts_model(model_id: str):
+    original_prefix = "facebook/mms-tts/models/"
+    if model_id.startswith(original_prefix):
+        language = model_id[len(original_prefix):].strip("/")
+        if not language:
+            raise RuntimeError("MMS original model 缺少語言代碼")
+
+        dirname = f"mms-tts-{language}"
+        input_model = _find_named_model(Path("/kaggle/input"), dirname)
+        if input_model:
+            print(f"[TTS] 使用 Kaggle 永久 Input 模型：{input_model}")
+            return str(input_model)
+
+        working_model = Path("/kaggle/working/persistent-model") / dirname
+        return _convert_original_mms_model(language, working_model)
+
     dirname = model_id.rsplit("/", 1)[-1]
 
     input_model = _find_named_model(Path("/kaggle/input"), dirname)
