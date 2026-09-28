@@ -77,4 +77,8 @@ jobs:
           grep -q 'facebook/mms-tts/models/snd' translation-system/config.py
           grep -q 'run_taiwan_breeze_asr' translation-system/web_job_worker.py
           grep -q 'Taiwan-Breeze 為正式主 ASR' translation-system/web_job_worker.py
+          grep -q '"batch"' bridge/apps-script/Code.gs
+          grep -q '"batch"' translation-system/web_job_worker.py
+          grep -q 'gpu_stages = {"zh", "asr", "tts", "batch"}' .github/workflows/kaggle_web_job.yml
+          grep -q 'batch_full_runner.py' translation-system/web_job_worker.py
           grep -q 'facebook/mms-tts-tam' translation-system/config.py
