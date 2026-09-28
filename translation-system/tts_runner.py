@@ -1,6 +1,5 @@
 import argparse
 import json
-import re
 import sys
 import traceback
 from datetime import datetime
@@ -22,8 +21,17 @@ from google_io import (
     update_cells,
     upload_or_replace_file,
 )
-from runner import resolve_lesson_folders
-from translation_engine import LANGUAGE_NAMES
+from lesson_paths import digits, resolve_lesson_folders
+
+LANGUAGE_NAMES = {
+    "en": "English",
+    "th": "Thai",
+    "es": "Spanish",
+    "id": "Indonesian",
+    "vi": "Vietnamese",
+    "sd": "Sindhi",
+    "ta": "Tamil",
+}
 from tts_engine import synthesize_language
 from status_io import new_run_id, mark_running, mark_done, mark_needs_review, mark_error
 
@@ -34,11 +42,6 @@ def now_text():
 
 def pad_row(row, length=20):
     return list(row) + [""] * max(0, length - len(row))
-
-
-def digits(value):
-    match = re.search(r"(\d+)", str(value or ""))
-    return int(match.group(1)) if match else None
 
 
 def row_to_task(raw, sheet_row):
@@ -109,6 +112,34 @@ def upload_tts_outputs(drive, audio_folder, result):
     for key in ("mp3", "wav", "manifest", "segments_zip"):
         path = result[key]
         upload_or_replace_file(drive, audio_folder, path, Path(path).name)
+
+
+def existing_mms_output(drive, audio_folder, lang):
+    manifest_item = find_file(
+        drive,
+        audio_folder,
+        f"{lang}.tts_manifest.json",
+    )
+    if not manifest_item:
+        return False
+
+    temp = Path("/kaggle/working/translate-system-tts-cache") / (
+        f"{lang}.tts_manifest.json"
+    )
+    temp.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        download_drive_file(drive, manifest_item["id"], temp)
+        manifest = json.loads(temp.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+
+    if str(manifest.get("model") or "") != TTS_MODELS[lang]:
+        return False
+
+    return bool(
+        find_file(drive, audio_folder, f"{lang}.wav")
+        and find_file(drive, audio_folder, f"{lang}.mp3")
+    )
 
 
 def main():
@@ -218,6 +249,30 @@ def main():
                 )
 
                 try:
+                    if (
+                        not args.force
+                        and existing_mms_output(
+                            drive,
+                            folders["audio"],
+                            lang,
+                        )
+                    ):
+                        print(
+                            f"[TTS:{lang}] Drive 已有完整 Meta MMS 音檔，略過重做",
+                            flush=True,
+                        )
+                        completed.append(lang)
+                        mark_done(
+                            task["task_id"],
+                            lang_stage,
+                            sheets=sheets,
+                            run_id=lang_run_id,
+                            message=(
+                                f"{LANGUAGE_NAMES[lang]} Meta MMS 音檔已存在，略過重做"
+                            ),
+                        )
+                        continue
+
                     # 新增語言不佔用「任務佇列」固定欄位；
                     # 直接以 Drive 是否已有該語言翻譯檔作為 TTS 前置條件。
                     print(f"[TTS] {LANGUAGE_NAMES[lang]} ({lang})")
