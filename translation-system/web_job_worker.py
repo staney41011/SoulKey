@@ -320,7 +320,12 @@ def main():
         if args.stage == "zh":
             try:
                 run_taiwan_breeze_asr()
-            except subprocess.CalledProcessError:
+            except Exception as exc:
+                print(
+                    f"[ASR] Taiwan-Breeze 主流程失敗："
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
                 run_gemini_source_fallback()
 
             run([
@@ -333,7 +338,7 @@ def main():
                 args.bridge_url,
                 args.runtime_nonce,
                 "needs_review",
-                "Gemini逐字稿/校稿完成，待人工中文定稿",
+                "Taiwan-Breeze逐字稿 + Gemini校稿完成，待人工中文定稿",
             )
             cmd = None
 
