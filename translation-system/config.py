@@ -33,7 +33,7 @@ TTS_MODELS = {
     "es": "facebook/mms-tts-spa",
     "id": "facebook/mms-tts-ind",
     "vi": "facebook/mms-tts-vie",
-    "sd": "facebook/mms-tts-snd",
+    "sd": "facebook/mms-tts/models/snd",
     "ta": "facebook/mms-tts-tam",
 }
 
