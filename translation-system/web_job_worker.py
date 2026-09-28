@@ -196,14 +196,19 @@ def main():
         os.environ["SOULKEY_RUNTIME_NONCE"] = args.runtime_nonce
 
         gemini_api_key = str(runtime.get("gemini_api_key") or "").strip()
-        gemini_stages = {
-            "zh", "asr", "polish", "vernacular",
-            "en", "multi", "tts", "finish"
-        }
+        needs_gemini = (
+            args.stage in {
+                "zh", "asr", "polish", "vernacular", "en", "multi"
+            }
+            or (
+                args.stage == "finish"
+                and bool(args.langs.strip())
+            )
+        )
         if gemini_api_key:
             os.environ["GEMINI_API_KEY"] = gemini_api_key
             print("[RUNTIME] Gemini API Key：Apps Script 已提供", flush=True)
-        elif args.stage in gemini_stages and not (
+        elif needs_gemini and not (
             args.stage == "en" and args.lang == "cc-refresh"
         ):
             raise RuntimeError(
@@ -239,14 +244,23 @@ def main():
         else:
             print("[BOOT] SoulKey 已由 Kaggle bootstrap 同步，略過第二次 git pull。", flush=True)
 
-        gemini_stages = {
-            "zh", "asr", "polish", "vernacular",
-            "en", "multi", "tts", "finish"
+        gemini_only_stages = {
+            "zh", "asr", "polish", "vernacular", "en", "multi"
         }
+        finish_needs_audio = (
+            args.stage == "finish"
+            and bool(args.lang.strip())
+        )
         requirements_file = (
             system_dir / "requirements-gemini.txt"
-            if args.stage in gemini_stages
-            and not (args.stage == "en" and args.lang == "cc-refresh")
+            if (
+                args.stage in gemini_only_stages
+                and not (args.stage == "en" and args.lang == "cc-refresh")
+            )
+            or (
+                args.stage == "finish"
+                and not finish_needs_audio
+            )
             else system_dir / "requirements.txt"
         )
         run([
@@ -388,11 +402,13 @@ def main():
             )
             if not langs:
                 raise RuntimeError("TTS 沒有指定任何語言")
+            require_gpu_runtime("tts")
             cmd = [
                 sys.executable,
-                str(system_dir / "gemini_tts_production_runner.py"),
+                str(system_dir / "tts_runner.py"),
                 "--task-id", args.task_id,
                 "--langs", langs,
+                "--max-tasks", "1",
             ]
 
         elif args.stage == "finish":
@@ -412,11 +428,13 @@ def main():
                 ])
 
             if audio_langs:
+                require_gpu_runtime("tts")
                 run([
                     sys.executable,
-                    str(system_dir / "gemini_tts_production_runner.py"),
+                    str(system_dir / "tts_runner.py"),
                     "--task-id", args.task_id,
                     "--langs", audio_langs,
+                    "--max-tasks", "1",
                 ])
 
             if not translate_langs and not audio_langs:
@@ -426,7 +444,7 @@ def main():
                 args.bridge_url,
                 args.runtime_nonce,
                 "done",
-                "Gemini快速上線流程完成；翻譯="
+                "完成快速上線流程；Gemini翻譯="
                 + (translate_langs or "無")
                 + "；音檔="
                 + (audio_langs or "無"),
