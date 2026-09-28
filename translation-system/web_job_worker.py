@@ -198,7 +198,7 @@ def main():
         gemini_api_key = str(runtime.get("gemini_api_key") or "").strip()
         needs_gemini = (
             args.stage in {
-                "zh", "asr", "polish", "vernacular", "en", "multi"
+                "zh", "polish", "vernacular", "en", "multi"
             }
             or (
                 args.stage == "finish"
@@ -245,7 +245,7 @@ def main():
             print("[BOOT] SoulKey 已由 Kaggle bootstrap 同步，略過第二次 git pull。", flush=True)
 
         gemini_only_stages = {
-            "zh", "asr", "polish", "vernacular", "en", "multi"
+            "polish", "vernacular", "en", "multi"
         }
         finish_needs_audio = (
             args.stage == "finish"
@@ -279,17 +279,12 @@ def main():
             run([sys.executable, str(system_dir / "setup_youtube_runtime.py")])
             run([sys.executable, str(system_dir / "setup_wpc_provider.py")])
 
-        def run_local_asr_fallback():
+        def run_taiwan_breeze_asr():
             print(
-                "[GEMINI] YouTube transcript 失敗；"
-                "啟動 Taiwan-Breeze ASR 最後 fallback。",
+                "[ASR] Taiwan-Breeze 為正式主 ASR；"
+                "使用本地 Kaggle GPU 產生繁中逐字稿。",
                 flush=True,
             )
-            run([
-                sys.executable, "-m", "pip", "install",
-                "--disable-pip-version-check", "-q",
-                "-r", str(system_dir / "requirements.txt"),
-            ])
             require_gpu_runtime("asr")
             prepare_youtube_runtime()
             prepare_asr_runtime()
@@ -301,6 +296,22 @@ def main():
                 "--force-asr",
             ])
 
+        def run_gemini_source_fallback():
+            if not gemini_api_key:
+                raise RuntimeError(
+                    "Taiwan-Breeze ASR 失敗，且沒有 GEMINI_API_KEY 可作來源備援。"
+                )
+            print(
+                "[ASR] Taiwan-Breeze 失敗；"
+                "改用 Gemini YouTube understanding 作來源備援。",
+                flush=True,
+            )
+            run([
+                sys.executable, str(system_dir / "gemini_source_runner.py"),
+                "--task-id", args.task_id,
+                "--force",
+            ])
+
         if args.stage == "cc" or (
             args.stage == "en" and args.lang == "cc-refresh"
         ):
@@ -308,13 +319,9 @@ def main():
 
         if args.stage == "zh":
             try:
-                run([
-                    sys.executable, str(system_dir / "gemini_source_runner.py"),
-                    "--task-id", args.task_id,
-                    "--force",
-                ])
+                run_taiwan_breeze_asr()
             except subprocess.CalledProcessError:
-                run_local_asr_fallback()
+                run_gemini_source_fallback()
 
             run([
                 sys.executable,
@@ -341,15 +348,10 @@ def main():
 
         elif args.stage == "asr":
             try:
-                run([
-                    sys.executable, str(system_dir / "gemini_source_runner.py"),
-                    "--task-id", args.task_id,
-                    "--force",
-                ])
-                cmd = None
+                run_taiwan_breeze_asr()
             except subprocess.CalledProcessError:
-                run_local_asr_fallback()
-                cmd = None
+                run_gemini_source_fallback()
+            cmd = None
 
         elif args.stage == "polish":
             cmd = [
