@@ -19,6 +19,7 @@ MACHINE_STAGES = {
     "tts",
     "finish",
     "cc",
+    "batch",
 }
 
 
@@ -116,9 +117,9 @@ def require_gpu_runtime(stage: str):
         flush=True,
     )
 
-    needs_ct2 = stage in {"zh", "metadata", "asr"}
+    needs_ct2 = stage in {"zh", "metadata", "asr", "batch"}
     needs_torch = stage in {
-        "zh", "metadata", "polish", "vernacular", "en", "multi", "tts", "finish"
+        "zh", "metadata", "polish", "vernacular", "en", "multi", "tts", "finish", "batch"
     }
 
     failures = []
@@ -198,7 +199,7 @@ def main():
         gemini_api_key = str(runtime.get("gemini_api_key") or "").strip()
         needs_gemini = (
             args.stage in {
-                "zh", "polish", "vernacular", "en", "multi"
+                "zh", "polish", "vernacular", "en", "multi", "batch"
             }
             or (
                 args.stage == "finish"
@@ -417,6 +418,30 @@ def main():
                 "--langs", langs,
                 "--max-tasks", "1",
             ]
+
+        elif args.stage == "batch":
+            task_ids = ",".join(
+                x.strip() for x in args.langs.split(",") if x.strip()
+            )
+            if not task_ids:
+                task_ids = args.task_id
+            print(
+                "[BATCH] 使用 Studio Bridge runtime 執行：" + task_ids,
+                flush=True,
+            )
+            require_gpu_runtime("batch")
+            run([
+                sys.executable,
+                str(system_dir / "batch_full_runner.py"),
+                "--task-ids", task_ids,
+            ])
+            report(
+                args.bridge_url,
+                args.runtime_nonce,
+                "done",
+                "批次全流程完成：" + task_ids,
+            )
+            cmd = None
 
         elif args.stage == "finish":
             translate_langs = ",".join(
