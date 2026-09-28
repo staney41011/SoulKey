@@ -256,6 +256,19 @@ jobs:
                 break
               fi
 
+              # Kaggle can briefly keep reporting RUNNING after the Python
+              # process has already written its fatal top-level error. Poll the
+              # live log every ~30s so one failed batch cannot occupy the global
+              # SoulKey worker for hours.
+              if (( i % 3 == 0 )); then
+                LIVE_LOG="$(kaggle kernels logs "$KAGGLE_KERNEL" 2>&1 || true)"
+                if echo "$LIVE_LOG" | grep -q '\[WEB-WORKER ERROR\]'; then
+                  echo "Detected fatal WEB-WORKER error from live Kaggle log."
+                  ATTEMPT_STATUS="ERROR"
+                  break
+                fi
+              fi
+
               sleep 10
             done
 
