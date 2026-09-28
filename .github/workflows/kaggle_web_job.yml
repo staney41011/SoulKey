@@ -111,7 +111,7 @@ jobs:
 
           stage = os.environ["JOB_STAGE"].strip()
           lang = os.environ["JOB_LANG"].strip()
-          gpu_stages = {"zh", "asr", "tts"}
+          gpu_stages = {"zh", "asr", "tts", "batch"}
           needs_gpu = (
               stage in gpu_stages
               or (stage == "finish" and bool(lang))
