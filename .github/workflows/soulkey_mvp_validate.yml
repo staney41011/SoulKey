@@ -52,7 +52,7 @@ jobs:
           grep -q 'args.lang == "cc-refresh"' translation-system/web_job_worker.py
           grep -q 'meta\["enable_gpu"\] = needs_gpu' .github/workflows/kaggle_web_job.yml
           grep -q 'stage == "finish" and bool(lang)' .github/workflows/kaggle_web_job.yml
-          grep -q '{"zh", "asr", "tts"}' .github/workflows/kaggle_web_job.yml
+          grep -q '{"zh", "asr", "tts", "batch"}' .github/workflows/kaggle_web_job.yml
           grep -q 'meta.get("machine_shape", "none")' .github/workflows/kaggle_web_job.yml
           ! grep -q 'key:"en", label:"英文翻譯"' studio/app-20260923-48.js
           grep -q 'applyLatestPeriodToNewTask' studio/app-20260923-48.js
