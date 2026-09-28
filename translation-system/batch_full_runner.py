@@ -277,13 +277,31 @@ def process_task(task_id, system_dir):
 
     try:
         # 1. Taiwan-Breeze is the primary ASR.
-        run([
-            sys.executable, system_dir / "runner.py",
-            "--task-id", task_id,
-            "--stage", "asr",
-            "--max-tasks", "1",
-            "--force-asr",
-        ])
+        # If YouTube refuses the audio download even after the PO-token/client
+        # fallbacks, continue with Gemini direct YouTube understanding rather
+        # than aborting the entire lesson.
+        transcript_source = "taiwan-breeze"
+        try:
+            run([
+                sys.executable, system_dir / "runner.py",
+                "--task-id", task_id,
+                "--stage", "asr",
+                "--max-tasks", "1",
+                "--force-asr",
+            ])
+        except subprocess.CalledProcessError as exc:
+            transcript_source = "gemini-youtube-fallback"
+            print(
+                f"[ASR-FALLBACK] Taiwan-Breeze source acquisition failed for "
+                f"{task_id}: {exc}. Falling back to Gemini YouTube transcript.",
+                flush=True,
+            )
+            run([
+                sys.executable,
+                system_dir / "gemini_source_runner.py",
+                "--task-id", task_id,
+                "--force",
+            ])
 
         # 2. Gemini semantic Chinese polish.
         run([
@@ -364,8 +382,9 @@ def process_task(task_id, system_dir):
                 f"任務佇列!R{task['sheet_row']}": "100",
                 f"任務佇列!S{task['sheet_row']}": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 f"任務佇列!T{task['sheet_row']}": (
-                    "255期批次全流程完成：Taiwan-Breeze ASR、Gemini校稿/英文/"
-                    "六語QA、Meta MMS七語TTS、字幕輸出；Final為使用者要求的批次自動定稿"
+                    "255期批次全流程完成：來源=" + transcript_source + "；"
+                    "Gemini校稿/英文/六語QA、Meta MMS七語TTS、字幕輸出；"
+                    "Final為使用者要求的批次自動定稿"
                 ),
             },
         )
@@ -374,7 +393,10 @@ def process_task(task_id, system_dir):
             "full-batch",
             sheets=sheets,
             run_id=run_id,
-            message="批次全流程完成；Final=batch_auto_user_requested",
+            message=(
+                "批次全流程完成；source=" + transcript_source +
+                "；Final=batch_auto_user_requested"
+            ),
         )
         print(f"[FULL-BATCH DONE] {task_id}", flush=True)
         return True
