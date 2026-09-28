@@ -111,7 +111,11 @@ jobs:
 
           stage = os.environ["JOB_STAGE"].strip()
           lang = os.environ["JOB_LANG"].strip()
-          gpu_stages = {"zh", "asr"}
+          gpu_stages = {"zh", "asr", "tts"}
+          needs_gpu = (
+              stage in gpu_stages
+              or (stage == "finish" and bool(lang))
+          )
 
           # Rebind every run to the dedicated GPU-only kernel. Do not preserve
           # id_no from an older CPU worker because Kaggle prefers id_no over id.
@@ -123,7 +127,7 @@ jobs:
           meta["language"] = "python"
           meta["is_private"] = True
           meta["enable_internet"] = True
-          meta["enable_gpu"] = stage in gpu_stages
+          meta["enable_gpu"] = needs_gpu
           meta["enable_tpu"] = False
           if meta["enable_gpu"]:
               meta["machine_shape"] = "NvidiaTeslaT4"
@@ -211,7 +215,7 @@ jobs:
           FINAL_STATUS="UNKNOWN"
           MAX_ATTEMPTS=1
 
-          if [[ "$STAGE" =~ ^(zh|asr)$ ]]; then
+          if [[ "$STAGE" =~ ^(zh|asr|tts)$ ]] || { [[ "$STAGE" == "finish" ]] && [[ -n "$LANG" ]]; }; then
             MAX_ATTEMPTS=3
           fi
 
@@ -220,7 +224,7 @@ jobs:
             echo "Kaggle attempt $ATTEMPT / $MAX_ATTEMPTS"
             echo "============================================================"
 
-            if [[ "$STAGE" =~ ^(zh|asr)$ ]]; then
+            if [[ "$STAGE" =~ ^(zh|asr|tts)$ ]] || { [[ "$STAGE" == "finish" ]] && [[ -n "$LANG" ]]; }; then
               echo "Launching Kaggle with NvidiaTeslaT4 accelerator; timeout=7200s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 7200
             else
