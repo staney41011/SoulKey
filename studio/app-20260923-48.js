@@ -1448,6 +1448,65 @@ document.getElementById("dashboard-period")?.addEventListener("change",e=>{
   renderTasks();
 });
 
+document.getElementById("run-p255-batch")?.addEventListener("click",()=>{
+  if(!bridgeKeyValue()){
+    alert("請先在總覽輸入 Bridge Key 並連線控制中心。");
+    document.getElementById("dashboard-bridge-key")?.focus();
+    return;
+  }
+
+  const available = ["P255-L01","P255-L02"].filter(id=>
+    tasks.some(task=>String(task.id||"")===id)
+  );
+  if(available.length!==2){
+    alert("控制中心目前找不到 P255-L01 與 P255-L02 兩堂完整任務，請先同步控制中心。");
+    return;
+  }
+
+  const ok=confirm(
+    "確定直接跑完第255期兩堂課？\n\n"+
+    "會執行：Taiwan-Breeze ASR → Gemini 中文/英文/六語 QA → Meta MMS 七語 TTS → 字幕輸出。\n"+
+    "這次採批次自動定稿，Final 會標示 batch_auto_user_requested。"
+  );
+  if(!ok) return;
+
+  const sent=submitBridgePost({
+    action:"run_stage",
+    task_id:"P255-L01",
+    stage:"batch",
+    lang:"",
+    langs:"P255-L01,P255-L02"
+  });
+
+  if(!sent){
+    alert("批次工作送出失敗：請重新連線控制中心後再試一次。");
+    return;
+  }
+
+  const btn=document.getElementById("run-p255-batch");
+  if(btn){
+    btn.disabled=true;
+    btn.textContent="已送出255期批次";
+  }
+
+  ["P255-L01","P255-L02"].forEach(id=>{
+    const task=tasks.find(x=>x.id===id);
+    if(!task) return;
+    task.status="排隊中：255期完整批次";
+    task.remoteStages=task.remoteStages||{};
+    task.remoteStages.batch={
+      task_id:"P255-L01",
+      stage:"batch",
+      status:"queued",
+      progress:"0",
+      message:"P255-L01 + P255-L02 已送出完整批次"
+    };
+  });
+  save(STORE.tasks,tasks);
+  renderTasks();
+  window.setTimeout(()=>requestTaskStatuses(),1800);
+});
+
 document.getElementById("period").addEventListener("input",updateTaskCodes);
 
 document.getElementById("task-form").addEventListener("submit",async e=>{
