@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,80 @@ def run(cmd, cwd=None):
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     subprocess.run(cmd, cwd=cwd, env=env, check=True)
+
+
+
+TRANSIENT_GEMINI_MARKERS = (
+    "HTTP 429",
+    "HTTP 500",
+    "HTTP 502",
+    "HTTP 503",
+    "HTTP 504",
+    "service_unavailable",
+    "high demand",
+    "rate limit",
+    "timeout",
+    "temporarily unavailable",
+)
+
+
+def run_gemini_stage_with_backoff(cmd, label, waits=(30, 60, 120, 300, 600)):
+    """Retry only transient Gemini/API failures, then continue the batch."""
+    cmd = [str(x) for x in cmd]
+    if cmd and Path(cmd[0]).name.startswith("python") and "-u" not in cmd[1:2]:
+        cmd.insert(1, "-u")
+
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+
+    for attempt in range(1, len(waits) + 2):
+        print(
+            f"[AUTO-RESUME] {label} attempt {attempt}/{len(waits)+1}",
+            flush=True,
+        )
+        result = subprocess.run(
+            cmd,
+            env=env,
+            text=True,
+            capture_output=True,
+        )
+        if result.stdout:
+            print(result.stdout, end="" if result.stdout.endswith("\n") else "\n", flush=True)
+        if result.stderr:
+            print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr, flush=True)
+
+        if result.returncode == 0:
+            if attempt > 1:
+                print(
+                    f"[AUTO-RESUME] {label} recovered on attempt {attempt}",
+                    flush=True,
+                )
+            return
+
+        combined = (result.stdout or "") + "\n" + (result.stderr or "")
+        transient = any(
+            marker.lower() in combined.lower()
+            for marker in TRANSIENT_GEMINI_MARKERS
+        )
+        if not transient or attempt > len(waits):
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                cmd,
+                output=result.stdout,
+                stderr=result.stderr,
+            )
+
+        wait_seconds = waits[attempt - 1]
+        print(
+            f"[AUTO-RESUME] {label} transient failure; "
+            f"waiting {wait_seconds}s before retry.",
+            flush=True,
+        )
+        time.sleep(wait_seconds)
+
+
+def drive_has_file(drive, folder_id, name):
+    return bool(find_file(drive, folder_id, name))
 
 
 def pad_row(row, length=20):
@@ -281,94 +356,146 @@ def process_task(task_id, system_dir):
         # fallbacks, continue with Gemini direct YouTube understanding rather
         # than aborting the entire lesson.
         transcript_source = "taiwan-breeze"
-        try:
-            run([
-                sys.executable, system_dir / "runner.py",
-                "--task-id", task_id,
-                "--stage", "asr",
-                "--max-tasks", "1",
-                "--force-asr",
-            ])
-        except subprocess.CalledProcessError as exc:
-            transcript_source = "gemini-youtube-fallback"
+        if drive_has_file(drive, folders["transcript"], "segments.json"):
             print(
-                f"[ASR-FALLBACK] Taiwan-Breeze source acquisition failed for "
-                f"{task_id}: {exc}. Falling back to Gemini YouTube transcript.",
+                f"[RESUME] {task_id} segments.json already exists; "
+                "skip ASR and continue from the next unfinished stage.",
                 flush=True,
             )
-            run([
-                sys.executable,
-                system_dir / "gemini_source_runner.py",
-                "--task-id", task_id,
-                "--force",
-            ])
+        else:
+            try:
+                run([
+                    sys.executable, system_dir / "runner.py",
+                    "--task-id", task_id,
+                    "--stage", "asr",
+                    "--max-tasks", "1",
+                    "--force-asr",
+                ])
+            except subprocess.CalledProcessError as exc:
+                transcript_source = "gemini-youtube-fallback"
+                print(
+                    f"[ASR-FALLBACK] Taiwan-Breeze source acquisition failed for "
+                    f"{task_id}: {exc}. Falling back to Gemini YouTube transcript.",
+                    flush=True,
+                )
+                run_gemini_stage_with_backoff(
+                    [
+                        sys.executable,
+                        system_dir / "gemini_source_runner.py",
+                        "--task-id", task_id,
+                        "--force",
+                    ],
+                    f"{task_id} Gemini source fallback",
+                )
 
         # 2. Gemini semantic Chinese polish.
-        run([
-            sys.executable, system_dir / "gemini_text_production_runner.py",
-            "--task-id", task_id,
-            "--stage", "polish",
-        ])
+        if drive_has_file(drive, folders["transcript"], "zh-TW.polished.json"):
+            print(f"[RESUME] {task_id} polish already complete; skip.", flush=True)
+        else:
+            run_gemini_stage_with_backoff(
+                [
+                    sys.executable,
+                    system_dir / "gemini_text_production_runner.py",
+                    "--task-id", task_id,
+                    "--stage", "polish",
+                ],
+                f"{task_id} polish",
+            )
 
         # User explicitly requested the full 255 batch to run end-to-end.
         # Promote the AI-reviewed draft with transparent provenance rather than
         # pretending it was manually finalized.
-        promote_final(
-            drive,
-            folders["transcript"],
-            "zh-TW.polished.json",
-            folders["transcript"],
-            "zh-TW.final",
-            workdir,
-            "batch_auto_user_requested",
-        )
+        if drive_has_file(drive, folders["transcript"], "zh-TW.final.json"):
+            print(f"[RESUME] {task_id} zh-TW.final.json already exists; skip promotion.", flush=True)
+        else:
+            promote_final(
+                drive,
+                folders["transcript"],
+                "zh-TW.polished.json",
+                folders["transcript"],
+                "zh-TW.final",
+                workdir,
+                "batch_auto_user_requested",
+            )
 
         # 3. Vernacular Traditional Chinese, then transparent auto-final.
-        run([
-            sys.executable, system_dir / "gemini_text_production_runner.py",
-            "--task-id", task_id,
-            "--stage", "vernacular",
-        ])
-        promote_final(
-            drive,
-            folders["translation"],
-            "zh-TW.vernacular.json",
-            folders["translation"],
-            "zh-TW.vernacular.final",
-            workdir,
-            "batch_auto_user_requested",
-        )
+        if drive_has_file(drive, folders["translation"], "zh-TW.vernacular.json"):
+            print(f"[RESUME] {task_id} vernacular already complete; skip.", flush=True)
+        else:
+            run_gemini_stage_with_backoff(
+                [
+                    sys.executable, system_dir / "gemini_text_production_runner.py",
+                    "--task-id", task_id,
+                    "--stage", "vernacular",
+                ],
+                f"{task_id} vernacular",
+            )
+
+        if drive_has_file(drive, folders["translation"], "zh-TW.vernacular.final.json"):
+            print(f"[RESUME] {task_id} vernacular final already exists; skip promotion.", flush=True)
+        else:
+            promote_final(
+                drive,
+                folders["translation"],
+                "zh-TW.vernacular.json",
+                folders["translation"],
+                "zh-TW.vernacular.final",
+                workdir,
+                "batch_auto_user_requested",
+            )
 
         # 4. English draft, then transparent auto-final.
-        run([
-            sys.executable, system_dir / "gemini_text_production_runner.py",
-            "--task-id", task_id,
-            "--stage", "en",
-        ])
-        promote_final(
-            drive,
-            folders["translation"],
-            "en.json",
-            folders["translation"],
-            "en.final",
-            workdir,
-            "batch_auto_user_requested",
-        )
+        if drive_has_file(drive, folders["translation"], "en.json"):
+            print(f"[RESUME] {task_id} English already complete; skip.", flush=True)
+        else:
+            run_gemini_stage_with_backoff(
+                [
+                    sys.executable, system_dir / "gemini_text_production_runner.py",
+                    "--task-id", task_id,
+                    "--stage", "en",
+                ],
+                f"{task_id} English",
+            )
+
+        if drive_has_file(drive, folders["translation"], "en.final.json"):
+            print(f"[RESUME] {task_id} en.final.json already exists; skip promotion.", flush=True)
+        else:
+            promote_final(
+                drive,
+                folders["translation"],
+                "en.json",
+                folders["translation"],
+                "en.final",
+                workdir,
+                "batch_auto_user_requested",
+            )
 
         # 5. Gemini 3.1 six-language translation + semantic QA + repair.
-        run([
-            sys.executable, system_dir / "gemini_multi_production_runner.py",
-            "--task-id", task_id,
-            "--langs", ",".join(TARGET_LANGS),
-        ])
+        multi_complete = all(
+            drive_has_file(drive, folders["translation"], f"{lang}.json")
+            for lang in TARGET_LANGS
+        )
+        if multi_complete:
+            print(f"[RESUME] {task_id} six-language outputs already complete; skip.", flush=True)
+        else:
+            run_gemini_stage_with_backoff(
+                [
+                    sys.executable,
+                    system_dir / "gemini_multi_production_runner.py",
+                    "--task-id", task_id,
+                    "--langs", ",".join(TARGET_LANGS),
+                ],
+                f"{task_id} six-language translation",
+            )
 
         # 6. Meta MMS seven-language TTS on Kaggle GPU.
+        # tts_runner has its own manifest-based resume logic; do not force
+        # regeneration of languages that already completed.
         run([
             sys.executable, system_dir / "tts_runner.py",
             "--task-id", task_id,
             "--langs", ",".join(LANGS),
             "--max-tasks", "1",
-            "--force",
         ])
 
         # 7. Put all final SRTs into the dedicated subtitle folder.
