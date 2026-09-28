@@ -194,116 +194,161 @@ def _bgutil_profile(client: str):
 
 
 def _anonymous_profiles():
+    # Public-video fallback clients. Keep these cookie-free so a stale account
+    # session cannot force LOGIN_REQUIRED / bot-check responses.
     return [
         {
             "youtube": {
-                "player_client": ["web_embedded", "android_vr"],
+                "player_client": ["android_vr"],
             }
         },
         {
             "youtube": {
-                "player_client": ["web_embedded", "android_vr"],
+                "player_client": ["web_embedded"],
+            }
+        },
+        {
+            "youtube": {
+                "player_client": ["android_vr", "web_embedded"],
                 "player_skip": ["webpage"],
             }
         },
     ]
 
 
+def _without_cookiefile(options: dict):
+    clean = dict(options)
+    clean.pop("cookiefile", None)
+    return clean
+
+
+def _bgutil_audio_profiles():
+    # yt-dlp's current PO Token guidance recommends mweb + a provider for GVS.
+    # web_safari is a useful second web client; android_vr remains a no-POT
+    # fallback below.
+    profiles = []
+    for client in ("mweb", "web_safari", "web"):
+        profile = _bgutil_profile(client)
+        if profile:
+            profiles.append((client, profile))
+    return profiles
+
+
 def _extract_info(url: str, options: dict, download: bool, has_cookies: bool):
-    if has_cookies:
-        last_error = None
+    last_error = None
 
-        # Fast path: valid login cookies usually do not need Chromium / WPC.
-        print("[YouTube] Cookies 快速模式：direct")
-        try:
-            with YoutubeDL(dict(options)) as ydl:
-                return ydl.extract_info(url, download=download)
-        except DownloadError as exc:
-            last_error = exc
-            print("[YouTube] Cookies direct 失敗，改試相容模式。")
-
-        cookie_profiles = [
-            (
-                "default + web_embedded",
-                {
-                    "youtube": {
-                        "player_client": ["default", "web_embedded"],
-                    }
-                },
-            )
-        ]
-
-        # Only use WPC when it was explicitly prepared already.
-        wpc = _wpc_profile()
-        if wpc:
-            cookie_profiles.append(
-                (
-                    "mweb + WPC",
-                    {
-                        "youtube": {
-                            "player_client": ["mweb"],
-                            "fetch_pot": ["always"],
-                        },
-                        "youtubepot-wpc": wpc["youtubepot-wpc"],
-                    },
-                )
-            )
-
-        for label, extractor_args in cookie_profiles:
-            attempt = dict(options)
+    # 1) Primary public-video path: bgutil PO Token provider without account
+    # cookies. This is deliberately first because stale YouTube account cookies
+    # commonly turn an otherwise public video into LOGIN_REQUIRED / bot-check.
+    bgutil_profiles = _bgutil_audio_profiles()
+    if bgutil_profiles:
+        for client, extractor_args in bgutil_profiles:
+            attempt = _without_cookiefile(options)
             attempt["extractor_args"] = extractor_args
-            print(f"[YouTube] Cookies 模式：{label}")
+            print(
+                f"[YouTube] bgutil 主力模式：{client} + dynamic PO Token "
+                "(guest session)",
+                flush=True,
+            )
             try:
                 with YoutubeDL(attempt) as ydl:
                     return ydl.extract_info(url, download=download)
             except DownloadError as exc:
                 last_error = exc
-                print(f"[YouTube] {label} 失敗，改試下一層。")
-
-        if last_error:
-            print(
-                "[YouTube] Cookies 模式全部失敗；"
-                "不直接終止，繼續嘗試 WPC / 匿名 fallback。",
-                flush=True,
-            )
-
-    last_error = None
-
-    wpc = _wpc_profile()
-    if wpc:
-        attempt = dict(options)
-        attempt["extractor_args"] = wpc
-        print("[YouTube] WPC 模式：mweb + Chromium WebPoClient")
-        try:
-            with YoutubeDL(attempt) as ydl:
-                return ydl.extract_info(url, download=download)
-        except DownloadError as exc:
-            last_error = exc
-            print("[YouTube] WPC 模式失敗，改試匿名 fallback。")
+                print(
+                    f"[YouTube] bgutil {client} 失敗，改試下一個 client。",
+                    flush=True,
+                )
     else:
         print(
-            "[YouTube] 尚未準備 WPC Provider；"
-            "請先執行 setup_wpc_provider.py。"
+            "[YouTube] bgutil provider 尚未準備；改走其他 fallback。",
+            flush=True,
         )
 
+    # 2) Cookie-free clients that currently do not require the same GVS POT
+    # path. These are useful when the Kaggle egress IP is accepted but a web
+    # client is challenged.
     for index, extractor_args in enumerate(_anonymous_profiles(), start=1):
-        attempt = dict(options)
+        attempt = _without_cookiefile(options)
         attempt["extractor_args"] = extractor_args
         print(
             f"[YouTube] 匿名 fallback 第 {index} 層："
-            f"{extractor_args['youtube']['player_client']}"
+            f"{extractor_args['youtube']['player_client']}",
+            flush=True,
         )
         try:
             with YoutubeDL(attempt) as ydl:
                 return ydl.extract_info(url, download=download)
         except DownloadError as exc:
             last_error = exc
-            print(f"[YouTube] 匿名 fallback 第 {index} 層失敗。")
+            print(
+                f"[YouTube] 匿名 fallback 第 {index} 層失敗。",
+                flush=True,
+            )
+
+    # 3) WPC provider as an independent guest-session attestation path.
+    wpc = _wpc_profile()
+    if wpc:
+        attempt = _without_cookiefile(options)
+        attempt["extractor_args"] = wpc
+        print(
+            "[YouTube] WPC fallback：mweb + Chromium WebPoClient "
+            "(guest session)",
+            flush=True,
+        )
+        try:
+            with YoutubeDL(attempt) as ydl:
+                return ydl.extract_info(url, download=download)
+        except DownloadError as exc:
+            last_error = exc
+            print(
+                "[YouTube] WPC guest 模式失敗，最後才嘗試帳號 Cookies。",
+                flush=True,
+            )
+
+    # 4) Cookies are now a last-resort path for account-required videos.
+    # Combine cookies with bgutil first so the stream request still receives a
+    # fresh video-bound PO Token.
+    if has_cookies:
+        for client, extractor_args in bgutil_profiles:
+            attempt = dict(options)
+            attempt["extractor_args"] = extractor_args
+            print(
+                f"[YouTube] Cookies + bgutil fallback：{client}",
+                flush=True,
+            )
+            try:
+                with YoutubeDL(attempt) as ydl:
+                    return ydl.extract_info(url, download=download)
+            except DownloadError as exc:
+                last_error = exc
+                print(
+                    f"[YouTube] Cookies + bgutil {client} 失敗。",
+                    flush=True,
+                )
+
+        if wpc:
+            attempt = dict(options)
+            attempt["extractor_args"] = wpc
+            print("[YouTube] Cookies + WPC fallback：mweb", flush=True)
+            try:
+                with YoutubeDL(attempt) as ydl:
+                    return ydl.extract_info(url, download=download)
+            except DownloadError as exc:
+                last_error = exc
+                print("[YouTube] Cookies + WPC 失敗。", flush=True)
+
+        print("[YouTube] Cookies 最終 direct fallback。", flush=True)
+        try:
+            with YoutubeDL(dict(options)) as ydl:
+                return ydl.extract_info(url, download=download)
+        except DownloadError as exc:
+            last_error = exc
+            print("[YouTube] Cookies direct 最終 fallback 失敗。", flush=True)
 
     if last_error:
         raise last_error
     raise RuntimeError("YouTube 取得失敗")
-
 
 def normalize_lecturer(name: str):
     name = str(name or "").strip()
