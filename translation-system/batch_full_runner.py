@@ -221,15 +221,28 @@ def prepare_youtube_runtime(system_dir):
 
 
 def ensure_required_secrets():
-    # Do not print secret values.
-    for name in [
-        "GOOGLE_CLIENT_ID",
-        "GOOGLE_CLIENT_SECRET",
-        "GOOGLE_REFRESH_TOKEN",
-        "YOUTUBE_COOKIES_B64",
-        "GEMINI_API_KEY",
-    ]:
-        value = get_secret(name, required=False)
+    # The normal production path receives a short-lived Google token from the
+    # Studio Bridge. Legacy OAuth client secrets are only a fallback for manual
+    # Kaggle runs.
+    if str(os.environ.get("GOOGLE_ACCESS_TOKEN") or "").strip():
+        print("[AUTH] Google OAuth: Studio Bridge token OK", flush=True)
+    else:
+        for name in [
+            "GOOGLE_CLIENT_ID",
+            "GOOGLE_CLIENT_SECRET",
+            "GOOGLE_REFRESH_TOKEN",
+        ]:
+            value = get_secret(name, required=False)
+            if not value:
+                raise RuntimeError(f"Kaggle 缺少必要 Secret: {name}")
+            print(f"[SECRET] {name}: OK", flush=True)
+
+    for name in ["YOUTUBE_COOKIES_B64", "GEMINI_API_KEY"]:
+        value = str(os.environ.get(name) or "").strip()
+        if not value:
+            value = get_secret(name, required=False)
+            if value:
+                os.environ[name] = value
         if not value:
             raise RuntimeError(f"Kaggle 缺少必要 Secret: {name}")
         print(f"[SECRET] {name}: OK", flush=True)
