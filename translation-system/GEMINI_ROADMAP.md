@@ -47,9 +47,9 @@
 4. 修復後重新 QA。
 5. 單一語言最後仍失敗 → 記錄 error，其他語言繼續。
 
-## P3｜Gemini TTS
+## P3｜TTS
 
-Gemini TTS 作主要雲端語音方案；Meta MMS-TTS 保留 fallback。
+Meta MMS-TTS / VITS 作正式 production 語音引擎；Gemini TTS 保留為可選高品質模式，不作預設。
 
 目標：
 - English
@@ -65,7 +65,8 @@ Gemini TTS 作主要雲端語音方案；Meta MMS-TTS 保留 fallback。
 - 各語言獨立執行與重試。
 - 單一語言失敗不阻擋其他語言。
 - 保留完整 MP3 / WAV / manifest。
-- 免費 API 額度不足或 Gemini TTS 不可用時，自動 fallback Meta MMS-TTS。
+- 正式批次音訊不消耗 Gemini TTS API 額度。
+- Gemini TTS 僅在未來明確選擇「高品質語音模式」時使用。
 
 ## P4｜Gemini 中文第二層語意校稿＋資料庫術語學習
 
@@ -166,9 +167,10 @@ SoulKey production now routes every AI-capable stage to Gemini by default.
   `gemini_multi_production_runner.py`.
 - Multilingual semantic QA and targeted repair:
   built into `gemini_multi_production_runner.py`.
-- Multilingual TTS:
-  `gemini_tts_production_runner.py` using
-  `gemini-3.8-flash-lite-tts`.
+- Multilingual TTS is intentionally not Gemini-owned in production.
+  Production audio uses `tts_runner.py` + Meta MMS-TTS / VITS on Kaggle GPU.
+  `gemini_tts_production_runner.py` remains available as an optional
+  high-quality cloud voice path.
 
 ### Non-Gemini responsibilities kept intentionally
 
@@ -183,7 +185,23 @@ SoulKey production now routes every AI-capable stage to Gemini by default.
 - Bulk text work: `gemini-3.1-flash-lite`
 - YouTube video understanding: `gemini-3.8-flash`
 - Targeted stronger repair: `gemini-3.8-flash` with Flash-Lite fallback
-- TTS: `gemini-3.8-flash-lite-tts`
+- Production TTS: Meta MMS-TTS / VITS
+- Optional high-quality cloud TTS: `gemini-3.8-flash-lite-tts`
 
-The web worker routes these stages to Gemini by default. Only `zh/asr`
-retain GPU allocation because the local ASR emergency fallback may need CUDA.
+The web worker routes language intelligence stages to Gemini by default.
+Production TTS is routed to Meta MMS and receives Kaggle GPU allocation.
+`zh/asr` also retain GPU allocation because the Taiwan-Breeze emergency
+fallback may need CUDA.
+
+
+## 2026-09-28 — Production TTS ownership
+
+Final production split:
+
+- Gemini: YouTube understanding, Chinese semantic polish, vernacular rewrite,
+  English translation, six-language translation, semantic QA, targeted repair.
+- Python: deterministic QA, orchestration, subtitles, checkpoints, Drive/Sheets.
+- Taiwan-Breeze: ASR fallback when Gemini video understanding cannot be used.
+- Meta MMS-TTS / VITS: default seven-language audio generation on Kaggle GPU.
+- Gemini TTS: optional high-quality mode only; never required for normal batch
+  production and never allowed to block normal production because of API quota.
