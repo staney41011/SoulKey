@@ -1,4 +1,5 @@
 import gc
+import hashlib
 import os
 import json
 import re
@@ -22,6 +23,25 @@ DIGIT_WORDS = {
     "sd": ["ٻُڙي", "هڪ", "ٻه", "ٽي", "چار", "پنج", "ڇهه", "ست", "اٺ", "نو"],
     "ta": ["பூஜ்ஜியம்", "ஒன்று", "இரண்டு", "மூன்று", "நான்கு", "ஐந்து", "ஆறு", "ஏழு", "எட்டு", "ஒன்பது"],
 }
+
+
+def segments_fingerprint(segments):
+    canonical = [
+        {
+            "id": int(seg.get("id", i)),
+            "start": float(seg.get("start", 0) or 0),
+            "end": float(seg.get("end", 0) or 0),
+            "text": str(seg.get("text") or ""),
+        }
+        for i, seg in enumerate(segments or [])
+    ]
+    raw = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def _input_length(inputs):
@@ -352,6 +372,7 @@ def synthesize_language(
     manifest = {
         "language": lang,
         "model": model_id,
+        "source_sha256": segments_fingerprint(segments),
         "sample_rate": sample_rate,
         "timeline_aligned": False,
         "duration_policy": "natural_speech_no_speed_change_no_segment_alignment",
