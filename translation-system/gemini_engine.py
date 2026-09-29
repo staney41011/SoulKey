@@ -486,7 +486,18 @@ def local_language_issue(text, source, target_code):
     if pattern:
         target_chars = len(pattern.findall(text))
         latin = len(re.findall(r"[A-Za-z]", text))
-        if target_chars < 4:
+
+        # A standalone romanized proper name (for example "Qianxian") may
+        # legitimately stay in Latin script in Thai/Sindhi/Tamil. Do not force
+        # the model to invent filler words just to satisfy a script counter.
+        source_core = source.strip(" .,:;!?()[]{}")
+        text_core = text.strip(" .,:;!?()[]{}")
+        standalone_romanized_name = (
+            bool(re.fullmatch(r"[A-Z][A-Za-z'’\-]{1,40}", source_core))
+            and text_core.casefold() == source_core.casefold()
+        )
+
+        if target_chars < 4 and not standalone_romanized_name:
             return "missing_target_script"
         if latin > 20 and target_chars / max(1, target_chars + latin) < 0.65:
             return "target_script_ratio_too_low"
