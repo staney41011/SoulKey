@@ -59,13 +59,15 @@ class PipelineContracts(unittest.TestCase):
 
     def test_language_codes_align_across_studio_translation_and_tts(self):
         app = read("studio/app-20260923-48.js")
+        quick = read("studio/review-editor.js")
         config = read("translation-system/config.py")
         multi = read("translation-system/gemini_multi_production_runner.py")
-        for code in ("en","th","es","id","vi","sd","ta"):
+        for code in ("th","es","id","vi","sd","ta"):
             self.assertIn('code:"' + code + '"', app)
             self.assertIn('"' + code + '":', config)
-        for code in ("th","es","id","vi","sd","ta"):
             self.assertIn('"' + code + '"', multi)
+        self.assertIn('en:"English"', quick)
+        self.assertIn('"en":', config)
 
     def test_studio_review_pages_have_drive_fallbacks(self):
         app = read("studio/app-20260923-48.js")
