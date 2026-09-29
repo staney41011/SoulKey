@@ -481,12 +481,24 @@ function submit(fields){
     setStatus("後端連線不存在","error");
     return false;
   }
-  if(bridgeProtocolVersion>0 && bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
-    setStatus(
-      "Apps Script 控制中心版本過舊；請先回 Studio 重新部署 Code.gs。",
-      "error"
-    );
-    return false;
+  const mutatingActions=new Set([
+    "review_share_draft_save",
+    "review_share_finalize",
+    "review_share_finalize_en",
+    "review_finish"
+  ]);
+  if(mutatingActions.has(String(fields?.action||""))){
+    if(bridgeProtocolVersion<=0){
+      setStatus("正在確認 Apps Script 控制中心版本，請稍候再送出。","working");
+      return false;
+    }
+    if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+      setStatus(
+        "Apps Script 控制中心版本過舊；請先回 Studio 重新部署 Code.gs。",
+        "error"
+      );
+      return false;
+    }
   }
   const target="soulkey-share-"+Date.now()+"-"+Math.random().toString(36).slice(2);
   const frame=document.createElement("iframe");
