@@ -77,6 +77,7 @@ function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
 
 const REVIEW_CACHE_PREFIX = "soulkey_review_cache_v1:";
 const reviewRequestStartedAt = {};
+const reviewCacheSeedRequested = new Set();
 
 function reviewCacheKey(taskId,kind){
   return REVIEW_CACHE_PREFIX+String(taskId||"")+":"+String(kind||"");
@@ -755,7 +756,7 @@ function setZhRefreshButtonState(loading){
 
 async function loadZhReviewFromGithub(taskId,options={}){
   const retry=Number(options.retry||0);
-  const maxRetries=12;
+  const maxRetries=20;
   zhReviewLoading=true;
   setZhFinalizeEnabled(false);
   setZhRefreshButtonState(true);
@@ -782,15 +783,31 @@ async function loadZhReviewFromGithub(taskId,options={}){
     }
 
     if(response.status===404){
+      // Self-heal a missing deterministic GitHub review cache. The source
+      // transcript + polish report already live in Drive; ask the connected
+      // Apps Script bridge to seed studio-review-cache/<task>/zh.json, then
+      // keep polling GitHub until the new file propagates. This removes the
+      // old dead-end where the user had to leave this page and manually retry.
+      if(!reviewCacheSeedRequested.has(String(taskId))){
+        const seeded=submitBridgePost({
+          action:"review_cache_seed",
+          task_id:String(taskId||"")
+        });
+        if(seeded){
+          reviewCacheSeedRequested.add(String(taskId));
+          setZhReviewLoadState("GitHub 快取缺少・正在自動補建…","working");
+        }
+      }
+
       if(retry<maxRetries){
         window.setTimeout(
           ()=>loadZhReviewFromGithub(taskId,{retry:retry+1}),
-          retry<3 ? 450 : 900
+          retry<4 ? 500 : 1000
         );
         return;
       }
       throw new Error(
-        "GitHub 固定快取尚未建立。若剛完成 AI 校稿，請稍候數秒再重新進入；不再等待 Apps Script 搬移。"
+        "GitHub 人工定稿快取仍未建立。系統已嘗試自動補建；請確認控制中心仍為已連線後再按一次重新讀取。"
       );
     }
 
@@ -879,7 +896,10 @@ async function loadZhReviewFromGithub(taskId,options={}){
         '<br><br><button class="ghost" id="retry-github-review">重新讀取 GitHub</button></div>';
       document.getElementById("retry-github-review")?.addEventListener(
         "click",
-        ()=>loadZhReviewFromGithub(taskId,{retry:0})
+        ()=>{
+          reviewCacheSeedRequested.delete(String(taskId));
+          loadZhReviewFromGithub(taskId,{retry:0});
+        }
       );
     }
   }
