@@ -181,12 +181,26 @@ class GeminiClient:
         last = None
 
         for attempt in range(1, self.max_attempts + 1):
-            status, raw = self.transport(
-                GEMINI_API_URL,
-                headers,
-                payload,
-                self.timeout,
-            )
+            try:
+                status, raw = self.transport(
+                    GEMINI_API_URL,
+                    headers,
+                    payload,
+                    self.timeout,
+                )
+            except (TimeoutError, urllib.error.URLError) as exc:
+                last = f"{type(exc).__name__}: {exc}"
+                if attempt >= self.max_attempts:
+                    break
+                wait = min(2 ** (attempt - 1), 8)
+                print(
+                    f"[GEMINI] transport timeout/error；{wait}s 後重試 "
+                    f"({attempt}/{self.max_attempts})",
+                    flush=True,
+                )
+                self.sleeper(wait)
+                continue
+
             body_text = raw.decode("utf-8", errors="replace")
             if 200 <= int(status) < 300:
                 try:
