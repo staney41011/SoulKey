@@ -482,6 +482,13 @@ def local_language_issue(text, source, target_code):
     if text == source and len(source) >= 20:
         return "source_text_copied"
 
+    # Structural subtitle fragments such as "7.", "2026", timestamps, or
+    # punctuation are language-neutral. Requiring Thai/Sindhi/Tamil script for
+    # them creates an impossible QA loop even when the translation is exactly
+    # correct.
+    if not re.search(r"[A-Za-z]", source):
+        return ""
+
     pattern = TARGET_SCRIPT_PATTERNS.get(target_code)
     if pattern:
         target_chars = len(pattern.findall(text))
