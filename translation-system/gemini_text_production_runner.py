@@ -357,7 +357,13 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
         json.dumps(review_payload, ensure_ascii=False),
         encoding="utf-8",
     )
-    publish_review_cache(task["task_id"], review_path)
+    review_publish = publish_review_cache(task["task_id"], review_path)
+    review_cache_ready = not (
+        isinstance(review_publish, dict)
+        and review_publish.get("ok") is False
+    )
+    if review_publish is None:
+        review_cache_ready = False
 
     update_cells(
         sheets,
@@ -366,11 +372,19 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
             f"任務佇列!I{task['sheet_row']}": "完成",
             f"任務佇列!S{task['sheet_row']}": now_text(),
             f"任務佇列!T{task['sheet_row']}": (
-                f"Gemini中文校稿完成；修改{result['changed_count']}段；待人工中文定稿"
+                f"Gemini中文校稿完成；修改{result['changed_count']}段；"
+                + (
+                    "GitHub人工定稿快取已建立；待人工中文定稿"
+                    if review_cache_ready
+                    else "GitHub人工定稿快取未建立，Studio將改由Drive直接載入"
+                )
             ),
         },
     )
-    return f"Gemini中文校稿完成；修改{result['changed_count']}段"
+    return (
+        f"Gemini中文校稿完成；修改{result['changed_count']}段；"
+        + ("review_cache=ready" if review_cache_ready else "review_cache=drive_fallback")
+    )
 
 
 def stage_vernacular(client, drive, sheets, task, folders, glossary_rows, workdir):
