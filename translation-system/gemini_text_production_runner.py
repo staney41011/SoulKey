@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -54,6 +55,25 @@ TEXT_SCHEMA = {
     },
     "required": ["segments"],
 }
+
+
+def source_fingerprint(segments):
+    canonical = [
+        {
+            "id": int(x.get("id", i)),
+            "start": float(x.get("start", 0) or 0),
+            "end": float(x.get("end", 0) or 0),
+            "text": str(x.get("text") or ""),
+        }
+        for i, x in enumerate(segments or [])
+    ]
+    raw = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def now_text():
@@ -287,6 +307,8 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
             "engine": "gemini",
             "model": client.text_model,
             "transcript_source": source_payload.get("transcript_source") or "unknown",
+            "source": "segments.json",
+            "source_sha256": source_fingerprint(source_segments),
         },
     )
     for key, name in [
@@ -304,6 +326,8 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
                 "model": client.text_model,
                 "changed_count": result["changed_count"],
                 "term_candidates": result["term_candidates"],
+                "source": "segments.json",
+                "source_sha256": source_fingerprint(source_segments),
                 "segments": polished,
             },
             ensure_ascii=False,
@@ -403,7 +427,12 @@ def stage_vernacular(client, drive, sheets, task, folders, glossary_rows, workdi
         workdir / "vernacular",
         "zh-TW.vernacular",
         rows,
-        {"engine": "gemini", "model": client.text_model},
+        {
+            "engine": "gemini",
+            "model": client.text_model,
+            "source": "zh-TW.final.json",
+            "source_sha256": source_fingerprint(source_segments),
+        },
     )
     for key in ("json", "txt", "srt"):
         upload_or_replace_file(
@@ -458,6 +487,7 @@ def stage_en(client, drive, sheets, task, folders, glossary_rows, workdir):
             "engine": "gemini",
             "model": client.text_model,
             "source": source_name,
+            "source_sha256": source_fingerprint(payload.get("segments") or []),
         },
     )
     for key in ("json", "txt", "srt"):
