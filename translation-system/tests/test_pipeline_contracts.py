@@ -11,6 +11,62 @@ def read(path):
 
 
 class PipelineContracts(unittest.TestCase):
+    def test_bridge_protocol_prevents_frontend_deployment_drift(self):
+        bridge = read("bridge/apps-script/Code.gs")
+        app = read("studio/app-20260923-48.js")
+        quick = read("studio/review-editor.js")
+        worker = read("translation-system/web_job_worker.py")
+        self.assertIn("const BRIDGE_PROTOCOL_VERSION = 4", bridge)
+        self.assertIn("bridge_protocol: BRIDGE_PROTOCOL_VERSION", bridge)
+        self.assertIn("const REQUIRED_BRIDGE_PROTOCOL = 4", app)
+        self.assertIn("const REQUIRED_BRIDGE_PROTOCOL=4", quick)
+        self.assertIn("REQUIRED_BRIDGE_PROTOCOL = 4", worker)
+        self.assertIn("Apps Script Bridge 版本過舊", worker)
+
+    def test_frontend_bridge_actions_have_server_handlers(self):
+        app = read("studio/app-20260923-48.js")
+        quick = read("studio/review-editor.js")
+        bridge = read("bridge/apps-script/Code.gs")
+        required_actions = {
+            "language_plan_get", "language_plan_save", "language_settings",
+            "review_cache_seed", "review_finish", "review_load", "review_save",
+            "review_share_draft_save", "review_share_finalize",
+            "review_share_finalize_en", "run_stage", "smoke", "status_batch",
+            "status_health", "tasks_get", "tasks_upsert", "worker_secret_test",
+            "worker_setup",
+        }
+        for action in required_actions:
+            self.assertTrue(
+                ("action === \"" + action + "\"" in bridge)
+                or ("\"" + action + "\"" in bridge and action in {"status_batch","status_health","tasks_get","language_settings","language_plan_get","review_load"}),
+                action,
+            )
+        self.assertIn('action:"review_cache_seed"', app)
+        self.assertIn('action:"review_finish"', quick)
+
+    def test_bridge_and_worker_machine_stages_match(self):
+        bridge = read("bridge/apps-script/Code.gs")
+        worker = read("translation-system/web_job_worker.py")
+        for stage in ("zh","metadata","asr","polish","vernacular","en","multi","tts","finish","cc","batch"):
+            self.assertIn('"' + stage + '"', bridge)
+            self.assertIn('"' + stage + '"', worker)
+
+    def test_bridge_oauth_token_can_refresh_during_long_jobs(self):
+        google_io = read("translation-system/google_io.py")
+        self.assertIn("class BridgeCredentials", google_io)
+        self.assertIn('"action": "worker_runtime"', google_io)
+        self.assertIn("timedelta(minutes=45)", google_io)
+
+    def test_language_codes_align_across_studio_translation_and_tts(self):
+        app = read("studio/app-20260923-48.js")
+        config = read("translation-system/config.py")
+        multi = read("translation-system/gemini_multi_production_runner.py")
+        for code in ("en","th","es","id","vi","sd","ta"):
+            self.assertIn('code:"' + code + '"', app)
+            self.assertIn('"' + code + '":', config)
+        for code in ("th","es","id","vi","sd","ta"):
+            self.assertIn('"' + code + '"', multi)
+
     def test_studio_review_pages_have_drive_fallbacks(self):
         app = read("studio/app-20260923-48.js")
         quick = read("studio/review-editor.js")
