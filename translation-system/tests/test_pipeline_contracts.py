@@ -143,6 +143,21 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("YouTube 來源網址已變更；舊輸出不可沿用", bridge)
         self.assertIn('["zh", "en-review", "multi", "tts"]', bridge)
 
+    def test_batch_text_outputs_are_bound_to_upstream_revisions(self):
+        text_runner = read("translation-system/gemini_text_production_runner.py")
+        batch = read("translation-system/batch_full_runner.py")
+        self.assertIn('"source_sha256": source_fingerprint(source_segments)', text_runner)
+        self.assertIn('"source_sha256": source_fingerprint(payload.get("segments") or [])', text_runner)
+        self.assertIn("drive_json_matches_source", batch)
+        self.assertIn("polish_changed", batch)
+        self.assertIn("vernacular_changed", batch)
+        self.assertIn("english_changed", batch)
+
+    def test_batch_multi_always_enters_source_aware_checkpoint_runner(self):
+        batch = read("translation-system/batch_full_runner.py")
+        self.assertNotIn("multi_complete = all(", batch)
+        self.assertIn("Merely seeing th/es/... JSON", batch)
+
 
 if __name__ == "__main__":
     unittest.main()
