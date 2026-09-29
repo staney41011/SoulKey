@@ -2558,16 +2558,19 @@ function submitBridgePost(fields){
 
   if(!endpoint || !key) return false;
 
-  if(
-    fields && fields.action==="run_stage" &&
-    bridgeProtocolVersion>0 && bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL
-  ){
-    alert(
-      "Apps Script 控制中心版本過舊（目前 "+bridgeProtocolVersion+
-      "，需要 "+REQUIRED_BRIDGE_PROTOCOL+"）。請先重新部署 Code.gs；"+
-      "系統已阻止送出可能使用錯誤協定的 Kaggle 工作。"
-    );
-    return false;
+  if(fields && fields.action==="run_stage"){
+    if(bridgeProtocolVersion<=0){
+      alert("控制中心版本尚未驗證完成，請先按「連線控制中心」並等待顯示 Bridge 版本。");
+      return false;
+    }
+    if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+      alert(
+        "Apps Script 控制中心版本過舊（目前 "+bridgeProtocolVersion+
+        "，需要 "+REQUIRED_BRIDGE_PROTOCOL+"）。請先重新部署 Code.gs；"+
+        "系統已阻止送出可能使用錯誤協定的 Kaggle 工作。"
+      );
+      return false;
+    }
   }
 
   // Every POST gets its own hidden iframe. Reusing one target causes two rapid
