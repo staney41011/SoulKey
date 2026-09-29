@@ -89,6 +89,20 @@ class PipelineContracts(unittest.TestCase):
         source = read("translation-system/gemini_source_runner.py")
         self.assertIn("max_attempts=4", source)
 
+    def test_human_finals_invalidate_completed_downstream_work(self):
+        bridge = read("bridge/apps-script/Code.gs")
+        self.assertIn("invalidateDownstreamAfterHumanFinal_", bridge)
+        self.assertIn('taskId,\n      "multi"', bridge)
+        self.assertIn('taskId,\n      "tts"', bridge)
+
+    def test_language_plan_changes_stale_completed_outputs(self):
+        bridge = read("bridge/apps-script/Code.gs")
+        app = read("studio/app-20260923-48.js")
+        self.assertIn("languagePlanSignatures_", bridge)
+        self.assertIn("translation_changed", bridge)
+        self.assertIn("audio_changed", bridge)
+        self.assertIn("requestTaskStatuses()", app)
+
 
 if __name__ == "__main__":
     unittest.main()
