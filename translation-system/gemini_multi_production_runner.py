@@ -562,17 +562,19 @@ def main():
             )
             if checkpoint and checkpoint.get("engine") == "gemini-production-multi":
                 checkpoint_sha = str(checkpoint.get("source_sha256") or "").strip()
-                if checkpoint_sha and checkpoint_sha != source_sha256:
+                if checkpoint_sha != source_sha256:
+                    reason = (
+                        "缺少 source fingerprint"
+                        if not checkpoint_sha
+                        else "English Final 已變更"
+                    )
                     print(
-                        "[CHECKPOINT] English Final 已變更；"
-                        "忽略舊 Gemini multi checkpoint，避免沿用過期翻譯。",
+                        f"[CHECKPOINT] {reason}；"
+                        "忽略舊 Gemini multi checkpoint，避免沿用無法驗證的翻譯。",
                         flush=True,
                     )
                     checkpoint = None
                 else:
-                    # Legacy v2 checkpoints had no source fingerprint. Accept
-                    # them once for backward-compatible resume, then every new
-                    # save upgrades them to v3 with source_sha256.
                     for row in checkpoint.get("translations") or []:
                         translations[int(row["segment_id"])] = row
                     qa_batches = dict(checkpoint.get("qa_batches") or {})
@@ -737,7 +739,14 @@ def main():
             seq += 1
             save_persistent_checkpoint(
                 args.task_id,
-                checkpoint_payload(args.task_id, len(source_segments), translations, qa_batches, seq),
+                checkpoint_payload(
+                    args.task_id,
+                    len(source_segments),
+                    translations,
+                    qa_batches,
+                    seq,
+                    source_sha256,
+                ),
                 drive=drive,
                 translation_folder_id=folders["translation"],
                 workdir=workdir,
