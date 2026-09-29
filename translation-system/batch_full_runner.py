@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -110,6 +111,84 @@ def run_gemini_stage_with_backoff(cmd, label, waits=(30, 60, 120, 300, 600)):
 
 def drive_has_file(drive, folder_id, name):
     return bool(find_file(drive, folder_id, name))
+
+
+def segments_fingerprint(segments):
+    canonical = [
+        {
+            "id": int(x.get("id", i)),
+            "start": float(x.get("start", 0) or 0),
+            "end": float(x.get("end", 0) or 0),
+            "text": str(x.get("text") or ""),
+        }
+        for i, x in enumerate(segments or [])
+    ]
+    raw = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def drive_json_matches_source(
+    drive,
+    output_folder,
+    output_name,
+    source_folder,
+    source_name,
+    workdir,
+):
+    output_item = find_file(drive, output_folder, output_name)
+    source_item = find_file(drive, source_folder, source_name)
+    if not output_item or not source_item:
+        return False
+
+    check_dir = workdir / "source-check"
+    check_dir.mkdir(parents=True, exist_ok=True)
+    safe_output = output_name.replace("/", "_")
+    safe_source = source_name.replace("/", "_")
+    output_path = check_dir / ("out-" + safe_output)
+    source_path = check_dir / ("src-" + safe_source)
+    download_drive_file(drive, output_item["id"], output_path)
+    download_drive_file(drive, source_item["id"], source_path)
+
+    output_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    source_payload = json.loads(source_path.read_text(encoding="utf-8"))
+    current_sha = segments_fingerprint(source_payload.get("segments") or [])
+    recorded_sha = str(output_payload.get("source_sha256") or "").strip()
+
+    if not recorded_sha:
+        # One-time migration for pre-fingerprint outputs. Trust the current
+        # linkage, stamp it, and from now on source changes are detectable.
+        output_payload["source"] = source_name
+        output_payload["source_sha256"] = current_sha
+        output_path.write_text(
+            json.dumps(output_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        upload_or_replace_file(
+            drive,
+            output_folder,
+            output_path,
+            output_name,
+        )
+        print(
+            f"[SOURCE-CHECK] {output_name} legacy metadata upgraded; "
+            f"source_sha256={current_sha[:12]}",
+            flush=True,
+        )
+        return True
+
+    matched = recorded_sha == current_sha
+    if not matched:
+        print(
+            f"[SOURCE-CHECK] {output_name} stale: "
+            f"recorded={recorded_sha[:12]} current={current_sha[:12]}",
+            flush=True,
+        )
+    return matched
 
 
 def plain_time(seconds):
@@ -499,8 +578,20 @@ def process_task(task_id, system_dir):
                 )
 
         # 2. Gemini semantic Chinese polish.
-        if drive_has_file(drive, folders["transcript"], "zh-TW.polished.json"):
-            print(f"[RESUME] {task_id} polish already complete; skip.", flush=True)
+        polish_current = drive_json_matches_source(
+            drive,
+            folders["transcript"],
+            "zh-TW.polished.json",
+            folders["transcript"],
+            "segments.json",
+            workdir,
+        )
+        polish_changed = not polish_current
+        if polish_current:
+            print(
+                f"[RESUME] {task_id} polish source revision matches; skip.",
+                flush=True,
+            )
         else:
             run_gemini_stage_with_backoff(
                 [
@@ -519,8 +610,14 @@ def process_task(task_id, system_dir):
         # User explicitly requested the full 255 batch to run end-to-end.
         # Promote the AI-reviewed draft with transparent provenance rather than
         # pretending it was manually finalized.
-        if drive_has_file(drive, folders["transcript"], "zh-TW.final.json"):
-            print(f"[RESUME] {task_id} zh-TW.final.json already exists; skip promotion.", flush=True)
+        if (
+            not polish_changed
+            and drive_has_file(drive, folders["transcript"], "zh-TW.final.json")
+        ):
+            print(
+                f"[RESUME] {task_id} zh-TW.final.json already matches current polish; skip promotion.",
+                flush=True,
+            )
         else:
             promote_final(
                 drive,
@@ -544,8 +641,20 @@ def process_task(task_id, system_dir):
         )
 
         # 3. Vernacular Traditional Chinese, then transparent auto-final.
-        if drive_has_file(drive, folders["translation"], "zh-TW.vernacular.json"):
-            print(f"[RESUME] {task_id} vernacular already complete; skip.", flush=True)
+        vernacular_current = drive_json_matches_source(
+            drive,
+            folders["translation"],
+            "zh-TW.vernacular.json",
+            folders["transcript"],
+            "zh-TW.final.json",
+            workdir,
+        )
+        vernacular_changed = not vernacular_current
+        if vernacular_current:
+            print(
+                f"[RESUME] {task_id} vernacular source revision matches; skip.",
+                flush=True,
+            )
         else:
             run_gemini_stage_with_backoff(
                 [
@@ -556,8 +665,18 @@ def process_task(task_id, system_dir):
                 f"{task_id} vernacular",
             )
 
-        if drive_has_file(drive, folders["translation"], "zh-TW.vernacular.final.json"):
-            print(f"[RESUME] {task_id} vernacular final already exists; skip promotion.", flush=True)
+        if (
+            not vernacular_changed
+            and drive_has_file(
+                drive,
+                folders["translation"],
+                "zh-TW.vernacular.final.json",
+            )
+        ):
+            print(
+                f"[RESUME] {task_id} vernacular final matches current source; skip promotion.",
+                flush=True,
+            )
         else:
             promote_final(
                 drive,
@@ -570,8 +689,20 @@ def process_task(task_id, system_dir):
             )
 
         # 4. English draft, then transparent auto-final.
-        if drive_has_file(drive, folders["translation"], "en.json"):
-            print(f"[RESUME] {task_id} English already complete; skip.", flush=True)
+        english_current = drive_json_matches_source(
+            drive,
+            folders["translation"],
+            "en.json",
+            folders["translation"],
+            "zh-TW.vernacular.final.json",
+            workdir,
+        )
+        english_changed = not english_current
+        if english_current:
+            print(
+                f"[RESUME] {task_id} English source revision matches; skip.",
+                flush=True,
+            )
         else:
             run_gemini_stage_with_backoff(
                 [
@@ -582,8 +713,14 @@ def process_task(task_id, system_dir):
                 f"{task_id} English",
             )
 
-        if drive_has_file(drive, folders["translation"], "en.final.json"):
-            print(f"[RESUME] {task_id} en.final.json already exists; skip promotion.", flush=True)
+        if (
+            not english_changed
+            and drive_has_file(drive, folders["translation"], "en.final.json")
+        ):
+            print(
+                f"[RESUME] {task_id} en.final.json already matches current English draft; skip promotion.",
+                flush=True,
+            )
         else:
             promote_final(
                 drive,
