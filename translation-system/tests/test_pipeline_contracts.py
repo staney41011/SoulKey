@@ -119,6 +119,24 @@ class PipelineContracts(unittest.TestCase):
             self.assertGreater(do_post.index(action), auth_check)
         self.assertIn("bridge_key:bridgeKeyValue()", editor)
 
+    def test_chinese_stage_dispatches_full_asr_polish_flow(self):
+        app = read("studio/app-20260923-48.js")
+        worker = read("translation-system/web_job_worker.py")
+        self.assertIn('const dispatchStage=next.key==="zh" ? "zh" : next.key', app)
+        self.assertIn('if args.stage == "zh":', worker)
+        self.assertIn('"--stage", "polish"', worker)
+        self.assertNotIn(
+            'const dispatchStage=next.key==="zh" ? "metadata" : next.key',
+            app,
+        )
+
+    def test_missing_youtube_cookies_do_not_block_source_acquisition(self):
+        app = read("studio/app-20260923-48.js")
+        worker = read("translation-system/web_job_worker.py")
+        self.assertNotIn("現在執行只會再次失敗", app)
+        self.assertIn("guest PO token / anonymous clients", worker)
+        self.assertNotIn("Kaggle API 觸發不會可靠保留 Notebook Secret", worker)
+
 
 if __name__ == "__main__":
     unittest.main()
