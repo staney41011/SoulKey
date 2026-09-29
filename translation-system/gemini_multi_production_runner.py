@@ -5,6 +5,7 @@ import re
 import sys
 import time
 import traceback
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -237,6 +238,19 @@ DATA:
 """
 
 
+def normalize_unicode_digits(text):
+    out = []
+    for ch in str(text or ""):
+        try:
+            if ch.isdigit():
+                out.append(str(unicodedata.digit(ch)))
+            else:
+                out.append(ch)
+        except (TypeError, ValueError):
+            out.append(ch)
+    return "".join(out)
+
+
 def local_failures(batch, rows):
     by_id = {int(x["segment_id"]): x for x in rows}
     failures = []
@@ -246,12 +260,13 @@ def local_failures(batch, rows):
         numbers = re.findall(r"\d+(?:\.\d+)?", english)
         for lang in LANGS:
             target = str(by_id[sid].get(lang) or "").strip()
+            target_for_numbers = normalize_unicode_digits(target)
             issues = []
             issue = local_language_issue(target, english, lang)
             if issue:
                 issues.append(issue)
             for number in numbers:
-                if number not in target:
+                if number not in target_for_numbers:
                     issues.append(f"missing_number:{number}")
             if issues:
                 failures.append({"segment_id": sid, "lang": lang, "issues": issues})
