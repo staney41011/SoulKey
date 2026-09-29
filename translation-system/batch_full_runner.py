@@ -160,26 +160,15 @@ def drive_json_matches_source(
     recorded_sha = str(output_payload.get("source_sha256") or "").strip()
 
     if not recorded_sha:
-        # One-time migration for pre-fingerprint outputs. Trust the current
-        # linkage, stamp it, and from now on source changes are detectable.
-        output_payload["source"] = source_name
-        output_payload["source_sha256"] = current_sha
-        output_path.write_text(
-            json.dumps(output_payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        upload_or_replace_file(
-            drive,
-            output_folder,
-            output_path,
-            output_name,
-        )
+        # A legacy output without provenance cannot be proven to belong to the
+        # current upstream source. Never "bless" it by stamping today's hash:
+        # that can silently attach stale text to a new source revision.
         print(
-            f"[SOURCE-CHECK] {output_name} legacy metadata upgraded; "
-            f"source_sha256={current_sha[:12]}",
+            f"[SOURCE-CHECK] {output_name} has no source_sha256; "
+            "force one-time regeneration from the current source.",
             flush=True,
         )
-        return True
+        return False
 
     matched = recorded_sha == current_sha
     if not matched:
