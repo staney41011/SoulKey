@@ -1470,36 +1470,46 @@ document.getElementById("run-p255-batch")?.addEventListener("click",()=>{
   );
   if(!ok) return;
 
-  const sent=submitBridgePost({
+  // Give each lesson its own authenticated runtime nonce and GitHub/Kaggle
+  // job. GitHub keeps them serial via the workflow concurrency group, but a
+  // long P255-L01 can no longer consume P255-L02's runtime/timeout budget.
+  const sentL01=submitBridgePost({
     action:"run_stage",
     task_id:"P255-L01",
     stage:"batch",
     lang:"",
-    langs:"P255-L01,P255-L02"
+    langs:"P255-L01"
+  });
+  const sentL02=submitBridgePost({
+    action:"run_stage",
+    task_id:"P255-L02",
+    stage:"batch",
+    lang:"",
+    langs:"P255-L02"
   });
 
-  if(!sent){
-    alert("批次工作送出失敗：請重新連線控制中心後再試一次。");
+  if(!sentL01 || !sentL02){
+    alert("至少一堂批次工作送出失敗：請重新連線控制中心後再試一次。");
     return;
   }
 
   const btn=document.getElementById("run-p255-batch");
   if(btn){
     btn.disabled=true;
-    btn.textContent="已送出255期批次";
+    btn.textContent="已送出255期兩個續跑工作";
   }
 
   ["P255-L01","P255-L02"].forEach(id=>{
     const task=tasks.find(x=>x.id===id);
     if(!task) return;
-    task.status="排隊中：255期完整批次";
+    task.status="排隊中：255期斷點續跑";
     task.remoteStages=task.remoteStages||{};
     task.remoteStages.batch={
-      task_id:"P255-L01",
+      task_id:id,
       stage:"batch",
       status:"queued",
       progress:"0",
-      message:"P255-L01 + P255-L02 已送出完整批次"
+      message:id+" 已獨立送出斷點續跑"
     };
   });
   save(STORE.tasks,tasks);
