@@ -2349,8 +2349,9 @@ async function openEnglishReview(taskId){
     '<span>第'+escapeHtml(task.period)+'期・'+escapeHtml(task.lesson)+'</span>'+
     '<small>'+escapeHtml(task.url)+'</small>';
 
-  document.getElementById("en-review-list").innerHTML=
-    '<div class="empty">正在讀取英文來源（優先 YouTube English CC）…</div>';
+  const list=document.getElementById("en-review-list");
+  list.innerHTML=
+    '<div class="empty">正在讀取英文來源（優先 YouTube English CC；無快取則讀取 Drive 英文稿）…</div>';
   showView("en-review");
 
   try{
@@ -2359,35 +2360,30 @@ async function openEnglishReview(taskId){
       cache:"no-store",
       headers:{"Accept":"application/json"}
     });
-    if(!response.ok){
-      throw new Error("GitHub HTTP "+response.status);
-    }
 
-    const payload=await response.json();
-    const items=englishReviewItemsFromGithub(payload);
-    const available=items.filter(x=>String(x.en||"").trim()).length;
+    if(response.ok){
+      const payload=await response.json();
+      const items=englishReviewItemsFromGithub(payload);
+      const available=items.filter(x=>String(x.en||"").trim()).length;
 
-    if(!items.length){
-      throw new Error("這堂課目前沒有可用的人工定稿段落。");
-    }
-
-    if(!available){
-      const enRemote=remoteStageStatus(task,"en");
-      if(enRemote && enRemote.status==="done"){
-        document.getElementById("en-review-list").innerHTML=
-          '<div class="empty">偵測到中文 → 英文 AI 翻譯已完成，正在載入英文稿…</div>';
-        requestReviewData(taskId,"en",0);
+      if(items.length && available){
+        renderEnglishReview(items);
         return;
       }
-
-      showNoEnglishCcFallback(taskId);
-      return;
     }
 
-    renderEnglishReview(items);
+    // GitHub review cache is only an acceleration layer. It may legitimately
+    // be absent on resumed batches. The authoritative English draft is in
+    // Google Drive (en.json), so always try the Bridge/Drive loader before
+    // declaring English CC unavailable.
+    list.innerHTML=
+      '<div class="empty">GitHub 英文對照快取不存在或沒有 English CC，正在改由 Google Drive 載入英文稿…</div>';
+    if(requestReviewData(taskId,"en",0)) return;
+
+    throw new Error("Google Drive 英文稿備援目前未連線");
   }catch(err){
-    document.getElementById("en-review-list").innerHTML=
-      '<div class="empty">English CC 讀取失敗：'+
+    list.innerHTML=
+      '<div class="empty">英文稿讀取失敗：'+
       escapeHtml(String(err?.message||err))+
       '<br><br><button class="ghost" id="retry-en-cc">重新讀取</button></div>';
     document.getElementById("retry-en-cc")?.addEventListener(
@@ -2830,8 +2826,18 @@ window.addEventListener("message",event=>{
         zhReviewLoading=false;
         setZhFinalizeEnabled(false);
         setZhReviewLoadState("雲端同步失敗","error");
+        alert("讀取人工校正資料失敗："+(data.message || data.error || "未知錯誤"));
+      }else if(data.kind==="en"){
+        // Neither GitHub English-CC cache nor Drive en.json is available.
+        // Present the intended fallback actions instead of a dead-end alert.
+        showNoEnglishCcFallback(data.task_id || selectedTaskId);
+        const status=document.getElementById("en-fallback-status");
+        if(status){
+          status.textContent="Drive 英文稿目前也尚未建立："+(data.message || data.error || "未知錯誤");
+        }
+      }else{
+        alert("讀取人工校正資料失敗："+(data.message || data.error || "未知錯誤"));
       }
-      alert("讀取人工校正資料失敗："+(data.message || data.error || "未知錯誤"));
     }else if(data.kind==="zh"){
       const incoming=Array.isArray(data.segments) ? data.segments : [];
       if(chunkIndex===0){
