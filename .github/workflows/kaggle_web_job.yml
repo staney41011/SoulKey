@@ -319,12 +319,20 @@ jobs:
           set -euo pipefail
           OUT="${RUNNER_TEMP}/soulkey-web-job-output"
           mkdir -p "$OUT"
-          kaggle kernels output "$KAGGLE_KERNEL" -p "$OUT" -o || true
-          find "$OUT" -maxdepth 2 -type f -print || true
-          LOG="$(find "$OUT" -type f -name '*.log' | head -n 1 || true)"
-          if [ -n "$LOG" ]; then
+
+          # Do not use `kaggle kernels output` here. A completed TTS job can
+          # contain hundreds of WAV files and the GitHub runner may spend a long
+          # time downloading them even though this step only needs diagnostics.
+          # Fetch the kernel log directly and bound the call so the workflow can
+          # always reach its final status / retry logic.
+          LOG="$OUT/kaggle.log"
+          timeout 90s kaggle kernels logs "$KAGGLE_KERNEL" >"$LOG" 2>&1 || true
+
+          if [ -s "$LOG" ]; then
             echo "----- Kaggle log tail -----"
             tail -n 180 "$LOG"
+          else
+            echo "No Kaggle log text returned."
           fi
 
       - name: Publish review cache to deterministic GitHub path
