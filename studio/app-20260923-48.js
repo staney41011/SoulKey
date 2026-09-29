@@ -2516,10 +2516,19 @@ function submitBridgePost(fields){
 
   if(!endpoint || !key) return false;
 
+  // Every POST gets its own hidden iframe. Reusing one target causes two rapid
+  // submissions (for example P255-L01 + P255-L02) to race, and the second
+  // navigation can replace the first before Apps Script receives it.
+  const target="soulkey-bridge-post-"+Date.now()+"-"+Math.random().toString(36).slice(2);
+  const frame=document.createElement("iframe");
+  frame.name=target;
+  frame.style.display="none";
+  frame.setAttribute("aria-hidden","true");
+
   const form=document.createElement("form");
   form.method="POST";
   form.action=endpoint;
-  form.target="soulkey-bridge-target";
+  form.target=target;
   form.style.display="none";
 
   const payload={...fields,bridge_key:key};
@@ -2531,9 +2540,13 @@ function submitBridgePost(fields){
     form.appendChild(input);
   }
 
+  document.body.appendChild(frame);
   document.body.appendChild(form);
   form.submit();
-  window.setTimeout(()=>form.remove(),2000);
+  window.setTimeout(()=>{
+    form.remove();
+    frame.remove();
+  },10000);
   return true;
 }
 
