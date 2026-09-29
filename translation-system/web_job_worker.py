@@ -8,6 +8,9 @@ import urllib.request
 from pathlib import Path
 
 
+REQUIRED_BRIDGE_PROTOCOL = 4
+
+
 MACHINE_STAGES = {
     "zh",
     "metadata",
@@ -37,6 +40,16 @@ def fetch_runtime(bridge_url: str, nonce: str):
         raise RuntimeError(
             "SoulKey runtime credential request failed: "
             + str(payload.get("message") or payload.get("error") or payload)
+        )
+
+    protocol = int(payload.get("bridge_protocol") or 0)
+    if protocol < REQUIRED_BRIDGE_PROTOCOL:
+        raise RuntimeError(
+            "Apps Script Bridge 版本過舊：live="
+            + str(protocol)
+            + "，required="
+            + str(REQUIRED_BRIDGE_PROTOCOL)
+            + "。請重新部署 bridge/apps-script/Code.gs 後再執行。"
         )
     return payload
 
