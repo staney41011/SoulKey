@@ -936,6 +936,18 @@ function quickReviewUrl(task){
 function openQuickReview(taskId){
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
+
+  // Quick Review prefers the deterministic GitHub cache, but it must never
+  // depend on a previous polish run having published that cache successfully.
+  // Seed/rebuild in the background whenever the control center is connected;
+  // review-editor.js also has a Drive fallback if GitHub is still propagating.
+  if(bridgeKeyValue()){
+    submitBridgePost({
+      action:"review_cache_seed",
+      task_id:String(taskId||"")
+    });
+  }
+
   window.open(quickReviewUrl(task),"_blank","noopener");
 }
 
