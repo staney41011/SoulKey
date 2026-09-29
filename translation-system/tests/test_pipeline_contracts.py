@@ -21,6 +21,8 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("const REQUIRED_BRIDGE_PROTOCOL = 4", app)
         self.assertIn("const REQUIRED_BRIDGE_PROTOCOL=4", quick)
         self.assertIn("REQUIRED_BRIDGE_PROTOCOL = 4", worker)
+        self.assertIn("bridgeProtocolVersion<=0", app)
+        self.assertIn("bridgeProtocolVersion<=0", quick)
         self.assertIn("Apps Script Bridge 版本過舊", worker)
 
     def test_frontend_bridge_actions_have_server_handlers(self):
