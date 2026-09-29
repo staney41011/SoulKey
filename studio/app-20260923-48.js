@@ -2971,7 +2971,14 @@ window.addEventListener("message",event=>{
         task.languagePlan=Array.isArray(data.plan) ? data.plan : task.languagePlan;
         save(STORE.tasks,tasks);
       }
-      if(status) status.textContent="已同步到中央控制表。";
+      if(status){
+        status.textContent=data.translation_changed
+          ? "已同步；翻譯設定有變更，舊多語/TTS 結果已標記需重跑。"
+          : data.audio_changed
+            ? "已同步；音檔設定有變更，舊 TTS 結果已標記需重跑。"
+            : "已同步到中央控制表。";
+      }
+      window.setTimeout(()=>requestTaskStatuses(),150);
     }else if(status){
       status.textContent="語言設定同步失敗，請稍後再試。";
     }
