@@ -38,5 +38,5 @@ jobs:
           grep -q 'getProperty("GEMINI_API_KEY")' bridge/apps-script/Code.gs
           ! grep -Eq 'AIza[0-9A-Za-z_-]{20,}' bridge/apps-script/Code.gs
           grep -q 'gemini-3.8-flash' translation-system/gemini_engine.py
-          grep -q 'gemini-3.8-flash-tts' translation-system/gemini_engine.py
+          grep -q 'gemini-3.8-flash-lite-tts' translation-system/gemini_engine.py
           grep -q 'response_format' translation-system/gemini_engine.py
