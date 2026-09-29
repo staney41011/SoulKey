@@ -948,7 +948,13 @@ function openQuickReview(taskId){
     });
   }
 
-  window.open(quickReviewUrl(task),"_blank","noopener");
+  const popup=window.open(quickReviewUrl(task),"_blank");
+  if(popup){
+    try{
+      const key=bridgeKeyValue();
+      if(key) popup.sessionStorage.setItem(BRIDGE_SESSION_KEY,key);
+    }catch(_){}
+  }
 }
 
 function renderTasks(){
