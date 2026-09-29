@@ -10,6 +10,8 @@ const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
 const STATUS_POLL_MS = 12000;
+const REQUIRED_BRIDGE_PROTOCOL = 4;
+let bridgeProtocolVersion = 0;
 const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache").replace(/\/$/,"");
 const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
@@ -2556,6 +2558,18 @@ function submitBridgePost(fields){
 
   if(!endpoint || !key) return false;
 
+  if(
+    fields && fields.action==="run_stage" &&
+    bridgeProtocolVersion>0 && bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL
+  ){
+    alert(
+      "Apps Script 控制中心版本過舊（目前 "+bridgeProtocolVersion+
+      "，需要 "+REQUIRED_BRIDGE_PROTOCOL+"）。請先重新部署 Code.gs；"+
+      "系統已阻止送出可能使用錯誤協定的 Kaggle 工作。"
+    );
+    return false;
+  }
+
   // Every POST gets its own hidden iframe. Reusing one target causes two rapid
   // submissions (for example P255-L01 + P255-L02) to race, and the second
   // navigation can replace the first before Apps Script receives it.
@@ -2989,17 +3003,24 @@ window.addEventListener("message",event=>{
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
     if(data.ok){
+      bridgeProtocolVersion=Number(data.bridge_protocol||0);
+      const protocolOk=bridgeProtocolVersion>=REQUIRED_BRIDGE_PROTOCOL;
       if(syncState){
-        syncState.textContent="狀態表已連線";
-        syncState.className="ok";
+        syncState.textContent=protocolOk ? "狀態表已連線" : "控制中心版本過舊";
+        syncState.className=protocolOk ? "ok" : "warn";
       }
       const apiState=document.getElementById("api-state");
       if(apiState){
-        apiState.textContent="Apps Script 已連線";
-        apiState.className="ok";
+        apiState.textContent=protocolOk
+          ? "Apps Script 已連線"
+          : "Apps Script 需重新部署";
+        apiState.className=protocolOk ? "ok" : "warn";
       }
       if(syncText){
-        syncText.textContent="執行狀態表目前 "+String(data.rows||0)+" 筆紀錄";
+        syncText.textContent=protocolOk
+          ? "執行狀態表目前 "+String(data.rows||0)+" 筆紀錄・Bridge v"+bridgeProtocolVersion
+          : "GitHub 前端需要 Bridge v"+REQUIRED_BRIDGE_PROTOCOL+
+            "，目前部署回報 v"+bridgeProtocolVersion+"；讀取功能可繼續，但已阻止新工作送出。";
       }
       youtubeCookiesConfigured=!!data.youtube_cookies_configured;
       const cookieState=document.getElementById("youtube-cookie-state");
@@ -3012,7 +3033,14 @@ window.addEventListener("message",event=>{
           cookieState.className="ok";
         }
       }
-      setDashboardBridgeState("控制中心已連線，正在同步任務…","working");
+      if(bridgeProtocolVersion>=REQUIRED_BRIDGE_PROTOCOL){
+        setDashboardBridgeState("控制中心已連線，正在同步任務…","working");
+      }else{
+        setDashboardBridgeState(
+          "控制中心可讀取，但 Apps Script 部署版本落後；請重新部署 Code.gs 後再執行新工作。",
+          "error"
+        );
+      }
       requestLanguageSettings();
       requestTasksFromControlCenter();
     }else if(syncState){
