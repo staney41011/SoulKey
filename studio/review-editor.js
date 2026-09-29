@@ -640,6 +640,16 @@ window.addEventListener("message",event=>{
 
   if(data.type==="review_data"){
     if(!data.ok){
+      if(data.kind==="en"){
+        // English may legitimately not exist before Chinese Final. Keep the
+        // already-loaded Chinese review usable instead of turning the whole
+        // quick editor into an error state.
+        setStatus(
+          "中文稿已載入；英文來源尚未建立，可先完成中文定稿。",
+          "ok"
+        );
+        return;
+      }
       setStatus(data.message||data.error||"Google Drive 備援讀取失敗","error");
       return;
     }
@@ -726,6 +736,9 @@ window.addEventListener("message",event=>{
       renderZh();
       renderEn();
       setStep(2);
+      // Once Chinese Final exists, Drive can authoritatively provide either
+      // en.json or the saved YouTube English CC alignment.
+      requestDriveReview("en",0);
     }else{
       $("finalize-zh").disabled=false;
       setStatus(data.message||data.error||"中文定稿失敗","error");
@@ -815,7 +828,14 @@ async function loadReview(){
     const url=REVIEW_CACHE_BASE+"/"+encodeURIComponent(taskId)+"/zh.json?_="+Date.now();
     const response=await fetch(url,{cache:"no-store",headers:{"Accept":"application/json"}});
     if(response.ok){
-      applyReviewPayload(await response.json());
+      const loaded=await response.json();
+      applyReviewPayload(loaded);
+      const hasEnglish=(loaded.segments||[]).some(
+        x=>String(x.en_text||x.source_en||"").trim()
+      );
+      if(!hasEnglish && loaded.zh_finalized_at){
+        requestDriveReview("en",0);
+      }
       return;
     }
 
