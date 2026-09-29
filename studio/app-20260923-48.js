@@ -783,21 +783,20 @@ async function loadZhReviewFromGithub(taskId,options={}){
     }
 
     if(response.status===404){
-      // Self-heal a missing deterministic GitHub review cache. The source
-      // transcript + polish report already live in Drive; ask the connected
-      // Apps Script bridge to seed studio-review-cache/<task>/zh.json, then
-      // keep polling GitHub until the new file propagates. This removes the
-      // old dead-end where the user had to leave this page and manually retry.
+      // GitHub is only a speed/cache layer. The source of truth remains Drive.
+      // If the deterministic cache is missing, seed it in the background but
+      // immediately restore the older reliable Drive-backed review_load path.
       if(!reviewCacheSeedRequested.has(String(taskId))){
         const seeded=submitBridgePost({
           action:"review_cache_seed",
           task_id:String(taskId||"")
         });
-        if(seeded){
-          reviewCacheSeedRequested.add(String(taskId));
-          setZhReviewLoadState("GitHub 快取缺少・正在自動補建…","working");
-        }
+        if(seeded) reviewCacheSeedRequested.add(String(taskId));
       }
+
+      setZhReviewLoadState("GitHub 快取缺少・改由 Google Drive 直接載入…","working");
+      const fallback=requestReviewData(taskId,"zh",0);
+      if(fallback) return;
 
       if(retry<maxRetries){
         window.setTimeout(
@@ -806,9 +805,7 @@ async function loadZhReviewFromGithub(taskId,options={}){
         );
         return;
       }
-      throw new Error(
-        "GitHub 人工定稿快取仍未建立。系統已嘗試自動補建；請確認控制中心仍為已連線後再按一次重新讀取。"
-      );
+      throw new Error("GitHub 快取缺少，且 Google Drive 備援目前未連線。");
     }
 
     if(!response.ok){
@@ -881,10 +878,24 @@ async function loadZhReviewFromGithub(taskId,options={}){
     setZhRefreshButtonState(false);
     setZhFinalizeEnabled(false);
     const rawReason=String(err && err.message ? err.message : err);
+
+    // GitHub read problems must never block review while the control center is
+    // connected. Fall back to the original Drive-backed chunked loader.
+    const fallback=requestReviewData(taskId,"zh",0);
+    if(fallback){
+      setZhReviewLoadState(
+        isAbort
+          ? "GitHub 讀取逾時・改由 Google Drive 直接載入…"
+          : "GitHub 讀取失敗・改由 Google Drive 直接載入…",
+        "working"
+      );
+      return;
+    }
+
     const reason=isAbort
       ? "GitHub 讀取逾時"
       : (/load failed|failed to fetch/i.test(rawReason)
-          ? "GitHub 連線被瀏覽器阻擋，請重新整理後再試"
+          ? "GitHub 連線被瀏覽器阻擋，且 Google Drive 備援未連線"
           : rawReason);
     setZhReviewLoadState(reason,"error");
 
