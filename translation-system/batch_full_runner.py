@@ -403,15 +403,28 @@ def ensure_required_secrets():
                 raise RuntimeError(f"Kaggle 缺少必要 Secret: {name}")
             print(f"[SECRET] {name}: OK", flush=True)
 
-    for name in ["YOUTUBE_COOKIES_B64", "GEMINI_API_KEY"]:
-        value = str(os.environ.get(name) or "").strip()
-        if not value:
-            value = get_secret(name, required=False)
-            if value:
-                os.environ[name] = value
-        if not value:
-            raise RuntimeError(f"Kaggle 缺少必要 Secret: {name}")
-        print(f"[SECRET] {name}: OK", flush=True)
+    # Gemini is required for polish/translation. YouTube cookies are only
+    # an optional acquisition fallback: bgutil guest PO tokens work without
+    # them, and checkpoint resumes may not touch YouTube at all.
+    gemini = str(os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not gemini:
+        gemini = get_secret("GEMINI_API_KEY", required=False)
+        if gemini:
+            os.environ["GEMINI_API_KEY"] = gemini
+    if not gemini:
+        raise RuntimeError("Kaggle 缺少必要 Secret: GEMINI_API_KEY")
+    print("[SECRET] GEMINI_API_KEY: OK", flush=True)
+
+    cookies = str(os.environ.get("YOUTUBE_COOKIES_B64") or "").strip()
+    if not cookies:
+        cookies = get_secret("YOUTUBE_COOKIES_B64", required=False)
+        if cookies:
+            os.environ["YOUTUBE_COOKIES_B64"] = cookies
+    print(
+        "[SECRET] YOUTUBE_COOKIES_B64: "
+        + ("OK" if cookies else "未設定（guest PO token / checkpoint 模式可繼續）"),
+        flush=True,
+    )
 
 
 def process_task(task_id, system_dir):
@@ -455,6 +468,11 @@ def process_task(task_id, system_dir):
             )
         else:
             try:
+                # Heavy YouTube/ASR setup is lazy. A checkpoint resume that
+                # already has segments.json must not fail because Deno, cookies,
+                # model download, or CUDA ASR setup is temporarily unavailable.
+                prepare_youtube_runtime(system_dir)
+                prepare_asr_model()
                 run([
                     sys.executable, system_dir / "runner.py",
                     "--task-id", task_id,
@@ -462,11 +480,12 @@ def process_task(task_id, system_dir):
                     "--max-tasks", "1",
                     "--force-asr",
                 ])
-            except subprocess.CalledProcessError as exc:
+            except Exception as exc:
                 transcript_source = "gemini-youtube-fallback"
                 print(
-                    f"[ASR-FALLBACK] Taiwan-Breeze source acquisition failed for "
-                    f"{task_id}: {exc}. Falling back to Gemini YouTube transcript.",
+                    f"[ASR-FALLBACK] Taiwan-Breeze source acquisition/preflight failed for "
+                    f"{task_id}: {type(exc).__name__}: {exc}. "
+                    "Falling back to Gemini YouTube transcript.",
                     flush=True,
                 )
                 run_gemini_stage_with_backoff(
@@ -702,8 +721,6 @@ def main():
     print("=" * 72)
 
     ensure_required_secrets()
-    prepare_youtube_runtime(system_dir)
-    prepare_asr_model()
 
     failed = []
     for task_id in task_ids:
