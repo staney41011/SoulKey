@@ -513,6 +513,17 @@ def process_task(task_id, system_dir):
                 "batch_auto_user_requested",
             )
 
+        # Keep Studio's public workflow contract aligned with the files that
+        # actually exist. This does not claim human review: the message makes
+        # the batch/auto-final provenance explicit.
+        mark_done(
+            task_id,
+            "zh",
+            sheets=sheets,
+            run_id=new_run_id(task_id, "zh-batch-final"),
+            message="中文 Final 已確認存在；批次來源/自動定稿，不代表人工審閱",
+        )
+
         # 3. Vernacular Traditional Chinese, then transparent auto-final.
         if drive_has_file(drive, folders["translation"], "zh-TW.vernacular.json"):
             print(f"[RESUME] {task_id} vernacular already complete; skip.", flush=True)
@@ -564,6 +575,14 @@ def process_task(task_id, system_dir):
                 workdir,
                 "batch_auto_user_requested",
             )
+
+        mark_done(
+            task_id,
+            "en-review",
+            sheets=sheets,
+            run_id=new_run_id(task_id, "en-batch-final"),
+            message="English Final 已確認存在；批次來源/自動定稿，不代表人工審閱",
+        )
 
         # 5. Gemini 3.1 six-language translation + semantic QA + repair.
         multi_complete = all(
