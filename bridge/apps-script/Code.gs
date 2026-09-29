@@ -89,6 +89,28 @@ function doPost(e) {
       return json_(workerTranslationCheckpointPublish_(nonce, taskId, contentB64));
     }
 
+    const props = PropertiesService.getScriptProperties();
+    const expectedKey = String(props.getProperty("BRIDGE_KEY") || "").trim();
+    const githubToken = String(props.getProperty("GITHUB_TOKEN") || "").trim();
+
+    const bridgeKey = String((e && e.parameter && e.parameter.bridge_key) || "").trim();
+
+    if (!expectedKey) {
+      return responseForAction_(action, {
+        ok: false,
+        error: "server_not_configured",
+        message: "BRIDGE_KEY 尚未設定"
+      });
+    }
+
+    if (!bridgeKey || bridgeKey !== expectedKey) {
+      return responseForAction_(action, {
+        ok: false,
+        error: "unauthorized",
+        message: "Bridge Key 不正確"
+      });
+    }
+
     if (action === "review_share_draft_save") {
       const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
       const payloadJson = String((e && e.parameter && e.parameter.payload_json) || "").trim();
@@ -117,28 +139,6 @@ function doPost(e) {
       const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
       const planJson = String((e && e.parameter && e.parameter.plan_json) || "").trim();
       return postMessage_(reviewFinish_(taskId, planJson));
-    }
-
-    const props = PropertiesService.getScriptProperties();
-    const expectedKey = String(props.getProperty("BRIDGE_KEY") || "").trim();
-    const githubToken = String(props.getProperty("GITHUB_TOKEN") || "").trim();
-
-    const bridgeKey = String((e && e.parameter && e.parameter.bridge_key) || "").trim();
-
-    if (!expectedKey) {
-      return responseForAction_(action, {
-        ok: false,
-        error: "server_not_configured",
-        message: "BRIDGE_KEY 尚未設定"
-      });
-    }
-
-    if (!bridgeKey || bridgeKey !== expectedKey) {
-      return responseForAction_(action, {
-        ok: false,
-        error: "unauthorized",
-        message: "Bridge Key 不正確"
-      });
     }
 
     if (action === "smoke") {
