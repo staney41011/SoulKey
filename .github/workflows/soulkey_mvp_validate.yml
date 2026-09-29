@@ -25,7 +25,26 @@ jobs:
 
       - name: Python syntax
         run: |
-          python -m py_compile             translation-system/youtube_io.py             translation-system/runner.py             translation-system/polish.py             translation-system/polish_runner.py             translation-system/translate_runner.py             translation-system/web_job_worker.py             translation-system/tts_runner.py             translation-system/translation_engine.py             translation-system/batch_full_runner.py
+          python -m py_compile \
+            translation-system/youtube_io.py \
+            translation-system/runner.py \
+            translation-system/polish.py \
+            translation-system/polish_runner.py \
+            translation-system/translate_runner.py \
+            translation-system/web_job_worker.py \
+            translation-system/tts_engine.py \
+            translation-system/tts_runner.py \
+            translation-system/translation_engine.py \
+            translation-system/batch_full_runner.py \
+            translation-system/gemini_engine.py \
+            translation-system/gemini_checkpoint.py \
+            translation-system/gemini_text_production_runner.py \
+            translation-system/gemini_multi_production_runner.py \
+            translation-system/github_review_cache.py
+
+      - name: Pipeline regression contracts
+        run: |
+          python translation-system/tests/test_pipeline_contracts.py
 
       - name: JavaScript syntax
         run: |
@@ -70,6 +89,11 @@ jobs:
           grep -q 'STRICT FALLBACK TRANSLATION' translation-system/translation_engine.py
           grep -q '但其他語言繼續' translation-system/translate_runner.py
           grep -q '單一語言錯誤不阻擋其他語言' translation-system/tts_runner.py
+          grep -q 'any_failed = True' translation-system/tts_runner.py
+          grep -q 'source_sha256' translation-system/tts_engine.py
+          grep -q 'source_sha256' translation-system/gemini_multi_production_runner.py
+          grep -q 'requestDriveReview("zh",0)' studio/review-editor.js
+          grep -q 'requestReviewData(taskId,"en",0)' studio/app-20260923-48.js
           grep -q 'read_planned_target_languages' translation-system/translate_runner.py
           grep -q 'completedStep=i-1' studio/app-20260923-48.js
           grep -q '3 次重翻 + 2 次強制修復' translation-system/translation_engine.py
