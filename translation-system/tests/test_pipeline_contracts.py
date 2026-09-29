@@ -211,6 +211,30 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("vernacular_changed", batch)
         self.assertIn("english_changed", batch)
 
+    def test_legacy_text_outputs_without_fingerprint_are_regenerated(self):
+        batch = read("translation-system/batch_full_runner.py")
+        self.assertIn(
+            "has no source_sha256;",
+            batch,
+        )
+        self.assertIn(
+            "force one-time regeneration from the current source.",
+            batch,
+        )
+        self.assertNotIn("legacy metadata upgraded", batch)
+
+    def test_every_multi_checkpoint_keeps_english_source_fingerprint(self):
+        multi = read("translation-system/gemini_multi_production_runner.py")
+        self.assertIn("缺少 source fingerprint", multi)
+        self.assertNotIn("Legacy v2 checkpoints had no source fingerprint. Accept", multi)
+        self.assertNotIn(
+            "checkpoint_payload(args.task_id, len(source_segments), translations, qa_batches, seq)",
+            multi,
+        )
+        # Resume-QA, per-batch translation, per-batch QA, and final checkpoint
+        # must all carry the current English Final fingerprint.
+        self.assertGreaterEqual(multi.count("source_sha256,"), 4)
+
     def test_batch_multi_always_enters_source_aware_checkpoint_runner(self):
         batch = read("translation-system/batch_full_runner.py")
         self.assertNotIn("multi_complete = all(", batch)
