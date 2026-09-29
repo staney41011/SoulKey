@@ -137,6 +137,12 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("guest PO token / anonymous clients", worker)
         self.assertNotIn("Kaggle API 觸發不會可靠保留 Notebook Secret", worker)
 
+    def test_replacing_youtube_url_invalidates_derived_outputs(self):
+        bridge = read("bridge/apps-script/Code.gs")
+        self.assertIn("const sourceChanged", bridge)
+        self.assertIn("YouTube 來源網址已變更；舊輸出不可沿用", bridge)
+        self.assertIn('["zh", "en-review", "multi", "tts"]', bridge)
+
 
 if __name__ == "__main__":
     unittest.main()
