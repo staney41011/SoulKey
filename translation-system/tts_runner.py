@@ -32,7 +32,7 @@ LANGUAGE_NAMES = {
     "sd": "Sindhi",
     "ta": "Tamil",
 }
-from tts_engine import synthesize_language
+from tts_engine import segments_fingerprint, synthesize_language
 from status_io import new_run_id, mark_running, mark_done, mark_needs_review, mark_error
 
 
@@ -114,7 +114,7 @@ def upload_tts_outputs(drive, audio_folder, result):
         upload_or_replace_file(drive, audio_folder, path, Path(path).name)
 
 
-def existing_mms_output(drive, audio_folder, lang):
+def existing_mms_output(drive, audio_folder, lang, source_sha256):
     manifest_item = find_file(
         drive,
         audio_folder,
@@ -134,6 +134,8 @@ def existing_mms_output(drive, audio_folder, lang):
         return False
 
     if str(manifest.get("model") or "") != TTS_MODELS[lang]:
+        return False
+    if str(manifest.get("source_sha256") or "") != str(source_sha256 or ""):
         return False
 
     return bool(
@@ -250,16 +252,28 @@ def main():
                 )
 
                 try:
+                    # Always resolve the authoritative translation first. Audio
+                    # resume is valid only when the stored manifest was built
+                    # from exactly this text/timing revision.
+                    segments = load_translation_from_drive(
+                        drive,
+                        folders["translation"],
+                        lang,
+                        workdir,
+                    )
+                    source_sha256 = segments_fingerprint(segments)
+
                     if (
                         not args.force
                         and existing_mms_output(
                             drive,
                             folders["audio"],
                             lang,
+                            source_sha256,
                         )
                     ):
                         print(
-                            f"[TTS:{lang}] Drive 已有完整 Meta MMS 音檔，略過重做",
+                            f"[TTS:{lang}] Drive 已有相同來源版本的完整 Meta MMS 音檔，略過重做",
                             flush=True,
                         )
                         completed.append(lang)
@@ -269,20 +283,12 @@ def main():
                             sheets=sheets,
                             run_id=lang_run_id,
                             message=(
-                                f"{LANGUAGE_NAMES[lang]} Meta MMS 音檔已存在，略過重做"
+                                f"{LANGUAGE_NAMES[lang]} Meta MMS 音檔來源版本一致，略過重做"
                             ),
                         )
                         continue
 
-                    # 新增語言不佔用「任務佇列」固定欄位；
-                    # 直接以 Drive 是否已有該語言翻譯檔作為 TTS 前置條件。
                     print(f"[TTS] {LANGUAGE_NAMES[lang]} ({lang})")
-                    segments = load_translation_from_drive(
-                        drive,
-                        folders["translation"],
-                        lang,
-                        workdir,
-                    )
                     source_duration = max(
                         float(seg.get("end", 0) or 0)
                         for seg in segments
