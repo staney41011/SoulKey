@@ -196,6 +196,7 @@ def main():
         return 0
 
     processed = 0
+    any_failed = False
     for task in tasks:
         if processed >= args.max_tasks:
             break
@@ -402,7 +403,19 @@ def main():
                 note,
             )
 
-            if status in {"完成", "部分完成"}:
+            if failed:
+                # Continue through every requested language first so one broken
+                # model does not hide the others, but the aggregate TTS stage
+                # must NOT report success when any requested language failed.
+                any_failed = True
+                mark_error(
+                    task["task_id"],
+                    status_stage,
+                    sheets=sheets,
+                    run_id=run_id,
+                    message=note,
+                )
+            elif status == "完成":
                 mark_done(
                     task["task_id"],
                     status_stage,
@@ -438,10 +451,19 @@ def main():
                 run_id=run_id,
                 exc=exc,
             )
+            any_failed = True
             processed += 1
 
     print("")
     print("TTS 本次處理完成。")
+    if any_failed:
+        print(
+            "[TTS ERROR] 至少一個指定語言失敗；已完成語言保留，"
+            "下次可由 manifest 斷點續跑。",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 1
     return 0
 
 
