@@ -295,6 +295,16 @@ jobs:
               fi
             fi
 
+            # Batch jobs are checkpoint-safe. Any worker failure can be resumed
+            # from Drive/GitHub checkpoints without repeating completed stages.
+            # Retry inside the SAME authenticated workflow while the runtime
+            # nonce is still valid, so the user does not need to press Run again.
+            if [ "$STAGE" = "batch" ] && [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Batch attempt failed; waiting 30 seconds and resuming from checkpoint..."
+              sleep 30
+              continue
+            fi
+
             FINAL_STATUS="$ATTEMPT_STATUS"
             break
           done
