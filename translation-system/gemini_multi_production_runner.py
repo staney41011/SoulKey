@@ -212,7 +212,7 @@ SOURCE:
 """
 
 
-def qa_prompt(batch, rows):
+def qa_prompt(batch, rows, langs):
     by_id = {int(x["segment_id"]): x for x in rows}
     payload = []
     for src in batch:
@@ -221,10 +221,11 @@ def qa_prompt(batch, rows):
         payload.append({
             "segment_id": sid,
             "en": src["text"],
-            **{lang: row[lang] for lang in LANGS},
+            **{lang: row[lang] for lang in langs},
         })
     return f"""
-Audit these six-language translations against the approved English source.
+Audit only these requested-language translations against the approved English source:
+{",".join(langs)}.
 Only report real failures: missing important meaning, materially wrong meaning,
 invented content, wrong target language, changed/missing important number,
 or serious glossary violation.
@@ -252,14 +253,14 @@ def normalize_unicode_digits(text):
     return "".join(out)
 
 
-def local_failures(batch, rows):
+def local_failures(batch, rows, langs):
     by_id = {int(x["segment_id"]): x for x in rows}
     failures = []
     for src in batch:
         sid = int(src["id"])
         english = str(src["text"])
         numbers = re.findall(r"\d+(?:\.\d+)?", english)
-        for lang in LANGS:
+        for lang in langs:
             target = str(by_id[sid].get(lang) or "").strip()
             target_for_numbers = normalize_unicode_digits(target)
             issues = []
@@ -274,7 +275,7 @@ def local_failures(batch, rows):
     return failures
 
 
-def combine_failures(local_rows, semantic_rows):
+def combine_failures(local_rows, semantic_rows, langs):
     combined = {}
     for item in local_rows:
         key = (int(item["segment_id"]), str(item["lang"]))
@@ -284,7 +285,7 @@ def combine_failures(local_rows, semantic_rows):
                 combined[key].append(str(issue))
     for item in semantic_rows:
         lang = str(item.get("lang") or "").strip()
-        if lang not in LANGS:
+        if lang not in langs:
             continue
         key = (int(item["segment_id"]), lang)
         combined.setdefault(key, [])
@@ -367,13 +368,13 @@ FAILED PAIRS:
     return repairs, model_used
 
 
-def audit_batch(client, batch, translations, wait_seconds=0):
+def audit_batch(client, batch, translations, langs, wait_seconds=0):
     rows = [translations[int(src["id"])] for src in batch]
-    local = local_failures(batch, rows)
+    local = local_failures(batch, rows, langs)
     if wait_seconds:
         time.sleep(wait_seconds)
     qa, _ = client.structured(
-        qa_prompt(batch, rows),
+        qa_prompt(batch, rows, langs),
         QA_SCHEMA,
         system_instruction=(
             "Verify translation meaning only from the supplied English DATA. "
@@ -382,7 +383,7 @@ def audit_batch(client, batch, translations, wait_seconds=0):
         thinking_level="low",
     )
     semantic = qa.get("failures") or []
-    failures = combine_failures(local, semantic)
+    failures = combine_failures(local, semantic, langs)
     return failures, local, semantic
 
 
@@ -392,6 +393,7 @@ def repair_batch_until_clean(
     translations,
     source_map,
     glossary,
+    langs,
     *,
     wait_seconds=0,
     initial_failures=None,
@@ -399,7 +401,7 @@ def repair_batch_until_clean(
 ):
     if initial_failures is None:
         failures, local, semantic = audit_batch(
-            client, batch, translations, wait_seconds=wait_seconds
+            client, batch, translations, langs, wait_seconds=wait_seconds
         )
     else:
         failures = dict(initial_failures)
@@ -430,6 +432,7 @@ def repair_batch_until_clean(
             client,
             batch,
             translations,
+            langs,
             wait_seconds=wait_seconds,
         )
         print(
@@ -499,9 +502,9 @@ def main():
     if not requested:
         raise RuntimeError("Gemini production multi 沒有指定任何目標語言")
 
-    # Internally keep one six-language inference/checkpoint so interrupted jobs
-    # remain compatible with existing persistent checkpoints. Only requested
-    # languages are published/marked complete for this Studio job.
+    # Keep one six-language inference/checkpoint for compatibility, but QA,
+    # repair, publishing, and completion are scoped to Studio's requested
+    # languages so an unselected language cannot block the job.
 
     drive, sheets = build_google_services()
     task = find_task(sheets, args.task_id)
@@ -586,7 +589,10 @@ def main():
         # never restart an already translated batch merely because one QA pair
         # remained unresolved.
         for key, data in list(qa_batches.items()):
-            unresolved_rows = list(data.get("unresolved") or [])
+            unresolved_rows = [
+                item for item in (data.get("unresolved") or [])
+                if str(item.get("lang") or "") in requested
+            ]
             if not unresolved_rows:
                 continue
 
@@ -611,6 +617,7 @@ def main():
                 translations,
                 source_map,
                 glossary,
+                requested,
                 wait_seconds=args.wait_seconds,
                 initial_failures=initial,
                 max_rounds=4,
@@ -709,6 +716,7 @@ def main():
                     translations,
                     source_map,
                     glossary,
+                    requested,
                     wait_seconds=args.wait_seconds,
                     max_rounds=4,
                 )
