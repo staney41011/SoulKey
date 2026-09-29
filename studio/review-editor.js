@@ -490,7 +490,11 @@ function submit(fields){
   form.action=BRIDGE_ENDPOINT;
   form.target=target;
   form.style.display="none";
-  for(const [name,value] of Object.entries(fields)){
+  const authenticatedFields={
+    ...fields,
+    bridge_key:bridgeKeyValue()
+  };
+  for(const [name,value] of Object.entries(authenticatedFields)){
     const input=document.createElement("input");
     input.type="hidden";
     input.name=name;
