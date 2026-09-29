@@ -13,6 +13,34 @@ from scipy.io import wavfile
 from transformers import AutoTokenizer, VitsModel, set_seed
 
 
+DIGIT_WORDS = {
+    "en": ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"],
+    "th": ["ศูนย์", "หนึ่ง", "สอง", "สาม", "สี่", "ห้า", "หก", "เจ็ด", "แปด", "เก้า"],
+    "es": ["cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve"],
+    "id": ["nol", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan"],
+    "vi": ["không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"],
+    "sd": ["ٻُڙي", "هڪ", "ٻه", "ٽي", "چار", "پنج", "ڇهه", "ست", "اٺ", "نو"],
+    "ta": ["பூஜ்ஜியம்", "ஒன்று", "இரண்டு", "மூன்று", "நான்கு", "ஐந்து", "ஆறு", "ஏழு", "எட்டு", "ஒன்பது"],
+}
+
+
+def _input_length(inputs):
+    ids = inputs.get("input_ids") if isinstance(inputs, dict) else None
+    if ids is None:
+        return 0
+    try:
+        return int(ids.shape[-1])
+    except Exception:
+        return 0
+
+
+def _numeric_spoken_fallback(text: str, lang: str):
+    digits = re.findall(r"\d", str(text or ""))
+    if not digits or lang not in DIGIT_WORDS:
+        return ""
+    return " ".join(DIGIT_WORDS[lang][int(d)] for d in digits)
+
+
 def _looks_like_hf_model(path: Path):
     return path.is_dir() and (path / "config.json").exists()
 
@@ -45,10 +73,14 @@ def _convert_original_mms_model(language: str, output_dir: Path):
         from transformers.models.vits.convert_original_checkpoint import (
             convert_checkpoint,
         )
-    except Exception as exc:
-        raise RuntimeError(
-            "目前 transformers 套件缺少 MMS VITS checkpoint converter"
-        ) from exc
+        converter_source = "transformers"
+    except Exception:
+        # transformers 5.17.0 no longer ships this helper in the wheel even
+        # though SoulKey still needs it for original MMS collection models.
+        from mms_vits_converter import convert_checkpoint
+        converter_source = "soulkey-vendored"
+
+    print(f"[TTS] MMS converter：{converter_source}", flush=True)
 
     convert_checkpoint(
         pytorch_dump_folder_path=str(output_dir),
@@ -215,6 +247,30 @@ def synthesize_language(
 
         for chunk_index, chunk in enumerate(chunks):
             inputs = tokenizer(text=chunk, return_tensors="pt")
+
+            # MMS VITS crashes inside relative-position attention when the
+            # tokenizer returns a zero-length sequence. This legitimately
+            # happens for punctuation-only / unsupported-script fragments.
+            # Numeric headings such as "7." are first converted to spoken
+            # target-language digits; other empty fragments are skipped rather
+            # than aborting the entire language.
+            if _input_length(inputs) <= 0:
+                fallback_text = _numeric_spoken_fallback(chunk, lang)
+                if fallback_text:
+                    print(
+                        f"[TTS:{lang}] zero-token chunk -> numeric fallback: "
+                        f"{chunk!r} -> {fallback_text!r}",
+                        flush=True,
+                    )
+                    inputs = tokenizer(text=fallback_text, return_tensors="pt")
+
+            if _input_length(inputs) <= 0:
+                print(
+                    f"[TTS:{lang}] skip zero-token chunk: {chunk!r}",
+                    flush=True,
+                )
+                continue
+
             inputs = {k: v.to(device) for k, v in inputs.items()}
             set_seed(seed + seg_id + chunk_index)
 
