@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -440,13 +441,40 @@ def repair_batch_until_clean(
     return failures, local, semantic, repair_history, models
 
 
-def checkpoint_payload(task_id, source_count, translations, qa_batches, seq):
+def source_fingerprint(source_segments):
+    canonical = [
+        {
+            "id": int(x["id"]),
+            "start": float(x["start"]),
+            "end": float(x["end"]),
+            "text": str(x["text"]),
+        }
+        for x in source_segments
+    ]
+    raw = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def checkpoint_payload(
+    task_id,
+    source_count,
+    translations,
+    qa_batches,
+    seq,
+    source_sha256="",
+):
     return {
-        "version": 2,
+        "version": 3,
         "task_id": task_id,
         "engine": "gemini-production-multi",
         "model": DEFAULT_TEXT_MODEL,
         "source_segments": source_count,
+        "source_sha256": source_sha256,
         "checkpoint_seq": seq,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "translations": [translations[k] for k in sorted(translations)],
@@ -494,6 +522,7 @@ def main():
     download_drive_file(drive, source_item["id"], source_path)
     source_segments = normalize_segments(json.loads(source_path.read_text(encoding="utf-8")))
     source_map = {int(x["id"]): x for x in source_segments}
+    source_sha256 = source_fingerprint(source_segments)
     glossary = glossary_text(read_values(sheets, SPREADSHEET_ID, GLOSSARY_FULL_RANGE))
 
     api_key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
@@ -529,14 +558,28 @@ def main():
                 workdir=workdir,
             )
             if checkpoint and checkpoint.get("engine") == "gemini-production-multi":
-                for row in checkpoint.get("translations") or []:
-                    translations[int(row["segment_id"])] = row
-                qa_batches = dict(checkpoint.get("qa_batches") or {})
-                seq = int(checkpoint.get("checkpoint_seq") or 0)
-                print(
-                    f"[RESUME] {source}; translations={len(translations)}; qa={len(qa_batches)}",
-                    flush=True,
-                )
+                checkpoint_sha = str(checkpoint.get("source_sha256") or "").strip()
+                if checkpoint_sha and checkpoint_sha != source_sha256:
+                    print(
+                        "[CHECKPOINT] English Final 已變更；"
+                        "忽略舊 Gemini multi checkpoint，避免沿用過期翻譯。",
+                        flush=True,
+                    )
+                    checkpoint = None
+                else:
+                    # Legacy v2 checkpoints had no source fingerprint. Accept
+                    # them once for backward-compatible resume, then every new
+                    # save upgrades them to v3 with source_sha256.
+                    for row in checkpoint.get("translations") or []:
+                        translations[int(row["segment_id"])] = row
+                    qa_batches = dict(checkpoint.get("qa_batches") or {})
+                    seq = int(checkpoint.get("checkpoint_seq") or 0)
+                    print(
+                        f"[RESUME] {source}; translations={len(translations)}; "
+                        f"qa={len(qa_batches)}; "
+                        f"source_sha256={source_sha256[:12]}",
+                        flush=True,
+                    )
 
         # Repair unresolved QA from a previous interrupted run before
         # translating new segments. This is the key checkpoint-resume path:
@@ -591,6 +634,7 @@ def main():
                     translations,
                     qa_batches,
                     seq,
+                    source_sha256,
                 ),
                 drive=drive,
                 translation_folder_id=folders["translation"],
@@ -643,7 +687,14 @@ def main():
             seq += 1
             save_persistent_checkpoint(
                 args.task_id,
-                checkpoint_payload(args.task_id, len(source_segments), translations, qa_batches, seq),
+                checkpoint_payload(
+                    args.task_id,
+                    len(source_segments),
+                    translations,
+                    qa_batches,
+                    seq,
+                    source_sha256,
+                ),
                 drive=drive,
                 translation_folder_id=folders["translation"],
                 workdir=workdir,
@@ -761,6 +812,7 @@ def main():
             translations,
             qa_batches,
             seq + 1,
+            source_sha256,
         )
         final_cp["status"] = "complete"
         save_persistent_checkpoint(
