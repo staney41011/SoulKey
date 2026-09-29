@@ -1,5 +1,6 @@
 const cfg=window.SOULKEY_CONFIG||{};
 const BRIDGE_ENDPOINT=String(cfg.bridgeEndpoint||"").trim();
+const BRIDGE_SESSION_KEY="soulkey_bridge_key_session_v1";
 const REVIEW_CACHE_BASE=String(
   cfg.reviewCacheBaseUrl||
   "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache"
@@ -27,6 +28,8 @@ let saveRevisionInFlight=0;
 let autoSaveTimer=null;
 let currentStep=1;
 let finishQueued=false;
+let driveFallbackZh=[];
+let driveFallbackTotal=0;
 
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??"")
@@ -385,15 +388,107 @@ function currentPayload(){
   };
 }
 
+function bridgeKeyValue(){
+  try{
+    return String(sessionStorage.getItem(BRIDGE_SESSION_KEY)||"").trim();
+  }catch(_){
+    return "";
+  }
+}
+
+function jsonpBridgeRequest(fields){
+  const key=bridgeKeyValue();
+  if(!BRIDGE_ENDPOINT || !key) return false;
+
+  const callbackName="__soulkey_review_jsonp_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+  const script=document.createElement("script");
+  const params=new URLSearchParams({
+    ...Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,String(v??"")])),
+    bridge_key:key,
+    callback:callbackName,
+    _t:String(Date.now())
+  });
+
+  const cleanup=()=>{
+    try{delete window[callbackName];}catch(_){}
+    script.remove();
+  };
+
+  window[callbackName]=(data)=>{
+    cleanup();
+    window.dispatchEvent(new MessageEvent("message",{data}));
+  };
+  script.onerror=()=>{
+    cleanup();
+    setStatus("Google Drive 備援讀取失敗","error");
+  };
+
+  const sep=BRIDGE_ENDPOINT.includes("?")?"&":"?";
+  script.src=BRIDGE_ENDPOINT+sep+params.toString();
+  document.head.appendChild(script);
+  return true;
+}
+
+function requestDriveReview(kind,chunkIndex=0){
+  return jsonpBridgeRequest({
+    action:"review_load",
+    task_id:taskId,
+    kind,
+    chunk_index:chunkIndex
+  });
+}
+
+function applyReviewPayload(loaded){
+  payload=loaded||{};
+  payload.zh_finalized_at=String(payload.zh_finalized_at||payload.finalized_at||"");
+  payload.en_finalized_at=String(payload.en_finalized_at||"");
+  segments=repairTimings(payload.segments||[]);
+  restoreLocalIfNewer();
+
+  renderZh();
+  renderEn();
+  $("save-draft").disabled=false;
+  $("finalize-zh").disabled=!!payload.zh_finalized_at;
+  $("finalize-en").disabled=!payload.zh_finalized_at||!!payload.en_finalized_at;
+  $("finish-workflow").disabled=!payload.en_finalized_at;
+
+  const finishRaw=localStorage.getItem("soulkey_finish:"+taskId);
+  if(finishRaw){
+    try{
+      const info=JSON.parse(finishRaw);
+      if(Date.now()-Number(info.queued_at||0)<24*60*60*1000){
+        finishQueued=true;
+        $("done-message").textContent=info.message||"工作已送出。";
+        $("done-detail").textContent=
+          "翻譯："+((info.translate_langs||[]).join(", ")||"無")+
+          "｜音檔："+((info.audio_langs||[]).join(", ")||"無");
+      }
+    }catch(_){}
+  }
+
+  if(finishQueued) setStep(4,true);
+  else if(payload.en_finalized_at) setStep(3);
+  else if(payload.zh_finalized_at) setStep(2);
+  else setStep(1);
+
+  if(!dirty) setStatus("已載入最新工作稿","ok");
+}
+
 function submit(fields){
   if(!BRIDGE_ENDPOINT){
     setStatus("後端連線不存在","error");
     return false;
   }
+  const target="soulkey-share-"+Date.now()+"-"+Math.random().toString(36).slice(2);
+  const frame=document.createElement("iframe");
+  frame.name=target;
+  frame.style.display="none";
+  frame.setAttribute("aria-hidden","true");
+
   const form=document.createElement("form");
   form.method="POST";
   form.action=BRIDGE_ENDPOINT;
-  form.target="soulkey-share-target";
+  form.target=target;
   form.style.display="none";
   for(const [name,value] of Object.entries(fields)){
     const input=document.createElement("input");
@@ -402,9 +497,13 @@ function submit(fields){
     input.value=String(value??"");
     form.appendChild(input);
   }
+  document.body.appendChild(frame);
   document.body.appendChild(form);
   form.submit();
-  setTimeout(()=>form.remove(),2000);
+  setTimeout(()=>{
+    form.remove();
+    frame.remove();
+  },10000);
   return true;
 }
 
@@ -539,6 +638,63 @@ window.addEventListener("message",event=>{
   const data=event.data||{};
   if(data.source!=="soulkey-bridge") return;
 
+  if(data.type==="review_data"){
+    if(!data.ok){
+      setStatus(data.message||data.error||"Google Drive 備援讀取失敗","error");
+      return;
+    }
+
+    if(data.kind==="zh"){
+      const chunkIndex=Number(data.chunk_index||0);
+      if(chunkIndex===0){
+        driveFallbackZh=[];
+        driveFallbackTotal=Number(data.total_segments||0);
+      }
+      driveFallbackZh.push(...(Array.isArray(data.segments)?data.segments:[]));
+
+      if(data.has_more){
+        setStatus(
+          "GitHub 快取缺少・由 Drive 載入 "+
+          driveFallbackZh.length+"/"+(driveFallbackTotal||"?")+" 段",
+          "working"
+        );
+        requestDriveReview("zh",chunkIndex+1);
+        return;
+      }
+
+      const fallbackPayload={
+        version:5,
+        task_id:taskId,
+        generated_at:new Date().toISOString(),
+        total_segments:driveFallbackZh.length,
+        segments:driveFallbackZh
+      };
+      applyReviewPayload(fallbackPayload);
+
+      // If an AI English draft already exists in Drive, merge it immediately
+      // so Step 2 remains usable even though the GitHub cache was absent.
+      requestDriveReview("en",0);
+      return;
+    }
+
+    if(data.kind==="en"){
+      const rows=Array.isArray(data.segments)?data.segments:[];
+      const byId=new Map(rows.map(x=>[Number(x.id),x]));
+      segments=segments.map(item=>{
+        const row=byId.get(Number(item.id));
+        if(!row) return item;
+        return {
+          ...item,
+          source_en:String(item.source_en||""),
+          en_text:String(row.en||item.en_text||item.source_en||"")
+        };
+      });
+      renderEn();
+      setStatus("GitHub 快取缺少・已由 Google Drive 恢復中英文稿","ok");
+      return;
+    }
+  }
+
   if(data.type==="review_share_draft_saved"){
     saveInFlight=false;
     $("save-draft").disabled=false;
@@ -658,42 +814,22 @@ async function loadReview(){
   try{
     const url=REVIEW_CACHE_BASE+"/"+encodeURIComponent(taskId)+"/zh.json?_="+Date.now();
     const response=await fetch(url,{cache:"no-store",headers:{"Accept":"application/json"}});
-    if(!response.ok) throw new Error("逐字稿讀取失敗 HTTP "+response.status);
-
-    payload=await response.json();
-    payload.zh_finalized_at=String(payload.zh_finalized_at||payload.finalized_at||"");
-    payload.en_finalized_at=String(payload.en_finalized_at||"");
-    segments=repairTimings(payload.segments||[]);
-    restoreLocalIfNewer();
-
-    renderZh();
-    renderEn();
-    $("save-draft").disabled=false;
-    $("finalize-zh").disabled=!!payload.zh_finalized_at;
-    $("finalize-en").disabled=!payload.zh_finalized_at||!!payload.en_finalized_at;
-    $("finish-workflow").disabled=!payload.en_finalized_at;
-
-    const finishRaw=localStorage.getItem("soulkey_finish:"+taskId);
-    if(finishRaw){
-      try{
-        const info=JSON.parse(finishRaw);
-        if(Date.now()-Number(info.queued_at||0)<24*60*60*1000){
-          finishQueued=true;
-          $("done-message").textContent=info.message||"工作已送出。";
-          $("done-detail").textContent=
-            "翻譯："+((info.translate_langs||[]).join(", ")||"無")+
-            "｜音檔："+((info.audio_langs||[]).join(", ")||"無");
-        }
-      }catch(_){}
+    if(response.ok){
+      applyReviewPayload(await response.json());
+      return;
     }
 
-    if(finishQueued) setStep(4,true);
-    else if(payload.en_finalized_at) setStep(3);
-    else if(payload.zh_finalized_at) setStep(2);
-    else setStep(1);
+    if(response.status===404 && requestDriveReview("zh",0)){
+      setStatus("GitHub 快取缺少・改由 Google Drive 載入…","working");
+      return;
+    }
 
-    if(!dirty) setStatus("已載入最新工作稿","ok");
+    throw new Error("逐字稿讀取失敗 HTTP "+response.status);
   }catch(err){
+    if(requestDriveReview("zh",0)){
+      setStatus("GitHub 讀取失敗・改由 Google Drive 載入…","working");
+      return;
+    }
     setStatus(err.message||String(err),"error");
     $("zh-segment-list").innerHTML='<div class="card empty">'+esc(err.message||err)+'</div>';
   }
