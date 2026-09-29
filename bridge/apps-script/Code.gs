@@ -1619,13 +1619,38 @@ function upsertTasks_(items) {
       ? sheet.getRange(existingRow, 1, 1, 20).getValues()[0]
       : new Array(20).fill("");
 
+    const previousUrl = String(row[4] || "").trim();
+    const sourceChanged = !!(
+      existingRow && previousUrl && previousUrl !== url
+    );
+
+    if (sourceChanged) {
+      // A replacement YouTube URL invalidates every derived artifact. Keep the
+      // old Drive files for audit/recovery, but clear sheet completion flags
+      // and mark completed workflow stages stale so Studio cannot silently
+      // reuse outputs from the previous video.
+      row[3] = "";  // title
+      row[5] = "";  // lecturer
+      for (let idx = 7; idx <= 13; idx++) row[idx] = "";
+
+      ["zh", "en-review", "multi", "tts"].forEach(function(stage) {
+        appendStaleIfDone_(
+          id,
+          stage,
+          "YouTube 來源網址已變更；舊輸出不可沿用"
+        );
+      });
+    }
+
     row[0] = id;
     row[1] = period;
     row[2] = lesson;
     row[4] = url;
     row[6] = row[6] || "zh-TW";
     row[18] = nowText_();
-    row[19] = note || row[19] || "由 SoulKey Studio 建立";
+    row[19] = sourceChanged
+      ? "YouTube 來源已更新；需從中文 ASR/校稿重新執行"
+      : (note || row[19] || "由 SoulKey Studio 建立");
 
     if (existingRow) {
       sheet.getRange(existingRow, 1, 1, 20).setValues([row]);
