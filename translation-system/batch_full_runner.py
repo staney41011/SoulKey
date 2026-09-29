@@ -498,6 +498,21 @@ def process_task(task_id, system_dir):
             "--max-tasks", "1",
         ])
 
+        # tts_runner intentionally continues after one language fails so the
+        # other languages still get a chance to finish. The batch itself must
+        # nevertheless stay incomplete until every requested WAV + MP3 exists;
+        # otherwise we would report a false full-batch success.
+        missing_audio = []
+        for lang in LANGS:
+            has_wav = drive_has_file(drive, folders["audio"], f"{lang}.wav")
+            has_mp3 = drive_has_file(drive, folders["audio"], f"{lang}.mp3")
+            if not (has_wav and has_mp3):
+                missing_audio.append(lang)
+        if missing_audio:
+            raise RuntimeError(
+                "Meta MMS TTS 尚未完成：" + ",".join(missing_audio)
+            )
+
         # 7. Put all final SRTs into the dedicated subtitle folder.
         publish_subtitles(drive, folders, workdir)
 
