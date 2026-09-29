@@ -103,6 +103,22 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("audio_changed", bridge)
         self.assertIn("requestTaskStatuses()", app)
 
+    def test_quick_review_writes_require_bridge_auth(self):
+        bridge = read("bridge/apps-script/Code.gs")
+        editor = read("studio/review-editor.js")
+        do_post = bridge.split("function doPost(e)", 1)[1].split(
+            "function bridgeRequest", 1
+        )[0]
+        auth_check = do_post.index("if (!bridgeKey || bridgeKey !== expectedKey)")
+        for action in (
+            'action === "review_share_draft_save"',
+            'action === "review_share_finalize"',
+            'action === "review_share_finalize_en"',
+            'action === "review_finish"',
+        ):
+            self.assertGreater(do_post.index(action), auth_check)
+        self.assertIn("bridge_key:bridgeKeyValue()", editor)
+
 
 if __name__ == "__main__":
     unittest.main()
