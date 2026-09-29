@@ -6,6 +6,8 @@ const REVIEW_CACHE_BASE=String(
   "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache"
 ).replace(/\/$/,"");
 const RENDER_BATCH=80;
+const REQUIRED_BRIDGE_PROTOCOL=4;
+let bridgeProtocolVersion=0;
 
 const params=new URLSearchParams(location.search);
 const taskId=String(params.get("task")||"").trim();
@@ -479,6 +481,13 @@ function submit(fields){
     setStatus("後端連線不存在","error");
     return false;
   }
+  if(bridgeProtocolVersion>0 && bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+    setStatus(
+      "Apps Script 控制中心版本過舊；請先回 Studio 重新部署 Code.gs。",
+      "error"
+    );
+    return false;
+  }
   const target="soulkey-share-"+Date.now()+"-"+Math.random().toString(36).slice(2);
   const frame=document.createElement("iframe");
   frame.name=target;
@@ -641,6 +650,20 @@ function finishWorkflow(){
 window.addEventListener("message",event=>{
   const data=event.data||{};
   if(data.source!=="soulkey-bridge") return;
+
+  if(data.type==="status_health" && data.ok){
+    bridgeProtocolVersion=Number(data.bridge_protocol||0);
+    if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+      setStatus(
+        "控制中心版本過舊（v"+bridgeProtocolVersion+"）；可讀取 Drive，但已停用寫入與送出工作，請重新部署 Code.gs。",
+        "error"
+      );
+      ["save-draft","finalize-zh","finalize-en","finish-workflow"].forEach(id=>{
+        const el=$(id);
+        if(el) el.disabled=true;
+      });
+    }
+  }
 
   if(data.type==="review_data"){
     if(!data.ok){
@@ -913,4 +936,5 @@ window.addEventListener("beforeunload",event=>{
 
 updateOutputSummary();
 mountPlayer();
+jsonpBridgeRequest({action:"status_health"});
 loadReview();
