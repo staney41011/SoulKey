@@ -1446,7 +1446,7 @@ function confirmNextStage(taskId){
   );
   if(!ok) return;
 
-  const dispatchStage=next.key==="zh" ? "metadata" : next.key;
+  const dispatchStage=next.key==="zh" ? "zh" : next.key;
   const sent=submitBridgePost({
     action:"run_stage",
     task_id:task.id,
