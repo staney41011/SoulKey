@@ -69,12 +69,25 @@ class PipelineContracts(unittest.TestCase):
         )
         self.assertIn("timeout 90s kaggle kernels logs", workflow)
 
-    def test_bridge_drive_review_contract_covers_zh_and_en(self):
+    def test_bridge_drive_review_contract_covers_zh_en_and_cc(self):
         bridge = read("bridge/apps-script/Code.gs")
         self.assertIn('if (kind === "zh")', bridge)
         self.assertIn('if (kind === "en")', bridge)
         self.assertIn("loadZhReviewChunk_", bridge)
         self.assertIn('"en.json"', bridge)
+        self.assertIn('"youtube.en.json"', bridge)
+        self.assertIn("alignEnglishCcToReviewItems_", bridge)
+
+    def test_batch_resume_does_not_eagerly_require_asr_setup(self):
+        batch = read("translation-system/batch_full_runner.py")
+        main_tail = batch.split("def main():", 1)[1]
+        self.assertNotIn("prepare_youtube_runtime(system_dir)\n    prepare_asr_model()", main_tail)
+        self.assertIn("segments.json already exists", batch)
+        self.assertIn("guest PO token / checkpoint", batch)
+
+    def test_gemini_source_fallback_has_transport_retries(self):
+        source = read("translation-system/gemini_source_runner.py")
+        self.assertIn("max_attempts=4", source)
 
 
 if __name__ == "__main__":
