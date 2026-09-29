@@ -1396,11 +1396,18 @@ function seedReviewCache_(taskId, githubToken) {
     };
   }
 
-  const items = zhReviewItems_(raw, polished);
+  let items = zhReviewItems_(raw, polished);
+  const youtubeCc = readJsonFile_(folders.source, "youtube.en.json");
+  if (youtubeCc) {
+    items = alignEnglishCcToReviewItems_(items, youtubeCc);
+  }
   const payload = JSON.stringify({
-    version: 2,
+    version: 5,
     task_id: normalizedTaskId,
     generated_at: new Date().toISOString(),
+    english_cc_available: !!youtubeCc,
+    english_cc_language: youtubeCc ? String(youtubeCc.language || "en") : "",
+    english_cc_source: youtubeCc ? "youtube_caption" : "",
     total_segments: items.length,
     segments: items
   });
@@ -1961,6 +1968,7 @@ function lessonFolders_(taskId) {
       const ids = JSON.parse(cached);
       return {
         task: task,
+        source: DriveApp.getFolderById(ids.source),
         transcript: DriveApp.getFolderById(ids.transcript),
         translation: DriveApp.getFolderById(ids.translation)
       };
@@ -1975,12 +1983,14 @@ function lessonFolders_(taskId) {
     courseFolder,
     String(lessonNumber).padStart(2, "0") + "_第" + lessonNumber + "堂"
   );
+  const source = cachedChildFolder_(lessonFolder, "00_來源資訊");
   const transcript = cachedChildFolder_(lessonFolder, "01_中文逐字稿");
   const translation = cachedChildFolder_(lessonFolder, "02_翻譯稿");
 
   cache.put(
     cacheKey,
     JSON.stringify({
+      source: source.getId(),
       transcript: transcript.getId(),
       translation: translation.getId()
     }),
@@ -1989,6 +1999,7 @@ function lessonFolders_(taskId) {
 
   return {
     task: task,
+    source: source,
     transcript: transcript,
     translation: translation
   };
@@ -2128,6 +2139,38 @@ function zhReviewItems_(raw, polished) {
   });
 }
 
+function alignEnglishCcToReviewItems_(items, ccPayload) {
+  const cues = (ccPayload && ccPayload.segments) || [];
+  if (!Array.isArray(items) || !Array.isArray(cues) || !cues.length) {
+    return items || [];
+  }
+
+  return items.map(function(item) {
+    const start = Number(item.start || 0);
+    const end = Number(item.end || start);
+    const matched = [];
+    const seen = {};
+
+    cues.forEach(function(cue) {
+      const cueStart = Number(cue.start || 0);
+      const cueEnd = Number(cue.end || cueStart);
+      if (cueEnd <= start || cueStart >= end) return;
+      const text = String(cue.text || "").replace(/\s+/g, " ").trim();
+      if (!text || seen[text]) return;
+      seen[text] = true;
+      matched.push(text);
+    });
+
+    const sourceEn = matched.join(" ").trim();
+    return Object.assign({}, item, {
+      source_en: sourceEn,
+      en_text: sourceEn,
+      en_confirmed: item.en_confirmed === true
+    });
+  });
+}
+
+
 function buildZhReviewManifest_(folder, raw, polished) {
   const chunkSize = 50;
   const items = zhReviewItems_(raw, polished);
@@ -2250,15 +2293,15 @@ function loadReview_(taskId, kind, chunkIndex) {
   }
 
   if (kind === "en") {
-    const original =
-      readJsonFile_(folders.transcript, "zh-TW.final.json");
+    const original = readJsonFile_(folders.transcript, "zh-TW.final.json");
     const english = readJsonFile_(folders.translation, "en.json");
+    const youtubeCc = readJsonFile_(folders.source, "youtube.en.json");
 
-    if (!original || !english) {
+    if (!original) {
       return {
         ok: false,
         error: "review_files_missing",
-        message: "找不到中文 Final 或英文翻譯檔案"
+        message: "找不到中文 Final"
       };
     }
 
@@ -2268,23 +2311,72 @@ function loadReview_(taskId, kind, chunkIndex) {
     }).filter(function(x) { return x.zh; });
 
     const originalSegments = original.segments || [];
-    const englishSegments = english.segments || [];
+    let englishSegments = [];
+
+    if (english && Array.isArray(english.segments) && english.segments.length) {
+      englishSegments = english.segments.map(function(x, i) {
+        return {
+          id: Number(x.id !== undefined ? x.id : i),
+          start: Number(x.start || 0),
+          end: Number(x.end || 0),
+          text: String(x.text || "")
+        };
+      });
+    } else if (youtubeCc && Array.isArray(youtubeCc.segments)) {
+      const aligned = alignEnglishCcToReviewItems_(
+        originalSegments.map(function(x, i) {
+          return {
+            id: Number(x.id !== undefined ? x.id : i),
+            start: Number(x.start || 0),
+            end: Number(x.end || 0),
+            text: String(x.text || "")
+          };
+        }),
+        youtubeCc
+      );
+      englishSegments = aligned.map(function(x) {
+        return {
+          id: Number(x.id),
+          start: Number(x.start || 0),
+          end: Number(x.end || 0),
+          text: String(x.source_en || "")
+        };
+      });
+    }
+
+    if (!englishSegments.length || !englishSegments.some(function(x) {
+      return String(x.text || "").trim();
+    })) {
+      return {
+        ok: false,
+        error: "review_files_missing",
+        message: "找不到英文 AI 稿或可對齊的 YouTube English CC"
+      };
+    }
+
+    const englishById = {};
+    englishSegments.forEach(function(x, i) {
+      englishById[Number(x.id !== undefined ? x.id : i)] = x;
+    });
 
     return {
       ok: true,
       task_id: taskId,
       kind: kind,
+      source: english ? "en.json" : "youtube.en.json",
       load_ms: Date.now() - startedAt,
-      segments: englishSegments.map(function(x, i) {
-        const zhText = originalSegments[i] ? String(originalSegments[i].text || "") : "";
+      segments: originalSegments.map(function(src, i) {
+        const sid = Number(src.id !== undefined ? src.id : i);
+        const x = englishById[sid] || {};
+        const zhText = String(src.text || "");
         const pairs = terms.filter(function(t) {
           return zhText.indexOf(t.zh) >= 0;
         });
         return {
-          id: Number(x.id !== undefined ? x.id : i),
-          start: Number(x.start || 0),
-          end: Number(x.end || 0),
-          time: formatPlainTime_(x.start),
+          id: sid,
+          start: Number(src.start || 0),
+          end: Number(src.end || 0),
+          time: formatPlainTime_(src.start),
           original: zhText,
           vernacular: "",
           en: String(x.text || ""),
