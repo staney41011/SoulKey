@@ -464,8 +464,16 @@ def main():
     args = parser.parse_args()
 
     requested = [x.strip() for x in args.langs.split(",") if x.strip()]
-    if set(requested) != set(LANGS):
-        raise RuntimeError("Gemini production multi 目前固定一次產生 th,es,id,vi,sd,ta 六語")
+    unknown = [x for x in requested if x not in LANGS]
+    if unknown:
+        raise RuntimeError("不支援的 Gemini 翻譯語言：" + ",".join(unknown))
+    requested = [x for x in LANGS if x in set(requested)]
+    if not requested:
+        raise RuntimeError("Gemini production multi 沒有指定任何目標語言")
+
+    # Internally keep one six-language inference/checkpoint so interrupted jobs
+    # remain compatible with existing persistent checkpoints. Only requested
+    # languages are published/marked complete for this Studio job.
 
     drive, sheets = build_google_services()
     task = find_task(sheets, args.task_id)
@@ -703,7 +711,7 @@ def main():
         rows = [translations[int(x["id"])] for x in source_segments]
         outdir = workdir / "final"
         outdir.mkdir(parents=True, exist_ok=True)
-        for lang in LANGS:
+        for lang in requested:
             for path in write_language_set(
                 outdir,
                 lang,
@@ -738,11 +746,13 @@ def main():
         updates = {
             f"任務佇列!S{task['sheet_row']}": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             f"任務佇列!T{task['sheet_row']}": (
-                f"Gemini六語翻譯+QA完成；{len(source_segments)}段；QA unresolved=0"
+                "Gemini翻譯+QA完成；語言=" + ",".join(requested)
+                + f"；{len(source_segments)}段；QA unresolved=0"
             ),
         }
         for lang, col in LEGACY_COLS.items():
-            updates[f"任務佇列!{col}{task['sheet_row']}"] = "完成"
+            if lang in requested:
+                updates[f"任務佇列!{col}{task['sheet_row']}"] = "完成"
         update_cells(sheets, SPREADSHEET_ID, updates)
 
         final_cp = checkpoint_payload(
@@ -767,9 +777,17 @@ def main():
             "multi",
             sheets=sheets,
             run_id=run_id,
-            message="Gemini 六語翻譯 + QA 完成；unresolved=0",
+            message=(
+                "Gemini 翻譯 + QA 完成；langs=" + ",".join(requested)
+                + "；unresolved=0"
+            ),
         )
-        print("[DONE] Gemini 六語正式翻譯完成；QA unresolved=0", flush=True)
+        print(
+            "[DONE] Gemini 正式翻譯完成；langs="
+            + ",".join(requested)
+            + "；QA unresolved=0",
+            flush=True,
+        )
         return 0
 
     except Exception as exc:
