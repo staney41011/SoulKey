@@ -19,6 +19,7 @@ from google_io import (
     update_cells,
     upload_or_replace_file,
 )
+from github_review_cache import publish_review_cache
 from lesson_paths import digits, resolve_lesson_folders
 from status_io import new_run_id, mark_done, mark_error, mark_running
 
@@ -109,6 +110,96 @@ def run_gemini_stage_with_backoff(cmd, label, waits=(30, 60, 120, 300, 600)):
 
 def drive_has_file(drive, folder_id, name):
     return bool(find_file(drive, folder_id, name))
+
+
+def plain_time(seconds):
+    total = max(0, int(float(seconds or 0)))
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def ensure_review_cache(drive, folders, task_id, workdir):
+    """Rebuild/publish the deterministic Studio Chinese review cache.
+
+    The batch can legitimately resume past polish when zh-TW.polished.json
+    already exists. Publishing the review cache must therefore be a separate
+    checkpoint, not an accidental side effect of re-running Gemini polish.
+    """
+    raw_item = find_file(drive, folders["transcript"], "segments.json")
+    polished_item = find_file(drive, folders["transcript"], "zh-TW.polished.json")
+    if not raw_item or not polished_item:
+        print(
+            f"[REVIEW-CACHE] {task_id} source files incomplete; skip publish.",
+            flush=True,
+        )
+        return False
+
+    cache_dir = workdir / "review-cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = cache_dir / "segments.json"
+    polished_path = cache_dir / "zh-TW.polished.json"
+    download_drive_file(drive, raw_item["id"], raw_path)
+    download_drive_file(drive, polished_item["id"], polished_path)
+
+    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    polished = json.loads(polished_path.read_text(encoding="utf-8"))
+    raw_segments = raw.get("segments") or []
+    polished_by_id = {
+        int(row.get("id", idx)): row
+        for idx, row in enumerate(polished.get("segments") or [])
+    }
+
+    review_segments = []
+    for idx, src in enumerate(raw_segments):
+        sid = int(src.get("id", idx))
+        polished_row = polished_by_id.get(sid)
+        if polished_row is None:
+            raise RuntimeError(
+                f"{task_id} review cache missing polished segment id={sid}"
+            )
+        raw_text = str(src.get("text") or "")
+        text = str(polished_row.get("text") or "")
+        start = float(src.get("start") or 0)
+        end = float(src.get("end") or start)
+        review_segments.append({
+            "id": sid,
+            "start": start,
+            "end": end,
+            "time": plain_time(start),
+            "raw": raw_text,
+            "text": text,
+            "flags": ["changed"] if text != raw_text else [],
+            "source_en": "",
+            "en_text": "",
+            "en_confirmed": False,
+        })
+
+    payload = {
+        "version": 5,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "total_segments": len(review_segments),
+        "segments": review_segments,
+    }
+    cache_path = cache_dir / "zh-TW.review-cache.json"
+    cache_path.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    result = publish_review_cache(task_id, cache_path)
+    if isinstance(result, dict) and result.get("ok") is False:
+        print(
+            f"[REVIEW-CACHE] {task_id} publish deferred/failed: "
+            f"{result.get('error') or result.get('message')}",
+            flush=True,
+        )
+        return False
+
+    print(
+        f"[REVIEW-CACHE] {task_id} published {len(review_segments)} segments.",
+        flush=True,
+    )
+    return True
 
 
 def pad_row(row, length=20):
@@ -401,6 +492,10 @@ def process_task(task_id, system_dir):
                 ],
                 f"{task_id} polish",
             )
+
+        # Review cache is its own checkpoint. Resuming past polish must not
+        # strand Studio on a missing GitHub cache.
+        ensure_review_cache(drive, folders, task_id, workdir)
 
         # User explicitly requested the full 255 batch to run end-to-end.
         # Promote the AI-reviewed draft with transparent provenance rather than
