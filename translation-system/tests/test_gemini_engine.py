@@ -141,6 +141,17 @@ class GeminiEngineTest(unittest.TestCase):
             "",
         )
 
+    def test_script_guard_allows_numeric_only_fragments(self):
+        for lang, text in [
+            ("th", "7."),
+            ("sd", "٧."),
+            ("ta", "7."),
+        ]:
+            self.assertEqual(
+                local_language_issue(text, "7.", lang),
+                "",
+            )
+
     def test_glossary_retrieval(self):
         glossary = [
             {"zh": "道場", "en": "Tao community", "locked": True},
