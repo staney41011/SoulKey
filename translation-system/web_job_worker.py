@@ -222,12 +222,11 @@ def main():
             os.environ["YOUTUBE_COOKIES_B64"] = cookies
             print("[RUNTIME] YouTube Cookies：Apps Script 已提供", flush=True)
         else:
-            print("[RUNTIME] YouTube Cookies：未設定", flush=True)
-            if args.stage in {"zh", "metadata", "asr"}:
-                raise RuntimeError(
-                    "YouTube Cookies 尚未設定在 Apps Script Script Properties；"
-                    "Kaggle API 觸發不會可靠保留 Notebook Secret。"
-                )
+            print(
+                "[RUNTIME] YouTube Cookies：未設定；"
+                "使用 guest PO token / anonymous clients，必要時再走 Gemini source fallback。",
+                flush=True,
+            )
 
         report(
             args.bridge_url,
