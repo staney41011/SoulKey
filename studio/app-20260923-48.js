@@ -1406,14 +1406,9 @@ function confirmNextStage(taskId){
   const currentRemote=remoteStageStatus(task,next.key);
   if(next.key==="zh" && currentRemote && currentRemote.status==="needs_review") return openTaskReview(task.id);
 
-  if(next.key==="zh" && youtubeCookiesConfigured===false){
-    alert(
-      "目前 Apps Script 尚未設定 YOUTUBE_COOKIES_B64。\n\n"+
-      "這支 YouTube 已經明確要求登入驗證；現在執行只會再次失敗。\n"+
-      "請先到 Apps Script → 專案設定 → 指令碼屬性加入 YOUTUBE_COOKIES_B64，重新連線控制中心後再執行。"
-    );
-    return;
-  }
+  // Cookies are an optional fallback only. Production source acquisition
+  // now tries bgutil guest PO tokens / anonymous clients first, so missing
+  // YOUTUBE_COOKIES_B64 must never block a normal Chinese-stage launch.
   if(next.key==="en-review") return openEnglishReview(task.id);
 
   let langs="";
@@ -3013,8 +3008,8 @@ window.addEventListener("message",event=>{
           cookieState.textContent="Apps Script 已設定";
           cookieState.className="ok";
         }else{
-          cookieState.textContent="未設定（先使用匿名模式）";
-          cookieState.className="warn";
+          cookieState.textContent="未設定（guest PO token／匿名模式可用）";
+          cookieState.className="ok";
         }
       }
       setDashboardBridgeState("控制中心已連線，正在同步任務…","working");
