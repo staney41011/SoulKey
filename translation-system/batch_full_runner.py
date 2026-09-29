@@ -604,22 +604,19 @@ def process_task(task_id, system_dir):
         )
 
         # 5. Gemini 3.1 six-language translation + semantic QA + repair.
-        multi_complete = all(
-            drive_has_file(drive, folders["translation"], f"{lang}.json")
-            for lang in TARGET_LANGS
+        # Always enter the checkpoint-aware runner. Merely seeing th/es/... JSON
+        # files is not proof they were produced from the current English Final.
+        # The runner validates the English-source fingerprint and normally exits
+        # quickly from its persistent checkpoint when nothing changed.
+        run_gemini_stage_with_backoff(
+            [
+                sys.executable,
+                system_dir / "gemini_multi_production_runner.py",
+                "--task-id", task_id,
+                "--langs", ",".join(TARGET_LANGS),
+            ],
+            f"{task_id} six-language translation",
         )
-        if multi_complete:
-            print(f"[RESUME] {task_id} six-language outputs already complete; skip.", flush=True)
-        else:
-            run_gemini_stage_with_backoff(
-                [
-                    sys.executable,
-                    system_dir / "gemini_multi_production_runner.py",
-                    "--task-id", task_id,
-                    "--langs", ",".join(TARGET_LANGS),
-                ],
-                f"{task_id} six-language translation",
-            )
 
         # 6. Meta MMS seven-language TTS on Kaggle GPU.
         # tts_runner has its own manifest-based resume logic; do not force
