@@ -226,7 +226,10 @@ Audit these six-language translations against the approved English source.
 Only report real failures: missing important meaning, materially wrong meaning,
 invented content, wrong target language, changed/missing important number,
 or serious glossary violation.
-Do not fail natural non-literal wording or harmless style differences.
+Judge each item only against the English source shown in DATA. Do not invent
+gender, speaker identity, or facts from outside the supplied source. Do not fail
+natural non-literal wording, harmless style differences, or a romanized proper
+name that is intentionally preserved by the glossary.
 If everything passes return failures=[].
 
 DATA:
@@ -293,7 +296,12 @@ def repair_failed_pairs(client, source_map, translations, failures, glossary):
     prompt = f"""
 Repair only the listed failed translations.
 Preserve all English meaning, names, numbers, examples, and doctrine.
-Fix the stated QA issue. Do not explain. Keep segment_id and lang unchanged.
+Fix EVERY stated QA issue visibly and completely. Do not explain.
+Keep segment_id and lang unchanged.
+For th write normal prose in Thai script; for sd write normal prose in Sindhi
+Arabic-derived script; for ta write normal prose in Tamil script. Proper names
+or LOCKED glossary forms such as Qianxian may remain romanized when appropriate.
+Do not add filler merely to satisfy a script check.
 Return only the requested repaired target-language text.
 
 Glossary:
@@ -341,6 +349,80 @@ FAILED PAIRS:
         translations[sid][lang] = text
 
     return repairs, model_used
+
+
+def audit_batch(client, batch, translations, wait_seconds=0):
+    rows = [translations[int(src["id"])] for src in batch]
+    local = local_failures(batch, rows)
+    if wait_seconds:
+        time.sleep(wait_seconds)
+    qa, _ = client.structured(
+        qa_prompt(batch, rows),
+        QA_SCHEMA,
+        system_instruction=(
+            "Verify translation meaning only from the supplied English DATA. "
+            "Do not infer facts from outside the batch."
+        ),
+        thinking_level="low",
+    )
+    semantic = qa.get("failures") or []
+    failures = combine_failures(local, semantic)
+    return failures, local, semantic
+
+
+def repair_batch_until_clean(
+    client,
+    batch,
+    translations,
+    source_map,
+    glossary,
+    *,
+    wait_seconds=0,
+    initial_failures=None,
+    max_rounds=4,
+):
+    if initial_failures is None:
+        failures, local, semantic = audit_batch(
+            client, batch, translations, wait_seconds=wait_seconds
+        )
+    else:
+        failures = dict(initial_failures)
+        local = []
+        semantic = []
+
+    repair_history = []
+    models = []
+
+    for round_no in range(1, max_rounds + 1):
+        if not failures:
+            break
+        if wait_seconds:
+            time.sleep(wait_seconds)
+
+        repairs, model_used = repair_failed_pairs(
+            client,
+            source_map,
+            translations,
+            failures,
+            glossary,
+        )
+        models.append(model_used)
+        for item in repairs:
+            repair_history.append({**item, "repair_round": round_no})
+
+        failures, local, semantic = audit_batch(
+            client,
+            batch,
+            translations,
+            wait_seconds=wait_seconds,
+        )
+        print(
+            f"[REPAIR] round={round_no}/{max_rounds}; "
+            f"unresolved={len(failures)}",
+            flush=True,
+        )
+
+    return failures, local, semantic, repair_history, models
 
 
 def checkpoint_payload(task_id, source_count, translations, qa_batches, seq):
@@ -433,6 +515,76 @@ def main():
                     flush=True,
                 )
 
+        # Repair unresolved QA from a previous interrupted run before
+        # translating new segments. This is the key checkpoint-resume path:
+        # never restart an already translated batch merely because one QA pair
+        # remained unresolved.
+        for key, data in list(qa_batches.items()):
+            unresolved_rows = list(data.get("unresolved") or [])
+            if not unresolved_rows:
+                continue
+
+            ids = [int(x) for x in (data.get("segment_ids") or [])]
+            if not ids or any(sid not in translations for sid in ids):
+                continue
+
+            print(
+                f"[RESUME-QA] {key}: unresolved={len(unresolved_rows)}",
+                flush=True,
+            )
+            batch = [source_map[sid] for sid in ids]
+            initial = {}
+            for item in unresolved_rows:
+                initial[(int(item["segment_id"]), str(item["lang"]))] = list(
+                    item.get("issues") or []
+                )
+
+            failures, local, semantic, repairs, models = repair_batch_until_clean(
+                client,
+                batch,
+                translations,
+                source_map,
+                glossary,
+                wait_seconds=args.wait_seconds,
+                initial_failures=initial,
+                max_rounds=4,
+            )
+            data["local_failures"] = local
+            data["semantic_failures"] = semantic
+            data.setdefault("repairs", []).extend(repairs)
+            data["repair_model"] = ",".join(x for x in models if x)
+            data["unresolved"] = [
+                {"segment_id": sid, "lang": lang, "issues": issues}
+                for (sid, lang), issues in sorted(failures.items())
+            ]
+            qa_batches[key] = data
+
+            seq += 1
+            save_persistent_checkpoint(
+                args.task_id,
+                checkpoint_payload(
+                    args.task_id,
+                    len(source_segments),
+                    translations,
+                    qa_batches,
+                    seq,
+                ),
+                drive=drive,
+                translation_folder_id=folders["translation"],
+                workdir=workdir,
+                require_persistent=True,
+            )
+            print(
+                f"[RESUME-QA] {key} saved; unresolved={len(failures)}",
+                flush=True,
+            )
+
+            if failures:
+                raise RuntimeError(
+                    "Checkpoint Targeted Repair 仍有 QA failure：" +
+                    json.dumps(data["unresolved"], ensure_ascii=False)
+                )
+
         remaining = [x for x in source_segments if int(x["id"]) not in translations]
         batches = [
             remaining[i:i + args.batch_size]
@@ -476,48 +628,24 @@ def main():
             )
             print("✅ Translation persistent checkpoint saved", flush=True)
 
-            local = local_failures(batch, rows)
-            if args.wait_seconds:
-                time.sleep(args.wait_seconds)
-
-            qa, _ = client.structured(
-                qa_prompt(batch, rows),
-                QA_SCHEMA,
-                system_instruction="You are an exacting multilingual translation QA engine.",
-                thinking_level="low",
+            failures, local, semantic, repairs, repair_models = (
+                repair_batch_until_clean(
+                    client,
+                    batch,
+                    translations,
+                    source_map,
+                    glossary,
+                    wait_seconds=args.wait_seconds,
+                    max_rounds=4,
+                )
             )
-            semantic = qa.get("failures") or []
-            failures = combine_failures(local, semantic)
-
-            repairs = []
-            repair_model = ""
-            if failures:
-                if args.wait_seconds:
-                    time.sleep(args.wait_seconds)
-                repairs, repair_model = repair_failed_pairs(
-                    client, source_map, translations, failures, glossary
-                )
-                repaired_rows = [translations[sid] for sid in ids]
-                local2 = local_failures(batch, repaired_rows)
-                if args.wait_seconds:
-                    time.sleep(args.wait_seconds)
-                qa2, _ = client.structured(
-                    qa_prompt(batch, repaired_rows),
-                    QA_SCHEMA,
-                    system_instruction="Verify only the repaired multilingual translations.",
-                    thinking_level="low",
-                )
-                semantic2 = qa2.get("failures") or []
-                failures = combine_failures(local2, semantic2)
-                local = local2
-                semantic = semantic2
 
             qa_batches[key] = {
                 "segment_ids": ids,
                 "local_failures": local,
                 "semantic_failures": semantic,
                 "repairs": repairs,
-                "repair_model": repair_model,
+                "repair_model": ",".join(x for x in repair_models if x),
                 "unresolved": [
                     {"segment_id": sid, "lang": lang, "issues": issues}
                     for (sid, lang), issues in sorted(failures.items())
