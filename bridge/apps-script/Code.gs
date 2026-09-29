@@ -20,6 +20,7 @@ const MACHINE_STAGES = [
   "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish", "cc", "batch"
 ];
 const RUNTIME_TTL_MS = 4 * 60 * 60 * 1000;
+const BRIDGE_PROTOCOL_VERSION = 4;
 
 function doGet(e) {
   const view = String((e && e.parameter && e.parameter.view) || "").trim();
@@ -60,7 +61,8 @@ function doGet(e) {
     service: "SoulKey Studio Bridge",
     message: "bridge-ready",
     status_sheet: STATUS_SHEET_NAME,
-    web_job_workflow: WORKFLOW_WEB_JOB
+    web_job_workflow: WORKFLOW_WEB_JOB,
+    bridge_protocol: BRIDGE_PROTOCOL_VERSION
   });
 }
 
@@ -339,6 +341,7 @@ function doPost(e) {
         sheet: STATUS_SHEET_NAME,
         rows: Math.max(0, sheet.getLastRow() - 1),
         youtube_cookies_configured: !!props.getProperty("YOUTUBE_COOKIES_B64"),
+        bridge_protocol: BRIDGE_PROTOCOL_VERSION,
         server_time: new Date().toISOString()
       });
     }
@@ -589,6 +592,7 @@ function workerRuntime_(nonce) {
     google_access_token: ScriptApp.getOAuthToken(),
     gemini_api_key: String(props.getProperty("GEMINI_API_KEY") || ""),
     youtube_cookies_b64: String(props.getProperty("YOUTUBE_COOKIES_B64") || ""),
+    bridge_protocol: BRIDGE_PROTOCOL_VERSION,
     expires_at: job.expires_at
   };
 }
