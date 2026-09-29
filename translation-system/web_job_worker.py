@@ -397,11 +397,16 @@ def main():
             ]
 
         elif args.stage == "multi":
+            translate_langs = ",".join(
+                x.strip() for x in args.langs.split(",") if x.strip()
+            )
+            if not translate_langs:
+                raise RuntimeError("各國語言翻譯沒有指定任何 AI 語言")
             cmd = [
                 sys.executable,
                 str(system_dir / "gemini_multi_production_runner.py"),
                 "--task-id", args.task_id,
-                "--langs", "th,es,id,vi,sd,ta",
+                "--langs", translate_langs,
             ]
 
         elif args.stage == "tts":
@@ -456,7 +461,7 @@ def main():
                     sys.executable,
                     str(system_dir / "gemini_multi_production_runner.py"),
                     "--task-id", args.task_id,
-                    "--langs", "th,es,id,vi,sd,ta",
+                    "--langs", translate_langs,
                 ])
 
             if audio_langs:
