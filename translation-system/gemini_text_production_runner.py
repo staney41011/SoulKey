@@ -504,7 +504,7 @@ def main():
     client = GeminiClient(
         api_key=api_key,
         text_model=DEFAULT_TEXT_MODEL,
-        max_attempts=1,
+        max_attempts=4,
         timeout=120,
     )
 
