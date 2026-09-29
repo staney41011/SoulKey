@@ -317,13 +317,15 @@ function doPost(e) {
         });
       }
 
-      saveLanguagePlan_(taskId, plan);
+      const planChanges = saveLanguagePlan_(taskId, plan);
       return postMessage_({
         source: "soulkey-bridge",
         type: "language_plan_saved",
         ok: true,
         task_id: taskId,
         plan: readLanguagePlan_(taskId),
+        translation_changed: !!planChanges.translation_changed,
+        audio_changed: !!planChanges.audio_changed,
         server_time: new Date().toISOString()
       });
     }
@@ -1760,8 +1762,103 @@ function readLanguagePlan_(taskId) {
   return result;
 }
 
+function canonicalLanguagePlan_(plan) {
+  return (Array.isArray(plan) ? plan : [])
+    .map(function(item) {
+      const code = String(item.language_code || item.code || "").trim();
+      if (!code) return null;
+      const transcriptEnabled = !!item.transcript_enabled;
+      const audioEnabled = !!item.audio_enabled;
+      return {
+        code: code,
+        transcript_enabled: transcriptEnabled,
+        transcript_source: transcriptEnabled
+          ? String(item.transcript_source || "ai").trim()
+          : "skip",
+        audio_enabled: audioEnabled,
+        audio_source: audioEnabled
+          ? String(item.audio_source || "tts").trim()
+          : "skip"
+      };
+    })
+    .filter(Boolean)
+    .sort(function(a, b) { return a.code.localeCompare(b.code); });
+}
+
+function languagePlanSignatures_(plan) {
+  const normalized = canonicalLanguagePlan_(plan);
+  return {
+    translation: JSON.stringify(normalized.map(function(x) {
+      return [x.code, x.transcript_enabled, x.transcript_source];
+    })),
+    audio: JSON.stringify(normalized.map(function(x) {
+      return [x.code, x.audio_enabled, x.audio_source];
+    }))
+  };
+}
+
+function appendStaleIfDone_(taskId, stage, message) {
+  const latest = readLatestStatuses_([taskId]);
+  const item = latest[taskId] && latest[taskId].stages
+    ? latest[taskId].stages[stage]
+    : null;
+  if (!item || String(item.status || "") !== "done") return false;
+
+  appendExecutionStatus_(
+    taskId,
+    stage,
+    "stale",
+    "invalidate-" + new Date().getTime(),
+    "",
+    message,
+    "",
+    nowText_(),
+    "upstream_changed",
+    message,
+    String(item.output_revision || ""),
+    ""
+  );
+  return true;
+}
+
+function invalidateDownstreamAfterHumanFinal_(taskId, kind) {
+  if (kind === "zh") {
+    appendStaleIfDone_(
+      taskId,
+      "en-review",
+      "中文 Final 已更新；英文定稿需重新確認"
+    );
+    appendStaleIfDone_(
+      taskId,
+      "multi",
+      "中文 Final 已更新；多語翻譯需重新確認"
+    );
+    appendStaleIfDone_(
+      taskId,
+      "tts",
+      "中文 Final 已更新；音檔需在下游文字更新後重新確認"
+    );
+  } else if (kind === "en") {
+    appendStaleIfDone_(
+      taskId,
+      "multi",
+      "English Final 已更新；多語翻譯需重跑"
+    );
+    appendStaleIfDone_(
+      taskId,
+      "tts",
+      "English Final 已更新；音檔需在翻譯更新後重跑"
+    );
+  }
+}
+
 function saveLanguagePlan_(taskId, plan) {
   if (!Array.isArray(plan)) throw new Error("plan 必須是陣列");
+
+  const previous = readLanguagePlan_(taskId);
+  const previousSig = languagePlanSignatures_(previous);
+  const nextSig = languagePlanSignatures_(plan);
+  const hadPrevious = previous.length > 0;
 
   const sheet = getSheetByName_(LANGUAGE_PLAN_SHEET_NAME);
   const values = sheet.getDataRange().getDisplayValues();
@@ -1773,30 +1870,58 @@ function saveLanguagePlan_(taskId, plan) {
   }
 
   const rows = [];
-  plan.slice(0, 50).forEach(function(item) {
-    const code = String(item.language_code || item.code || "").trim();
-    if (!code) return;
-
-    const transcriptEnabled = !!item.transcript_enabled;
-    const audioEnabled = !!item.audio_enabled;
-
+  canonicalLanguagePlan_(plan).slice(0, 50).forEach(function(item) {
     rows.push([
       taskId,
-      code,
-      String(item.language_name || item.name || code).trim(),
-      transcriptEnabled,
-      transcriptEnabled ? String(item.transcript_source || "ai").trim() : "skip",
-      audioEnabled,
-      audioEnabled ? String(item.audio_source || "tts").trim() : "skip",
+      item.code,
+      String(
+        (plan.find(function(x) {
+          return String(x.language_code || x.code || "").trim() === item.code;
+        }) || {}).language_name ||
+        (plan.find(function(x) {
+          return String(x.language_code || x.code || "").trim() === item.code;
+        }) || {}).name ||
+        item.code
+      ).trim(),
+      item.transcript_enabled,
+      item.transcript_source,
+      item.audio_enabled,
+      item.audio_source,
       "planned",
       nowText_(),
-      String(item.note || "").slice(0, 500)
+      ""
     ]);
   });
 
   if (rows.length) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 10).setValues(rows);
   }
+
+  if (hadPrevious && previousSig.translation !== nextSig.translation) {
+    appendStaleIfDone_(
+      taskId,
+      "multi",
+      "語言輸出設定已變更；多語翻譯需依新設定重新執行"
+    );
+    appendStaleIfDone_(
+      taskId,
+      "tts",
+      "語言輸出設定已變更；音檔需依新翻譯重新確認"
+    );
+  } else if (hadPrevious && previousSig.audio !== nextSig.audio) {
+    appendStaleIfDone_(
+      taskId,
+      "tts",
+      "音檔語言設定已變更；TTS 需依新設定重新執行"
+    );
+  }
+
+  return {
+    translation_changed:
+      hadPrevious && previousSig.translation !== nextSig.translation,
+    audio_changed:
+      hadPrevious && previousSig.audio !== nextSig.audio
+  };
 }
 
 function getStatusSheet_() {
@@ -2471,6 +2596,8 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
     "",
     new Date().toISOString()
   );
+
+  invalidateDownstreamAfterHumanFinal_(taskId, kind);
 
   return {
     ok: true,
