@@ -451,6 +451,186 @@ def _select_english_auto_caption(info: dict):
     return lang_key, preferred
 
 
+
+AUTO_CC_TARGETS = ("zh-Hant", "en", "th", "es", "id", "vi", "sd", "ta")
+
+
+def _caption_language_candidates(target: str):
+    target = str(target or "").strip()
+    mapping = {
+        "zh-Hant": ["zh-Hant", "zh-TW", "zh-HK", "zh"],
+        "en": ["en", "en-US", "en-GB"],
+        "th": ["th"],
+        "es": ["es", "es-419", "es-US", "es-ES"],
+        "id": ["id"],
+        "vi": ["vi"],
+        "sd": ["sd"],
+        "ta": ["ta"],
+    }
+    return mapping.get(target, [target])
+
+
+def _select_auto_caption(info: dict, target: str):
+    captions = info.get("automatic_captions") or {}
+    if not isinstance(captions, dict) or not captions:
+        return None, None
+
+    aliases = [x.lower().replace("_", "-") for x in _caption_language_candidates(target)]
+    ranked = []
+    for key in captions:
+        normalized = str(key or "").lower().replace("_", "-")
+        score = None
+        for index, alias in enumerate(aliases):
+            if normalized == alias:
+                score = index
+                break
+            if normalized.startswith(alias + "-"):
+                score = 20 + index
+                break
+        if score is not None:
+            ranked.append((score, str(key)))
+
+    if not ranked:
+        return None, None
+
+    ranked.sort(key=lambda x: (x[0], x[1]))
+    lang_key = ranked[0][1]
+    formats = captions.get(lang_key) or []
+    if not isinstance(formats, list):
+        return lang_key, None
+
+    preferred = None
+    for ext in ("json3", "vtt", "srv3", "ttml"):
+        for item in formats:
+            if (
+                isinstance(item, dict)
+                and str(item.get("ext") or "").lower() == ext
+                and item.get("url")
+            ):
+                preferred = item
+                break
+        if preferred:
+            break
+
+    if not preferred:
+        preferred = next(
+            (x for x in formats if isinstance(x, dict) and x.get("url")),
+            None,
+        )
+    return lang_key, preferred
+
+
+def _write_auto_cc_json(
+    workdir: Path,
+    target: str,
+    segments,
+    video_id: str,
+    language: str,
+    source: str = "youtube_auto_generated",
+):
+    if not segments:
+        return None
+
+    out = workdir / f"youtube.{target}.json"
+    out.write_text(
+        json.dumps(
+            {
+                "source": source,
+                "target_language": target,
+                "youtube_language": str(language or target),
+                "video_id": video_id,
+                "segment_count": len(segments),
+                "segments": segments,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return out
+
+
+def _download_multilingual_auto_cc_from_info(
+    info: dict,
+    workdir: Path,
+    targets=AUTO_CC_TARGETS,
+):
+    """Download every requested auto-caption language exposed by yt-dlp metadata.
+
+    Missing languages are intentionally non-fatal. YouTube decides which
+    auto-generated / auto-translated caption languages are available.
+    """
+    results = {}
+    video_id = str(info.get("id") or "").strip()
+
+    for target in targets:
+        lang_key, caption = _select_auto_caption(info, target)
+        if not caption:
+            print(
+                f"[YouTube CC] {target}: automatic caption not exposed by metadata",
+                flush=True,
+            )
+            continue
+
+        url = str(caption.get("url") or "").strip()
+        if not url:
+            continue
+
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read()
+        except Exception as exc:
+            print(
+                f"[YouTube CC] {target}/{lang_key} direct download failed: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            continue
+
+        ext = str(caption.get("ext") or "").lower()
+        if ext != "json3":
+            print(
+                f"[YouTube CC] {target}/{lang_key}: format={ext or 'unknown'}; "
+                "skip because normalized JSON3 is unavailable",
+                flush=True,
+            )
+            continue
+
+        try:
+            segments = _segments_from_json3_bytes(raw)
+        except Exception as exc:
+            print(
+                f"[YouTube CC] {target}/{lang_key} JSON3 parse failed: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            continue
+
+        out = _write_auto_cc_json(
+            workdir,
+            target,
+            segments,
+            video_id,
+            lang_key,
+        )
+        if out:
+            results[target] = out
+            print(
+                f"[YouTube CC] ✅ {target} <- {lang_key}: "
+                f"{len(segments)} cues",
+                flush=True,
+            )
+
+    return results
+
+
 def _segments_from_json3_bytes(raw: bytes):
     payload = json.loads(raw.decode("utf-8"))
     segments = []
@@ -1186,6 +1366,55 @@ def _video_id_from_url(url: str):
     return ""
 
 
+
+def download_multilingual_cc(
+    url: str,
+    workdir: Path,
+    targets=AUTO_CC_TARGETS,
+):
+    """Fetch all available SoulKey auto-caption languages without audio."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    targets = tuple(dict.fromkeys(str(x).strip() for x in targets if str(x).strip()))
+    results = {}
+
+    options, has_cookies = _base_options(workdir, quiet=False)
+    options["skip_download"] = True
+
+    try:
+        info = _extract_info(
+            url=url,
+            options=options,
+            download=False,
+            has_cookies=has_cookies,
+        )
+        results.update(
+            _download_multilingual_auto_cc_from_info(
+                info,
+                workdir,
+                targets=targets,
+            )
+        )
+    except Exception as exc:
+        print(
+            f"[YouTube CC] multilingual metadata fetch failed: "
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+
+    # Keep the mature English fallback chain for backward compatibility.
+    if "en" in targets and "en" not in results:
+        english = download_english_cc(url, workdir)
+        if english:
+            results["en"] = Path(english)
+
+    print(
+        "[YouTube CC] multilingual result: "
+        + (",".join(results.keys()) if results else "none"),
+        flush=True,
+    )
+    return results
+
+
 def download_english_cc(url: str, workdir: Path):
     """Fetch only English auto-generated CC without downloading audio."""
     workdir.mkdir(parents=True, exist_ok=True)
@@ -1295,7 +1524,16 @@ def download_audio(url: str, workdir: Path):
         check=True,
     )
 
-    english_cc_path = _download_english_auto_cc(info, workdir, video_url=url)
+    auto_cc_paths = _download_multilingual_auto_cc_from_info(
+        info,
+        workdir,
+        targets=AUTO_CC_TARGETS,
+    )
+    english_cc_path = auto_cc_paths.get("en")
+    if not english_cc_path:
+        english_cc_path = _download_english_auto_cc(info, workdir, video_url=url)
+        if english_cc_path:
+            auto_cc_paths["en"] = Path(english_cc_path)
 
     lecturer, lecturer_source = detect_lecturer(info)
     return normalized, {
@@ -1310,6 +1548,11 @@ def download_audio(url: str, workdir: Path):
         "lecturer": lecturer,
         "lecturer_source": lecturer_source,
         "english_cc_path": str(english_cc_path) if english_cc_path else "",
+        "auto_cc_paths": {
+            code: str(path)
+            for code, path in auto_cc_paths.items()
+            if path
+        },
     }
 
 
