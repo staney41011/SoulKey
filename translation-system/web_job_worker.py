@@ -231,6 +231,21 @@ def main():
                 "請在 Script Properties 新增後重新部署 Web App。"
             )
 
+        nvidia_api_key = str(runtime.get("nvidia_api_key") or "").strip()
+        if nvidia_api_key:
+            os.environ["NVIDIA_API_KEY"] = nvidia_api_key
+            print(
+                "[RUNTIME] NVIDIA API Key：Apps Script 已提供；"
+                "僅用於翻譯 QA 第二意見/備援。",
+                flush=True,
+            )
+        else:
+            print(
+                "[RUNTIME] NVIDIA API Key：未設定；"
+                "維持 Gemini-only 翻譯 QA，不影響主流程。",
+                flush=True,
+            )
+
         cookies = str(runtime.get("youtube_cookies_b64") or "").strip()
         if cookies:
             os.environ["YOUTUBE_COOKIES_B64"] = cookies
