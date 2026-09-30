@@ -1,0 +1,188 @@
+name: SoulKey 255 Resume Once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/soulkey_255_resume_once.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-255-resume-once
+  cancel-in-progress: false
+
+jobs:
+  launch:
+    if: contains(github.event.head_commit.message, 'Resume 255 translation batch once')
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-gpu-worker
+
+    steps:
+      - name: Install Kaggle CLI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install kaggle
+
+      - name: Prepare one-shot GPU resume
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="${RUNNER_TEMP}/soulkey-255-resume"
+          rm -rf "$DIR"
+          mkdir -p "$DIR"
+
+          kaggle kernels pull "$KAGGLE_KERNEL" -p "$DIR" -m
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          d = Path(os.environ["RUNNER_TEMP"]) / "soulkey-255-resume"
+          meta_path = d / "kernel-metadata.json"
+          meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+          meta.pop("id_no", None)
+          meta["id"] = "cwlmrcsir/soulkey-gpu-worker"
+          meta["title"] = "SoulKey GPU Worker"
+          meta["code_file"] = "soulkey-gpu-worker.py"
+          meta["language"] = "python"
+          meta["kernel_type"] = "script"
+          meta["is_private"] = True
+          meta["enable_gpu"] = True
+          meta["enable_tpu"] = False
+          meta["enable_internet"] = True
+          meta["machine_shape"] = "NvidiaTeslaT4"
+          meta["kernel_sources"] = ["cwlmrcsir/translate-system"]
+          meta["dataset_sources"] = []
+          meta["competition_sources"] = []
+          meta["model_sources"] = []
+
+          meta_path.write_text(
+              json.dumps(meta, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+
+          bootstrap = r"""
+          import subprocess
+          import sys
+          import time
+          from pathlib import Path
+
+          repo = Path("/kaggle/working/SoulKey")
+          subprocess.run(
+              [
+                  "git", "clone", "--depth", "1",
+                  "https://github.com/staney41011/SoulKey.git",
+                  str(repo),
+              ],
+              check=True,
+          )
+
+          subprocess.run(["nvidia-smi"], check=True)
+
+          system_dir = repo / "translation-system"
+          subprocess.run(
+              [
+                  sys.executable, "-m", "pip", "install",
+                  "--disable-pip-version-check", "-q",
+                  "-r", str(system_dir / "requirements.txt"),
+              ],
+              check=True,
+          )
+
+          cmd = [
+              sys.executable,
+              "-u",
+              str(system_dir / "batch_full_runner.py"),
+              "--task-ids",
+              "P255-L01,P255-L02",
+          ]
+
+          waits = [0, 30, 120]
+          last_code = 1
+          for attempt, wait_seconds in enumerate(waits, start=1):
+              if wait_seconds:
+                  print(
+                      f"[ONE-SHOT AUTO-RESUME] waiting {wait_seconds}s "
+                      "before checkpoint resume",
+                      flush=True,
+                  )
+                  time.sleep(wait_seconds)
+
+              print(
+                  f"[ONE-SHOT AUTO-RESUME] pass {attempt}/{len(waits)}",
+                  flush=True,
+              )
+              result = subprocess.run(cmd)
+              last_code = result.returncode
+              if last_code == 0:
+                  print("[ONE-SHOT DONE] P255-L01,P255-L02", flush=True)
+                  raise SystemExit(0)
+
+          raise SystemExit(last_code)
+          """
+          (d / meta["code_file"]).write_text(bootstrap, encoding="utf-8")
+          print(meta_path.read_text(encoding="utf-8"))
+          PY
+
+      - name: Launch Kaggle checkpoint resume
+        id: kaggle
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="${RUNNER_TEMP}/soulkey-255-resume"
+
+          echo "Launching P255 checkpoint resume on Kaggle T4..."
+          kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
+
+          FINAL_STATUS="UNKNOWN"
+          for i in $(seq 1 1440); do
+            STATUS="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+            echo "$STATUS"
+
+            if echo "$STATUS" | grep -Eqi 'complete|completed'; then
+              FINAL_STATUS="COMPLETE"
+              break
+            fi
+
+            if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
+              FINAL_STATUS="ERROR"
+              break
+            fi
+
+            if (( i % 3 == 0 )); then
+              LIVE_LOG="$(timeout 60s kaggle kernels logs "$KAGGLE_KERNEL" 2>&1 || true)"
+              if echo "$LIVE_LOG" | grep -Eq '\[FULL-BATCH ERROR\]|Traceback \(most recent call last\)'; then
+                echo "A batch error was logged. The in-kernel auto-resume may still recover it."
+              fi
+            fi
+
+            sleep 10
+          done
+
+          echo "final_status=$FINAL_STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Show Kaggle log tail
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 90s kaggle kernels logs "$KAGGLE_KERNEL" >"${RUNNER_TEMP}/p255-kaggle.log" 2>&1 || true
+          tail -n 240 "${RUNNER_TEMP}/p255-kaggle.log" || true
+
+      - name: Verify 255 resume
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.kaggle.outputs.final_status }}" != "COMPLETE" ]; then
+            echo "P255 resume did not complete: ${{ steps.kaggle.outputs.final_status }}"
+            exit 1
+          fi
+          echo "P255 resume completed."
