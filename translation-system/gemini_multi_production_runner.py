@@ -12,7 +12,7 @@ from pathlib import Path
 
 from config import COL, GLOSSARY_FULL_RANGE, SPREADSHEET_ID, TASK_SHEET_RANGE
 from gemini_checkpoint import load_persistent_checkpoint, save_persistent_checkpoint
-from gemini_engine import DEFAULT_TEXT_MODEL, GeminiClient, local_language_issue, normalize_segments
+from gemini_engine import DEFAULT_TEXT_MODEL, GeminiAPIError, GeminiClient, local_language_issue, normalize_segments
 from google_io import (
     build_google_services,
     download_drive_file,
@@ -240,6 +240,205 @@ DATA:
 {json.dumps(payload, ensure_ascii=False)}
 """
 
+
+
+TRANSIENT_GEMINI_MARKERS = (
+    "HTTP 408",
+    "HTTP 409",
+    "HTTP 429",
+    "HTTP 500",
+    "HTTP 502",
+    "HTTP 503",
+    "HTTP 504",
+    "service_unavailable",
+    "high demand",
+    "rate limit",
+    "timeout",
+    "temporarily unavailable",
+)
+
+
+def is_transient_gemini_error(exc):
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(marker.lower() in text for marker in TRANSIENT_GEMINI_MARKERS)
+
+
+def selected_translation_schema(langs):
+    langs = [str(x) for x in langs]
+    props = {"segment_id": {"type": "integer"}}
+    props.update({lang: {"type": "string"} for lang in langs})
+    return {
+        "type": "object",
+        "properties": {
+            "segments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": props,
+                    "required": ["segment_id", *langs],
+                },
+            }
+        },
+        "required": ["segments"],
+    }
+
+
+def selected_translation_prompt(batch, glossary, langs):
+    payload = [{"segment_id": int(x["id"]), "english": x["text"]} for x in batch]
+    names = ", ".join(f"{lang} {LANGUAGE_NAMES[lang]}" for lang in langs)
+    return f"""
+Translate every approved English segment into only these languages:
+{names}.
+
+Rules:
+- Preserve every idea, number, name, example, and logical relationship.
+- Do not summarize, merge, split, reorder, or add doctrine.
+- Produce natural language suitable for TTS.
+- Follow LOCKED glossary mappings when the target mapping exists.
+- Return every requested language for every segment.
+
+Glossary:
+{glossary}
+
+SOURCE:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+
+
+def gemini_translate_with_backoff(client, batch, glossary, langs, waits=(30, 60, 120)):
+    last_exc = None
+    schema = MULTI_SCHEMA if list(langs) == LANGS else selected_translation_schema(langs)
+    prompt = (
+        translation_prompt(batch, glossary)
+        if list(langs) == LANGS
+        else selected_translation_prompt(batch, glossary, langs)
+    )
+
+    for attempt in range(1, len(waits) + 2):
+        try:
+            parsed, _ = client.structured(
+                prompt,
+                schema,
+                system_instruction=(
+                    "You are the production multilingual translation engine for SoulKey."
+                ),
+                thinking_level="low",
+            )
+            return parsed
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_gemini_error(exc) or attempt > len(waits):
+                raise
+            wait_seconds = waits[attempt - 1]
+            print(
+                f"[GEMINI-FALLBACK] transient failure; retry "
+                f"{attempt + 1}/{len(waits)+1} after {wait_seconds}s: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            time.sleep(wait_seconds)
+
+    raise last_exc
+
+
+def nvidia_translate_batch(nvidia_client, batch, langs):
+    """Translate a batch with Riva for the SoulKey languages it supports."""
+    if not nvidia_client:
+        raise RuntimeError("NVIDIA fallback client is not available")
+
+    supported = [lang for lang in langs if lang in SUPPORTED_TARGETS]
+    if not supported:
+        return {}
+
+    rows = {
+        int(src["id"]): {"segment_id": int(src["id"])}
+        for src in batch
+    }
+    for src in batch:
+        sid = int(src["id"])
+        english = str(src["text"] or "").strip()
+        for lang in supported:
+            candidate = nvidia_client.translate(english, lang).strip()
+            issue = local_language_issue(candidate, english, lang)
+            if issue:
+                raise RuntimeError(
+                    f"NVIDIA fallback local QA failed: {sid}/{lang}/{issue}"
+                )
+            normalized = normalize_unicode_digits(candidate)
+            for number in re.findall(r"\d+(?:\.\d+)?", english):
+                if number not in normalized:
+                    raise RuntimeError(
+                        f"NVIDIA fallback missing number: {sid}/{lang}/{number}"
+                    )
+            rows[sid][lang] = candidate
+    return rows
+
+
+def translate_batch_with_provider_fallback(
+    client,
+    nvidia_client,
+    batch,
+    glossary,
+    requested,
+):
+    """Keep Gemini primary; use NVIDIA only after transient Gemini exhaustion.
+
+    NVIDIA Riva v2 covers th/es/id/vi. If sd/ta are requested, a much smaller
+    Gemini request is used only for those unsupported targets after NVIDIA has
+    already completed the supported languages.
+    """
+    try:
+        parsed = gemini_translate_with_backoff(
+            client,
+            batch,
+            glossary,
+            LANGS,
+        )
+        return parsed.get("segments") or [], "gemini"
+    except Exception as exc:
+        if not is_transient_gemini_error(exc) or not nvidia_client:
+            raise
+
+        supported = [lang for lang in requested if lang in SUPPORTED_TARGETS]
+        if not supported:
+            raise
+
+        print(
+            "[NVIDIA-FALLBACK] Gemini transient retries exhausted; "
+            "Riva Translate takes over supported targets: "
+            + ",".join(supported),
+            flush=True,
+        )
+
+        rows_by_id = nvidia_translate_batch(
+            nvidia_client,
+            batch,
+            supported,
+        )
+        unsupported = [lang for lang in requested if lang not in SUPPORTED_TARGETS]
+
+        if unsupported:
+            print(
+                "[NVIDIA-FALLBACK] Riva does not support "
+                + ",".join(unsupported)
+                + "; retrying Gemini only for those targets.",
+                flush=True,
+            )
+            parsed = gemini_translate_with_backoff(
+                client,
+                batch,
+                glossary,
+                unsupported,
+                waits=(60, 120, 300),
+            )
+            for item in parsed.get("segments") or []:
+                sid = int(item["segment_id"])
+                rows_by_id.setdefault(sid, {"segment_id": sid})
+                for lang in unsupported:
+                    rows_by_id[sid][lang] = str(item.get(lang) or "").strip()
+
+        rows = [rows_by_id[int(src["id"])] for src in batch]
+        return rows, "nvidia-riva-fallback"
 
 def normalize_unicode_digits(text):
     out = []
@@ -645,8 +844,8 @@ def main():
                 max_attempts=3,
             )
             print(
-                "[NVIDIA] Riva Translate v2 second opinion enabled "
-                "for th/es/id/vi QA failures.",
+                "[NVIDIA] Riva Translate v2 enabled as translation fallback "
+                "and QA second opinion for th/es/id/vi.",
                 flush=True,
             )
         except Exception as exc:
@@ -796,15 +995,13 @@ def main():
             key = f"{ids[0]}-{ids[-1]}"
             print(f"\n[BATCH {batch_no}/{len(batches)}] {ids[0]} -> {ids[-1]}", flush=True)
 
-            parsed, _ = client.structured(
-                translation_prompt(batch, glossary),
-                MULTI_SCHEMA,
-                system_instruction=(
-                    "You are the production multilingual translation engine for SoulKey."
-                ),
-                thinking_level="low",
+            rows, translation_engine = translate_batch_with_provider_fallback(
+                client,
+                nvidia_client,
+                batch,
+                glossary,
+                requested,
             )
-            rows = parsed.get("segments") or []
             expected = sorted(ids)
             got = sorted(int(x["segment_id"]) for x in rows)
             if expected != got:
@@ -812,7 +1009,7 @@ def main():
 
             for row in rows:
                 sid = int(row["segment_id"])
-                for lang in LANGS:
+                for lang in requested:
                     if not str(row.get(lang) or "").strip():
                         raise RuntimeError(f"segment {sid} 缺少 {lang}")
                 translations[sid] = row
@@ -851,6 +1048,7 @@ def main():
 
             qa_batches[key] = {
                 "segment_ids": ids,
+                "translation_engine": translation_engine,
                 "local_failures": local,
                 "semantic_failures": semantic,
                 "repairs": repairs,
@@ -902,16 +1100,21 @@ def main():
             raise RuntimeError("既有 checkpoint 仍有 unresolved QA failure")
 
         rows = [translations[int(x["id"])] for x in source_segments]
-        nvidia_used = any(
+        nvidia_repair_used = any(
             str(repair.get("engine") or "") == "nvidia-riva"
             for data in qa_batches.values()
             for repair in (data.get("repairs") or [])
         )
-        output_engine = (
-            "gemini+nvidia-second-opinion"
-            if nvidia_used
-            else "gemini"
+        nvidia_fallback_used = any(
+            str(data.get("translation_engine") or "") == "nvidia-riva-fallback"
+            for data in qa_batches.values()
         )
+        if nvidia_fallback_used:
+            output_engine = "gemini+nvidia-riva-fallback"
+        elif nvidia_repair_used:
+            output_engine = "gemini+nvidia-second-opinion"
+        else:
+            output_engine = "gemini"
 
         outdir = workdir / "final"
         outdir.mkdir(parents=True, exist_ok=True)
