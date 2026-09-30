@@ -573,16 +573,35 @@ def audit_batch(client, batch, translations, langs, wait_seconds=0):
     local = local_failures(batch, rows, langs)
     if wait_seconds:
         time.sleep(wait_seconds)
-    qa, _ = client.structured(
-        qa_prompt(batch, rows, langs),
-        QA_SCHEMA,
-        system_instruction=(
-            "Verify translation meaning only from the supplied English DATA. "
-            "Do not infer facts from outside the batch."
-        ),
-        thinking_level="low",
-    )
-    semantic = qa.get("failures") or []
+
+    prompt = qa_prompt(batch, rows, langs)
+    qa = None
+    waits = [30, 60, 120]
+    for attempt in range(1, len(waits) + 2):
+        try:
+            qa, _ = client.structured(
+                prompt,
+                QA_SCHEMA,
+                system_instruction=(
+                    "Verify translation meaning only from the supplied English DATA. "
+                    "Do not infer facts from outside the batch."
+                ),
+                thinking_level="low",
+            )
+            break
+        except Exception as exc:
+            if not is_transient_gemini_error(exc) or attempt > len(waits):
+                raise
+            wait_seconds_retry = waits[attempt - 1]
+            print(
+                f"[QA-AUTO-RESUME] Gemini QA transient failure; retry "
+                f"{attempt + 1}/{len(waits)+1} after {wait_seconds_retry}s: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            time.sleep(wait_seconds_retry)
+
+    semantic = (qa or {}).get("failures") or []
     failures = combine_failures(local, semantic, langs)
     return failures, local, semantic
 
@@ -673,8 +692,8 @@ def repair_batch_until_clean(
     repair_history = []
     models = []
 
-    # NVIDIA is a non-blocking second opinion, never the six-language owner.
-    # Only pairs Gemini QA already rejected are sent to Riva Translate.
+    # NVIDIA is also used as a QA second opinion for the languages Riva
+    # officially supports. Primary translation fallback is handled earlier.
     if failures and nvidia_client:
         nvidia_repairs = nvidia_repair_failed_pairs(
             nvidia_client,
