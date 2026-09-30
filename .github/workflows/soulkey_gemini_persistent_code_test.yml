@@ -67,6 +67,72 @@ jobs:
           print("NVIDIA SECOND-OPINION CONTRACT: PASS")
           PY
 
+      - name: NVIDIA translation fallback offline contract
+        working-directory: translation-system
+        run: |
+          python - <<'PY'
+          import gemini_multi_production_runner as multi
+          from gemini_engine import GeminiAPIError
+
+          multi.time.sleep = lambda _seconds: None
+
+          class FakeGemini:
+              def __init__(self):
+                  self.calls = 0
+
+              def structured(self, prompt, schema, **kwargs):
+                  self.calls += 1
+                  # Exhaust the four full-batch Gemini attempts with 503.
+                  if self.calls <= 4:
+                      raise GeminiAPIError(
+                          'HTTP 503: service_unavailable high demand'
+                      )
+                  # The reduced request is only for Riva-unsupported sd/ta.
+                  return {
+                      'segments': [
+                          {
+                              'segment_id': 1,
+                              'sd': 'سمجھ سان مهرباني شروع ٿئي ٿي۔',
+                              'ta': 'புரிதலுடன் கருணை தொடங்குகிறது.',
+                          }
+                      ]
+                  }, None
+
+          class FakeNvidia:
+              model = 'nvidia/riva-translate-4b-instruct-v2'
+
+              def translate(self, text, lang):
+                  return {
+                      'th': 'ความเมตตาเริ่มต้นจากความเข้าใจ',
+                      'es': 'La bondad comienza con la comprensión.',
+                      'id': 'Kebaikan dimulai dengan pengertian.',
+                      'vi': 'Lòng tốt bắt đầu từ sự thấu hiểu.',
+                  }[lang]
+
+          batch = [{
+              'id': 1,
+              'start': 0,
+              'end': 2,
+              'text': 'Kindness begins with understanding.',
+          }]
+
+          rows, engine = multi.translate_batch_with_provider_fallback(
+              FakeGemini(),
+              FakeNvidia(),
+              batch,
+              '(no glossary entries)',
+              ['th', 'es', 'id', 'vi', 'sd', 'ta'],
+          )
+
+          assert engine == 'nvidia-riva-fallback', engine
+          assert len(rows) == 1, rows
+          row = rows[0]
+          for lang in ['th', 'es', 'id', 'vi', 'sd', 'ta']:
+              assert str(row.get(lang) or '').strip(), (lang, row)
+
+          print('NVIDIA TRANSLATION FALLBACK CONTRACT: PASS')
+          PY
+
       - name: Live Gemini structured-output smoke
         if: ${{ env.GEMINI_API_KEY != '' }}
         working-directory: translation-system
