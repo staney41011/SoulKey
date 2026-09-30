@@ -527,7 +527,53 @@ function authorizeSoulKeyBridge() {
   Logger.log("OAuth token available: " + (!!token));
 }
 
+function cleanupSoulKeyExpiredProperties() {
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
+  const now = Date.now();
+  const keysToDelete = [];
+
+  Object.keys(all).forEach(function(key) {
+    if (key.indexOf("JOB_") !== 0) return;
+
+    let payload = null;
+    try {
+      payload = JSON.parse(String(all[key] || ""));
+    } catch (_) {
+      keysToDelete.push(key);
+      return;
+    }
+
+    const expiresAt = payload && payload.expires_at
+      ? new Date(payload.expires_at).getTime()
+      : NaN;
+
+    if (!isFinite(expiresAt) || expiresAt < now) {
+      keysToDelete.push(key);
+    }
+  });
+
+  if (keysToDelete.length) {
+    props.deleteProperties(keysToDelete);
+  }
+
+  Logger.log(
+    "SoulKey runtime cleanup: deleted=" +
+    keysToDelete.length +
+    ", remaining=" +
+    Object.keys(props.getProperties()).length
+  );
+
+  return {
+    deleted: keysToDelete.length,
+    remaining: Object.keys(props.getProperties()).length
+  };
+}
+
 function createRuntimeJob_(taskId, stage, lang, langs) {
+  // Keep Script Properties from filling up with expired one-time runtime jobs.
+  cleanupSoulKeyExpiredProperties();
+
   const bytes = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
     Utilities.getUuid() + "|" + Utilities.getUuid() + "|" + new Date().getTime()
