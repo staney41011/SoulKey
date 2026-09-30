@@ -17,10 +17,8 @@ from config import (
 )
 from google_io import (
     build_google_services,
-    configure_drive_naming,
     download_drive_file,
     find_file,
-    normalize_lesson_files,
     read_values,
     update_cells,
     upload_or_replace_file,
@@ -65,8 +63,6 @@ def row_to_task(raw, sheet_row):
         "task_id": str(row[COL["task_id"]] or "").strip(),
         "period": digits(row[COL["period"]]),
         "lesson": str(row[COL["lesson"]] or "").strip(),
-        "title": str(row[COL["title"]] or "").strip(),
-        "lecturer": str(row[COL["lecturer"]] or "").strip(),
         "asr": str(row[COL["asr"]] or "").strip(),
         "zh_review": str(row[COL["zh_review"]] or "").strip(),
         "en": str(row[COL["en"]] or "").strip(),
@@ -445,8 +441,6 @@ def main():
                 task["period"],
                 task["lesson"],
             )
-            configure_drive_naming(task)
-            normalize_lesson_files(drive, folders, task)
             workdir = Path("/kaggle/working/translate-system-translation") / task["task_id"]
             workdir.mkdir(parents=True, exist_ok=True)
 
