@@ -291,6 +291,41 @@ en.tts_manifest.json
 > MMS-TTS 模型授權為 CC-BY-NC 4.0。若未來用途涉及商業化，需在上線前改用允許商業使用的 TTS 模型或服務。
 
 
+## 目前正式翻譯架構（2026-09-30）
+
+正式批次目前採：
+
+```text
+Taiwan-Breeze ASR
+→ Gemini 中文語意校稿
+→ 繁中白話化
+→ English Final
+→ Gemini 六語翻譯（th/es/id/vi/sd/ta）
+→ 本地規則 QA + Gemini 語意 QA
+→ NVIDIA Riva Translate v2（選用，只處理 QA 已失敗的 th/es/id/vi）
+→ Gemini 再審 / Repair
+→ Meta MMS 七語 TTS
+→ 字幕輸出
+```
+
+NVIDIA 不是主翻譯引擎，也不會取代 Gemini。若未設定 `NVIDIA_API_KEY`，
+系統完全維持 Gemini-only 流程。若有設定，NVIDIA 只會對 Gemini QA 已判定有
+問題的泰文、西班牙文、印尼文、越南文片段提出第二版本；候選仍必須通過
+SoulKey 本地語言/數字檢查與 Gemini 語意複驗。Sindhi、Tamil 繼續完全由
+Gemini 負責。
+
+NVIDIA 使用模型：
+
+```text
+nvidia/riva-translate-4b-instruct-v2
+```
+
+西班牙文預設採 `es-US`；可用環境變數 `NVIDIA_SPANISH_VARIANT=es-ES`
+改成歐洲西班牙文。
+
+正式批次與六語翻譯都具 checkpoint resume。已完成的 ASR、校稿、English
+Final、翻譯 batch、QA batch、TTS 語言不會因單次 API/Kaggle 中斷而重做。
+
 ## Gemini API 後續工作排程
 
 Gemini API 導入順序與術語資料庫學習架構詳見：
