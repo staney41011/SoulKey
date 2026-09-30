@@ -186,7 +186,7 @@ const titles = {
   "en-review":"英文定稿",
   glossary:"專有名詞庫",
   knowledge:"經典知識庫",
-  "youtube-audio":"YouTube 多語音軌",
+  "youtube-audio":"YouTube 抓取",
   system:"系統狀態"
 };
 
@@ -1109,18 +1109,38 @@ function renderYoutubeAudioTasks(){
   if(status && task){
     const remote=task.remoteStages && (
       task.remoteStages["youtube-audio"] ||
-      (
-        task.remoteStages.cc &&
-        String(task.remoteStages.cc.message||"").includes("多語音軌")
-          ? task.remoteStages.cc
-          : null
-      )
+      task.remoteStages.cc
     );
     if(remote){
       status.textContent=
         remoteStatusText(remote.status)+
         (remote.message ? "｜"+String(remote.message) : "");
     }
+  }
+}
+
+function youtubeCaptureMode(){
+  return String(
+    document.querySelector('input[name="youtube-capture-type"]:checked')?.value || "cc"
+  );
+}
+
+function syncYoutubeCaptureModeUi(){
+  const mode=youtubeCaptureMode();
+  const ccOptions=document.getElementById("youtube-cc-options");
+  const audioOptions=document.getElementById("youtube-audio-options");
+  const button=document.getElementById("youtube-audio-run");
+  const status=document.getElementById("youtube-audio-status");
+
+  if(ccOptions) ccOptions.hidden=mode!=="cc";
+  if(audioOptions) audioOptions.hidden=mode!=="audio";
+  if(button){
+    button.textContent=mode==="cc" ? "抓取 CC 字幕" : "抓取音軌";
+  }
+  if(status && !/已送出|Kaggle|完成|錯誤|處理中/.test(String(status.textContent||""))){
+    status.textContent=mode==="cc"
+      ? "將抓取 YouTube 目前可取得的多語 CC 字幕。"
+      : "將抓取 YouTube 目前可取得的多語音軌。";
   }
 }
 
@@ -1142,6 +1162,7 @@ function runYoutubeAudioGrab(){
   const task=youtubeAudioSelectedTask();
   const status=document.getElementById("youtube-audio-status");
   const button=document.getElementById("youtube-audio-run");
+  const mode=youtubeCaptureMode();
 
   if(!task){
     if(status) status.textContent="請先選擇課程任務。";
@@ -1152,10 +1173,13 @@ function runYoutubeAudioGrab(){
     return;
   }
 
-  const langs=youtubeAudioRequestedLangs();
-  if(!langs){
-    if(status) status.textContent="請勾選至少一個語言，或改選「全部可用音軌」。";
-    return;
+  let langs="";
+  if(mode==="audio"){
+    langs=youtubeAudioRequestedLangs();
+    if(!langs){
+      if(status) status.textContent="請勾選至少一個語言，或改選「全部可用音軌」。";
+      return;
+    }
   }
 
   if(!bridgeKeyValue() || !bridgeEndpointValue()){
@@ -1179,23 +1203,33 @@ function runYoutubeAudioGrab(){
     return;
   }
 
-  const sent=submitBridgePost({
+  const payload={
     action:"run_stage",
     task_id:task.id,
-    stage:"cc",
-    lang:"multi-audio",
-    langs
-  });
+    stage:"cc"
+  };
+  if(mode==="audio"){
+    payload.lang="multi-audio";
+    payload.langs=langs;
+  }
+
+  const sent=submitBridgePost(payload);
 
   if(!sent){
-    if(status) status.textContent="多語音軌工作未送出；請重新連線控制中心後再試。";
+    if(status){
+      status.textContent=
+        mode==="cc"
+          ? "CC 字幕工作未送出；請重新連線控制中心後再試。"
+          : "音軌工作未送出；請重新連線控制中心後再試。";
+    }
     return;
   }
 
   if(button) button.disabled=true;
   if(status){
-    status.textContent=
-      "已送出｜"+(langs==="all" ? "抓取全部可用音軌" : "指定語言："+langs);
+    status.textContent=mode==="cc"
+      ? "已送出｜抓取所有可用 CC 字幕"
+      : "已送出｜"+(langs==="all" ? "抓取全部可用音軌" : "指定音軌語言："+langs);
   }
   window.setTimeout(()=>{
     if(button) button.disabled=false;
@@ -3093,7 +3127,7 @@ window.addEventListener("message",event=>{
         data.stage==="cc" &&
         audioStatus
       ){
-        audioStatus.textContent="Kaggle 已接收多語音軌工作，正在等待執行。";
+        audioStatus.textContent="Kaggle 已接收 YouTube 抓取工作，正在等待執行。";
       }
       requestTaskStatuses();
     }else{
@@ -3211,6 +3245,9 @@ window.addEventListener("message",event=>{
 });
 
 document.getElementById("youtube-audio-task")?.addEventListener("change",renderYoutubeAudioTasks);
+document.querySelectorAll('input[name="youtube-capture-type"]').forEach(input=>{
+  input.addEventListener("change",syncYoutubeCaptureModeUi);
+});
 document.getElementById("youtube-audio-all")?.addEventListener("change",event=>{
   const disabled=!!event.target.checked;
   document.querySelectorAll("[data-youtube-audio-lang]").forEach(input=>{
@@ -3220,6 +3257,7 @@ document.getElementById("youtube-audio-all")?.addEventListener("change",event=>{
   if(custom) custom.disabled=disabled;
 });
 document.getElementById("youtube-audio-run")?.addEventListener("click",runYoutubeAudioGrab);
+syncYoutubeCaptureModeUi();
 
 document.getElementById("save-language-plan")?.addEventListener("click",saveLanguagePlanForSelectedTask);
 document.getElementById("refresh-language-settings")?.addEventListener("click",()=>{
