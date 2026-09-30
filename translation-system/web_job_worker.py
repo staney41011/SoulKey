@@ -330,7 +330,18 @@ def main():
         ):
             prepare_youtube_runtime()
 
-        if args.stage == "zh":
+        if args.stage == "cc" and args.lang == "multi-audio":
+            langs = ",".join(
+                x.strip() for x in args.langs.split(",") if x.strip()
+            ) or "all"
+            cmd = [
+                sys.executable,
+                str(system_dir / "youtube_multiaudio_runner.py"),
+                "--task-id", args.task_id,
+                "--langs", langs,
+            ]
+
+        elif args.stage == "zh":
             try:
                 run_taiwan_breeze_asr()
             except Exception as exc:
