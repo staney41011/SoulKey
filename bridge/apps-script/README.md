@@ -151,6 +151,23 @@ Studio 新建一期四堂課時會：
 - 英文：en.final.json / txt / srt
 - 英文人工確認的術語會同步回「專有名詞庫」
 
+### Runtime 與 NVIDIA 選用設定（2026-09-30）
+
+最新版 `Code.gs` 的 Web Job runtime nonce 有效期為 **8 小時**，讓長時間的
+checkpoint 批次可以在 Google OAuth token 自動更新後繼續執行。
+
+若要啟用 NVIDIA 翻譯第二意見，在 Apps Script「專案設定 → 指令碼屬性」新增：
+
+- `NVIDIA_API_KEY` = NVIDIA Build / NIM API Key
+
+這是**選用**設定。未設定時主流程照常使用 Gemini；設定後只會在
+Gemini QA 已失敗的 `th/es/id/vi` 片段呼叫 NVIDIA Riva Translate v2。
+
+> GitHub 裡的 `Code.gs` 更新不會自動套用到既有 Web App。
+> 修改 runtime TTL 或新增 `NVIDIA_API_KEY` 後，必須依上方
+> 「更新既有 Apps Script 部署」步驟重新部署新版本，原本的 `/exec` URL
+> 可以繼續使用。
+
 ### Kaggle Secrets 限制
 
 已實測：
