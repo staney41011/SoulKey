@@ -13,8 +13,10 @@ from pathlib import Path
 from config import COL, SPREADSHEET_ID, TASK_SHEET_RANGE
 from google_io import (
     build_google_services,
+    configure_drive_naming,
     download_drive_file,
     find_file,
+    normalize_lesson_files,
     get_secret,
     read_values,
     update_cells,
@@ -287,6 +289,8 @@ def find_task(sheets, task_id):
             "task_id": task_id,
             "period": digits(row[COL["period"]]),
             "lesson": str(row[COL["lesson"]] or "").strip(),
+            "title": str(row[COL["title"]] or "").strip(),
+            "lecturer": str(row[COL["lecturer"]] or "").strip(),
         }
     return None
 
@@ -509,6 +513,8 @@ def process_task(task_id, system_dir):
         int(task["period"]),
         task["lesson"],
     )
+    configure_drive_naming(task)
+    normalize_lesson_files(drive, folders, task)
     workdir = Path("/kaggle/working/soulkey-full-batch") / task_id
     workdir.mkdir(parents=True, exist_ok=True)
 
