@@ -28,31 +28,66 @@ MACHINE_STAGES = {
 
 
 def fetch_runtime(bridge_url: str, nonce: str):
-    query = urllib.parse.urlencode({
-        "action": "worker_runtime",
-        "nonce": nonce,
-        "_t": "1",
-    })
-    url = bridge_url + ("&" if "?" in bridge_url else "?") + query
-    with urllib.request.urlopen(url, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    # Apps Script can occasionally cold-start or take longer than 30 seconds.
+    # A transient Bridge timeout must not fail an otherwise valid Kaggle job
+    # before YouTube/ASR has even started.
+    waits = [0, 5, 15, 30]
+    last_exc = None
 
-    if not payload.get("ok"):
-        raise RuntimeError(
-            "SoulKey runtime credential request failed: "
-            + str(payload.get("message") or payload.get("error") or payload)
-        )
+    for attempt, wait_seconds in enumerate(waits, start=1):
+        if wait_seconds:
+            print(
+                f"[BRIDGE] runtime retry {attempt}/{len(waits)} "
+                f"after {wait_seconds}s",
+                flush=True,
+            )
+            time.sleep(wait_seconds)
 
-    protocol = int(payload.get("bridge_protocol") or 0)
-    if protocol < REQUIRED_BRIDGE_PROTOCOL:
-        raise RuntimeError(
-            "Apps Script Bridge 版本過舊：live="
-            + str(protocol)
-            + "，required="
-            + str(REQUIRED_BRIDGE_PROTOCOL)
-            + "。請重新部署 bridge/apps-script/Code.gs 後再執行。"
-        )
-    return payload
+        query = urllib.parse.urlencode({
+            "action": "worker_runtime",
+            "nonce": nonce,
+            "_t": str(int(time.time())),
+        })
+        url = bridge_url + ("&" if "?" in bridge_url else "?") + query
+
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            last_exc = exc
+            print(
+                f"[BRIDGE] runtime request {attempt}/{len(waits)} failed: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            continue
+
+        if not payload.get("ok"):
+            # An explicit Bridge rejection (expired/invalid nonce, etc.) is not
+            # a transient network condition and should fail immediately.
+            raise RuntimeError(
+                "SoulKey runtime credential request failed: "
+                + str(payload.get("message") or payload.get("error") or payload)
+            )
+
+        protocol = int(payload.get("bridge_protocol") or 0)
+        if protocol < REQUIRED_BRIDGE_PROTOCOL:
+            raise RuntimeError(
+                "Apps Script Bridge 版本過舊：live="
+                + str(protocol)
+                + "，required="
+                + str(REQUIRED_BRIDGE_PROTOCOL)
+                + "。請重新部署 bridge/apps-script/Code.gs 後再執行。"
+            )
+
+        if attempt > 1:
+            print("[BRIDGE] runtime credential retry succeeded", flush=True)
+        return payload
+
+    raise RuntimeError(
+        "SoulKey runtime credential request exhausted retries: "
+        + (f"{type(last_exc).__name__}: {last_exc}" if last_exc else "unknown error")
+    )
 
 
 def report(bridge_url: str, nonce: str, status: str, message: str):
