@@ -19,7 +19,11 @@
 
 import argparse
 import json
+import shutil
+import tarfile
 import tempfile
+import urllib.request
+from pathlib import Path
 
 import torch
 from huggingface_hub import hf_hub_download
@@ -29,6 +33,56 @@ from transformers import VitsConfig, VitsModel, VitsTokenizer, logging
 
 logging.set_verbosity_info()
 logger = logging.get_logger("transformers.models.vits")
+
+MMS_OFFICIAL_TTS_BASE = "https://dl.fbaipublicfiles.com/mms/tts"
+
+
+def _download_official_mms_source(language):
+    """Download one original MMS-TTS generator bundle from Meta.
+
+    The giant Hugging Face collection does not reliably expose every
+    models/<iso>/<file> path through hf_hub_download. Meta's official MMS
+    instructions publish each language as <iso>.tar.gz, containing the
+    generator, training config, and vocabulary needed by this converter.
+    """
+    language = str(language or "").strip()
+    if not language:
+        raise ValueError("MMS language code is empty")
+
+    temp_root = Path(tempfile.mkdtemp(prefix=f"mms-tts-{language}-"))
+    archive_path = temp_root / f"{language}.tar.gz"
+    extract_dir = temp_root / "source"
+    extract_dir.mkdir(parents=True, exist_ok=True)
+
+    url = f"{MMS_OFFICIAL_TTS_BASE}/{language}.tar.gz"
+    logger.warning(
+        "Hugging Face collection path unavailable; downloading official "
+        f"Meta MMS bundle: {url}"
+    )
+    urllib.request.urlretrieve(url, archive_path)
+
+    with tarfile.open(archive_path, "r:gz") as tf:
+        try:
+            tf.extractall(extract_dir, filter="data")
+        except TypeError:
+            # Python <3.12 compatibility. The source is Meta's official bundle.
+            tf.extractall(extract_dir)
+
+    def find_required(filename):
+        matches = list(extract_dir.rglob(filename))
+        if not matches:
+            raise FileNotFoundError(
+                f"Meta MMS {language} bundle missing {filename}"
+            )
+        return str(matches[0])
+
+    return {
+        "temp_root": temp_root,
+        "vocab_path": find_required("vocab.txt"),
+        "config_path": find_required("config.json"),
+        "checkpoint_path": find_required("G_100000.pth"),
+    }
+
 
 MAPPING_TEXT_ENCODER = {
     "enc_p.emb": "text_encoder.embed_tokens",
@@ -291,24 +345,35 @@ def convert_checkpoint(
     if sampling_rate:
         config.sampling_rate = sampling_rate
 
+    source_bundle = None
     if checkpoint_path is None:
         logger.info(f"***Converting model: facebook/mms-tts {language}***")
 
-        vocab_path = hf_hub_download(
-            repo_id="facebook/mms-tts",
-            filename="vocab.txt",
-            subfolder=f"models/{language}",
-        )
-        config_file = hf_hub_download(
-            repo_id="facebook/mms-tts",
-            filename="config.json",
-            subfolder=f"models/{language}",
-        )
-        checkpoint_path = hf_hub_download(
-            repo_id="facebook/mms-tts",
-            filename="G_100000.pth",
-            subfolder=f"models/{language}",
-        )
+        try:
+            vocab_path = hf_hub_download(
+                repo_id="facebook/mms-tts",
+                filename="vocab.txt",
+                subfolder=f"models/{language}",
+            )
+            config_file = hf_hub_download(
+                repo_id="facebook/mms-tts",
+                filename="config.json",
+                subfolder=f"models/{language}",
+            )
+            checkpoint_path = hf_hub_download(
+                repo_id="facebook/mms-tts",
+                filename="G_100000.pth",
+                subfolder=f"models/{language}",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Hugging Face MMS collection download failed for "
+                f"{language}: {type(exc).__name__}: {exc}"
+            )
+            source_bundle = _download_official_mms_source(language)
+            vocab_path = source_bundle["vocab_path"]
+            config_file = source_bundle["config_path"]
+            checkpoint_path = source_bundle["checkpoint_path"]
 
         with open(config_file, "r", encoding="utf-8") as f:
             data = f.read()
@@ -356,6 +421,9 @@ def convert_checkpoint(
 
     model.save_pretrained(pytorch_dump_folder_path)
     tokenizer.save_pretrained(pytorch_dump_folder_path)
+
+    if source_bundle is not None:
+        shutil.rmtree(source_bundle["temp_root"], ignore_errors=True)
 
     if repo_id:
         print("Pushing to the hub...")
