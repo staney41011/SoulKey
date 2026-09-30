@@ -80,7 +80,7 @@
         <button class="nav-item" data-view="review">中文校稿</button>
         <button class="nav-item" data-view="glossary">專有名詞庫</button>
         <button class="nav-item" data-view="knowledge">經典知識庫</button>
-        <button class="nav-item" data-view="youtube-audio">YouTube 多語音軌</button>
+        <button class="nav-item" data-view="youtube-audio">YouTube 抓取</button>
         <button class="nav-item" data-view="system">系統狀態</button>
       </nav>
     </aside>
@@ -440,14 +440,13 @@
         <div class="panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">YOUTUBE MULTI-AUDIO</p>
-              <h3>各國語言音檔抓取</h3>
+              <p class="eyebrow">YOUTUBE CAPTURE</p>
+              <h3>YouTube 抓取</h3>
             </div>
             <span class="badge">獨立工具・不跑 Gemini / ASR / TTS</span>
           </div>
           <p class="muted block-copy">
-            直接偵測 YouTube 影片目前公開的原音／自動配音音軌，下載成 MP3 並存入該堂課的「04_音檔」。
-            檔名使用 youtube.語言碼.mp3，不會覆蓋 SoulKey 自己產生的 TTS 音檔。
+            選擇課程後，可單獨抓取 YouTube 的多語 CC 字幕，或抓取目前公開的原音／自動配音音軌。
           </p>
 
           <div class="split">
@@ -461,28 +460,47 @@
             </div>
 
             <div>
-              <label class="output-toggle" style="margin-bottom:12px">
-                <input id="youtube-audio-all" type="checkbox" checked>
-                抓取影片目前所有可用語言音軌
-              </label>
-              <div id="youtube-audio-language-options" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px">
-                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="en"> English (en)</label>
-                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="es"> Español (es)</label>
-                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="th"> ภาษาไทย (th)</label>
-                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="id"> Bahasa Indonesia (id)</label>
-                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="vi"> Tiếng Việt (vi)</label>
-                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="sd"> سنڌي (sd)</label>
-                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="ta"> தமிழ் (ta)</label>
+              <label>抓取類型</label>
+              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:8px">
+                <label class="output-toggle">
+                  <input type="radio" name="youtube-capture-type" value="cc" checked>
+                  CC 字幕
+                </label>
+                <label class="output-toggle">
+                  <input type="radio" name="youtube-capture-type" value="audio">
+                  音軌
+                </label>
               </div>
-              <label style="margin-top:12px">其他語言代碼（可選，逗號分隔）
-                <input id="youtube-audio-custom-langs" placeholder="例如 ja,ko,de,fr">
-              </label>
+
+              <div id="youtube-cc-options" class="context-card" style="margin-top:14px">
+                抓取 YouTube 目前可取得的多語自動字幕／自動翻譯字幕，存入「00_來源資訊」。
+                目前會偵測繁中、英文、泰文、西班牙文、印尼文、越南文、信德文、泰米爾文；YouTube 沒提供的語言會自動略過。
+              </div>
+
+              <div id="youtube-audio-options" hidden style="margin-top:14px">
+                <label class="output-toggle" style="margin-bottom:12px">
+                  <input id="youtube-audio-all" type="checkbox" checked>
+                  抓取影片目前所有可用語言音軌
+                </label>
+                <div id="youtube-audio-language-options" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px">
+                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="en"> English (en)</label>
+                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="es"> Español (es)</label>
+                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="th"> ภาษาไทย (th)</label>
+                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="id"> Bahasa Indonesia (id)</label>
+                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="vi"> Tiếng Việt (vi)</label>
+                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="sd"> سنڌي (sd)</label>
+                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="ta"> தமிழ் (ta)</label>
+                </div>
+                <label style="margin-top:12px">其他語言代碼（可選，逗號分隔）
+                  <input id="youtube-audio-custom-langs" placeholder="例如 ja,ko,de,fr">
+                </label>
+              </div>
             </div>
           </div>
 
           <div class="language-plan-footer" style="margin-top:18px">
             <span class="muted" id="youtube-audio-status">尚未執行。</span>
-            <button class="primary" id="youtube-audio-run" type="button">偵測並抓取音軌</button>
+            <button class="primary" id="youtube-audio-run" type="button">抓取 CC 字幕</button>
           </div>
         </div>
 
@@ -490,10 +508,10 @@
           <p class="eyebrow">OUTPUT</p>
           <h3>輸出規則</h3>
           <div class="policy-list">
-            <div><b>來源</b><span>YouTube 已存在的語言音軌／自動配音，不進行 AI 生成。</span></div>
-            <div><b>格式</b><span>MP3 192 kbps；若 YouTube 只提供影音合併串流，仍只抽出音訊。</span></div>
-            <div><b>Drive</b><span>04_音檔 / youtube.&lt;language&gt;.mp3 + youtube-audio-manifest.json</span></div>
-            <div><b>安全</b><span>使用現有 guest PO token / Cookies fallback；不新增任何 Secret。</span></div>
+            <div><b>CC 字幕</b><span>00_來源資訊 / youtube.&lt;language&gt;.json；英文仍保留 youtube.en.json 相容既有人工校稿流程。</span></div>
+            <div><b>音軌</b><span>04_音檔 / youtube.&lt;language&gt;.mp3 + youtube-audio-manifest.json。</span></div>
+            <div><b>來源</b><span>只抓 YouTube 已存在的字幕／音軌，不在此頁進行 AI 翻譯或 TTS。</span></div>
+            <div><b>安全</b><span>沿用現有 guest PO token / Cookies fallback；不新增任何 Secret。</span></div>
           </div>
         </div>
       </section>
@@ -593,6 +611,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20260930-6"></script>
+  <script src="./app-20260923-48.js?v=20260930-7"></script>
 </body>
 </html>
