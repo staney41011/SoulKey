@@ -23,6 +23,7 @@ from google_io import (
     upload_or_replace_file,
 )
 from lesson_paths import digits, resolve_lesson_folders
+from nvidia_translate import NvidiaTranslateClient, SUPPORTED_TARGETS
 from status_io import new_run_id, mark_done, mark_error, mark_running
 
 
@@ -125,7 +126,7 @@ def format_srt_time(seconds):
     return f"{h:02d}:{m:02d}:{s:02d},{milli:03d}"
 
 
-def write_language_set(output_dir, lang, source_segments, translations, model):
+def write_language_set(output_dir, lang, source_segments, translations, model, engine="gemini"):
     output_dir.mkdir(parents=True, exist_ok=True)
     by_id = {int(x["segment_id"]): x for x in translations}
     segments = []
@@ -147,7 +148,7 @@ def write_language_set(output_dir, lang, source_segments, translations, model):
             {
                 "language": lang,
                 "language_name": LANGUAGE_NAMES[lang],
-                "engine": "gemini",
+                "engine": engine,
                 "model": model,
                 "source": "en.final.json",
                 "segments": segments,
@@ -387,6 +388,67 @@ def audit_batch(client, batch, translations, langs, wait_seconds=0):
     return failures, local, semantic
 
 
+def nvidia_repair_failed_pairs(
+    nvidia_client,
+    source_map,
+    translations,
+    failures,
+):
+    """Try NVIDIA only for th/es/id/vi pairs already rejected by Gemini QA."""
+    if not nvidia_client or not failures:
+        return []
+
+    repairs = []
+    for (sid, lang), issues in sorted(failures.items()):
+        if lang not in SUPPORTED_TARGETS:
+            continue
+
+        english = str(source_map[sid]["text"])
+        try:
+            candidate = nvidia_client.translate(english, lang).strip()
+        except Exception as exc:
+            print(
+                f"[NVIDIA] {sid}/{lang} second opinion unavailable: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            continue
+
+        local_issues = []
+        issue = local_language_issue(candidate, english, lang)
+        if issue:
+            local_issues.append(issue)
+
+        normalized = normalize_unicode_digits(candidate)
+        for number in re.findall(r"\d+(?:\.\d+)?", english):
+            if number not in normalized:
+                local_issues.append(f"missing_number:{number}")
+
+        if local_issues:
+            print(
+                f"[NVIDIA] {sid}/{lang} candidate rejected locally: "
+                + ",".join(local_issues),
+                flush=True,
+            )
+            continue
+
+        translations[sid][lang] = candidate
+        repairs.append({
+            "segment_id": sid,
+            "lang": lang,
+            "text": candidate,
+            "engine": "nvidia-riva",
+            "model": nvidia_client.model,
+            "issues": list(issues or []),
+        })
+        print(
+            f"[NVIDIA] {sid}/{lang} candidate accepted for Gemini re-audit.",
+            flush=True,
+        )
+
+    return repairs
+
+
 def repair_batch_until_clean(
     client,
     batch,
@@ -398,6 +460,7 @@ def repair_batch_until_clean(
     wait_seconds=0,
     initial_failures=None,
     max_rounds=4,
+    nvidia_client=None,
 ):
     if initial_failures is None:
         failures, local, semantic = audit_batch(
@@ -410,6 +473,32 @@ def repair_batch_until_clean(
 
     repair_history = []
     models = []
+
+    # NVIDIA is a non-blocking second opinion, never the six-language owner.
+    # Only pairs Gemini QA already rejected are sent to Riva Translate.
+    if failures and nvidia_client:
+        nvidia_repairs = nvidia_repair_failed_pairs(
+            nvidia_client,
+            source_map,
+            translations,
+            failures,
+        )
+        if nvidia_repairs:
+            for item in nvidia_repairs:
+                repair_history.append({**item, "repair_round": 0})
+            models.append(nvidia_client.model)
+            failures, local, semantic = audit_batch(
+                client,
+                batch,
+                translations,
+                langs,
+                wait_seconds=wait_seconds,
+            )
+            print(
+                f"[NVIDIA] Gemini re-audit complete; "
+                f"unresolved={len(failures)}",
+                flush=True,
+            )
 
     for round_no in range(1, max_rounds + 1):
         if not failures:
@@ -426,7 +515,12 @@ def repair_batch_until_clean(
         )
         models.append(model_used)
         for item in repairs:
-            repair_history.append({**item, "repair_round": round_no})
+            repair_history.append({
+                **item,
+                "repair_round": round_no,
+                "engine": "gemini",
+                "model": model_used,
+            })
 
         failures, local, semantic = audit_batch(
             client,
@@ -538,6 +632,35 @@ def main():
         timeout=120,
     )
 
+    nvidia_api_key = str(os.environ.get("NVIDIA_API_KEY") or "").strip()
+    if not nvidia_api_key:
+        nvidia_api_key = get_secret("NVIDIA_API_KEY", required=False)
+
+    nvidia_client = None
+    if nvidia_api_key:
+        try:
+            nvidia_client = NvidiaTranslateClient(
+                api_key=nvidia_api_key,
+                timeout=90,
+                max_attempts=3,
+            )
+            print(
+                "[NVIDIA] Riva Translate v2 second opinion enabled "
+                "for th/es/id/vi QA failures.",
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                f"[NVIDIA] optional client disabled: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+    else:
+        print(
+            "[NVIDIA] NVIDIA_API_KEY not configured; Gemini-only QA continues.",
+            flush=True,
+        )
+
     run_id = new_run_id(args.task_id, "multi")
     mark_running(
         args.task_id,
@@ -623,6 +746,7 @@ def main():
                 wait_seconds=args.wait_seconds,
                 initial_failures=initial,
                 max_rounds=4,
+                nvidia_client=nvidia_client,
             )
             data["local_failures"] = local
             data["semantic_failures"] = semantic
@@ -721,6 +845,7 @@ def main():
                     requested,
                     wait_seconds=args.wait_seconds,
                     max_rounds=4,
+                    nvidia_client=nvidia_client,
                 )
             )
 
@@ -777,6 +902,17 @@ def main():
             raise RuntimeError("既有 checkpoint 仍有 unresolved QA failure")
 
         rows = [translations[int(x["id"])] for x in source_segments]
+        nvidia_used = any(
+            str(repair.get("engine") or "") == "nvidia-riva"
+            for data in qa_batches.values()
+            for repair in (data.get("repairs") or [])
+        )
+        output_engine = (
+            "gemini+nvidia-second-opinion"
+            if nvidia_used
+            else "gemini"
+        )
+
         outdir = workdir / "final"
         outdir.mkdir(parents=True, exist_ok=True)
         for lang in requested:
@@ -786,6 +922,7 @@ def main():
                 source_segments,
                 rows,
                 DEFAULT_TEXT_MODEL,
+                engine=output_engine,
             ):
                 upload_or_replace_file(
                     drive,
@@ -799,8 +936,9 @@ def main():
             json.dumps(
                 {
                     "task_id": args.task_id,
-                    "engine": "gemini",
+                    "engine": output_engine,
                     "model": DEFAULT_TEXT_MODEL,
+                    "nvidia_second_opinion_used": nvidia_used,
                     "qa_batches": qa_batches,
                     "unresolved": [],
                 },
@@ -816,6 +954,7 @@ def main():
             f"任務佇列!T{task['sheet_row']}": (
                 "Gemini翻譯+QA完成；語言=" + ",".join(requested)
                 + f"；{len(source_segments)}段；QA unresolved=0"
+                + ("；NVIDIA second-opinion=used" if nvidia_used else "")
             ),
         }
         for lang, col in LEGACY_COLS.items():
@@ -849,6 +988,7 @@ def main():
             message=(
                 "Gemini 翻譯 + QA 完成；langs=" + ",".join(requested)
                 + "；unresolved=0"
+                + ("；NVIDIA=second-opinion" if nvidia_used else "")
             ),
         )
         print(
