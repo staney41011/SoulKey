@@ -19,10 +19,8 @@ from config import (
 )
 from google_io import (
     build_google_services,
-    configure_drive_naming,
     extract_drive_id,
     read_values,
-    normalize_lesson_files,
     require_child_folder,
     update_cells,
     upload_or_replace_file,
@@ -178,9 +176,6 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         updated_at=now_text(),
         note="YouTube 音訊與 metadata 單次取得完成；開始 ASR",
     )
-
-    configure_drive_naming(task)
-    normalize_lesson_files(drive, folders, task)
 
     metadata.update({
         "id": download_meta.get("id"),
