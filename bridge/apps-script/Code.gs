@@ -554,7 +554,9 @@ function cleanupSoulKeyExpiredProperties() {
   });
 
   if (keysToDelete.length) {
-    props.deleteProperties(keysToDelete);
+    keysToDelete.forEach(function(key) {
+      props.deleteProperty(key);
+    });
   }
 
   Logger.log(
