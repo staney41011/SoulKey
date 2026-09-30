@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -458,11 +459,37 @@ def main():
                 flush=True,
             )
             require_gpu_runtime("batch")
-            run([
+
+            # The full batch is checkpoint-safe. If one top-level pass exits
+            # non-zero (Gemini/TTS/Drive transient issue), restart the batch
+            # inside the SAME Kaggle kernel so completed stages are skipped and
+            # the user does not need to press Run again.
+            batch_cmd = [
                 sys.executable,
                 str(system_dir / "batch_full_runner.py"),
                 "--task-ids", task_ids,
-            ])
+            ]
+            batch_retry_waits = [30, 120]
+            for batch_attempt in range(1, len(batch_retry_waits) + 2):
+                try:
+                    print(
+                        f"[BATCH AUTO-RESUME] pass {batch_attempt}/"
+                        f"{len(batch_retry_waits) + 1}",
+                        flush=True,
+                    )
+                    run(batch_cmd)
+                    break
+                except subprocess.CalledProcessError:
+                    if batch_attempt > len(batch_retry_waits):
+                        raise
+                    wait_seconds = batch_retry_waits[batch_attempt - 1]
+                    print(
+                        "[BATCH AUTO-RESUME] batch returned non-zero; "
+                        f"wait {wait_seconds}s then resume from checkpoints.",
+                        flush=True,
+                    )
+                    time.sleep(wait_seconds)
+
             report(
                 args.bridge_url,
                 args.runtime_nonce,
