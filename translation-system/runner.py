@@ -202,11 +202,16 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         cc_path = Path(str(raw_path))
         if not cc_path.exists():
             continue
+        drive_name = (
+            "youtube.en.json"
+            if lang == "en"
+            else f"youtube.{lang}.json"
+        )
         upload_or_replace_file(
             drive,
             folders["source"],
             cc_path,
-            f"youtube.{lang}.json",
+            drive_name,
         )
         uploaded_cc_languages.append(lang)
 
