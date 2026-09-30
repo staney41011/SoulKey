@@ -19,7 +19,7 @@ const LANGUAGE_PLAN_SHEET_NAME = "語言任務設定";
 const MACHINE_STAGES = [
   "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish", "cc", "batch"
 ];
-const RUNTIME_TTL_MS = 4 * 60 * 60 * 1000;
+const RUNTIME_TTL_MS = 8 * 60 * 60 * 1000;
 const BRIDGE_PROTOCOL_VERSION = 4;
 
 function doGet(e) {
