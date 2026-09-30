@@ -15,7 +15,7 @@ from runner import resolve_lesson_folders
 from polish_runner import attach_english_cc
 from github_review_cache import publish_review_cache
 from status_io import new_run_id, mark_running, mark_done, mark_error
-from youtube_io import download_english_cc
+from youtube_io import download_multilingual_cc
 
 
 RAW_REVIEW_BASE = (
@@ -87,7 +87,7 @@ def main():
         "cc",
         sheets=sheets,
         run_id=run_id,
-        message="補抓 YouTube English CC",
+        message="補抓 YouTube 多語自動 CC",
         progress=5,
     )
 
@@ -98,11 +98,10 @@ def main():
         print(f"[CC] 任務：{args.task_id}")
         print(f"[CC] URL：{task['youtube_url']}")
 
-        cc_path = download_english_cc(task["youtube_url"], workdir)
-        if not cc_path or not Path(cc_path).exists():
+        cc_paths = download_multilingual_cc(task["youtube_url"], workdir)
+        if not cc_paths:
             raise RuntimeError(
-                "YouTube English auto-generated CC 仍抓取失敗。"
-                "請確認影片字幕選單確實存在 English (auto-generated)。"
+                "YouTube 沒有抓到任何可用的自動字幕。"
             )
 
         folders = resolve_lesson_folders(
@@ -111,17 +110,31 @@ def main():
             task["period"],
             task["lesson"],
         )
-        upload_or_replace_file(
-            drive,
-            folders["source"],
-            cc_path,
-            "youtube.en.json",
-        )
-        print("[CC] youtube.en.json 已更新到 Drive 來源資料夾")
+        uploaded_languages = []
+        for lang, cc_path in cc_paths.items():
+            cc_path = Path(cc_path)
+            if not cc_path.exists():
+                continue
+            drive_name = f"youtube.{lang}.json"
+            upload_or_replace_file(
+                drive,
+                folders["source"],
+                cc_path,
+                drive_name,
+            )
+            uploaded_languages.append(lang)
+            print(f"[CC] {drive_name} 已更新到 Drive 來源資料夾")
+
+        english_cc = cc_paths.get("en")
+        if not english_cc or not Path(english_cc).exists():
+            raise RuntimeError(
+                "多語自動字幕已抓取，但沒有 English auto-generated CC；"
+                "現有中文校稿對齊仍需要 English CC。"
+            )
 
         review_path = workdir / "zh-TW.review-cache.json"
         download_review_cache(args.task_id, review_path)
-        attach_english_cc(review_path, Path(cc_path))
+        attach_english_cc(review_path, Path(english_cc))
 
         payload = json.loads(review_path.read_text(encoding="utf-8"))
         available = sum(
@@ -138,11 +151,11 @@ def main():
             "cc",
             sheets=sheets,
             run_id=run_id,
-            message=f"English CC 補抓完成；已對齊 {available} 段",
+            message=(f"多語CC完成：{','.join(uploaded_languages)}；" f"English已對齊 {available} 段"),
         )
         print(
-            f"[CC] 完成：{available}/"
-            f"{len(payload.get('segments', []))} 段有 English CC"
+            f"[CC] 完成：語言={','.join(uploaded_languages)}；"
+            f"{available}/{len(payload.get('segments', []))} 段有 English CC"
         )
         return 0
     except Exception as exc:
