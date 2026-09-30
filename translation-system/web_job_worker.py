@@ -456,10 +456,11 @@ def main():
             ]
 
         elif args.stage == "en" and args.lang == "cc-refresh":
-            print("[CC] 使用相容模式：stage=en / lang=cc-refresh", flush=True)
+            print("[CC] 使用 English review refresh 模式", flush=True)
             cmd = [
                 sys.executable, str(system_dir / "cc_runner.py"),
                 "--task-id", args.task_id,
+                "--refresh-english-review",
             ]
 
         elif args.stage == "en":
