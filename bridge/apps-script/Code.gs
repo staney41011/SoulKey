@@ -428,6 +428,7 @@ function bridgeRequest(request) {
         sheet: STATUS_SHEET_NAME,
         rows: Math.max(0, sheet.getLastRow() - 1),
         youtube_cookies_configured: !!props.getProperty("YOUTUBE_COOKIES_B64"),
+        bridge_protocol: BRIDGE_PROTOCOL_VERSION,
         server_time: new Date().toISOString()
       };
     }
