@@ -10,6 +10,7 @@ on:
       - "translation-system/gemini_source_runner.py"
       - "translation-system/gemini_text_production_runner.py"
       - "translation-system/gemini_multi_production_runner.py"
+      - "translation-system/nvidia_translate.py"
       - "translation-system/gemini_tts_production_runner.py"
       - "translation-system/web_job_worker.py"
       - "translation-system/tts_runner.py"
@@ -37,10 +38,34 @@ jobs:
             translation-system/gemini_source_runner.py \
             translation-system/gemini_text_production_runner.py \
             translation-system/gemini_multi_production_runner.py \
+            translation-system/nvidia_translate.py \
             translation-system/gemini_tts_production_runner.py \
             translation-system/web_job_worker.py \
             translation-system/tts_runner.py \
             translation-system/tts_engine.py
+
+      - name: NVIDIA second-opinion offline contract
+        working-directory: translation-system
+        run: |
+          python - <<'PY'
+          import os
+          import nvidia_translate as nv
+
+          assert nv.nvidia_target_code("th") == "th"
+          assert nv.nvidia_target_code("id") == "id"
+          assert nv.nvidia_target_code("vi") == "vi"
+          assert nv.nvidia_target_code("es") in {"es-US", "es-ES"}
+          assert "sd" not in nv.SUPPORTED_TARGETS
+          assert "ta" not in nv.SUPPORTED_TARGETS
+
+          sample = {
+              "choices": [
+                  {"message": {"content": "สวัสดี"}}
+              ]
+          }
+          assert nv._message_text(sample) == "สวัสดี"
+          print("NVIDIA SECOND-OPINION CONTRACT: PASS")
+          PY
 
       - name: Live Gemini structured-output smoke
         if: ${{ env.GEMINI_API_KEY != '' }}
