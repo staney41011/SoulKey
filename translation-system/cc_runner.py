@@ -70,6 +70,11 @@ def download_review_cache(task_id, destination):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-id", required=True)
+    parser.add_argument(
+        "--refresh-english-review",
+        action="store_true",
+        help="English 定稿頁專用：抓完 CC 後同步更新中文 review cache 的 source_en",
+    )
     args = parser.parse_args()
 
     drive, sheets = build_google_services()
@@ -87,7 +92,11 @@ def main():
         "cc",
         sheets=sheets,
         run_id=run_id,
-        message="補抓 YouTube 多語自動 CC",
+        message=(
+            "補抓 YouTube English CC 並更新人工校稿"
+            if args.refresh_english_review
+            else "抓取 YouTube 多語自動 CC"
+        ),
         progress=5,
     )
 
@@ -125,11 +134,32 @@ def main():
             uploaded_languages.append(lang)
             print(f"[CC] {drive_name} 已更新到 Drive 來源資料夾")
 
+        if not uploaded_languages:
+            raise RuntimeError("CC 已取得，但沒有任何字幕檔成功上傳到 Drive。")
+
+        # Standalone YouTube capture must be independent from Studio review cache.
+        # Uploading available captions is already a successful job.
+        if not args.refresh_english_review:
+            mark_done(
+                args.task_id,
+                "cc",
+                sheets=sheets,
+                run_id=run_id,
+                message=f"YouTube CC 抓取完成：{','.join(uploaded_languages)}",
+            )
+            print(
+                f"[CC] 抓取完成：語言={','.join(uploaded_languages)}；"
+                "已上傳 00_來源資訊，不要求人工校稿快取。",
+                flush=True,
+            )
+            return 0
+
+        # English-review refresh keeps the previous stricter contract.
         english_cc = cc_paths.get("en")
         if not english_cc or not Path(english_cc).exists():
             raise RuntimeError(
-                "多語自動字幕已抓取，但沒有 English auto-generated CC；"
-                "現有中文校稿對齊仍需要 English CC。"
+                "English CC 補抓模式需要 English auto-generated CC，"
+                "但本次 YouTube 沒有取得英文字幕。"
             )
 
         review_path = workdir / "zh-TW.review-cache.json"
@@ -142,7 +172,7 @@ def main():
             if str(x.get("source_en") or "").strip()
         )
         if available < 1:
-            raise RuntimeError("CC 已下載，但沒有任何 cue 對齊到中文段落")
+            raise RuntimeError("English CC 已下載，但沒有任何 cue 對齊到中文段落")
 
         publish_review_cache(args.task_id, review_path)
 
@@ -151,10 +181,10 @@ def main():
             "cc",
             sheets=sheets,
             run_id=run_id,
-            message=(f"多語CC完成：{','.join(uploaded_languages)}；" f"English已對齊 {available} 段"),
+            message=f"English CC 補抓完成；已對齊 {available} 段",
         )
         print(
-            f"[CC] 完成：語言={','.join(uploaded_languages)}；"
+            f"[CC] English review refresh 完成："
             f"{available}/{len(payload.get('segments', []))} 段有 English CC"
         )
         return 0
