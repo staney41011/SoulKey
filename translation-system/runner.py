@@ -192,17 +192,31 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
     })
     upload_metadata(drive, folders["source"], metadata, task, workdir)
 
+    auto_cc_paths = dict(download_meta.get("auto_cc_paths") or {})
     english_cc_path = str(download_meta.get("english_cc_path") or "").strip()
-    if english_cc_path and Path(english_cc_path).exists():
+    if english_cc_path and "en" not in auto_cc_paths:
+        auto_cc_paths["en"] = english_cc_path
+
+    uploaded_cc_languages = []
+    for lang, raw_path in auto_cc_paths.items():
+        cc_path = Path(str(raw_path))
+        if not cc_path.exists():
+            continue
         upload_or_replace_file(
             drive,
             folders["source"],
-            Path(english_cc_path),
-            "youtube.en.json",
+            cc_path,
+            f"youtube.{lang}.json",
         )
-        print("[SOURCE] English auto-generated CC 已寫入 00_來源資訊/youtube.en.json")
+        uploaded_cc_languages.append(lang)
+
+    if uploaded_cc_languages:
+        print(
+            "[SOURCE] YouTube auto CC 已寫入 00_來源資訊："
+            + ",".join(uploaded_cc_languages)
+        )
     else:
-        print("[SOURCE] 本堂沒有可用的 English auto-generated CC；後續仍可只用中文 ASR。")
+        print("[SOURCE] 本堂沒有可用的 YouTube auto CC；後續仍可只用中文 ASR。")
 
     result = transcribe_audio(
         audio_path=str(audio_path),
@@ -240,7 +254,7 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         note=(
             f"ASR完成；來源=YouTube Cookies；"
             f"{result['segment_count']}段；音訊長度={duration_text}；"
-            f"EnglishCC={'有' if english_cc_path else '無'}"
+            f"AutoCC={','.join(uploaded_cc_languages) if uploaded_cc_languages else '無'}"
         ),
     )
 
