@@ -186,6 +186,7 @@ const titles = {
   "en-review":"英文定稿",
   glossary:"專有名詞庫",
   knowledge:"經典知識庫",
+  "youtube-audio":"YouTube 多語音軌",
   system:"系統狀態"
 };
 
@@ -288,6 +289,9 @@ function showView(name, options={}){
 
   if(name==="new-task"){
     applyLatestPeriodToNewTask();
+  }
+  if(name==="youtube-audio"){
+    renderYoutubeAudioTasks();
   }
 
   window.scrollTo({top:0,behavior:"smooth"});
@@ -1057,6 +1061,125 @@ function renderTasks(){
 
   document.getElementById("stat-tasks").textContent=tasks.length;
   document.getElementById("stat-terms").textContent=terms.length;
+  renderYoutubeAudioTasks();
+}
+
+function youtubeAudioSelectedTask(){
+  const select=document.getElementById("youtube-audio-task");
+  if(!select) return null;
+  return tasks.find(x=>String(x.id)===String(select.value)) || null;
+}
+
+function renderYoutubeAudioTasks(){
+  const select=document.getElementById("youtube-audio-task");
+  const info=document.getElementById("youtube-audio-task-info");
+  const status=document.getElementById("youtube-audio-status");
+  if(!select) return;
+
+  const sorted=tasks.slice().sort((a,b)=>{
+    if(Number(b.period)!==Number(a.period)) return Number(b.period)-Number(a.period);
+    return Number(String(a.lesson).replace(/\D/g,""))-Number(String(b.lesson).replace(/\D/g,""));
+  });
+
+  const previous=String(select.value||"");
+  if(!sorted.length){
+    select.innerHTML='<option value="">尚無課程任務</option>';
+    select.disabled=true;
+    if(info) info.textContent="請先建立包含 YouTube 網址的課程任務。";
+    return;
+  }
+
+  select.disabled=false;
+  select.innerHTML=sorted.map(task=>
+    '<option value="'+escapeHtml(task.id)+'">'+
+      escapeHtml(task.id)+"｜第"+escapeHtml(task.period)+"期・"+escapeHtml(task.lesson)+
+    '</option>'
+  ).join("");
+  if(previous && sorted.some(x=>String(x.id)===previous)){
+    select.value=previous;
+  }
+
+  const task=youtubeAudioSelectedTask();
+  if(info){
+    info.innerHTML=task
+      ? '<b>'+escapeHtml(task.id)+'</b><br><span class="muted">'+escapeHtml(task.url||"尚無 YouTube URL")+'</span>'
+      : "尚未選擇課程。";
+  }
+
+  if(status && task){
+    const remote=task.remoteStages && (
+      task.remoteStages["youtube-audio"] ||
+      (
+        task.remoteStages.cc &&
+        String(task.remoteStages.cc.message||"").includes("多語音軌")
+          ? task.remoteStages.cc
+          : null
+      )
+    );
+    if(remote){
+      status.textContent=
+        remoteStatusText(remote.status)+
+        (remote.message ? "｜"+String(remote.message) : "");
+    }
+  }
+}
+
+function youtubeAudioRequestedLangs(){
+  const all=document.getElementById("youtube-audio-all");
+  if(all?.checked) return "all";
+
+  const selected=[...document.querySelectorAll("[data-youtube-audio-lang]:checked")]
+    .map(x=>String(x.value||"").trim())
+    .filter(Boolean);
+  const custom=String(document.getElementById("youtube-audio-custom-langs")?.value||"")
+    .split(",")
+    .map(x=>x.trim())
+    .filter(Boolean);
+  return [...new Set([...selected,...custom])].join(",");
+}
+
+function runYoutubeAudioGrab(){
+  const task=youtubeAudioSelectedTask();
+  const status=document.getElementById("youtube-audio-status");
+  const button=document.getElementById("youtube-audio-run");
+
+  if(!task){
+    if(status) status.textContent="請先選擇課程任務。";
+    return;
+  }
+  if(!task.url){
+    if(status) status.textContent="這堂課沒有 YouTube URL。";
+    return;
+  }
+
+  const langs=youtubeAudioRequestedLangs();
+  if(!langs){
+    if(status) status.textContent="請勾選至少一個語言，或改選「全部可用音軌」。";
+    return;
+  }
+
+  const sent=submitBridgePost({
+    action:"run_stage",
+    task_id:task.id,
+    stage:"cc",
+    lang:"multi-audio",
+    langs
+  });
+
+  if(!sent){
+    if(status) status.textContent="尚未連線控制中心；請先回總覽輸入 Bridge Key。";
+    return;
+  }
+
+  if(button) button.disabled=true;
+  if(status){
+    status.textContent=
+      "已送出｜"+(langs==="all" ? "抓取全部可用音軌" : "指定語言："+langs);
+  }
+  window.setTimeout(()=>{
+    if(button) button.disabled=false;
+    requestTaskStatuses();
+  },1800);
 }
 
 function stageState(task,index){
@@ -2701,6 +2824,9 @@ function applyRemoteStatuses(payload){
       const task=tasks.find(x=>x.id===selectedTaskId);
       if(task) renderTaskDetail(task);
     }
+    if(currentView==="youtube-audio"){
+      renderYoutubeAudioTasks();
+    }
   }
 
   const syncState=document.getElementById("status-sync-state");
@@ -2940,6 +3066,14 @@ window.addEventListener("message",event=>{
 
   if(data.type==="run_stage"){
     if(data.ok){
+      const audioStatus=document.getElementById("youtube-audio-status");
+      if(
+        currentView==="youtube-audio" &&
+        data.stage==="cc" &&
+        audioStatus
+      ){
+        audioStatus.textContent="Kaggle 已接收多語音軌工作，正在等待執行。";
+      }
       requestTaskStatuses();
     }else{
       alert("Kaggle 工作送出失敗："+(data.message || data.error || "未知錯誤"));
@@ -3054,6 +3188,17 @@ window.addEventListener("message",event=>{
     }
   }
 });
+
+document.getElementById("youtube-audio-task")?.addEventListener("change",renderYoutubeAudioTasks);
+document.getElementById("youtube-audio-all")?.addEventListener("change",event=>{
+  const disabled=!!event.target.checked;
+  document.querySelectorAll("[data-youtube-audio-lang]").forEach(input=>{
+    input.disabled=disabled;
+  });
+  const custom=document.getElementById("youtube-audio-custom-langs");
+  if(custom) custom.disabled=disabled;
+});
+document.getElementById("youtube-audio-run")?.addEventListener("click",runYoutubeAudioGrab);
 
 document.getElementById("save-language-plan")?.addEventListener("click",saveLanguagePlanForSelectedTask);
 document.getElementById("refresh-language-settings")?.addEventListener("click",()=>{
