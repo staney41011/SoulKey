@@ -85,8 +85,23 @@ def configure_drive_naming(task: dict):
     task = dict(task or {})
     period = re.sub(r"\D+", "", str(task.get("period") or ""))
     lesson = re.sub(r"\D+", "", str(task.get("lesson") or ""))
-    title = str(task.get("title") or "").strip()
+    raw_title = str(task.get("title") or "").strip()
     lecturer = str(task.get("lecturer") or "").strip()
+
+    # YouTube course titles commonly follow:
+    # 課程名稱 | 講師 | 打開心靈的鎖匙XXX期
+    title_parts = [x.strip() for x in re.split(r"[｜|]", raw_title) if x.strip()]
+    title = title_parts[0] if title_parts else raw_title
+    if len(title_parts) >= 2:
+        speaker_segment = title_parts[1]
+        # Plain personal names such as 賴義鍠 should beat a channel fallback
+        # such as 白陽文化. Teacher aliases (中和老師 etc.) are already
+        # normalized by youtube_io, so keep the task lecturer for those.
+        if (
+            re.fullmatch(r"[\u4e00-\u9fff·]{2,8}", speaker_segment)
+            and not speaker_segment.endswith("老師")
+        ):
+            lecturer = speaker_segment
 
     if not period or not lesson or not title or not lecturer:
         _DRIVE_NAMING_CONTEXT = None
