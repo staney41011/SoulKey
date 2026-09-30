@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from config import COL, SPREADSHEET_ID, TASK_SHEET_RANGE
-from google_io import (build_google_services, configure_drive_naming, normalize_lesson_files, read_values, upload_or_replace_file)
+from google_io import build_google_services, read_values, upload_or_replace_file
 from lesson_paths import resolve_lesson_folders
 from status_io import new_run_id, mark_done, mark_error, mark_running
 from youtube_io import download_multilingual_audio_tracks
@@ -30,8 +30,6 @@ def find_task(sheets, task_id):
             "task_id": task_id,
             "period": digits(row[COL["period"]]),
             "lesson": str(row[COL["lesson"]] or "").strip(),
-            "title": str(row[COL["title"]] or "").strip(),
-            "lecturer": str(row[COL["lecturer"]] or "").strip(),
             "youtube_url": str(row[COL["youtube_url"]] or "").strip(),
         }
     return None
@@ -87,8 +85,6 @@ def main():
             int(task["period"]),
             task["lesson"],
         )
-        configure_drive_naming(task)
-        normalize_lesson_files(drive, folders, task)
 
         uploaded = []
         for item in manifest.get("downloaded") or []:
