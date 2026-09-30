@@ -362,10 +362,17 @@ def detect_lecturer(info: dict):
 
     # Many course uploads use title segments such as:
     # "心念的力量225 | 中和老師 | 打開心靈的鎖匙253期"
-    for segment in re.split(r"[｜|]", title):
-        segment = segment.strip()
+    title_segments = [x.strip() for x in re.split(r"[｜|]", title) if x.strip()]
+    for segment in title_segments:
         if re.fullmatch(r"[\u4e00-\u9fff·]{2,12}老師", segment):
             return normalize_lecturer(segment), "title_teacher_segment"
+
+    # Standard SoulKey uploads often put the lecturer as the second pipe
+    # segment without the word 老師, e.g. "修道辦道的殊勝 | 賴義鍠 | ...".
+    if len(title_segments) >= 2:
+        segment = title_segments[1]
+        if re.fullmatch(r"[\u4e00-\u9fff·]{2,8}", segment):
+            return normalize_lecturer(segment), "title_person_segment"
 
     for pattern in LECTURER_PATTERNS:
         match = re.search(pattern, haystack, flags=re.IGNORECASE)
