@@ -87,6 +87,8 @@ def main():
             int(task["period"]),
             task["lesson"],
         )
+        configure_drive_naming(task)
+        normalize_lesson_files(drive, folders, task)
 
         uploaded = []
         for item in manifest.get("downloaded") or []:
