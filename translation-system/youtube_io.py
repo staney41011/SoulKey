@@ -1313,6 +1313,222 @@ def download_audio(url: str, workdir: Path):
     }
 
 
+
+def _normalize_audio_language(value: str):
+    text = str(value or "").strip().replace("_", "-")
+    if not text or text.lower() in {"und", "unknown", "none"}:
+        return ""
+    return text
+
+
+def _safe_audio_language(value: str):
+    text = _normalize_audio_language(value)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", text).strip("-")
+    return safe or "unknown"
+
+
+def _audio_format_score(fmt: dict):
+    """Prefer audio-only and higher-bitrate non-DRM tracks."""
+    audio_only = 1 if str(fmt.get("vcodec") or "none") == "none" else 0
+    drm_penalty = -1 if fmt.get("has_drm") else 0
+    abr = float(fmt.get("abr") or 0)
+    tbr = float(fmt.get("tbr") or 0)
+    preference = float(fmt.get("preference") or 0)
+    source_preference = float(fmt.get("source_preference") or 0)
+    return (
+        drm_penalty,
+        audio_only,
+        source_preference,
+        preference,
+        abr,
+        tbr,
+    )
+
+
+def discover_multilingual_audio_tracks(url: str, workdir: Path):
+    """Return the best downloadable audio-bearing format for every language tag."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    options, has_cookies = _base_options(workdir, quiet=False)
+    options["skip_download"] = True
+
+    info = _extract_info(
+        url=url,
+        options=options,
+        download=False,
+        has_cookies=has_cookies,
+    )
+
+    groups = {}
+    for fmt in info.get("formats") or []:
+        acodec = str(fmt.get("acodec") or "none")
+        if acodec == "none":
+            continue
+        lang = _normalize_audio_language(fmt.get("language"))
+        if not lang:
+            continue
+        groups.setdefault(lang, []).append(fmt)
+
+    tracks = []
+    for lang, formats in groups.items():
+        usable = [x for x in formats if not x.get("has_drm")]
+        candidates = usable or formats
+        best = max(candidates, key=_audio_format_score)
+        note = str(best.get("format_note") or "")
+        track_name = str(best.get("format") or best.get("format_id") or lang)
+        combined = (note + " " + track_name).lower()
+        tracks.append({
+            "language": lang,
+            "format_id": str(best.get("format_id") or ""),
+            "ext": str(best.get("ext") or ""),
+            "acodec": str(best.get("acodec") or ""),
+            "vcodec": str(best.get("vcodec") or ""),
+            "abr": best.get("abr"),
+            "tbr": best.get("tbr"),
+            "format_note": note,
+            "is_audio_only": str(best.get("vcodec") or "none") == "none",
+            "is_dubbed_hint": ("dub" in combined),
+        })
+
+    tracks.sort(key=lambda x: x["language"].lower())
+    return {
+        "video_id": str(info.get("id") or ""),
+        "title": str(info.get("title") or ""),
+        "webpage_url": str(info.get("webpage_url") or url),
+        "original_language": _normalize_audio_language(
+            info.get("language") or info.get("original_language")
+        ),
+        "tracks": tracks,
+    }
+
+
+def _match_requested_audio_tracks(tracks, requested):
+    requested = [
+        _normalize_audio_language(x)
+        for x in (requested or [])
+        if _normalize_audio_language(x)
+    ]
+    if not requested or any(x.lower() == "all" for x in requested):
+        return list(tracks)
+
+    selected = []
+    seen = set()
+    for wanted in requested:
+        wanted_low = wanted.lower()
+        exact = [
+            x for x in tracks
+            if str(x.get("language") or "").lower() == wanted_low
+        ]
+        base = [
+            x for x in tracks
+            if str(x.get("language") or "").lower().split("-", 1)[0]
+            == wanted_low.split("-", 1)[0]
+        ]
+        for item in (exact or base):
+            key = str(item.get("language") or "").lower()
+            if key and key not in seen:
+                seen.add(key)
+                selected.append(item)
+    return selected
+
+
+def download_multilingual_audio_tracks(
+    url: str,
+    workdir: Path,
+    requested_languages=None,
+    preferred_codec="mp3",
+):
+    """Discover and download YouTube language audio tracks independently."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    discovery = discover_multilingual_audio_tracks(url, workdir)
+    tracks = discovery.get("tracks") or []
+    selected = _match_requested_audio_tracks(tracks, requested_languages)
+
+    if not tracks:
+        raise RuntimeError(
+            "yt-dlp 沒有偵測到帶 language 標籤的 YouTube 音軌。"
+            "這支影片可能尚未提供多語配音，或目前播放器 client 沒有暴露音軌。"
+        )
+    if not selected:
+        wanted = ",".join(requested_languages or []) or "all"
+        available = ",".join(x["language"] for x in tracks)
+        raise RuntimeError(
+            f"找不到指定語言音軌：{wanted}；目前可用：{available}"
+        )
+
+    downloaded = []
+    failures = []
+
+    for track in selected:
+        lang = str(track["language"])
+        safe_lang = _safe_audio_language(lang)
+        format_id = str(track.get("format_id") or "").strip()
+        if not format_id:
+            failures.append({"language": lang, "error": "missing_format_id"})
+            continue
+
+        target_stem = f"youtube.{safe_lang}"
+        out_template = str(workdir / f"{target_stem}.%(ext)s")
+        options, has_cookies = _base_options(workdir, quiet=False)
+        options.update({
+            "format": format_id,
+            "outtmpl": out_template,
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": preferred_codec,
+                "preferredquality": "192",
+            }],
+        })
+
+        print(
+            f"[YouTube MultiAudio] download {lang} (format={format_id})",
+            flush=True,
+        )
+
+        try:
+            _extract_info(
+                url=url,
+                options=options,
+                download=True,
+                has_cookies=has_cookies,
+            )
+            expected = workdir / f"{target_stem}.{preferred_codec}"
+            if not expected.exists():
+                candidates = sorted(workdir.glob(f"{target_stem}.*"))
+                if not candidates:
+                    raise RuntimeError("下載完成但找不到輸出音檔")
+                expected = candidates[0]
+
+            downloaded.append({
+                **track,
+                "file": expected.name,
+                "path": str(expected),
+            })
+        except Exception as exc:
+            failures.append({
+                "language": lang,
+                "format_id": format_id,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            print(
+                f"[YouTube MultiAudio] {lang} failed: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+    manifest = {
+        **discovery,
+        "requested_languages": list(requested_languages or ["all"]),
+        "downloaded": downloaded,
+        "failures": failures,
+    }
+    manifest_path = workdir / "youtube-audio-manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return manifest, manifest_path
+
+
 def save_metadata_json(metadata: dict, path: Path):
     path.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2),
