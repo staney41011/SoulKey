@@ -1158,6 +1158,27 @@ function runYoutubeAudioGrab(){
     return;
   }
 
+  if(!bridgeKeyValue() || !bridgeEndpointValue()){
+    if(status) status.textContent="尚未連線控制中心；請先回總覽輸入 Bridge Key。";
+    return;
+  }
+  if(bridgeProtocolVersion<=0){
+    if(status){
+      status.textContent=
+        "控制中心已連線，但尚未回報 Bridge 版本。請重新連線控制中心；"+
+        "若仍顯示此訊息，代表 Apps Script 需要重新部署最新版 Code.gs。";
+    }
+    return;
+  }
+  if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+    if(status){
+      status.textContent=
+        "Apps Script 控制中心版本過舊：目前 v"+bridgeProtocolVersion+
+        "，需要 v"+REQUIRED_BRIDGE_PROTOCOL+"。請重新部署最新版 Code.gs。";
+    }
+    return;
+  }
+
   const sent=submitBridgePost({
     action:"run_stage",
     task_id:task.id,
@@ -1167,7 +1188,7 @@ function runYoutubeAudioGrab(){
   });
 
   if(!sent){
-    if(status) status.textContent="尚未連線控制中心；請先回總覽輸入 Bridge Key。";
+    if(status) status.textContent="多語音軌工作未送出；請重新連線控制中心後再試。";
     return;
   }
 
