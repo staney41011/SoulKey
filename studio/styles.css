@@ -90,3 +90,60 @@ dialog{border:0;border-radius:17px;padding:0;width:min(540px,92vw);box-shadow:0 
 .zh-review-row.uncertain .zh-asr-source,.zh-review-row.uncertain .zh-polished-final{border-color:#e2b85c}
 .zh-review-row.confirmed{background:rgba(86,185,129,.04)}
 @media(max-width:900px){.zh-review-pair,.zh-final-head{grid-template-columns:1fr}.zh-final-head span:first-child{border-bottom:1px solid var(--line)}.zh-review-media-bar{align-items:stretch;flex-direction:column}.context-card.compact{min-width:0}}
+
+
+/* YouTube capture dashboard */
+.youtube-capture-panel{padding:24px}
+.youtube-capture-selector{display:grid;grid-template-columns:minmax(180px,.45fr) minmax(280px,1fr);gap:14px;margin-top:20px}
+.youtube-capture-task-card{margin-top:14px}
+.youtube-capture-task-info{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.youtube-capture-task-info div{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.youtube-capture-task-info b{font-size:13px;color:var(--green)}
+.youtube-capture-task-info span{font-size:11px;color:var(--muted);font-weight:700}
+.youtube-capture-task-info a{font-size:11px;color:var(--green);max-width:55%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.youtube-capture-status-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.youtube-capture-status-card{margin-bottom:18px;min-height:230px}
+.youtube-capture-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.capture-state{display:inline-flex;align-items:center;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:850;white-space:nowrap;background:#f0f1f4;color:#69707e}
+.capture-state.state-complete{background:#eef1fb;color:#4056a1}
+.capture-state.state-working{background:#eef1fb;color:#4056a1}
+.capture-state.state-partial{background:#fff3d8;color:#8b641e}
+.capture-state.state-error{background:#faecec;color:#a94040}
+.capture-state.state-idle{background:#f0f1f4;color:#737985}
+.capture-choice{display:flex;grid-template-columns:auto 1fr;align-items:center;gap:8px;margin-top:17px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fafbfe;cursor:pointer}
+.capture-choice input{width:auto;margin:0}
+.capture-help{margin-top:12px;padding:12px;border-radius:11px;background:#f5f6fb;color:var(--muted);font-size:11px;line-height:1.65}
+.youtube-language-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin:12px 0}
+.youtube-capture-action-panel{display:flex;align-items:center;justify-content:space-between;gap:18px}
+.youtube-capture-action-panel h3{margin-bottom:7px}
+.youtube-capture-action-panel .primary{min-width:180px}
+.youtube-capture-files-panel{padding:24px}
+.youtube-capture-file-section{margin-top:18px;border-top:1px solid var(--line);padding-top:18px}
+.youtube-capture-file-section:first-of-type{margin-top:10px}
+.youtube-file-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.youtube-file-section-head div{display:flex;align-items:baseline;gap:8px}
+.youtube-file-section-head b{font-size:13px}
+.youtube-file-section-head span{font-size:10px;color:var(--muted)}
+.cloud-folder-link,.youtube-cloud-file a{font-size:11px;font-weight:800;color:var(--green);text-decoration:none}
+.cloud-folder-link:hover,.youtube-cloud-file a:hover{text-decoration:underline}
+.youtube-file-list{display:grid;gap:8px}
+.youtube-file-list .empty{padding:22px}
+.youtube-cloud-file{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fafbfe}
+.youtube-cloud-file-main{min-width:0}
+.youtube-cloud-file-main b,.youtube-cloud-file-main span{display:block}
+.youtube-cloud-file-main b{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.youtube-cloud-file-main span{font-size:10px;color:var(--muted);margin-top:4px}
+.youtube-cloud-file a{white-space:nowrap}
+
+@media(max-width:900px){
+  .youtube-capture-selector,.youtube-capture-status-grid{grid-template-columns:1fr}
+  .youtube-capture-task-info{align-items:flex-start;flex-direction:column}
+  .youtube-capture-task-info a{max-width:100%;width:100%}
+}
+@media(max-width:600px){
+  .youtube-capture-action-panel{align-items:stretch;flex-direction:column}
+  .youtube-capture-action-panel .primary{width:100%}
+  .youtube-file-section-head{align-items:flex-start;flex-direction:column}
+  .youtube-cloud-file{align-items:flex-start;flex-direction:column}
+  .youtube-language-grid{grid-template-columns:1fr}
+}
