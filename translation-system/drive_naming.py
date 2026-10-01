@@ -1,0 +1,163 @@
+import re
+
+
+LANGUAGE_LABELS = {
+    "zh-Hant": "中文",
+    "zh-TW": "中文",
+    "zh": "中文",
+    "en": "英文",
+    "en-US": "英文",
+    "en-GB": "英文",
+    "th": "泰文",
+    "es": "西班牙文",
+    "es-419": "西班牙文",
+    "id": "印尼文",
+    "vi": "越南文",
+    "sd": "信德文",
+    "ta": "泰米爾文",
+}
+
+
+def _clean(value, fallback):
+    text = str(value or "").strip()
+    if not text:
+        text = fallback
+    text = re.sub(r'[\\/:*?"<>|]+', " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" ._-")
+    return text or fallback
+
+
+def _lesson_number(value):
+    match = re.search(r"(\d+)", str(value or ""))
+    return int(match.group(1)) if match else 0
+
+
+def course_title(task):
+    raw = str((task or {}).get("title") or "").strip()
+    if "|" in raw:
+        first = raw.split("|", 1)[0].strip()
+        if first:
+            raw = first
+    return _clean(raw, "未命名課程")
+
+
+def lecturer_name(task):
+    title = str((task or {}).get("title") or "").strip()
+    parts = [x.strip() for x in title.split("|") if x.strip()]
+    if len(parts) >= 2:
+        return _clean(parts[1], "未標示講師")
+    return _clean((task or {}).get("lecturer"), "未標示講師")
+
+
+def formal_prefix(task):
+    period = int((task or {}).get("period") or 0)
+    lesson = _lesson_number((task or {}).get("lesson"))
+    return (
+        f"第{period}期_第{lesson}堂課_"
+        f"{course_title(task)}_{lecturer_name(task)}"
+    )
+
+
+def _lang_label(code):
+    code = str(code or "")
+    return LANGUAGE_LABELS.get(
+        code,
+        LANGUAGE_LABELS.get(code.split("-", 1)[0], code or "未知語言"),
+    )
+
+
+def output_label(canonical_name):
+    name = str(canonical_name or "").strip()
+
+    fixed = {
+        "source_info.json": "來源資訊.json",
+        "segments.json": "中文ASR資料.json",
+        "zh-TW.txt": "中文ASR時間軸.txt",
+        "zh-TW.transcript.txt": "中文純逐字稿.txt",
+        "zh-TW.srt": "中文ASR字幕.srt",
+        "zh-TW.polished.txt": "中文潤稿時間軸.txt",
+        "zh-TW.polished.srt": "中文潤稿字幕.srt",
+        "zh-TW.readable.txt": "中文潤稿純逐字稿.txt",
+        "polish_report.json": "中文潤稿報告.json",
+        "zh-TW.final.json": "中文人工定稿資料.json",
+        "zh-TW.final.txt": "中文人工定稿時間軸.txt",
+        "zh-TW.final.srt": "中文人工定稿字幕.srt",
+        "zh-TW.vernacular.json": "白話文稿資料.json",
+        "zh-TW.vernacular.txt": "白話文稿時間軸.txt",
+        "zh-TW.vernacular.srt": "白話文稿字幕.srt",
+        "zh-TW.vernacular.final.json": "白話文人工定稿資料.json",
+        "zh-TW.vernacular.final.txt": "白話文人工定稿時間軸.txt",
+        "zh-TW.vernacular.final.srt": "白話文人工定稿字幕.srt",
+        "youtube-audio-manifest.json": "YouTube音軌清單.json",
+    }
+    if name in fixed:
+        return fixed[name]
+
+    match = re.fullmatch(
+        r"youtube\.([^.]+)\.(transcript\.txt|json|txt|srt|mp3)",
+        name,
+    )
+    if match:
+        lang = _lang_label(match.group(1))
+        suffix = match.group(2)
+        labels = {
+            "json": "CC資料.json",
+            "txt": "CC時間軸.txt",
+            "transcript.txt": "CC純逐字稿.txt",
+            "srt": "CC字幕.srt",
+            "mp3": "YouTube音軌.mp3",
+        }
+        return f"{lang}{labels[suffix]}"
+
+    match = re.fullmatch(r"([A-Za-z-]+)\.final\.(json|txt|srt)", name)
+    if match:
+        lang = _lang_label(match.group(1))
+        ext = match.group(2)
+        labels = {
+            "json": "人工定稿資料.json",
+            "txt": "人工定稿時間軸.txt",
+            "srt": "人工定稿字幕.srt",
+        }
+        return f"{lang}{labels[ext]}"
+
+    match = re.fullmatch(r"([A-Za-z-]+)\.(json|txt|srt)", name)
+    if match:
+        lang = _lang_label(match.group(1))
+        ext = match.group(2)
+        labels = {
+            "json": "翻譯稿資料.json",
+            "txt": "翻譯稿時間軸.txt",
+            "srt": "翻譯稿字幕.srt",
+        }
+        return f"{lang}{labels[ext]}"
+
+    match = re.fullmatch(r"([A-Za-z-]+)\.(mp3|wav)", name)
+    if match:
+        return f"{_lang_label(match.group(1))}TTS音檔.{match.group(2)}"
+
+    match = re.fullmatch(r"([A-Za-z-]+)\.tts_manifest\.json", name)
+    if match:
+        return f"{_lang_label(match.group(1))}TTS清單.json"
+
+    match = re.fullmatch(r"([A-Za-z-]+)\.segments\.zip", name)
+    if match:
+        return f"{_lang_label(match.group(1))}TTS分段音檔.zip"
+
+    return _clean(name, "輸出檔案")
+
+
+def formal_drive_name(task, canonical_name):
+    return f"{formal_prefix(task)}_{output_label(canonical_name)}"
+
+
+def canonical_marker(canonical_name):
+    return f"SOULKEY_CANONICAL_NAME:{str(canonical_name or '').strip()}"
+
+
+def canonical_from_description(description):
+    text = str(description or "")
+    match = re.search(
+        r"(?:^|\n)SOULKEY_CANONICAL_NAME:([^\n]+)",
+        text,
+    )
+    return match.group(1).strip() if match else ""
