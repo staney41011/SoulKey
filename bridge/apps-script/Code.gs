@@ -2276,8 +2276,11 @@ function youtubeCaptureFiles_(taskId) {
     const file = sourceFiles.next();
     const name = String(file.getName() || "");
     if (
-      /^youtube\.[^.]+\.(json|txt|srt|transcript\.txt)$/i.test(name) &&
-      !/^youtube\.zh(?:-|\.)/i.test(name)
+      (
+        /^youtube\.[^.]+\.(json|txt|srt|transcript\.txt)$/i.test(name) &&
+        !/^youtube\.zh(?:-|\.)/i.test(name)
+      ) ||
+      /_(英文|泰文|西班牙文|印尼文|越南文|信德文|泰米爾文)CC(資料\.json|時間軸\.txt|純逐字稿\.txt|字幕\.srt)$/i.test(name)
     ) {
       ccFiles.push(fileInfo_(file, "cc"));
     }
@@ -2294,7 +2297,10 @@ function youtubeCaptureFiles_(taskId) {
   while (transcriptFiles.hasNext()) {
     const file = transcriptFiles.next();
     const name = String(file.getName() || "");
-    if (asrNames[name]) {
+    if (
+      asrNames[name] ||
+      /_(中文ASR資料\.json|中文ASR時間軸\.txt|中文純逐字稿\.txt|中文ASR字幕\.srt)$/i.test(name)
+    ) {
       asrFiles.push(fileInfo_(file, "asr"));
     }
   }
@@ -2304,7 +2310,12 @@ function youtubeCaptureFiles_(taskId) {
   while (audioIter.hasNext()) {
     const file = audioIter.next();
     const name = String(file.getName() || "");
-    if (/^youtube\..+\.mp3$/i.test(name) || name === "youtube-audio-manifest.json") {
+    if (
+      /^youtube\..+\.mp3$/i.test(name) ||
+      name === "youtube-audio-manifest.json" ||
+      /_(中文|英文|泰文|西班牙文|印尼文|越南文|信德文|泰米爾文)YouTube音軌\.mp3$/i.test(name) ||
+      /_YouTube音軌清單\.json$/i.test(name)
+    ) {
       audioFiles.push(fileInfo_(file, "audio"));
     }
   }
@@ -2345,6 +2356,7 @@ function formalizableCanonicalName_(name) {
     "zh-TW.txt": true,
     "zh-TW.transcript.txt": true,
     "zh-TW.srt": true,
+    "zh-TW.polished.json": true,
     "zh-TW.polished.txt": true,
     "zh-TW.polished.srt": true,
     "zh-TW.readable.txt": true,
@@ -2358,7 +2370,11 @@ function formalizableCanonicalName_(name) {
     "zh-TW.vernacular.final.json": true,
     "zh-TW.vernacular.final.txt": true,
     "zh-TW.vernacular.final.srt": true,
-    "youtube-audio-manifest.json": true
+    "youtube-audio-manifest.json": true,
+    "subtitle_manifest.json": true,
+    "gemini.qa.json": true,
+    "gemini-shadow-checkpoint.json": true,
+    "zh-TW.review.manifest.json": true
   };
   if (fixed[value]) return true;
 
@@ -2369,6 +2385,7 @@ function formalizableCanonicalName_(name) {
     /^[A-Za-z-]+\.(json|txt|srt|mp3|wav)$/.test(value) ||
     /^[A-Za-z-]+\.tts_manifest\.json$/.test(value) ||
     /^[A-Za-z-]+\.segments\.zip$/.test(value) ||
+    /^zh-TW\.review\.\d+\.json$/.test(value) ||
     /\.(mp4|mkv|webm)$/i.test(value)
   );
 }
@@ -2512,6 +2529,7 @@ function formalOutputLabel_(canonicalName) {
     "zh-TW.txt": "中文ASR時間軸.txt",
     "zh-TW.transcript.txt": "中文純逐字稿.txt",
     "zh-TW.srt": "中文ASR字幕.srt",
+    "zh-TW.polished.json": "中文潤稿資料.json",
     "zh-TW.polished.txt": "中文潤稿時間軸.txt",
     "zh-TW.polished.srt": "中文潤稿字幕.srt",
     "zh-TW.readable.txt": "中文潤稿純逐字稿.txt",
@@ -2525,7 +2543,11 @@ function formalOutputLabel_(canonicalName) {
     "zh-TW.vernacular.final.json": "白話文人工定稿資料.json",
     "zh-TW.vernacular.final.txt": "白話文人工定稿時間軸.txt",
     "zh-TW.vernacular.final.srt": "白話文人工定稿字幕.srt",
-    "youtube-audio-manifest.json": "YouTube音軌清單.json"
+    "youtube-audio-manifest.json": "YouTube音軌清單.json",
+    "subtitle_manifest.json": "字幕清單.json",
+    "gemini.qa.json": "多語翻譯QA報告.json",
+    "gemini-shadow-checkpoint.json": "多語翻譯檢查點.json",
+    "zh-TW.review.manifest.json": "中文人工校稿清單.json"
   };
   if (fixed[name]) return fixed[name];
 
@@ -2569,6 +2591,9 @@ function formalOutputLabel_(canonicalName) {
 
   m = /^([A-Za-z-]+)\.segments\.zip$/.exec(name);
   if (m) return formalLangLabel_(m[1]) + "TTS分段音檔.zip";
+
+  m = /^zh-TW\.review\.(\d+)\.json$/.exec(name);
+  if (m) return "中文人工校稿第" + Number(m[1]) + "段.json";
 
   return formalNameClean_(name, "輸出檔案");
 }
