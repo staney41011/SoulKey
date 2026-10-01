@@ -15,6 +15,7 @@ from config import (
     TIMEZONE,
     TRANSLATION_MODEL,
 )
+from drive_naming import formal_drive_name
 from google_io import (
     build_google_services,
     download_drive_file,
@@ -63,6 +64,8 @@ def row_to_task(raw, sheet_row):
         "task_id": str(row[COL["task_id"]] or "").strip(),
         "period": digits(row[COL["period"]]),
         "lesson": str(row[COL["lesson"]] or "").strip(),
+        "title": str(row[COL["title"]] or "").strip(),
+        "lecturer": str(row[COL["lecturer"]] or "").strip(),
         "asr": str(row[COL["asr"]] or "").strip(),
         "zh_review": str(row[COL["zh_review"]] or "").strip(),
         "en": str(row[COL["en"]] or "").strip(),
@@ -128,10 +131,17 @@ def select_chinese_source(drive, transcript_folder, workdir, allow_draft=False):
     return path, "polished_draft", uncertain_count
 
 
-def upload_result_set(drive, folder_id, result):
+def upload_result_set(drive, folder_id, result, task):
     for key in ("json", "txt", "srt"):
         path = result[key]
-        upload_or_replace_file(drive, folder_id, path, Path(path).name)
+        canonical_name = Path(path).name
+        upload_or_replace_file(
+            drive,
+            folder_id,
+            path,
+            canonical_name,
+            display_name=formal_drive_name(task, canonical_name),
+        )
 
 
 def download_translation_json(drive, folder_id, lang, workdir):
@@ -173,7 +183,7 @@ def process_modernize(
         model_name=TRANSLATION_MODEL,
         glossary_rows=glossary_rows,
     )
-    upload_result_set(drive, folders["translation"], result)
+    upload_result_set(drive, folders["translation"], result, task)
 
     note = (
         f"白話文完成；來源={source_type}；"
@@ -259,7 +269,7 @@ def process_translation(
         model_name=TRANSLATION_MODEL,
         glossary_rows=glossary_rows,
     )
-    upload_result_set(drive, folders["translation"], result)
+    upload_result_set(drive, folders["translation"], result, task)
 
     # English Final 仍由獨立的人工作業完成；
     # English Final 之後的目標語言不再設人工確認關卡。
