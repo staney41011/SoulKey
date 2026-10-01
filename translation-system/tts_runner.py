@@ -13,6 +13,7 @@ from config import (
     TIMEZONE,
     TTS_MODELS,
 )
+from drive_naming import formal_drive_name
 from google_io import (
     build_google_services,
     download_drive_file,
@@ -51,6 +52,8 @@ def row_to_task(raw, sheet_row):
         "task_id": str(row[COL["task_id"]] or "").strip(),
         "period": digits(row[COL["period"]]),
         "lesson": str(row[COL["lesson"]] or "").strip(),
+        "title": str(row[COL["title"]] or "").strip(),
+        "lecturer": str(row[COL["lecturer"]] or "").strip(),
         "en": str(row[COL["en"]] or "").strip(),
         "th": str(row[COL["th"]] or "").strip(),
         "es": str(row[COL["es"]] or "").strip(),
@@ -108,10 +111,17 @@ def load_translation_from_drive(drive, folder_id, lang, workdir):
     return segments
 
 
-def upload_tts_outputs(drive, audio_folder, result):
+def upload_tts_outputs(drive, audio_folder, result, task):
     for key in ("mp3", "wav", "manifest", "segments_zip"):
         path = result[key]
-        upload_or_replace_file(drive, audio_folder, path, Path(path).name)
+        canonical_name = Path(path).name
+        upload_or_replace_file(
+            drive,
+            audio_folder,
+            path,
+            canonical_name,
+            display_name=formal_drive_name(task, canonical_name),
+        )
 
 
 def existing_mms_output(drive, audio_folder, lang, source_sha256):
@@ -300,7 +310,7 @@ def main():
                         output_dir=workdir / f"tts-{lang}",
                         target_duration=source_duration,
                     )
-                    upload_tts_outputs(drive, folders["audio"], result)
+                    upload_tts_outputs(drive, folders["audio"], result, task)
                     completed.append(lang)
 
                     if not result["within_source_duration"]:
