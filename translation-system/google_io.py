@@ -8,6 +8,8 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from drive_naming import canonical_from_description, canonical_marker
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
@@ -228,6 +230,11 @@ def download_drive_file(drive, file_id: str, destination):
 
 
 def find_file(drive, parent_id: str, name: str):
+    """Find by legacy filename first, then by SoulKey canonical marker.
+
+    Drive display names may be human-friendly.  The canonical marker stored in
+    description keeps all existing pipeline lookups stable.
+    """
     safe_name = _escape_query(name)
     query = (
         f"'{parent_id}' in parents and "
@@ -238,7 +245,7 @@ def find_file(drive, parent_id: str, name: str):
         .list(
             q=query,
             spaces="drive",
-            fields="files(id,name,mimeType)",
+            fields="files(id,name,mimeType,description)",
             pageSize=20,
             supportsAllDrives=True,
             includeItemsFromAllDrives=True,
@@ -246,23 +253,64 @@ def find_file(drive, parent_id: str, name: str):
         .execute()
     )
     files = result.get("files", [])
-    return files[0] if files else None
+    if files:
+        return files[0]
+
+    # Formal Drive names are intentionally different from canonical technical
+    # names.  Folders are small, so a parent-scoped fallback scan is cheap and
+    # avoids changing every downstream reader.
+    query = f"'{parent_id}' in parents and trashed = false"
+    page_token = None
+    while True:
+        result = (
+            drive.files()
+            .list(
+                q=query,
+                spaces="drive",
+                fields="nextPageToken,files(id,name,mimeType,description)",
+                pageSize=200,
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute()
+        )
+        for item in result.get("files", []):
+            if canonical_from_description(item.get("description")) == name:
+                return item
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            break
+    return None
 
 
-def upload_or_replace_file(drive, parent_id: str, local_path: str, drive_name: str = None):
+def upload_or_replace_file(
+    drive,
+    parent_id: str,
+    local_path: str,
+    drive_name: str = None,
+    display_name: str = None,
+):
+    """Upload with a stable canonical key and an optional human display name."""
     local_path = str(local_path)
-    drive_name = drive_name or Path(local_path).name
-    mime = mimetypes.guess_type(drive_name)[0] or "application/octet-stream"
+    canonical_name = drive_name or Path(local_path).name
+    final_name = display_name or canonical_name
+    mime = mimetypes.guess_type(canonical_name)[0] or "application/octet-stream"
     media = MediaFileUpload(local_path, mimetype=mime, resumable=True)
+    description = canonical_marker(canonical_name)
 
-    existing = find_file(drive, parent_id, drive_name)
+    existing = find_file(drive, parent_id, canonical_name)
     if existing:
         return (
             drive.files()
             .update(
                 fileId=existing["id"],
+                body={
+                    "name": final_name,
+                    "description": description,
+                },
                 media_body=media,
-                fields="id,name,webViewLink",
+                fields="id,name,webViewLink,description",
                 supportsAllDrives=True,
             )
             .execute()
@@ -271,9 +319,13 @@ def upload_or_replace_file(drive, parent_id: str, local_path: str, drive_name: s
     return (
         drive.files()
         .create(
-            body={"name": drive_name, "parents": [parent_id]},
+            body={
+                "name": final_name,
+                "parents": [parent_id],
+                "description": description,
+            },
             media_body=media,
-            fields="id,name,webViewLink",
+            fields="id,name,webViewLink,description",
             supportsAllDrives=True,
         )
         .execute()
