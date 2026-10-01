@@ -135,7 +135,7 @@ def main():
                 continue
 
             uploaded_any = False
-            for suffix in ("json", "txt", "srt"):
+            for suffix in ("json", "txt", "srt", "transcript.txt"):
                 local_path = cc_path.with_suffix("." + suffix)
                 if not local_path.exists():
                     continue
