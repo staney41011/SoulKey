@@ -25,6 +25,24 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("bridgeProtocolVersion<=0", quick)
         self.assertIn("Apps Script Bridge 版本過舊", worker)
 
+    def test_youtube_cc_keeps_chinese_on_asr_and_writes_readable_files(self):
+        youtube_io = read("translation-system/youtube_io.py")
+        cc_runner = read("translation-system/cc_runner.py")
+        runner = read("translation-system/runner.py")
+
+        self.assertIn(
+            'AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "sd", "ta")',
+            youtube_io,
+        )
+        self.assertNotIn(
+            'AUTO_CC_TARGETS = ("zh-Hant"',
+            youtube_io,
+        )
+        self.assertIn('youtube.{target}.txt', youtube_io)
+        self.assertIn('youtube.{target}.srt', youtube_io)
+        self.assertIn('中文一律使用 Taiwan-Breeze ASR', cc_runner)
+        self.assertIn('中文只使用原始音軌 Taiwan-Breeze ASR', runner)
+
     def test_frontend_bridge_actions_have_server_handlers(self):
         app = read("studio/app-20260923-48.js")
         quick = read("studio/review-editor.js")
