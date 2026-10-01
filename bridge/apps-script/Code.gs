@@ -2088,7 +2088,9 @@ function taskInfo_(taskId) {
         row: r + 1,
         id: taskId,
         period: Number(String(values[r][1] || "").replace(/[^0-9]/g, "")),
-        lesson: String(values[r][2] || "").trim()
+        lesson: String(values[r][2] || "").trim(),
+        title: String(values[r][3] || "").trim(),
+        lecturer: String(values[r][5] || "").trim()
       };
       cache.put(cacheKey, JSON.stringify(result), 21600);
       return result;
@@ -2329,6 +2331,118 @@ function requireFolder_(parent, name) {
   return cachedChildFolder_(parent, name);
 }
 
+function formalNameClean_(value, fallback) {
+  let text = String(value || "").trim() || String(fallback || "");
+  text = text.replace(/[\\/:*?"<>|]+/g, " ");
+  text = text.replace(/\s+/g, " ").replace(/^[ ._-]+|[ ._-]+$/g, "");
+  return text || String(fallback || "");
+}
+
+function formalLangLabel_(code) {
+  const labels = {
+    "zh-Hant": "中文", "zh-TW": "中文", "zh": "中文",
+    "en": "英文", "en-US": "英文", "en-GB": "英文",
+    "th": "泰文", "es": "西班牙文", "es-419": "西班牙文",
+    "id": "印尼文", "vi": "越南文", "sd": "信德文", "ta": "泰米爾文"
+  };
+  const raw = String(code || "");
+  return labels[raw] || labels[raw.split("-")[0]] || raw || "未知語言";
+}
+
+function formalOutputLabel_(canonicalName) {
+  const name = String(canonicalName || "").trim();
+  const fixed = {
+    "source_info.json": "來源資訊.json",
+    "segments.json": "中文ASR資料.json",
+    "zh-TW.txt": "中文ASR時間軸.txt",
+    "zh-TW.transcript.txt": "中文純逐字稿.txt",
+    "zh-TW.srt": "中文ASR字幕.srt",
+    "zh-TW.polished.txt": "中文潤稿時間軸.txt",
+    "zh-TW.polished.srt": "中文潤稿字幕.srt",
+    "zh-TW.readable.txt": "中文潤稿純逐字稿.txt",
+    "polish_report.json": "中文潤稿報告.json",
+    "zh-TW.final.json": "中文人工定稿資料.json",
+    "zh-TW.final.txt": "中文人工定稿時間軸.txt",
+    "zh-TW.final.srt": "中文人工定稿字幕.srt",
+    "zh-TW.vernacular.json": "白話文稿資料.json",
+    "zh-TW.vernacular.txt": "白話文稿時間軸.txt",
+    "zh-TW.vernacular.srt": "白話文稿字幕.srt",
+    "zh-TW.vernacular.final.json": "白話文人工定稿資料.json",
+    "zh-TW.vernacular.final.txt": "白話文人工定稿時間軸.txt",
+    "zh-TW.vernacular.final.srt": "白話文人工定稿字幕.srt",
+    "youtube-audio-manifest.json": "YouTube音軌清單.json"
+  };
+  if (fixed[name]) return fixed[name];
+
+  let m = /^youtube\.([^.]+)\.(transcript\.txt|json|txt|srt|mp3)$/.exec(name);
+  if (m) {
+    const labels = {
+      "json": "CC資料.json",
+      "txt": "CC時間軸.txt",
+      "transcript.txt": "CC純逐字稿.txt",
+      "srt": "CC字幕.srt",
+      "mp3": "YouTube音軌.mp3"
+    };
+    return formalLangLabel_(m[1]) + labels[m[2]];
+  }
+
+  m = /^([A-Za-z-]+)\.final\.(json|txt|srt)$/.exec(name);
+  if (m) {
+    const labels = {
+      "json": "人工定稿資料.json",
+      "txt": "人工定稿時間軸.txt",
+      "srt": "人工定稿字幕.srt"
+    };
+    return formalLangLabel_(m[1]) + labels[m[2]];
+  }
+
+  m = /^([A-Za-z-]+)\.(json|txt|srt)$/.exec(name);
+  if (m) {
+    const labels = {
+      "json": "翻譯稿資料.json",
+      "txt": "翻譯稿時間軸.txt",
+      "srt": "翻譯稿字幕.srt"
+    };
+    return formalLangLabel_(m[1]) + labels[m[2]];
+  }
+
+  m = /^([A-Za-z-]+)\.(mp3|wav)$/.exec(name);
+  if (m) return formalLangLabel_(m[1]) + "TTS音檔." + m[2];
+
+  m = /^([A-Za-z-]+)\.tts_manifest\.json$/.exec(name);
+  if (m) return formalLangLabel_(m[1]) + "TTS清單.json";
+
+  m = /^([A-Za-z-]+)\.segments\.zip$/.exec(name);
+  if (m) return formalLangLabel_(m[1]) + "TTS分段音檔.zip";
+
+  return formalNameClean_(name, "輸出檔案");
+}
+
+function formalDriveName_(taskId, canonicalName) {
+  const task = taskInfo_(taskId);
+  const titleParts = String(task.title || "").split("|")
+    .map(function(x) { return x.trim(); })
+    .filter(Boolean);
+  const course = formalNameClean_(titleParts[0] || task.title, "未命名課程");
+  const lecturer = formalNameClean_(
+    titleParts.length >= 2 ? titleParts[1] : task.lecturer,
+    "未標示講師"
+  );
+  const lessonMatch = String(task.lesson || "").match(/(\d+)/);
+  const lesson = lessonMatch ? Number(lessonMatch[1]) : 0;
+  return (
+    "第" + Number(task.period || 0) + "期_" +
+    "第" + lesson + "堂課_" +
+    course + "_" + lecturer + "_" +
+    formalOutputLabel_(canonicalName)
+  );
+}
+
+function canonicalFromDescription_(description) {
+  const m = /(?:^|\n)SOULKEY_CANONICAL_NAME:([^\n]+)/.exec(String(description || ""));
+  return m ? String(m[1] || "").trim() : "";
+}
+
 function cachedFileId_(folder, name) {
   const cache = CacheService.getScriptCache();
   const cacheKey = "file-id-v2:" + folder.getId() + ":" + name;
@@ -2344,10 +2458,25 @@ function cachedFileId_(folder, name) {
   }
 
   const iter = folder.getFilesByName(name);
-  if (!iter.hasNext()) return null;
-  const file = iter.next();
-  cache.put(cacheKey, file.getId(), 21600);
-  return file.getId();
+  if (iter.hasNext()) {
+    const file = iter.next();
+    cache.put(cacheKey, file.getId(), 21600);
+    return file.getId();
+  }
+
+  const suffix = "_" + formalOutputLabel_(name);
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const file = files.next();
+    if (
+      canonicalFromDescription_(file.getDescription()) === name ||
+      String(file.getName() || "").endsWith(suffix)
+    ) {
+      cache.put(cacheKey, file.getId(), 21600);
+      return file.getId();
+    }
+  }
+  return null;
 }
 
 function readJsonFile_(folder, name) {
@@ -2364,37 +2493,40 @@ function readJsonFile_(folder, name) {
     const cacheKey = "file-id-v2:" + folder.getId() + ":" + name;
     cache.remove(cacheKey);
 
-    const iter = folder.getFilesByName(name);
-    if (!iter.hasNext()) return null;
-    const file = iter.next();
-    cache.put(cacheKey, file.getId(), 21600);
-    return JSON.parse(file.getBlob().getDataAsString("UTF-8"));
+    const retryId = cachedFileId_(folder, name);
+    if (!retryId) return null;
+    return JSON.parse(
+      DriveApp.getFileById(retryId).getBlob().getDataAsString("UTF-8")
+    );
   }
 }
 
-function writeTextFile_(folder, name, content, mimeType) {
+function writeTextFile_(folder, name, content, mimeType, taskId) {
   const cache = CacheService.getScriptCache();
   const cacheKey = "file-id-v2:" + folder.getId() + ":" + name;
   const fileId = cachedFileId_(folder, name);
+  const displayName = taskId ? formalDriveName_(taskId, name) : name;
+  const description = "SOULKEY_CANONICAL_NAME:" + name;
 
   if (fileId) {
     try {
-      DriveApp.getFileById(fileId).setContent(content);
+      const file = DriveApp.getFileById(fileId);
+      file.setContent(content);
+      if (taskId) file.setName(displayName);
+      file.setDescription(description);
       return;
     } catch (_) {
       cache.remove(cacheKey);
     }
   }
 
-  const iter = folder.getFilesByName(name);
-  if (iter.hasNext()) {
-    const file = iter.next();
-    file.setContent(content);
-    cache.put(cacheKey, file.getId(), 21600);
-  } else {
-    const file = folder.createFile(name, content, mimeType || "text/plain");
-    cache.put(cacheKey, file.getId(), 21600);
-  }
+  const file = folder.createFile(
+    displayName,
+    content,
+    mimeType || "text/plain"
+  );
+  file.setDescription(description);
+  cache.put(cacheKey, file.getId(), 21600);
 }
 
 function formatPlainTime_(seconds) {
@@ -2757,9 +2889,9 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
     segments: normalized
   }, null, 2);
 
-  writeTextFile_(targetFolder, code + ".json", payload, "application/json");
-  writeTextFile_(targetFolder, code + ".txt", buildTxt_(normalized), "text/plain");
-  writeTextFile_(targetFolder, code + ".srt", buildSrt_(normalized), "text/plain");
+  writeTextFile_(targetFolder, code + ".json", payload, "application/json", taskId);
+  writeTextFile_(targetFolder, code + ".txt", buildTxt_(normalized), "text/plain", taskId);
+  writeTextFile_(targetFolder, code + ".srt", buildSrt_(normalized), "text/plain", taskId);
 
   const task = taskInfo_(taskId);
   const taskSheet = getSheetByName_(TASK_SHEET_NAME);
