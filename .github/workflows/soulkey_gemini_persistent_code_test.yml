@@ -34,7 +34,7 @@ jobs:
 
       - name: Compile new modules
         run: |
-          python -m py_compile             translation-system/lesson_paths.py             translation-system/gemini_checkpoint.py             translation-system/gemini_full_lesson_shadow.py \
+          python -m py_compile             translation-system/drive_naming.py             translation-system/google_io.py             translation-system/lesson_paths.py             translation-system/gemini_checkpoint.py             translation-system/gemini_full_lesson_shadow.py \
             translation-system/gemini_source_runner.py \
             translation-system/gemini_text_production_runner.py \
             translation-system/gemini_multi_production_runner.py \
