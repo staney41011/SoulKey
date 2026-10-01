@@ -10,7 +10,7 @@ const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
 const STATUS_POLL_MS = 12000;
-const REQUIRED_BRIDGE_PROTOCOL = 4;
+const REQUIRED_BRIDGE_PROTOCOL = 5;
 let bridgeProtocolVersion = 0;
 const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache").replace(/\/$/,"");
 const ZH_RENDER_BATCH = 80;
@@ -3113,6 +3113,16 @@ window.addEventListener("message",event=>{
 
   if(data.type==="bridge_error"){
     const reason=data.message || data.error || "未知錯誤";
+    if(currentView==="youtube-audio" && youtubeCaptureFilesLoadingTask){
+      const badge=document.getElementById("youtube-capture-files-state");
+      if(badge){
+        badge.textContent=String(data.error||"")==="unsupported_action"
+          ? "Apps Script 需重新部署"
+          : "雲端檔案讀取失敗";
+        badge.className="badge";
+      }
+      youtubeCaptureFilesLoadingTask="";
+    }
     setDashboardBridgeState("Bridge 錯誤："+reason,"error");
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
@@ -3286,6 +3296,24 @@ window.addEventListener("message",event=>{
       requestTaskStatuses();
     }else{
       alert("Kaggle 工作送出失敗："+(data.message || data.error || "未知錯誤"));
+    }
+  }
+
+  if(data.type==="youtube_capture_files"){
+    youtubeCaptureFilesLoadingTask="";
+    const badge=document.getElementById("youtube-capture-files-state");
+
+    if(data.ok && data.task_id){
+      youtubeCaptureFilesCache[data.task_id]=data;
+      youtubeCaptureFilesFetchedAt[data.task_id]=Date.now();
+
+      const selected=youtubeAudioSelectedTask();
+      if(selected && String(selected.id)===String(data.task_id)){
+        renderYoutubeCaptureFiles(selected);
+      }
+    }else if(badge){
+      badge.textContent="雲端檔案讀取失敗";
+      badge.className="badge";
     }
   }
 
