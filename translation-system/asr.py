@@ -340,14 +340,24 @@ def transcribe_audio(
         )
 
     txt_path = output_dir / "zh-TW.txt"
+    transcript_path = output_dir / "zh-TW.transcript.txt"
     srt_path = output_dir / "zh-TW.srt"
     json_path = output_dir / "segments.json"
 
+    plain_lines = [
+        str(x.get("text") or "").strip()
+        for x in segments
+        if str(x.get("text") or "").strip()
+    ]
     txt_lines = [
         f"[{_plain_time(x['start'])} - {_plain_time(x['end'])}] {x['text']}"
         for x in segments
     ]
     txt_path.write_text("\n".join(txt_lines) + "\n", encoding="utf-8")
+    transcript_path.write_text(
+        "\n".join(plain_lines) + ("\n" if plain_lines else ""),
+        encoding="utf-8",
+    )
 
     srt_lines = []
     for i, item in enumerate(segments, start=1):
@@ -376,6 +386,7 @@ def transcribe_audio(
 
     return {
         "txt": txt_path,
+        "transcript": transcript_path,
         "srt": srt_path,
         "json": json_path,
         "segment_count": len(segments),
