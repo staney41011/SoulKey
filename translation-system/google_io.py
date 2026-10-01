@@ -8,8 +8,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from drive_naming import canonical_from_description, canonical_marker
-
+from drive_naming import (\n    canonical_from_description,\n    canonical_marker,\n    output_label,\n)\n
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
@@ -275,8 +274,11 @@ def find_file(drive, parent_id: str, name: str):
             )
             .execute()
         )
+        formal_suffix = "_" + output_label(name)
         for item in result.get("files", []):
             if canonical_from_description(item.get("description")) == name:
+                return item
+            if str(item.get("name") or "").endswith(formal_suffix):
                 return item
         page_token = result.get("nextPageToken")
         if not page_token:
