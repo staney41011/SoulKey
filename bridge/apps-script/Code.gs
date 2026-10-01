@@ -41,7 +41,8 @@ function doGet(e) {
     "language_settings",
     "language_plan_get",
     "tasks_get",
-    "review_load"
+    "review_load",
+    "youtube_capture_files"
   ];
 
   if (callback && jsonpActions.indexOf(action) >= 0) {
@@ -474,6 +475,14 @@ function bridgeRequest(request) {
         task_id: taskId,
         plan: taskId ? readLanguagePlan_(taskId) : []
       };
+    }
+
+    if (action === "youtube_capture_files") {
+      const taskId = String(request.task_id || "").trim();
+      const payload = youtubeCaptureFiles_(taskId);
+      payload.source = "soulkey-bridge";
+      payload.type = "youtube_capture_files";
+      return payload;
     }
 
     if (action === "review_load") {
@@ -2209,6 +2218,89 @@ function lessonFolders_(taskId) {
   };
 }
 
+function youtubeCaptureFiles_(taskId) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!normalizedTaskId) {
+    return {
+      ok: false,
+      task_id: normalizedTaskId,
+      error: "missing_task_id",
+      message: "缺少 task_id",
+      cc_files: [],
+      audio_files: []
+    };
+  }
+
+  const parsed = parseTaskId_(normalizedTaskId);
+  const task = parsed || taskInfo_(normalizedTaskId);
+  const lessonNumber = parsed
+    ? parsed.lessonNumber
+    : Number(String(task.lesson || "").replace(/[^0-9]/g, ""));
+
+  const periodFolder = DriveApp.getFolderById(periodFolderId_(task.period));
+  const courseFolder = cachedChildFolder_(periodFolder, "01_課程");
+  const lessonFolder = cachedChildFolder_(
+    courseFolder,
+    String(lessonNumber).padStart(2, "0") + "_第" + lessonNumber + "堂"
+  );
+  const sourceFolder = cachedChildFolder_(lessonFolder, "00_來源資訊");
+  const audioFolder = cachedChildFolder_(lessonFolder, "04_音檔");
+
+  function fileInfo_(file, kind) {
+    return {
+      kind: kind,
+      id: file.getId(),
+      name: file.getName(),
+      url: file.getUrl(),
+      size: Number(file.getSize() || 0),
+      updated_at: file.getLastUpdated()
+        ? file.getLastUpdated().toISOString()
+        : ""
+    };
+  }
+
+  const ccFiles = [];
+  const sourceFiles = sourceFolder.getFiles();
+  while (sourceFiles.hasNext()) {
+    const file = sourceFiles.next();
+    const name = String(file.getName() || "");
+    if (/^youtube\.[^.]+\.json$/i.test(name)) {
+      ccFiles.push(fileInfo_(file, "cc"));
+    }
+  }
+
+  const audioFiles = [];
+  const audioIter = audioFolder.getFiles();
+  while (audioIter.hasNext()) {
+    const file = audioIter.next();
+    const name = String(file.getName() || "");
+    if (/^youtube\..+\.mp3$/i.test(name) || name === "youtube-audio-manifest.json") {
+      audioFiles.push(fileInfo_(file, "audio"));
+    }
+  }
+
+  function byName_(a, b) {
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  }
+  ccFiles.sort(byName_);
+  audioFiles.sort(byName_);
+
+  return {
+    ok: true,
+    task_id: normalizedTaskId,
+    period: Number(task.period || 0),
+    lesson: "第" + lessonNumber + "堂",
+    source_folder_url:
+      "https://drive.google.com/drive/folders/" + sourceFolder.getId(),
+    audio_folder_url:
+      "https://drive.google.com/drive/folders/" + audioFolder.getId(),
+    cc_files: ccFiles,
+    audio_files: audioFiles,
+    server_time: new Date().toISOString()
+  };
+}
+
+
 function requireFolder_(parent, name) {
   return cachedChildFolder_(parent, name);
 }
@@ -2782,7 +2874,8 @@ function responseForAction_(action, payload) {
     tasks_upsert: "tasks_saved",
     run_stage: "run_stage",
     review_save: "review_saved",
-    review_share_create: "review_share_created"
+    review_share_create: "review_share_created",
+    youtube_capture_files: "youtube_capture_files"
   };
 
   if (mapped[action]) {
