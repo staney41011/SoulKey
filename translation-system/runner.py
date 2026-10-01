@@ -8,6 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from asr import transcribe_audio
+from drive_naming import formal_drive_name
 from config import (
     ASR_MODEL,
     COL,
@@ -132,7 +133,7 @@ def upload_metadata(drive, source_folder_id, metadata, task, workdir):
     )
     path = workdir / "source_info.json"
     save_metadata_json(payload, path)
-    upload_or_replace_file(drive, source_folder_id, path, "source_info.json")
+    upload_or_replace_file(\n        drive, source_folder_id, path, "source_info.json",\n        display_name=formal_drive_name(task, "source_info.json"),\n    )
 
 
 def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
@@ -216,11 +217,13 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
             local_path = cc_path.with_suffix("." + suffix)
             if not local_path.exists():
                 continue
+            canonical_name = f"youtube.{lang}.{suffix}"
             upload_or_replace_file(
                 drive,
                 folders["source"],
                 local_path,
-                f"youtube.{lang}.{suffix}",
+                canonical_name,
+                display_name=formal_drive_name(task, canonical_name),
             )
             uploaded_any = True
 
@@ -247,24 +250,28 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         folders["transcript"],
         result["txt"],
         "zh-TW.txt",
+        display_name=formal_drive_name(task, "zh-TW.txt"),
     )
     upload_or_replace_file(
         drive,
         folders["transcript"],
         result["transcript"],
         "zh-TW.transcript.txt",
+        display_name=formal_drive_name(task, "zh-TW.transcript.txt"),
     )
     upload_or_replace_file(
         drive,
         folders["transcript"],
         result["srt"],
         "zh-TW.srt",
+        display_name=formal_drive_name(task, "zh-TW.srt"),
     )
     upload_or_replace_file(
         drive,
         folders["transcript"],
         result["json"],
         "segments.json",
+        display_name=formal_drive_name(task, "segments.json"),
     )
 
     duration = result.get("duration")
