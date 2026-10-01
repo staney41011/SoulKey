@@ -24,6 +24,7 @@ from gemini_engine import (
     semantic_polish_zh,
 )
 from github_review_cache import publish_review_cache
+from drive_naming import formal_drive_name
 from google_io import (
     build_google_services,
     download_drive_file,
@@ -97,6 +98,8 @@ def find_task(sheets, task_id):
             "task_id": task_id,
             "period": digits(row[COL["period"]]),
             "lesson": str(row[COL["lesson"]] or "").strip(),
+            "title": str(row[COL["title"]] or "").strip(),
+            "lecturer": str(row[COL["lecturer"]] or "").strip(),
         }
     return None
 
@@ -316,7 +319,13 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
         ("txt", "zh-TW.polished.txt"),
         ("srt", "zh-TW.polished.srt"),
     ]:
-        upload_or_replace_file(drive, folders["transcript"], output[key], name)
+        upload_or_replace_file(
+            drive,
+            folders["transcript"],
+            output[key],
+            name,
+            display_name=formal_drive_name(task, name),
+        )
 
     report_path = workdir / "polish" / "polish_report.json"
     report_path.write_text(
@@ -340,6 +349,7 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
         folders["transcript"],
         report_path,
         "polish_report.json",
+        display_name=formal_drive_name(task, "polish_report.json"),
     )
 
     by_id = {int(x["id"]): x for x in result["segments"]}
@@ -435,11 +445,13 @@ def stage_vernacular(client, drive, sheets, task, folders, glossary_rows, workdi
         },
     )
     for key in ("json", "txt", "srt"):
+        canonical_name = Path(output[key]).name
         upload_or_replace_file(
             drive,
             folders["translation"],
             output[key],
-            Path(output[key]).name,
+            canonical_name,
+            display_name=formal_drive_name(task, canonical_name),
         )
     update_cells(
         sheets,
@@ -491,11 +503,13 @@ def stage_en(client, drive, sheets, task, folders, glossary_rows, workdir):
         },
     )
     for key in ("json", "txt", "srt"):
+        canonical_name = Path(output[key]).name
         upload_or_replace_file(
             drive,
             folders["translation"],
             output[key],
-            Path(output[key]).name,
+            canonical_name,
+            display_name=formal_drive_name(task, canonical_name),
         )
     update_cells(
         sheets,
