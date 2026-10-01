@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from config import COL, SPREADSHEET_ID, TASK_SHEET_RANGE
+from drive_naming import formal_drive_name
 from google_io import (
     build_google_services,
     download_drive_file,
@@ -287,6 +288,8 @@ def find_task(sheets, task_id):
             "task_id": task_id,
             "period": digits(row[COL["period"]]),
             "lesson": str(row[COL["lesson"]] or "").strip(),
+            "title": str(row[COL["title"]] or "").strip(),
+            "lecturer": str(row[COL["lecturer"]] or "").strip(),
         }
     return None
 
@@ -345,6 +348,7 @@ def promote_final(
     target_stem,
     workdir,
     finalized_by,
+    task,
 ):
     item = find_file(drive, source_folder, source_name)
     if not item:
@@ -361,11 +365,13 @@ def promote_final(
         finalized_by,
     )
     for path in outputs:
+        canonical_name = Path(path).name
         upload_or_replace_file(
             drive,
             target_folder,
             path,
-            Path(path).name,
+            canonical_name,
+            display_name=formal_drive_name(task, canonical_name),
         )
     print(
         f"[AUTO-FINAL] {source_name} -> {target_stem}.* "
@@ -374,7 +380,7 @@ def promote_final(
     )
 
 
-def publish_subtitles(drive, folders, workdir):
+def publish_subtitles(drive, folders, workdir, task):
     sources = [
         (folders["transcript"], "zh-TW.final.srt"),
         (folders["translation"], "zh-TW.vernacular.final.srt"),
@@ -395,7 +401,13 @@ def publish_subtitles(drive, folders, workdir):
             continue
         path = outdir / name
         download_drive_file(drive, item["id"], path)
-        upload_or_replace_file(drive, folders["subtitle"], path, name)
+        upload_or_replace_file(
+            drive,
+            folders["subtitle"],
+            path,
+            name,
+            display_name=formal_drive_name(task, name),
+        )
         copied.append(name)
 
     manifest = outdir / "subtitle_manifest.json"
@@ -415,6 +427,7 @@ def publish_subtitles(drive, folders, workdir):
         folders["subtitle"],
         manifest,
         manifest.name,
+        display_name=formal_drive_name(task, manifest.name),
     )
     print(f"[SUBTITLE] published {len(copied)} files", flush=True)
 
@@ -616,6 +629,7 @@ def process_task(task_id, system_dir):
                 "zh-TW.final",
                 workdir,
                 "batch_auto_user_requested",
+                task,
             )
 
         # Keep Studio's public workflow contract aligned with the files that
@@ -675,6 +689,7 @@ def process_task(task_id, system_dir):
                 "zh-TW.vernacular.final",
                 workdir,
                 "batch_auto_user_requested",
+                task,
             )
 
         # 4. English draft, then transparent auto-final.
@@ -719,6 +734,7 @@ def process_task(task_id, system_dir):
                 "en.final",
                 workdir,
                 "batch_auto_user_requested",
+                task,
             )
 
         mark_done(
@@ -770,7 +786,7 @@ def process_task(task_id, system_dir):
             )
 
         # 7. Put all final SRTs into the dedicated subtitle folder.
-        publish_subtitles(drive, folders, workdir)
+        publish_subtitles(drive, folders, workdir, task)
 
         update_cells(
             sheets,
