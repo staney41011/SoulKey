@@ -437,81 +437,121 @@
       <section class="view" id="view-youtube-audio">
         <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
 
-        <div class="panel">
+        <div class="panel youtube-capture-panel">
           <div class="panel-head">
             <div>
               <p class="eyebrow">YOUTUBE CAPTURE</p>
               <h3>YouTube 抓取</h3>
             </div>
-            <span class="badge">獨立工具・不跑 Gemini / ASR / TTS</span>
+            <button class="ghost" id="youtube-capture-refresh" type="button">重新整理雲端狀態</button>
           </div>
           <p class="muted block-copy">
-            選擇課程後，可單獨抓取 YouTube 的多語 CC 字幕，或抓取目前公開的原音／自動配音音軌。
+            先選期數與課程，再決定抓取 CC 字幕或 YouTube 音軌。下方會同步顯示執行狀態與 Google Drive 已存在的檔案。
           </p>
 
-          <div class="split">
-            <div>
-              <label>課程任務
-                <select id="youtube-audio-task"></select>
-              </label>
-              <div class="context-card" id="youtube-audio-task-info" style="margin-top:12px">
-                選擇一堂已有 YouTube 網址的課程。
-              </div>
-            </div>
-
-            <div>
-              <label>抓取類型</label>
-              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:8px">
-                <label class="output-toggle">
-                  <input type="radio" name="youtube-capture-type" value="cc" checked>
-                  CC 字幕
-                </label>
-                <label class="output-toggle">
-                  <input type="radio" name="youtube-capture-type" value="audio">
-                  音軌
-                </label>
-              </div>
-
-              <div id="youtube-cc-options" class="context-card" style="margin-top:14px">
-                抓取 YouTube 目前可取得的多語自動字幕／自動翻譯字幕，存入「00_來源資訊」。
-                目前會偵測繁中、英文、泰文、西班牙文、印尼文、越南文、信德文、泰米爾文；YouTube 沒提供的語言會自動略過。
-              </div>
-
-              <div id="youtube-audio-options" hidden style="margin-top:14px">
-                <label class="output-toggle" style="margin-bottom:12px">
-                  <input id="youtube-audio-all" type="checkbox" checked>
-                  抓取影片目前所有可用語言音軌
-                </label>
-                <div id="youtube-audio-language-options" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px">
-                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="en"> English (en)</label>
-                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="es"> Español (es)</label>
-                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="th"> ภาษาไทย (th)</label>
-                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="id"> Bahasa Indonesia (id)</label>
-                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="vi"> Tiếng Việt (vi)</label>
-                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="sd"> سنڌي (sd)</label>
-                  <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="ta"> தமிழ் (ta)</label>
-                </div>
-                <label style="margin-top:12px">其他語言代碼（可選，逗號分隔）
-                  <input id="youtube-audio-custom-langs" placeholder="例如 ja,ko,de,fr">
-                </label>
-              </div>
-            </div>
+          <div class="youtube-capture-selector">
+            <label>1．期數
+              <select id="youtube-capture-period"></select>
+            </label>
+            <label>2．課程
+              <select id="youtube-audio-task"></select>
+            </label>
           </div>
 
-          <div class="language-plan-footer" style="margin-top:18px">
-            <span class="muted" id="youtube-audio-status">尚未執行。</span>
-            <button class="primary" id="youtube-audio-run" type="button">抓取 CC 字幕</button>
+          <div class="context-card youtube-capture-task-card" id="youtube-audio-task-info">
+            選擇一堂已有 YouTube 網址的課程。
           </div>
         </div>
 
-        <div class="panel soft">
-          <p class="eyebrow">OUTPUT</p>
-          <h3>輸出規則</h3>
-          <div class="policy-list">
-            <div><b>CC 字幕</b><span>00_來源資訊 / youtube.&lt;language&gt;.json；英文仍保留 youtube.en.json 相容既有人工校稿流程。</span></div>
-            <div><b>音軌</b><span>04_音檔 / youtube.&lt;language&gt;.mp3 + youtube-audio-manifest.json。</span></div>
-            <div><b>來源</b><span>只抓 YouTube 已存在的字幕／音軌，不在此頁進行 AI 翻譯或 TTS。</span></div>
-            <div><b>安全</b><span>沿用現有 guest PO token / Cookies fallback；不新增任何 Secret。</span></div>
+        <div class="youtube-capture-status-grid">
+          <div class="panel youtube-capture-status-card" id="youtube-cc-status-card">
+            <div class="youtube-capture-card-head">
+              <div>
+                <p class="eyebrow">CC CAPTIONS</p>
+                <h3>CC 字幕</h3>
+              </div>
+              <span class="capture-state state-idle" id="youtube-cc-state-label">未執行</span>
+            </div>
+            <p class="muted" id="youtube-cc-state-detail">尚未找到執行紀錄或雲端字幕檔案。</p>
+            <label class="capture-choice">
+              <input type="radio" name="youtube-capture-type" value="cc" checked>
+              本次執行抓取 CC 字幕
+            </label>
+            <div id="youtube-cc-options" class="capture-help">
+              偵測繁中、英文、泰文、西班牙文、印尼文、越南文、信德文、泰米爾文；YouTube 未提供的語言會自動略過。
+            </div>
+          </div>
+
+          <div class="panel youtube-capture-status-card" id="youtube-audio-status-card">
+            <div class="youtube-capture-card-head">
+              <div>
+                <p class="eyebrow">AUDIO TRACKS</p>
+                <h3>YouTube 音軌</h3>
+              </div>
+              <span class="capture-state state-idle" id="youtube-audio-state-label">未執行</span>
+            </div>
+            <p class="muted" id="youtube-audio-state-detail">尚未找到執行紀錄或雲端音軌檔案。</p>
+            <label class="capture-choice">
+              <input type="radio" name="youtube-capture-type" value="audio">
+              本次執行抓取音軌
+            </label>
+            <div id="youtube-audio-options" hidden class="capture-help">
+              <label class="output-toggle">
+                <input id="youtube-audio-all" type="checkbox" checked>
+                抓取影片目前所有可用語言音軌
+              </label>
+              <div id="youtube-audio-language-options" class="youtube-language-grid">
+                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="en"> English (en)</label>
+                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="es"> Español (es)</label>
+                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="th"> ภาษาไทย (th)</label>
+                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="id"> Bahasa Indonesia (id)</label>
+                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="vi"> Tiếng Việt (vi)</label>
+                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="sd"> سنڌي (sd)</label>
+                <label class="output-toggle"><input type="checkbox" data-youtube-audio-lang value="ta"> தமிழ் (ta)</label>
+              </div>
+              <label>其他語言代碼（可選，逗號分隔）
+                <input id="youtube-audio-custom-langs" placeholder="例如 ja,ko,de,fr">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel youtube-capture-action-panel">
+          <div>
+            <p class="eyebrow">RUN</p>
+            <h3>執行抓取</h3>
+            <span class="muted" id="youtube-audio-status">尚未執行。</span>
+          </div>
+          <button class="primary" id="youtube-audio-run" type="button">抓取 CC 字幕</button>
+        </div>
+
+        <div class="panel youtube-capture-files-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">CLOUD FILES</p>
+              <h3>Google Drive 已抓取檔案</h3>
+            </div>
+            <span class="badge" id="youtube-capture-files-state">等待讀取</span>
+          </div>
+
+          <div class="youtube-capture-file-section">
+            <div class="youtube-file-section-head">
+              <div><b>CC 字幕檔案</b><span>00_來源資訊</span></div>
+              <a id="youtube-cc-folder-link" class="cloud-folder-link" href="#" target="_blank" rel="noopener" hidden>開啟字幕資料夾</a>
+            </div>
+            <div class="youtube-file-list" id="youtube-cc-files">
+              <div class="empty">尚未選擇課程。</div>
+            </div>
+          </div>
+
+          <div class="youtube-capture-file-section">
+            <div class="youtube-file-section-head">
+              <div><b>YouTube 音軌檔案</b><span>04_音檔</span></div>
+              <a id="youtube-audio-folder-link" class="cloud-folder-link" href="#" target="_blank" rel="noopener" hidden>開啟音檔資料夾</a>
+            </div>
+            <div class="youtube-file-list" id="youtube-audio-files">
+              <div class="empty">尚未選擇課程。</div>
+            </div>
           </div>
         </div>
       </section>
@@ -611,6 +651,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20260930-7"></script>
+  <script src="./app-20260923-48.js?v=20261001-1"></script>
 </body>
 </html>
