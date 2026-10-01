@@ -4,11 +4,16 @@ import re
 from pathlib import Path
 
 from config import COL, SPREADSHEET_ID, TASK_SHEET_RANGE
-from drive_naming import formal_drive_name
-from google_io import build_google_services, read_values, upload_or_replace_file
+from drive_naming import formal_drive_name, rename_existing_outputs
+from google_io import (
+    build_google_services,
+    read_values,
+    update_cells,
+    upload_or_replace_file,
+)
 from lesson_paths import resolve_lesson_folders
 from status_io import new_run_id, mark_done, mark_error, mark_running
-from youtube_io import download_multilingual_audio_tracks
+from youtube_io import download_multilingual_audio_tracks, extract_metadata
 
 
 def digits(value):
@@ -74,6 +79,46 @@ def main():
     try:
         workdir = Path("/kaggle/working/soulkey-youtube-multiaudio") / args.task_id
         workdir.mkdir(parents=True, exist_ok=True)
+
+        if not task.get("title"):
+            try:
+                meta = extract_metadata(
+                    task["youtube_url"],
+                    workdir / "metadata",
+                )
+                task["title"] = str(meta.get("title") or "").strip()
+                task["lecturer"] = str(meta.get("lecturer") or "").strip()
+                if task["title"]:
+                    update_cells(
+                        sheets,
+                        SPREADSHEET_ID,
+                        {
+                            f"任務佇列!D{task['sheet_row']}": task["title"],
+                            f"任務佇列!F{task['sheet_row']}": task["lecturer"],
+                        },
+                    )
+                    print(
+                        f"[YOUTUBE-AUDIO] 已補齊 metadata：{task['title']}",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    f"[YOUTUBE-AUDIO] metadata 補抓失敗："
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+
+        folders = resolve_lesson_folders(
+            drive,
+            sheets,
+            int(task["period"]),
+            task["lesson"],
+        )
+        rename_existing_outputs(
+            drive,
+            folders["audio"],
+            task,
+        )
 
         manifest, manifest_path = download_multilingual_audio_tracks(
             task["youtube_url"],
