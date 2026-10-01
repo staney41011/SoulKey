@@ -199,21 +199,32 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
 
     uploaded_cc_languages = []
     for lang, raw_path in auto_cc_paths.items():
+        if str(lang).lower().startswith("zh"):
+            print(
+                f"[SOURCE] 略過 YouTube 中文 CC ({lang})；"
+                "中文只使用原始音軌 Taiwan-Breeze ASR。"
+            )
+            continue
+
         cc_path = Path(str(raw_path))
         if not cc_path.exists():
             continue
-        drive_name = (
-            "youtube.en.json"
-            if lang == "en"
-            else f"youtube.{lang}.json"
-        )
-        upload_or_replace_file(
-            drive,
-            folders["source"],
-            cc_path,
-            drive_name,
-        )
-        uploaded_cc_languages.append(lang)
+
+        uploaded_any = False
+        for suffix in ("json", "txt", "srt"):
+            local_path = cc_path.with_suffix("." + suffix)
+            if not local_path.exists():
+                continue
+            upload_or_replace_file(
+                drive,
+                folders["source"],
+                local_path,
+                f"youtube.{lang}.{suffix}",
+            )
+            uploaded_any = True
+
+        if uploaded_any:
+            uploaded_cc_languages.append(lang)
 
     if uploaded_cc_languages:
         print(
