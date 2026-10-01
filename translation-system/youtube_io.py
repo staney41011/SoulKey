@@ -545,7 +545,14 @@ def _write_cc_companion_files(
         return {}
 
     txt_path = workdir / f"youtube.{target}.txt"
+    transcript_path = workdir / f"youtube.{target}.transcript.txt"
     srt_path = workdir / f"youtube.{target}.srt"
+
+    plain_lines = [
+        str(x.get("text") or "").strip()
+        for x in segments
+        if str(x.get("text") or "").strip()
+    ]
 
     txt_lines = [
         f"[{_cc_plain_time(x.get('start'))} - "
@@ -555,6 +562,10 @@ def _write_cc_companion_files(
     ]
     txt_path.write_text(
         "\n".join(txt_lines) + ("\n" if txt_lines else ""),
+        encoding="utf-8",
+    )
+    transcript_path.write_text(
+        "\n".join(plain_lines) + ("\n" if plain_lines else ""),
         encoding="utf-8",
     )
 
@@ -571,7 +582,11 @@ def _write_cc_companion_files(
             "",
         ])
     srt_path.write_text("\n".join(srt_lines), encoding="utf-8")
-    return {"txt": txt_path, "srt": srt_path}
+    return {
+        "txt": txt_path,
+        "transcript": transcript_path,
+        "srt": srt_path,
+    }
 
 
 def _write_auto_cc_json(
