@@ -121,18 +121,36 @@ def main():
         )
         uploaded_languages = []
         for lang, cc_path in cc_paths.items():
+            # Chinese is never accepted from YouTube auto-translation.
+            if str(lang).lower().startswith("zh"):
+                print(
+                    f"[CC] skip YouTube Chinese caption: {lang}; "
+                    "中文一律使用 Taiwan-Breeze ASR。",
+                    flush=True,
+                )
+                continue
+
             cc_path = Path(cc_path)
             if not cc_path.exists():
                 continue
-            drive_name = f"youtube.{lang}.json"
-            upload_or_replace_file(
-                drive,
-                folders["source"],
-                cc_path,
-                drive_name,
-            )
-            uploaded_languages.append(lang)
-            print(f"[CC] {drive_name} 已更新到 Drive 來源資料夾")
+
+            uploaded_any = False
+            for suffix in ("json", "txt", "srt"):
+                local_path = cc_path.with_suffix("." + suffix)
+                if not local_path.exists():
+                    continue
+                drive_name = f"youtube.{lang}.{suffix}"
+                upload_or_replace_file(
+                    drive,
+                    folders["source"],
+                    local_path,
+                    drive_name,
+                )
+                uploaded_any = True
+                print(f"[CC] {drive_name} 已更新到 Drive 來源資料夾")
+
+            if uploaded_any:
+                uploaded_languages.append(lang)
 
         if not uploaded_languages:
             raise RuntimeError("CC 已取得，但沒有任何字幕檔成功上傳到 Drive。")
