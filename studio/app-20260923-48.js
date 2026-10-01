@@ -1161,12 +1161,18 @@ function renderCaptureFileList(containerId,files,emptyText){
 function renderYoutubeCaptureFiles(task){
   const payload=task ? youtubeCaptureFilesCache[task.id] : null;
   const ccFiles=payload?.cc_files || [];
+  const asrFiles=payload?.asr_files || [];
   const audioFiles=payload?.audio_files || [];
 
   renderCaptureFileList(
+    "youtube-asr-files",
+    asrFiles,
+    task ? "尚未產生中文 ASR 檔案。" : "尚未選擇課程。"
+  );
+  renderCaptureFileList(
     "youtube-cc-files",
     ccFiles,
-    task ? "尚未抓取任何 CC 字幕檔案。" : "尚未選擇課程。"
+    task ? "尚未抓取任何外語 CC 字幕檔案。" : "尚未選擇課程。"
   );
   renderCaptureFileList(
     "youtube-audio-files",
@@ -1174,8 +1180,13 @@ function renderYoutubeCaptureFiles(task){
     task ? "尚未抓取任何 YouTube 音軌檔案。" : "尚未選擇課程。"
   );
 
+  const asrFolder=document.getElementById("youtube-asr-folder-link");
   const ccFolder=document.getElementById("youtube-cc-folder-link");
   const audioFolder=document.getElementById("youtube-audio-folder-link");
+  if(asrFolder){
+    asrFolder.hidden=!payload?.transcript_folder_url;
+    asrFolder.href=payload?.transcript_folder_url || "#";
+  }
   if(ccFolder){
     ccFolder.hidden=!payload?.source_folder_url;
     ccFolder.href=payload?.source_folder_url || "#";
@@ -1190,7 +1201,7 @@ function renderYoutubeCaptureFiles(task){
 
   const badge=document.getElementById("youtube-capture-files-state");
   if(badge && payload){
-    badge.textContent="已同步 "+(ccFiles.length+audioFiles.length)+" 個檔案";
+    badge.textContent="已同步 "+(asrFiles.length+ccFiles.length+audioFiles.length)+" 個檔案";
     badge.className="badge complete";
   }
 }
