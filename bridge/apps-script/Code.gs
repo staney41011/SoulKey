@@ -2081,7 +2081,7 @@ function parseTaskId_(taskId) {
 
 function taskInfo_(taskId) {
   const cache = CacheService.getScriptCache();
-  const cacheKey = "task-info-v2:" + String(taskId || "").trim();
+  const cacheKey = "task-info-v3:" + String(taskId || "").trim();
   const cached = cache.get(cacheKey);
   if (cached) {
     try { return JSON.parse(cached); } catch (_) {}
