@@ -2266,7 +2266,7 @@ function youtubeCaptureFiles_(taskId) {
     const file = sourceFiles.next();
     const name = String(file.getName() || "");
     if (
-      /^youtube\.[^.]+\.(json|txt|srt)$/i.test(name) &&
+      /^youtube\.[^.]+\.(json|txt|srt|transcript\.txt)$/i.test(name) &&
       !/^youtube\.zh(?:-|\.)/i.test(name)
     ) {
       ccFiles.push(fileInfo_(file, "cc"));
@@ -2278,6 +2278,7 @@ function youtubeCaptureFiles_(taskId) {
   const asrNames = {
     "segments.json": true,
     "zh-TW.txt": true,
+    "zh-TW.transcript.txt": true,
     "zh-TW.srt": true
   };
   while (transcriptFiles.hasNext()) {
