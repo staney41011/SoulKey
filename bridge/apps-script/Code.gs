@@ -2244,6 +2244,7 @@ function youtubeCaptureFiles_(taskId) {
     String(lessonNumber).padStart(2, "0") + "_第" + lessonNumber + "堂"
   );
   const sourceFolder = cachedChildFolder_(lessonFolder, "00_來源資訊");
+  const transcriptFolder = cachedChildFolder_(lessonFolder, "01_中文逐字稿");
   const audioFolder = cachedChildFolder_(lessonFolder, "04_音檔");
 
   function fileInfo_(file, kind) {
@@ -2264,8 +2265,26 @@ function youtubeCaptureFiles_(taskId) {
   while (sourceFiles.hasNext()) {
     const file = sourceFiles.next();
     const name = String(file.getName() || "");
-    if (/^youtube\.[^.]+\.json$/i.test(name)) {
+    if (
+      /^youtube\.[^.]+\.(json|txt|srt)$/i.test(name) &&
+      !/^youtube\.zh(?:-|\.)/i.test(name)
+    ) {
       ccFiles.push(fileInfo_(file, "cc"));
+    }
+  }
+
+  const asrFiles = [];
+  const transcriptFiles = transcriptFolder.getFiles();
+  const asrNames = {
+    "segments.json": true,
+    "zh-TW.txt": true,
+    "zh-TW.srt": true
+  };
+  while (transcriptFiles.hasNext()) {
+    const file = transcriptFiles.next();
+    const name = String(file.getName() || "");
+    if (asrNames[name]) {
+      asrFiles.push(fileInfo_(file, "asr"));
     }
   }
 
@@ -2283,6 +2302,7 @@ function youtubeCaptureFiles_(taskId) {
     return String(a.name || "").localeCompare(String(b.name || ""));
   }
   ccFiles.sort(byName_);
+  asrFiles.sort(byName_);
   audioFiles.sort(byName_);
 
   return {
@@ -2292,9 +2312,12 @@ function youtubeCaptureFiles_(taskId) {
     lesson: "第" + lessonNumber + "堂",
     source_folder_url:
       "https://drive.google.com/drive/folders/" + sourceFolder.getId(),
+    transcript_folder_url:
+      "https://drive.google.com/drive/folders/" + transcriptFolder.getId(),
     audio_folder_url:
       "https://drive.google.com/drive/folders/" + audioFolder.getId(),
     cc_files: ccFiles,
+    asr_files: asrFiles,
     audio_files: audioFiles,
     server_time: new Date().toISOString()
   };
