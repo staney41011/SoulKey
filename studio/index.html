@@ -478,7 +478,7 @@
               本次執行抓取 CC 字幕
             </label>
             <div id="youtube-cc-options" class="capture-help">
-              偵測繁中、英文、泰文、西班牙文、印尼文、越南文、信德文、泰米爾文；YouTube 未提供的語言會自動略過。
+              只抓外語 YouTube CC：英文、泰文、西班牙文、印尼文、越南文、信德文、泰米爾文。每個語言輸出 JSON、TXT、SRT；中文不抓 YouTube 翻譯字幕，固定使用 Taiwan-Breeze ASR。
             </div>
           </div>
 
@@ -536,7 +536,17 @@
 
           <div class="youtube-capture-file-section">
             <div class="youtube-file-section-head">
-              <div><b>CC 字幕檔案</b><span>00_來源資訊</span></div>
+              <div><b>中文 ASR</b><span>01_中文逐字稿・原始中文音軌 → Taiwan-Breeze</span></div>
+              <a id="youtube-asr-folder-link" class="cloud-folder-link" href="#" target="_blank" rel="noopener" hidden>開啟中文逐字稿資料夾</a>
+            </div>
+            <div class="youtube-file-list" id="youtube-asr-files">
+              <div class="empty">尚未選擇課程。</div>
+            </div>
+          </div>
+
+          <div class="youtube-capture-file-section">
+            <div class="youtube-file-section-head">
+              <div><b>外語 CC 字幕檔案</b><span>00_來源資訊・JSON / TXT / SRT</span></div>
               <a id="youtube-cc-folder-link" class="cloud-folder-link" href="#" target="_blank" rel="noopener" hidden>開啟字幕資料夾</a>
             </div>
             <div class="youtube-file-list" id="youtube-cc-files">
@@ -651,6 +661,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20261001-1"></script>
+  <script src="./app-20260923-48.js?v=20261001-2"></script>
 </body>
 </html>
