@@ -2081,7 +2081,7 @@ function parseTaskId_(taskId) {
 
 function taskInfo_(taskId) {
   const cache = CacheService.getScriptCache();
-  const cacheKey = "task-info-v3:" + String(taskId || "").trim();
+  const cacheKey = "task-info-v4:" + String(taskId || "").trim();
   const cached = cache.get(cacheKey);
   if (cached) {
     try { return JSON.parse(cached); } catch (_) {}
@@ -2098,6 +2098,7 @@ function taskInfo_(taskId) {
         period: Number(String(values[r][1] || "").replace(/[^0-9]/g, "")),
         lesson: String(values[r][2] || "").trim(),
         title: String(values[r][3] || "").trim(),
+        youtube_url: String(values[r][4] || "").trim(),
         lecturer: String(values[r][5] || "").trim()
       };
       cache.put(cacheKey, JSON.stringify(result), 21600);
@@ -2107,6 +2108,53 @@ function taskInfo_(taskId) {
 
   throw new Error("找不到任務：" + taskId);
 }
+
+function ensureTaskNamingMetadata_(taskId) {
+  let task = taskInfo_(taskId);
+  if (String(task.title || "").trim()) return task;
+
+  const url = String(task.youtube_url || "").trim();
+  if (!url) return task;
+
+  try {
+    const endpoint =
+      "https://www.youtube.com/oembed?format=json&url=" +
+      encodeURIComponent(url);
+    const response = UrlFetchApp.fetch(endpoint, {
+      muteHttpExceptions: true,
+      followRedirects: true
+    });
+    if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+      return task;
+    }
+
+    const payload = JSON.parse(response.getContentText() || "{}");
+    const title = String(payload.title || "").trim();
+    if (!title) return task;
+
+    const parts = title.split("|")
+      .map(function(x) { return String(x || "").trim(); })
+      .filter(Boolean);
+    const lecturer = String(
+      parts.length >= 2
+        ? parts[1]
+        : (payload.author_name || task.lecturer || "")
+    ).trim();
+
+    const sheet = getSheetByName_(TASK_SHEET_NAME);
+    sheet.getRange(task.row, 4).setValue(title);
+    if (lecturer) sheet.getRange(task.row, 6).setValue(lecturer);
+
+    CacheService.getScriptCache().remove(
+      "task-info-v4:" + String(taskId || "").trim()
+    );
+    task = taskInfo_(taskId);
+    return task;
+  } catch (_) {
+    return task;
+  }
+}
+
 
 function periodFolderId_(period) {
   const cache = CacheService.getScriptCache();
@@ -2242,7 +2290,7 @@ function youtubeCaptureFiles_(taskId) {
   }
 
   const parsed = parseTaskId_(normalizedTaskId);
-  const task = parsed || taskInfo_(normalizedTaskId);
+  const task = ensureTaskNamingMetadata_(normalizedTaskId);
   const lessonNumber = parsed
     ? parsed.lessonNumber
     : Number(String(task.lesson || "").replace(/[^0-9]/g, ""));
@@ -2258,10 +2306,18 @@ function youtubeCaptureFiles_(taskId) {
   const audioFolder = cachedChildFolder_(lessonFolder, "04_音檔");
 
   function fileInfo_(file, kind) {
+    const name = String(file.getName() || "");
+    const canonical =
+      canonicalFromDescription_(file.getDescription()) ||
+      (formalizableCanonicalName_(name) ? name : "");
     return {
       kind: kind,
       id: file.getId(),
-      name: file.getName(),
+      name: name,
+      display_name:
+        canonical && String(task.title || "").trim()
+          ? formalDriveName_(normalizedTaskId, canonical)
+          : name,
       url: file.getUrl(),
       size: Number(file.getSize() || 0),
       updated_at: file.getLastUpdated()
@@ -2599,7 +2655,7 @@ function formalOutputLabel_(canonicalName) {
 }
 
 function formalDriveName_(taskId, canonicalName) {
-  const task = taskInfo_(taskId);
+  const task = ensureTaskNamingMetadata_(taskId);
   const titleParts = String(task.title || "").split("|")
     .map(function(x) { return x.trim(); })
     .filter(Boolean);
