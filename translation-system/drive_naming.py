@@ -75,6 +75,7 @@ def output_label(canonical_name):
         "zh-TW.txt": "中文ASR時間軸.txt",
         "zh-TW.transcript.txt": "中文純逐字稿.txt",
         "zh-TW.srt": "中文ASR字幕.srt",
+        "zh-TW.polished.json": "中文潤稿資料.json",
         "zh-TW.polished.txt": "中文潤稿時間軸.txt",
         "zh-TW.polished.srt": "中文潤稿字幕.srt",
         "zh-TW.readable.txt": "中文潤稿純逐字稿.txt",
@@ -89,6 +90,10 @@ def output_label(canonical_name):
         "zh-TW.vernacular.final.txt": "白話文人工定稿時間軸.txt",
         "zh-TW.vernacular.final.srt": "白話文人工定稿字幕.srt",
         "youtube-audio-manifest.json": "YouTube音軌清單.json",
+        "subtitle_manifest.json": "字幕清單.json",
+        "gemini.qa.json": "多語翻譯QA報告.json",
+        "gemini-shadow-checkpoint.json": "多語翻譯檢查點.json",
+        "zh-TW.review.manifest.json": "中文人工校稿清單.json",
     }
     if name in fixed:
         return fixed[name]
@@ -143,6 +148,10 @@ def output_label(canonical_name):
     if match:
         return f"{_lang_label(match.group(1))}TTS分段音檔.zip"
 
+    match = re.fullmatch(r"zh-TW\.review\.(\d+)\.json", name)
+    if match:
+        return f"中文人工校稿第{int(match.group(1))}段.json"
+
     return _clean(name, "輸出檔案")
 
 
@@ -161,3 +170,101 @@ def canonical_from_description(description):
         text,
     )
     return match.group(1).strip() if match else ""
+
+
+_CANONICAL_FIXED = {
+    "source_info.json",
+    "segments.json",
+    "zh-TW.txt",
+    "zh-TW.transcript.txt",
+    "zh-TW.srt",
+    "zh-TW.polished.json",
+    "zh-TW.polished.txt",
+    "zh-TW.polished.srt",
+    "zh-TW.readable.txt",
+    "polish_report.json",
+    "zh-TW.final.json",
+    "zh-TW.final.txt",
+    "zh-TW.final.srt",
+    "zh-TW.vernacular.json",
+    "zh-TW.vernacular.txt",
+    "zh-TW.vernacular.srt",
+    "zh-TW.vernacular.final.json",
+    "zh-TW.vernacular.final.txt",
+    "zh-TW.vernacular.final.srt",
+    "youtube-audio-manifest.json",
+    "subtitle_manifest.json",
+    "gemini.qa.json",
+    "gemini-shadow-checkpoint.json",
+    "zh-TW.review.manifest.json",
+}
+
+
+def is_canonical_output_name(name):
+    value = str(name or "").strip()
+    if value in _CANONICAL_FIXED:
+        return True
+    patterns = (
+        r"youtube\.[^.]+\.(?:json|txt|srt|mp3)",
+        r"youtube\.[^.]+\.transcript\.txt",
+        r"[A-Za-z-]+\.final\.(?:json|txt|srt)",
+        r"[A-Za-z-]+\.(?:json|txt|srt|mp3|wav)",
+        r"[A-Za-z-]+\.tts_manifest\.json",
+        r"[A-Za-z-]+\.segments\.zip",
+        r"zh-TW\.review\.\d+\.json",
+    )
+    return any(re.fullmatch(pattern, value) for pattern in patterns)
+
+
+def rename_existing_outputs(drive, parent_id, task):
+    """Rename legacy technical Drive files without touching their bytes."""
+    query = f"'{parent_id}' in parents and trashed = false"
+    page_token = None
+    renamed = 0
+    marked = 0
+
+    while True:
+        result = (
+            drive.files()
+            .list(
+                q=query,
+                spaces="drive",
+                fields="nextPageToken,files(id,name,description)",
+                pageSize=200,
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute()
+        )
+        for item in result.get("files", []):
+            current = str(item.get("name") or "")
+            canonical = (
+                canonical_from_description(item.get("description"))
+                or (current if is_canonical_output_name(current) else "")
+            )
+            if not canonical:
+                continue
+
+            desired = formal_drive_name(task, canonical)
+            marker = canonical_marker(canonical)
+            body = {}
+            if current != desired:
+                body["name"] = desired
+                renamed += 1
+            if str(item.get("description") or "") != marker:
+                body["description"] = marker
+                marked += 1
+            if body:
+                drive.files().update(
+                    fileId=item["id"],
+                    body=body,
+                    fields="id,name,description",
+                    supportsAllDrives=True,
+                ).execute()
+
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            break
+
+    return {"renamed": renamed, "marked": marked}
