@@ -55,7 +55,7 @@ class PipelineContracts(unittest.TestCase):
             "review_share_draft_save", "review_share_finalize",
             "review_share_finalize_en", "run_stage", "smoke", "status_batch",
             "status_health", "tasks_get", "tasks_upsert", "worker_secret_test",
-            "worker_setup",
+            "worker_setup", "drive_names_migrate",
         }
         for action in required_actions:
             self.assertTrue(
@@ -65,6 +65,21 @@ class PipelineContracts(unittest.TestCase):
             )
         self.assertIn('action:"review_cache_seed"', app)
         self.assertIn('action:"review_finish"', quick)
+
+    def test_formal_drive_naming_preserves_canonical_lookups(self):
+        naming = read("translation-system/drive_naming.py")
+        google_io = read("translation-system/google_io.py")
+        bridge = read("bridge/apps-script/Code.gs")
+        app = read("studio/app-20260923-48.js")
+
+        self.assertIn("第{period}期_第{lesson}堂課_", naming)
+        self.assertIn("SOULKEY_CANONICAL_NAME:", naming)
+        self.assertIn("canonical_from_description", google_io)
+        self.assertIn("output_label(name)", google_io)
+        self.assertIn("formalDriveName_", bridge)
+        self.assertIn("canonicalFromDescription_", bridge)
+        self.assertIn("migrateFormalDriveNames_", bridge)
+        self.assertIn('action:"drive_names_migrate"', app)
 
     def test_bridge_and_worker_machine_stages_match(self):
         bridge = read("bridge/apps-script/Code.gs")
