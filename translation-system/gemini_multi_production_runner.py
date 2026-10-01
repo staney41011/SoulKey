@@ -12,6 +12,7 @@ from pathlib import Path
 
 from config import COL, GLOSSARY_FULL_RANGE, SPREADSHEET_ID, TASK_SHEET_RANGE
 from gemini_checkpoint import load_persistent_checkpoint, save_persistent_checkpoint
+from drive_naming import formal_drive_name
 from gemini_engine import DEFAULT_TEXT_MODEL, GeminiAPIError, GeminiClient, local_language_issue, normalize_segments
 from google_io import (
     build_google_services,
@@ -114,6 +115,8 @@ def find_task(sheets, task_id):
                 "task_id": task_id,
                 "period": digits(row[COL["period"]]),
                 "lesson": str(row[COL["lesson"]] or "").strip(),
+                "title": str(row[COL["title"]] or "").strip(),
+                "lecturer": str(row[COL["lecturer"]] or "").strip(),
             }
     return None
 
@@ -1151,6 +1154,7 @@ def main():
                     folders["translation"],
                     path,
                     path.name,
+                    display_name=formal_drive_name(task, path.name),
                 )
 
         qa_path = outdir / "gemini.qa.json"
@@ -1169,7 +1173,13 @@ def main():
             ),
             encoding="utf-8",
         )
-        upload_or_replace_file(drive, folders["translation"], qa_path, qa_path.name)
+        upload_or_replace_file(
+            drive,
+            folders["translation"],
+            qa_path,
+            qa_path.name,
+            display_name=formal_drive_name(task, qa_path.name),
+        )
 
         updates = {
             f"任務佇列!S{task['sheet_row']}": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
