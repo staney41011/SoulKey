@@ -587,6 +587,26 @@
           </div>
         </div>
 
+        <div class="panel bridge-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">DRIVE FILE NAMES</p>
+              <h3>正式檔名整理</h3>
+            </div>
+            <span class="badge" id="drive-name-state">待執行</span>
+          </div>
+          <p class="muted block-copy">
+            將既有課程輸出統一改為「第XXX期_第X堂課_課程名稱_講師名字_內容」格式。
+            只修改 Google Drive 顯示檔名與 canonical 標記，不改檔案內容。
+          </p>
+          <div class="worker-actions">
+            <button class="primary" id="drive-name-migrate-all" type="button">整理全部既有檔名</button>
+          </div>
+          <div class="bridge-status" id="drive-name-status">
+            尚未執行。最新版 Apps Script 部署後按一次即可。
+          </div>
+        </div>
+
         <div class="panel bridge-panel" id="web-worker-panel">
           <div class="panel-head">
             <div>
@@ -661,6 +681,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20261001-3"></script>
+  <script src="./app-20260923-48.js?v=20261001-4"></script>
 </body>
 </html>
