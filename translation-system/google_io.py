@@ -8,7 +8,12 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from drive_naming import (\n    canonical_from_description,\n    canonical_marker,\n    output_label,\n)\n
+from drive_naming import (
+    canonical_from_description,
+    canonical_marker,
+    output_label,
+)
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
