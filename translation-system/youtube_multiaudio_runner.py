@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from config import COL, SPREADSHEET_ID, TASK_SHEET_RANGE
+from drive_naming import formal_drive_name
 from google_io import build_google_services, read_values, upload_or_replace_file
 from lesson_paths import resolve_lesson_folders
 from status_io import new_run_id, mark_done, mark_error, mark_running
@@ -30,7 +31,9 @@ def find_task(sheets, task_id):
             "task_id": task_id,
             "period": digits(row[COL["period"]]),
             "lesson": str(row[COL["lesson"]] or "").strip(),
+            "title": str(row[COL["title"]] or "").strip(),
             "youtube_url": str(row[COL["youtube_url"]] or "").strip(),
+            "lecturer": str(row[COL["lecturer"]] or "").strip(),
         }
     return None
 
@@ -95,6 +98,7 @@ def main():
                 folders["audio"],
                 local_path,
                 drive_name,
+                display_name=formal_drive_name(task, drive_name),
             )
             uploaded.append({
                 "language": item["language"],
@@ -112,6 +116,10 @@ def main():
             folders["audio"],
             manifest_path,
             "youtube-audio-manifest.json",
+            display_name=formal_drive_name(
+                task,
+                "youtube-audio-manifest.json",
+            ),
         )
 
         if not uploaded:
