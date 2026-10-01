@@ -20,7 +20,7 @@ const MACHINE_STAGES = [
   "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish", "cc", "batch"
 ];
 const RUNTIME_TTL_MS = 8 * 60 * 60 * 1000;
-const BRIDGE_PROTOCOL_VERSION = 6;
+const BRIDGE_PROTOCOL_VERSION = 7;
 
 function doGet(e) {
   const view = String((e && e.parameter && e.parameter.view) || "").trim();
