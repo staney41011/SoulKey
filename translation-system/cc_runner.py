@@ -6,17 +6,18 @@ import urllib.request
 from pathlib import Path
 
 from config import COL, SPREADSHEET_ID, TASK_SHEET_RANGE
-from drive_naming import formal_drive_name
+from drive_naming import formal_drive_name, rename_existing_outputs
 from google_io import (
     build_google_services,
     read_values,
+    update_cells,
     upload_or_replace_file,
 )
 from runner import resolve_lesson_folders
 from polish_runner import attach_english_cc
 from github_review_cache import publish_review_cache
 from status_io import new_run_id, mark_running, mark_done, mark_error
-from youtube_io import download_multilingual_cc
+from youtube_io import download_multilingual_cc, extract_metadata
 
 
 RAW_REVIEW_BASE = (
@@ -110,11 +111,33 @@ def main():
         print(f"[CC] 任務：{args.task_id}")
         print(f"[CC] URL：{task['youtube_url']}")
 
-        cc_paths = download_multilingual_cc(task["youtube_url"], workdir)
-        if not cc_paths:
-            raise RuntimeError(
-                "YouTube 沒有抓到任何可用的自動字幕。"
-            )
+        if not task.get("title"):
+            try:
+                meta = extract_metadata(
+                    task["youtube_url"],
+                    workdir / "metadata",
+                )
+                task["title"] = str(meta.get("title") or "").strip()
+                task["lecturer"] = str(meta.get("lecturer") or "").strip()
+                if task["title"]:
+                    update_cells(
+                        sheets,
+                        SPREADSHEET_ID,
+                        {
+                            f"任務佇列!D{task['sheet_row']}": task["title"],
+                            f"任務佇列!F{task['sheet_row']}": task["lecturer"],
+                        },
+                    )
+                    print(
+                        f"[CC] 已補齊 metadata：{task['title']}",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    f"[CC] metadata 補抓失敗，先沿用控制中心資料："
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
 
         folders = resolve_lesson_folders(
             drive,
@@ -122,6 +145,24 @@ def main():
             task["period"],
             task["lesson"],
         )
+        rename_result = rename_existing_outputs(
+            drive,
+            folders["source"],
+            task,
+        )
+        if rename_result["renamed"]:
+            print(
+                f"[CC] 既有來源檔重新命名："
+                f"{rename_result['renamed']} 個",
+                flush=True,
+            )
+
+        cc_paths = download_multilingual_cc(task["youtube_url"], workdir)
+        if not cc_paths:
+            raise RuntimeError(
+                "YouTube 沒有抓到任何可用的自動字幕。"
+            )
+
         uploaded_languages = []
         for lang, cc_path in cc_paths.items():
             # Chinese is never accepted from YouTube auto-translation.
