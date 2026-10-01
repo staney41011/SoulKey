@@ -1150,7 +1150,7 @@ function renderCaptureFileList(containerId,files,emptyText){
     const size=formatCaptureFileSize(file.size);
     return '<div class="youtube-cloud-file">'+
       '<div class="youtube-cloud-file-main">'+
-        '<b>'+escapeHtml(file.name||"未命名檔案")+'</b>'+
+        '<b>'+escapeHtml(file.display_name||file.name||"未命名檔案")+'</b>'+
         '<span>'+escapeHtml([size,updated].filter(Boolean).join("・"))+'</span>'+
       '</div>'+
       '<a href="'+escapeHtml(file.url||"#")+'" target="_blank" rel="noopener">開啟雲端檔案</a>'+
