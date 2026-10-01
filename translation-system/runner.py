@@ -212,7 +212,7 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
             continue
 
         uploaded_any = False
-        for suffix in ("json", "txt", "srt"):
+        for suffix in ("json", "txt", "srt", "transcript.txt"):
             local_path = cc_path.with_suffix("." + suffix)
             if not local_path.exists():
                 continue
@@ -247,6 +247,12 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         folders["transcript"],
         result["txt"],
         "zh-TW.txt",
+    )
+    upload_or_replace_file(
+        drive,
+        folders["transcript"],
+        result["transcript"],
+        "zh-TW.transcript.txt",
     )
     upload_or_replace_file(
         drive,
