@@ -6,6 +6,7 @@ import urllib.request
 from pathlib import Path
 
 from config import COL, SPREADSHEET_ID, TASK_SHEET_RANGE
+from drive_naming import formal_drive_name
 from google_io import (
     build_google_services,
     read_values,
@@ -45,7 +46,9 @@ def find_task(sheets, task_id):
             "task_id": current,
             "period": digits(row[COL["period"]]),
             "lesson": str(row[COL["lesson"]] or "").strip(),
+            "title": str(row[COL["title"]] or "").strip(),
             "youtube_url": str(row[COL["youtube_url"]] or "").strip(),
+            "lecturer": str(row[COL["lecturer"]] or "").strip(),
         }
     return None
 
@@ -145,6 +148,7 @@ def main():
                     folders["source"],
                     local_path,
                     drive_name,
+                    display_name=formal_drive_name(task, drive_name),
                 )
                 uploaded_any = True
                 print(f"[CC] {drive_name} 已更新到 Drive 來源資料夾")
