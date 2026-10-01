@@ -333,6 +333,14 @@ function doPost(e) {
       });
     }
 
+    if (action === "drive_names_migrate") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const result = migrateFormalDriveNames_(taskId);
+      result.source = "soulkey-bridge";
+      result.type = "drive_names_migrated";
+      return postMessage_(result);
+    }
+
     if (action === "status_health") {
       const sheet = getStatusSheet_();
       return postMessage_({
@@ -2327,6 +2335,153 @@ function youtubeCaptureFiles_(taskId) {
 }
 
 
+function formalizableCanonicalName_(name) {
+  const value = String(name || "").trim();
+  if (!value) return false;
+
+  const fixed = {
+    "source_info.json": true,
+    "segments.json": true,
+    "zh-TW.txt": true,
+    "zh-TW.transcript.txt": true,
+    "zh-TW.srt": true,
+    "zh-TW.polished.txt": true,
+    "zh-TW.polished.srt": true,
+    "zh-TW.readable.txt": true,
+    "polish_report.json": true,
+    "zh-TW.final.json": true,
+    "zh-TW.final.txt": true,
+    "zh-TW.final.srt": true,
+    "zh-TW.vernacular.json": true,
+    "zh-TW.vernacular.txt": true,
+    "zh-TW.vernacular.srt": true,
+    "zh-TW.vernacular.final.json": true,
+    "zh-TW.vernacular.final.txt": true,
+    "zh-TW.vernacular.final.srt": true,
+    "youtube-audio-manifest.json": true
+  };
+  if (fixed[value]) return true;
+
+  return (
+    /^youtube\.[^.]+\.(json|txt|srt|mp3)$/.test(value) ||
+    /^youtube\.[^.]+\.transcript\.txt$/.test(value) ||
+    /^[A-Za-z-]+\.final\.(json|txt|srt)$/.test(value) ||
+    /^[A-Za-z-]+\.(json|txt|srt|mp3|wav)$/.test(value) ||
+    /^[A-Za-z-]+\.tts_manifest\.json$/.test(value) ||
+    /^[A-Za-z-]+\.segments\.zip$/.test(value) ||
+    /\.(mp4|mkv|webm)$/i.test(value)
+  );
+}
+
+function migrateOneLessonFormalNames_(taskId) {
+  const folders = lessonFolders_(taskId);
+  const folderList = [
+    folders.source,
+    folders.transcript,
+    folders.translation
+  ];
+
+  // Resolve remaining lesson subfolders only for this migration.
+  const parsed = parseTaskId_(taskId);
+  const lessonFolder = DriveApp.getFolderById(
+    cachedChildFolder_(
+      cachedChildFolder_(
+        DriveApp.getFolderById(periodFolderId_(parsed.period)),
+        "01_課程"
+      ),
+      String(parsed.lessonNumber).padStart(2, "0") +
+        "_第" + parsed.lessonNumber + "堂"
+    ).getId()
+  );
+  ["03_字幕", "04_音檔", "05_完成影片"].forEach(function(name) {
+    try { folderList.push(cachedChildFolder_(lessonFolder, name)); } catch (_) {}
+  });
+
+  let renamed = 0;
+  let marked = 0;
+  let skipped = 0;
+
+  folderList.forEach(function(folder) {
+    const files = folder.getFiles();
+    while (files.hasNext()) {
+      const file = files.next();
+      const currentName = String(file.getName() || "");
+      let canonical = canonicalFromDescription_(file.getDescription());
+
+      if (!canonical) {
+        if (!formalizableCanonicalName_(currentName)) {
+          skipped += 1;
+          continue;
+        }
+        canonical = currentName;
+      }
+
+      const desired = formalDriveName_(taskId, canonical);
+      if (currentName !== desired) {
+        file.setName(desired);
+        renamed += 1;
+      }
+
+      const marker = "SOULKEY_CANONICAL_NAME:" + canonical;
+      if (String(file.getDescription() || "") !== marker) {
+        file.setDescription(marker);
+        marked += 1;
+      }
+
+      const cacheKey = "file-id-v2:" + folder.getId() + ":" + canonical;
+      CacheService.getScriptCache().put(cacheKey, file.getId(), 21600);
+    }
+  });
+
+  return {
+    task_id: taskId,
+    renamed: renamed,
+    marked: marked,
+    skipped: skipped
+  };
+}
+
+function migrateFormalDriveNames_(taskId) {
+  const requested = String(taskId || "").trim();
+  const tasks = readTasks_();
+  const ids = requested
+    ? [requested]
+    : tasks.map(function(x) { return String(x.id || x.task_id || "").trim(); })
+        .filter(Boolean);
+
+  const results = [];
+  let renamed = 0;
+  let marked = 0;
+  let skipped = 0;
+
+  ids.forEach(function(id) {
+    try {
+      const item = migrateOneLessonFormalNames_(id);
+      results.push(item);
+      renamed += Number(item.renamed || 0);
+      marked += Number(item.marked || 0);
+      skipped += Number(item.skipped || 0);
+    } catch (err) {
+      results.push({
+        task_id: id,
+        error: String(err && err.message ? err.message : err)
+      });
+    }
+  });
+
+  return {
+    ok: true,
+    task_id: requested,
+    task_count: ids.length,
+    renamed: renamed,
+    marked: marked,
+    skipped: skipped,
+    results: results,
+    server_time: new Date().toISOString()
+  };
+}
+
+
 function requireFolder_(parent, name) {
   return cachedChildFolder_(parent, name);
 }
@@ -3031,7 +3186,8 @@ function responseForAction_(action, payload) {
     run_stage: "run_stage",
     review_save: "review_saved",
     review_share_create: "review_share_created",
-    youtube_capture_files: "youtube_capture_files"
+    youtube_capture_files: "youtube_capture_files",
+    drive_names_migrate: "drive_names_migrated"
   };
 
   if (mapped[action]) {
