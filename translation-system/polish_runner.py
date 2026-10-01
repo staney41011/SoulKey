@@ -8,6 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from config import COL, SPREADSHEET_ID, TASK_SHEET_RANGE, TIMEZONE, POLISH_MODEL
+from drive_naming import formal_drive_name
 from google_io import (
     build_google_services,
     download_drive_file,
@@ -42,6 +43,8 @@ def row_to_task(raw, sheet_row):
         "task_id": str(row[COL["task_id"]] or "").strip(),
         "period": digits(row[COL["period"]]),
         "lesson": str(row[COL["lesson"]] or "").strip(),
+        "title": str(row[COL["title"]] or "").strip(),
+        "lecturer": str(row[COL["lecturer"]] or "").strip(),
         "asr": str(row[COL["asr"]] or "").strip(),
         "zh_review": str(row[COL["zh_review"]] or "").strip(),
     }
@@ -240,16 +243,32 @@ def main():
             )
 
             upload_or_replace_file(
-                drive, folders["transcript"], result["txt"], "zh-TW.polished.txt"
+                drive,
+                folders["transcript"],
+                result["txt"],
+                "zh-TW.polished.txt",
+                display_name=formal_drive_name(task, "zh-TW.polished.txt"),
             )
             upload_or_replace_file(
-                drive, folders["transcript"], result["srt"], "zh-TW.polished.srt"
+                drive,
+                folders["transcript"],
+                result["srt"],
+                "zh-TW.polished.srt",
+                display_name=formal_drive_name(task, "zh-TW.polished.srt"),
             )
             upload_or_replace_file(
-                drive, folders["transcript"], result["readable"], "zh-TW.readable.txt"
+                drive,
+                folders["transcript"],
+                result["readable"],
+                "zh-TW.readable.txt",
+                display_name=formal_drive_name(task, "zh-TW.readable.txt"),
             )
             upload_or_replace_file(
-                drive, folders["transcript"], result["report"], "polish_report.json"
+                drive,
+                folders["transcript"],
+                result["report"],
+                "polish_report.json",
+                display_name=formal_drive_name(task, "polish_report.json"),
             )
 
             # 人工中文定稿讀取不再走 Drive。
