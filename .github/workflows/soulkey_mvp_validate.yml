@@ -26,6 +26,8 @@ jobs:
       - name: Python syntax
         run: |
           python -m py_compile \
+            translation-system/drive_naming.py \
+            translation-system/google_io.py \
             translation-system/youtube_io.py \
             translation-system/runner.py \
             translation-system/polish.py \
