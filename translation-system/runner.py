@@ -133,7 +133,13 @@ def upload_metadata(drive, source_folder_id, metadata, task, workdir):
     )
     path = workdir / "source_info.json"
     save_metadata_json(payload, path)
-    upload_or_replace_file(\n        drive, source_folder_id, path, "source_info.json",\n        display_name=formal_drive_name(task, "source_info.json"),\n    )
+    upload_or_replace_file(
+        drive,
+        source_folder_id,
+        path,
+        "source_info.json",
+        display_name=formal_drive_name(task, "source_info.json"),
+    )
 
 
 def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
