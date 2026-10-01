@@ -174,6 +174,9 @@ let currentVernacularReview = [];
 let currentEnglishReview = [];
 let currentView = "dashboard";
 const viewHistory = [];
+const youtubeCaptureFilesCache = {};
+const youtubeCaptureFilesFetchedAt = {};
+let youtubeCaptureFilesLoadingTask = "";
 
 if(!localStorage.getItem(STORE.terms)) save(STORE.terms, terms);
 
@@ -1070,51 +1073,216 @@ function youtubeAudioSelectedTask(){
   return tasks.find(x=>String(x.id)===String(select.value)) || null;
 }
 
-function renderYoutubeAudioTasks(){
-  const select=document.getElementById("youtube-audio-task");
-  const info=document.getElementById("youtube-audio-task-info");
-  const status=document.getElementById("youtube-audio-status");
-  if(!select) return;
+function youtubeCaptureSelectedPeriod(){
+  return Number(document.getElementById("youtube-capture-period")?.value)||null;
+}
 
-  const sorted=tasks.slice().sort((a,b)=>{
-    if(Number(b.period)!==Number(a.period)) return Number(b.period)-Number(a.period);
-    return Number(String(a.lesson).replace(/\D/g,""))-Number(String(b.lesson).replace(/\D/g,""));
-  });
+function formatCaptureFileSize(bytes){
+  const value=Number(bytes||0);
+  if(!value) return "";
+  if(value>=1024*1024) return (value/(1024*1024)).toFixed(value>=10*1024*1024?0:1)+" MB";
+  if(value>=1024) return Math.round(value/1024)+" KB";
+  return value+" B";
+}
 
-  const previous=String(select.value||"");
-  if(!sorted.length){
-    select.innerHTML='<option value="">尚無課程任務</option>';
-    select.disabled=true;
-    if(info) info.textContent="請先建立包含 YouTube 網址的課程任務。";
+function captureStateInfo(task,kind,files){
+  const list=Array.isArray(files)?files:[];
+  const remote=task?.remoteStages?.[kind==="cc" ? "cc" : "youtube-audio"] || null;
+  const status=String(remote?.status||"").toLowerCase();
+  const message=String(remote?.message||remote?.error_message||"").trim();
+
+  if(status==="running" || status==="queued"){
+    return {key:"working",label:"執行中",detail:message || "Kaggle 正在處理這項抓取工作。"};
+  }
+  if(status==="done"){
+    return {
+      key:"complete",
+      label:"已抓取完成",
+      detail:list.length
+        ? "雲端目前有 "+list.length+" 個檔案。"
+        : (message || "工作已完成，正在同步雲端檔案。")
+    };
+  }
+  if(status==="error"){
+    if(list.length){
+      return {
+        key:"partial",
+        label:"部分檔案已存在",
+        detail:"最近一次執行失敗，但 Drive 已有 "+list.length+" 個檔案。"+(message ? "｜"+message : "")
+      };
+    }
+    return {key:"error",label:"執行失敗",detail:message || "最近一次抓取工作失敗。"};
+  }
+  if(status==="stale"){
+    return {
+      key:list.length ? "partial" : "error",
+      label:list.length ? "部分檔案已存在" : "需重新執行",
+      detail:message || "目前結果已標記為過期。"
+    };
+  }
+  if(list.length){
+    return {key:"complete",label:"已抓取完成",detail:"Drive 已找到 "+list.length+" 個檔案。"};
+  }
+  return {key:"idle",label:"未執行",detail:"尚未找到執行紀錄或雲端檔案。"};
+}
+
+function setCaptureState(kind,info){
+  const label=document.getElementById(kind==="cc" ? "youtube-cc-state-label" : "youtube-audio-state-label");
+  const detail=document.getElementById(kind==="cc" ? "youtube-cc-state-detail" : "youtube-audio-state-detail");
+  if(label){
+    label.className="capture-state state-"+String(info.key||"idle");
+    label.textContent=info.label||"未執行";
+  }
+  if(detail) detail.textContent=info.detail||"";
+}
+
+function renderCaptureFileList(containerId,files,emptyText){
+  const host=document.getElementById(containerId);
+  if(!host) return;
+  const list=Array.isArray(files)?files:[];
+  if(!list.length){
+    host.innerHTML='<div class="empty">'+escapeHtml(emptyText)+'</div>';
     return;
   }
 
-  select.disabled=false;
-  select.innerHTML=sorted.map(task=>
+  host.innerHTML=list.map(file=>{
+    const updated=file.updated_at ? new Date(file.updated_at).toLocaleString() : "";
+    const size=formatCaptureFileSize(file.size);
+    return '<div class="youtube-cloud-file">'+
+      '<div class="youtube-cloud-file-main">'+
+        '<b>'+escapeHtml(file.name||"未命名檔案")+'</b>'+
+        '<span>'+escapeHtml([size,updated].filter(Boolean).join("・"))+'</span>'+
+      '</div>'+
+      '<a href="'+escapeHtml(file.url||"#")+'" target="_blank" rel="noopener">開啟雲端檔案</a>'+
+    '</div>';
+  }).join("");
+}
+
+function renderYoutubeCaptureFiles(task){
+  const payload=task ? youtubeCaptureFilesCache[task.id] : null;
+  const ccFiles=payload?.cc_files || [];
+  const audioFiles=payload?.audio_files || [];
+
+  renderCaptureFileList(
+    "youtube-cc-files",
+    ccFiles,
+    task ? "尚未抓取任何 CC 字幕檔案。" : "尚未選擇課程。"
+  );
+  renderCaptureFileList(
+    "youtube-audio-files",
+    audioFiles,
+    task ? "尚未抓取任何 YouTube 音軌檔案。" : "尚未選擇課程。"
+  );
+
+  const ccFolder=document.getElementById("youtube-cc-folder-link");
+  const audioFolder=document.getElementById("youtube-audio-folder-link");
+  if(ccFolder){
+    ccFolder.hidden=!payload?.source_folder_url;
+    ccFolder.href=payload?.source_folder_url || "#";
+  }
+  if(audioFolder){
+    audioFolder.hidden=!payload?.audio_folder_url;
+    audioFolder.href=payload?.audio_folder_url || "#";
+  }
+
+  setCaptureState("cc",captureStateInfo(task,"cc",ccFiles));
+  setCaptureState("audio",captureStateInfo(task,"audio",audioFiles));
+
+  const badge=document.getElementById("youtube-capture-files-state");
+  if(badge && payload){
+    badge.textContent="已同步 "+(ccFiles.length+audioFiles.length)+" 個檔案";
+    badge.className="badge complete";
+  }
+}
+
+function requestYoutubeCaptureFiles(taskId,force=false){
+  const id=String(taskId||"").trim();
+  if(!id) return false;
+  const age=Date.now()-Number(youtubeCaptureFilesFetchedAt[id]||0);
+  if(!force && youtubeCaptureFilesCache[id] && age<30000) return true;
+  if(youtubeCaptureFilesLoadingTask===id && !force) return true;
+
+  youtubeCaptureFilesLoadingTask=id;
+  const badge=document.getElementById("youtube-capture-files-state");
+  if(badge){
+    badge.textContent="正在讀取 Drive…";
+    badge.className="badge";
+  }
+
+  const fields={action:"youtube_capture_files",task_id:id};
+  const sent=bridgeClientRequest(fields) || jsonpBridgeRequest(fields);
+  if(!sent){
+    youtubeCaptureFilesLoadingTask="";
+    if(badge){
+      badge.textContent="尚未連線控制中心";
+      badge.className="badge";
+    }
+  }
+  return sent;
+}
+
+function renderYoutubeAudioTasks(forceFiles=false){
+  const periodSelect=document.getElementById("youtube-capture-period");
+  const taskSelect=document.getElementById("youtube-audio-task");
+  const info=document.getElementById("youtube-audio-task-info");
+  if(!taskSelect) return;
+
+  const periods=availablePeriods();
+  if(periodSelect){
+    const previousPeriod=Number(periodSelect.value)||null;
+    periodSelect.innerHTML=periods.length
+      ? periods.map(p=>'<option value="'+p+'">第 '+p+' 期</option>').join("")
+      : '<option value="">尚無期數</option>';
+    if(previousPeriod && periods.includes(previousPeriod)){
+      periodSelect.value=String(previousPeriod);
+    }else if(periods.length){
+      periodSelect.value=String(periods[0]);
+    }
+    periodSelect.disabled=!periods.length;
+  }
+
+  const period=youtubeCaptureSelectedPeriod();
+  const filtered=tasks
+    .filter(t=>Number(t.period)===Number(period))
+    .sort((a,b)=>
+      Number(String(a.lesson).replace(/\D/g,""))-
+      Number(String(b.lesson).replace(/\D/g,""))
+    );
+
+  const previousTask=String(taskSelect.value||"");
+  if(!filtered.length){
+    taskSelect.innerHTML='<option value="">這一期尚無課程</option>';
+    taskSelect.disabled=true;
+    if(info) info.textContent="這一期目前沒有可抓取的課程任務。";
+    renderYoutubeCaptureFiles(null);
+    return;
+  }
+
+  taskSelect.disabled=false;
+  taskSelect.innerHTML=filtered.map(task=>
     '<option value="'+escapeHtml(task.id)+'">'+
-      escapeHtml(task.id)+"｜第"+escapeHtml(task.period)+"期・"+escapeHtml(task.lesson)+
+      escapeHtml(task.lesson)+"｜"+escapeHtml(task.title||task.id)+
     '</option>'
   ).join("");
-  if(previous && sorted.some(x=>String(x.id)===previous)){
-    select.value=previous;
+  if(previousTask && filtered.some(x=>String(x.id)===previousTask)){
+    taskSelect.value=previousTask;
   }
 
   const task=youtubeAudioSelectedTask();
   if(info){
     info.innerHTML=task
-      ? '<b>'+escapeHtml(task.id)+'</b><br><span class="muted">'+escapeHtml(task.url||"尚無 YouTube URL")+'</span>'
+      ? '<div class="youtube-capture-task-info">'+
+          '<div><b>'+escapeHtml(task.id)+'</b><span>第'+escapeHtml(task.period)+'期・'+escapeHtml(task.lesson)+'</span></div>'+
+          '<a href="'+escapeHtml(task.url||"#")+'" target="_blank" rel="noopener">'+escapeHtml(task.url||"尚無 YouTube URL")+'</a>'+
+        '</div>'
       : "尚未選擇課程。";
   }
 
-  if(status && task){
-    const remote=task.remoteStages && (
-      task.remoteStages["youtube-audio"] ||
-      task.remoteStages.cc
-    );
-    if(remote){
-      status.textContent=
-        remoteStatusText(remote.status)+
-        (remote.message ? "｜"+String(remote.message) : "");
+  renderYoutubeCaptureFiles(task);
+  if(task){
+    const age=Date.now()-Number(youtubeCaptureFilesFetchedAt[task.id]||0);
+    if(forceFiles || !youtubeCaptureFilesCache[task.id] || age>=30000){
+      requestYoutubeCaptureFiles(task.id,forceFiles);
     }
   }
 }
@@ -1127,16 +1295,12 @@ function youtubeCaptureMode(){
 
 function syncYoutubeCaptureModeUi(){
   const mode=youtubeCaptureMode();
-  const ccOptions=document.getElementById("youtube-cc-options");
   const audioOptions=document.getElementById("youtube-audio-options");
   const button=document.getElementById("youtube-audio-run");
   const status=document.getElementById("youtube-audio-status");
 
-  if(ccOptions) ccOptions.hidden=mode!=="cc";
   if(audioOptions) audioOptions.hidden=mode!=="audio";
-  if(button){
-    button.textContent=mode==="cc" ? "抓取 CC 字幕" : "抓取音軌";
-  }
+  if(button) button.textContent=mode==="cc" ? "抓取 CC 字幕" : "抓取音軌";
   if(status && !/已送出|Kaggle|完成|錯誤|處理中/.test(String(status.textContent||""))){
     status.textContent=mode==="cc"
       ? "將抓取 YouTube 目前可取得的多語 CC 字幕。"
@@ -1165,7 +1329,7 @@ function runYoutubeAudioGrab(){
   const mode=youtubeCaptureMode();
 
   if(!task){
-    if(status) status.textContent="請先選擇課程任務。";
+    if(status) status.textContent="請先選擇期數與課程。";
     return;
   }
   if(!task.url){
@@ -1187,41 +1351,27 @@ function runYoutubeAudioGrab(){
     return;
   }
   if(bridgeProtocolVersion<=0){
-    if(status){
-      status.textContent=
-        "控制中心已連線，但尚未回報 Bridge 版本。請重新連線控制中心；"+
-        "若仍顯示此訊息，代表 Apps Script 需要重新部署最新版 Code.gs。";
-    }
+    if(status) status.textContent="控制中心尚未回報 Bridge 版本，請重新連線後再試。";
     return;
   }
   if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
     if(status){
       status.textContent=
         "Apps Script 控制中心版本過舊：目前 v"+bridgeProtocolVersion+
-        "，需要 v"+REQUIRED_BRIDGE_PROTOCOL+"。請重新部署最新版 Code.gs。";
+        "，需要 v"+REQUIRED_BRIDGE_PROTOCOL+"。";
     }
     return;
   }
 
-  const payload={
-    action:"run_stage",
-    task_id:task.id,
-    stage:"cc"
-  };
+  const payload={action:"run_stage",task_id:task.id,stage:"cc"};
   if(mode==="audio"){
     payload.lang="multi-audio";
     payload.langs=langs;
   }
 
   const sent=submitBridgePost(payload);
-
   if(!sent){
-    if(status){
-      status.textContent=
-        mode==="cc"
-          ? "CC 字幕工作未送出；請重新連線控制中心後再試。"
-          : "音軌工作未送出；請重新連線控制中心後再試。";
-    }
+    if(status) status.textContent="YouTube 抓取工作未送出，請重新連線控制中心後再試。";
     return;
   }
 
@@ -1231,6 +1381,10 @@ function runYoutubeAudioGrab(){
       ? "已送出｜抓取所有可用 CC 字幕"
       : "已送出｜"+(langs==="all" ? "抓取全部可用音軌" : "指定音軌語言："+langs);
   }
+
+  const stateInfo={key:"working",label:"執行中",detail:"Kaggle 已收到抓取工作，等待處理。"};
+  setCaptureState(mode==="cc"?"cc":"audio",stateInfo);
+
   window.setTimeout(()=>{
     if(button) button.disabled=false;
     requestTaskStatuses();
@@ -3244,7 +3398,17 @@ window.addEventListener("message",event=>{
   }
 });
 
-document.getElementById("youtube-audio-task")?.addEventListener("change",renderYoutubeAudioTasks);
+document.getElementById("youtube-capture-period")?.addEventListener("change",()=>{
+  renderYoutubeAudioTasks(true);
+});
+document.getElementById("youtube-audio-task")?.addEventListener("change",()=>{
+  renderYoutubeAudioTasks(true);
+});
+document.getElementById("youtube-capture-refresh")?.addEventListener("click",()=>{
+  const task=youtubeAudioSelectedTask();
+  requestTaskStatuses();
+  if(task) requestYoutubeCaptureFiles(task.id,true);
+});
 document.querySelectorAll('input[name="youtube-capture-type"]').forEach(input=>{
   input.addEventListener("change",syncYoutubeCaptureModeUi);
 });
