@@ -452,7 +452,7 @@ def _select_english_auto_caption(info: dict):
 
 
 
-AUTO_CC_TARGETS = ("zh-Hant", "en", "th", "es", "id", "vi", "sd", "ta")
+AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "sd", "ta")
 
 
 def _caption_language_candidates(target: str):
@@ -520,6 +520,60 @@ def _select_auto_caption(info: dict, target: str):
     return lang_key, preferred
 
 
+def _cc_plain_time(seconds: float):
+    total = max(0, int(float(seconds or 0)))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _cc_srt_time(seconds: float):
+    milliseconds = max(0, int(round(float(seconds or 0) * 1000)))
+    hours, rem = divmod(milliseconds, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    secs, millis = divmod(rem, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def _write_cc_companion_files(
+    workdir: Path,
+    target: str,
+    segments,
+):
+    """Write human-readable TXT/SRT beside the normalized JSON."""
+    if not segments:
+        return {}
+
+    txt_path = workdir / f"youtube.{target}.txt"
+    srt_path = workdir / f"youtube.{target}.srt"
+
+    txt_lines = [
+        f"[{_cc_plain_time(x.get('start'))} - "
+        f"{_cc_plain_time(x.get('end'))}] {str(x.get('text') or '').strip()}"
+        for x in segments
+        if str(x.get("text") or "").strip()
+    ]
+    txt_path.write_text(
+        "\n".join(txt_lines) + ("\n" if txt_lines else ""),
+        encoding="utf-8",
+    )
+
+    srt_lines = []
+    for index, item in enumerate(segments, start=1):
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        srt_lines.extend([
+            str(index),
+            f"{_cc_srt_time(item.get('start'))} --> "
+            f"{_cc_srt_time(item.get('end'))}",
+            text,
+            "",
+        ])
+    srt_path.write_text("\n".join(srt_lines), encoding="utf-8")
+    return {"txt": txt_path, "srt": srt_path}
+
+
 def _write_auto_cc_json(
     workdir: Path,
     target: str,
@@ -531,22 +585,35 @@ def _write_auto_cc_json(
     if not segments:
         return None
 
+    duration = max(
+        (float(x.get("end") or 0) for x in segments),
+        default=0.0,
+    )
     out = workdir / f"youtube.{target}.json"
     out.write_text(
         json.dumps(
             {
+                # Keep the same core shape as SoulKey ASR segments.json so
+                # downstream tools and humans can inspect both consistently.
+                "model": "youtube-auto-caption",
+                "language": target,
+                "language_probability": None,
+                "duration": round(duration, 3),
+                "duration_after_vad": None,
+                "segments": segments,
+                # YouTube-specific provenance stays additive and does not
+                # change the ASR-compatible core fields above.
                 "source": source,
-                "target_language": target,
                 "youtube_language": str(language or target),
                 "video_id": video_id,
                 "segment_count": len(segments),
-                "segments": segments,
             },
             ensure_ascii=False,
             indent=2,
         ),
         encoding="utf-8",
     )
+    _write_cc_companion_files(workdir, target, segments)
     return out
 
 
@@ -1405,7 +1472,21 @@ def download_multilingual_cc(
     if "en" in targets and "en" not in results:
         english = download_english_cc(url, workdir)
         if english:
-            results["en"] = Path(english)
+            english = Path(english)
+            results["en"] = english
+            try:
+                payload = json.loads(english.read_text(encoding="utf-8"))
+                _write_cc_companion_files(
+                    workdir,
+                    "en",
+                    payload.get("segments") or [],
+                )
+            except Exception as exc:
+                print(
+                    f"[YouTube CC] English readable files failed: "
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
 
     print(
         "[YouTube CC] multilingual result: "
