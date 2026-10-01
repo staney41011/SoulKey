@@ -197,6 +197,7 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
     if english_cc_path and "en" not in auto_cc_paths:
         auto_cc_paths["en"] = english_cc_path
 
+    # Compatibility contract: English review continues to read youtube.en.json.
     uploaded_cc_languages = []
     for lang, raw_path in auto_cc_paths.items():
         if str(lang).lower().startswith("zh"):
