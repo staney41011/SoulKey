@@ -3328,6 +3328,38 @@ window.addEventListener("message",event=>{
     }
   }
 
+  if(data.type==="drive_names_migrated"){
+    const state=document.getElementById("drive-name-state");
+    const status=document.getElementById("drive-name-status");
+    const button=document.getElementById("drive-name-migrate-all");
+    if(button) button.disabled=false;
+
+    if(data.ok){
+      if(state){
+        state.textContent="整理完成";
+        state.className="badge complete";
+      }
+      if(status){
+        status.textContent=
+          "已整理 "+String(data.task_count||0)+" 堂課；"+
+          "重新命名 "+String(data.renamed||0)+" 個檔案，"+
+          "寫入 canonical 標記 "+String(data.marked||0)+" 個。";
+      }
+      requestTaskStatuses();
+      if(currentView==="youtube-audio"){
+        renderYoutubeAudioTasks(true);
+      }
+    }else{
+      if(state){
+        state.textContent="整理失敗";
+        state.className="badge";
+      }
+      if(status){
+        status.textContent="檔名整理失敗："+(data.message||data.error||"未知錯誤");
+      }
+    }
+  }
+
   if(data.type==="status_result"){
     if(data.ok){
       applyRemoteStatuses(data);
@@ -3434,6 +3466,34 @@ window.addEventListener("message",event=>{
       syncState.className="warn";
       if(syncText) syncText.textContent="狀態表連線失敗："+reason;
     }
+  }
+});
+
+document.getElementById("drive-name-migrate-all")?.addEventListener("click",()=>{
+  const state=document.getElementById("drive-name-state");
+  const status=document.getElementById("drive-name-status");
+  const button=document.getElementById("drive-name-migrate-all");
+
+  if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+    if(status){
+      status.textContent=
+        "Apps Script 尚未部署支援正式檔名的最新版，請先重新部署。";
+    }
+    return;
+  }
+
+  const sent=submitBridgePost({action:"drive_names_migrate"});
+  if(!sent){
+    if(status) status.textContent="工作未送出；請重新連線控制中心後再試。";
+    return;
+  }
+  if(button) button.disabled=true;
+  if(state){
+    state.textContent="整理中";
+    state.className="badge";
+  }
+  if(status){
+    status.textContent="正在整理所有既有課程的 Google Drive 檔名…";
   }
 });
 
