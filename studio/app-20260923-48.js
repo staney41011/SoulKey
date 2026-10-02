@@ -1095,6 +1095,13 @@ function captureStateInfo(task,kind,files){
     return {key:"working",label:"執行中",detail:message || "Kaggle 正在處理這項抓取工作。"};
   }
   if(status==="done"){
+    if(message.includes("NO_YOUTUBE_CC")){
+      return {
+        key:"idle",
+        label:"無可用 CC",
+        detail:"YouTube 沒有提供字幕軌；請改用中文 ASR，外語由 SoulKey 翻譯流程產生。"
+      };
+    }
     const match=message.match(/(\d+)\/(\d+)\s*語言完成/);
     const partial=match && Number(match[1])<Number(match[2]);
     return {
