@@ -2399,10 +2399,14 @@ function swapLessonFolderPositions_(oldPeriod, oldLesson, newPeriod, newLesson) 
   const sourceTemp = "__SOULKEY_MOVE_A_" + token;
   const destinationTemp = "__SOULKEY_MOVE_B_" + token;
 
-  source.lesson.setName(sourceTemp);
-  destination.lesson.setName(destinationTemp);
-
+  let sourceRenamed = false;
+  let destinationRenamed = false;
   try {
+    source.lesson.setName(sourceTemp);
+    sourceRenamed = true;
+    destination.lesson.setName(destinationTemp);
+    destinationRenamed = true;
+
     if (source.course.getId() !== destination.course.getId()) {
       source.lesson.moveTo(destination.course);
       destination.lesson.moveTo(source.course);
@@ -2418,8 +2422,12 @@ function swapLessonFolderPositions_(oldPeriod, oldLesson, newPeriod, newLesson) 
         destination.lesson.moveTo(destination.course);
       }
     } catch (_) {}
-    try { source.lesson.setName(source.name); } catch (_) {}
-    try { destination.lesson.setName(destination.name); } catch (_) {}
+    if (sourceRenamed) {
+      try { source.lesson.setName(source.name); } catch (_) {}
+    }
+    if (destinationRenamed) {
+      try { destination.lesson.setName(destination.name); } catch (_) {}
+    }
     throw err;
   }
 }
