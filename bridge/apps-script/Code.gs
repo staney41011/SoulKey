@@ -2354,16 +2354,17 @@ function cachedChildFolder_(parent, name) {
 }
 
 function lessonFolders_(taskId) {
-  // review_load 只需要期數與堂次，直接由 P253-L02 這類 task_id 解析，
-  // 避免每次進人工定稿都先掃完整張「任務佇列」。
-  const parsed = parseTaskId_(taskId);
-  const task = parsed || taskInfo_(taskId);
-  const lessonNumber = parsed
-    ? parsed.lessonNumber
-    : Number(String(task.lesson).replace(/[^0-9]/g, ""));
+  // task_id is a stable legacy execution key. Schedule position must always
+  // come from the control sheet so a rescheduled course does not jump back to
+  // the slot encoded in P255-L03.
+  const task = taskInfo_(taskId);
+  const lessonNumber = Number(String(task.lesson || "").replace(/[^0-9]/g, ""));
+  if (!task.period || !lessonNumber) {
+    throw new Error("任務缺少目前期數或堂次：" + taskId);
+  }
 
   const cache = CacheService.getScriptCache();
-  const cacheKey = "lesson-folders-v2:" + String(taskId || "").trim();
+  const cacheKey = "lesson-folders-v3:" + String(taskId || "").trim();
   const cached = cache.get(cacheKey);
 
   if (cached) {
@@ -2371,6 +2372,7 @@ function lessonFolders_(taskId) {
       const ids = JSON.parse(cached);
       return {
         task: task,
+        lesson: DriveApp.getFolderById(ids.lesson),
         source: DriveApp.getFolderById(ids.source),
         transcript: DriveApp.getFolderById(ids.transcript),
         translation: DriveApp.getFolderById(ids.translation)
@@ -2393,6 +2395,7 @@ function lessonFolders_(taskId) {
   cache.put(
     cacheKey,
     JSON.stringify({
+      lesson: lessonFolder.getId(),
       source: source.getId(),
       transcript: transcript.getId(),
       translation: translation.getId()
@@ -2402,6 +2405,7 @@ function lessonFolders_(taskId) {
 
   return {
     task: task,
+    lesson: lessonFolder,
     source: source,
     transcript: transcript,
     translation: translation
@@ -2421,20 +2425,12 @@ function youtubeCaptureFiles_(taskId) {
     };
   }
 
-  const parsed = parseTaskId_(normalizedTaskId);
   const task = ensureTaskNamingMetadata_(normalizedTaskId);
-  const lessonNumber = parsed
-    ? parsed.lessonNumber
-    : Number(String(task.lesson || "").replace(/[^0-9]/g, ""));
-
-  const periodFolder = DriveApp.getFolderById(periodFolderId_(task.period));
-  const courseFolder = cachedChildFolder_(periodFolder, "01_課程");
-  const lessonFolder = cachedChildFolder_(
-    courseFolder,
-    String(lessonNumber).padStart(2, "0") + "_第" + lessonNumber + "堂"
-  );
-  const sourceFolder = cachedChildFolder_(lessonFolder, "00_來源資訊");
-  const transcriptFolder = cachedChildFolder_(lessonFolder, "01_中文逐字稿");
+  const lessonNumber = Number(String(task.lesson || "").replace(/[^0-9]/g, ""));
+  const resolved = lessonFolders_(normalizedTaskId);
+  const lessonFolder = resolved.lesson;
+  const sourceFolder = resolved.source;
+  const transcriptFolder = resolved.transcript;
   const audioFolder = cachedChildFolder_(lessonFolder, "04_音檔");
 
   function fileInfo_(file, kind) {
@@ -2586,18 +2582,8 @@ function migrateOneLessonFormalNames_(taskId) {
     folders.translation
   ];
 
-  // Resolve remaining lesson subfolders only for this migration.
-  const parsed = parseTaskId_(taskId);
-  const lessonFolder = DriveApp.getFolderById(
-    cachedChildFolder_(
-      cachedChildFolder_(
-        DriveApp.getFolderById(periodFolderId_(parsed.period)),
-        "01_課程"
-      ),
-      String(parsed.lessonNumber).padStart(2, "0") +
-        "_第" + parsed.lessonNumber + "堂"
-    ).getId()
-  );
+  // The current lesson folder comes from the control sheet, not task_id.
+  const lessonFolder = folders.lesson;
   ["03_字幕", "04_音檔", "05_完成影片"].forEach(function(name) {
     try { folderList.push(cachedChildFolder_(lessonFolder, name)); } catch (_) {}
   });
