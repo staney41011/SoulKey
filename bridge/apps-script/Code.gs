@@ -1643,8 +1643,80 @@ function getSheetByName_(name) {
   return sheet;
 }
 
-function readTasks_() {
+function ensureTaskIdentitySchema_() {
   const sheet = getSheetByName_(TASK_SHEET_NAME);
+  const maxColumns = sheet.getMaxColumns();
+  if (maxColumns < TASK_TOTAL_COLUMNS) {
+    sheet.insertColumnsAfter(maxColumns, TASK_TOTAL_COLUMNS - maxColumns);
+  }
+
+  const headers = [
+    "課程UID", "排程狀態", "原始期數", "原始堂次", "上次調課時間", "調課紀錄"
+  ];
+  sheet.getRange(1, 21, 1, headers.length).setValues([headers]);
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return sheet;
+
+  const values = sheet.getRange(2, 1, lastRow - 1, TASK_TOTAL_COLUMNS).getValues();
+  let maxUid = 0;
+  values.forEach(function(row) {
+    const m = /^SKC-(\d+)$/i.exec(String(row[TASK_COL.course_uid] || "").trim());
+    if (m) maxUid = Math.max(maxUid, Number(m[1]) || 0);
+  });
+
+  const updates = [];
+  values.forEach(function(row, index) {
+    if (!String(row[0] || "").trim()) return;
+    let changed = false;
+    if (!String(row[TASK_COL.course_uid] || "").trim()) {
+      maxUid += 1;
+      row[TASK_COL.course_uid] = "SKC-" + String(maxUid).padStart(6, "0");
+      changed = true;
+    }
+    if (!String(row[TASK_COL.schedule_status] || "").trim()) {
+      row[TASK_COL.schedule_status] = "已排定";
+      changed = true;
+    }
+    if (!String(row[TASK_COL.original_period] || "").trim()) {
+      row[TASK_COL.original_period] = row[1] || "";
+      changed = true;
+    }
+    if (!String(row[TASK_COL.original_lesson] || "").trim()) {
+      row[TASK_COL.original_lesson] = row[2] || "";
+      changed = true;
+    }
+    if (changed) updates.push({row: index + 2, values: row});
+  });
+
+  updates.forEach(function(item) {
+    sheet.getRange(item.row, 1, 1, TASK_TOTAL_COLUMNS).setValues([item.values]);
+  });
+  return sheet;
+}
+
+function allocateCourseUid_(sheet) {
+  const lastRow = sheet.getLastRow();
+  let maxUid = 0;
+  if (lastRow >= 2) {
+    const values = sheet.getRange(2, 21, lastRow - 1, 1).getDisplayValues();
+    values.forEach(function(row) {
+      const m = /^SKC-(\d+)$/i.exec(String(row[0] || "").trim());
+      if (m) maxUid = Math.max(maxUid, Number(m[1]) || 0);
+    });
+  }
+  return "SKC-" + String(maxUid + 1).padStart(6, "0");
+}
+
+function allocateTaskId_(baseId, byId) {
+  if (!byId[baseId]) return baseId;
+  let n = 2;
+  while (byId[baseId + "-R" + n]) n += 1;
+  return baseId + "-R" + n;
+}
+
+function readTasks_() {
+  const sheet = ensureTaskIdentitySchema_();
   const values = sheet.getDataRange().getDisplayValues();
   const result = [];
 
@@ -1655,6 +1727,12 @@ function readTasks_() {
 
     result.push({
       id: id,
+      course_uid: String(row[TASK_COL.course_uid] || "").trim(),
+      schedule_status: String(row[TASK_COL.schedule_status] || "").trim(),
+      original_period: Number(String(row[TASK_COL.original_period] || "").replace(/[^0-9]/g, "")) || null,
+      original_lesson: String(row[TASK_COL.original_lesson] || "").trim(),
+      rescheduled_at: String(row[TASK_COL.rescheduled_at] || "").trim(),
+      schedule_note: String(row[TASK_COL.schedule_note] || "").trim(),
       period: Number(String(row[1] || "").replace(/[^0-9]/g, "")) || null,
       lesson: String(row[2] || "").trim(),
       title: String(row[3] || "").trim(),
@@ -1685,7 +1763,7 @@ function upsertTasks_(items) {
     throw new Error("tasks_json 必須至少包含一個任務");
   }
 
-  const sheet = getSheetByName_(TASK_SHEET_NAME);
+  const sheet = ensureTaskIdentitySchema_();
   const values = sheet.getDataRange().getValues();
   const byId = {};
 
@@ -1697,22 +1775,39 @@ function upsertTasks_(items) {
   const saved = [];
 
   items.slice(0, 20).forEach(function(item) {
-    const id = String(item.id || item.task_id || "").trim();
+    let requestedId = String(item.id || item.task_id || "").trim();
     const period = Number(item.period || 0);
     const lesson = String(item.lesson || "").trim();
     const url = String(item.url || item.youtube_url || "").trim();
     const note = String(item.note || "").trim();
 
-    if (!id || !period || !lesson || !url) {
+    if (!requestedId || !period || !lesson || !url) {
       throw new Error("任務缺少 id / period / lesson / url");
     }
 
     ensurePeriodStructure_(period);
 
-    const existingRow = byId[id] || null;
+    let existingRow = byId[requestedId] || null;
+    if (existingRow) {
+      const existing = sheet.getRange(existingRow, 1, 1, TASK_TOTAL_COLUMNS).getValues()[0];
+      const existingPeriod = Number(existing[1] || 0);
+      const existingLesson = String(existing[2] || "").trim();
+      // If the old task ID has already moved to another schedule slot, a new
+      // course created in its former slot must get a fresh legacy ID instead
+      // of overwriting the moved course.
+      if (
+        (existingPeriod !== period || existingLesson !== lesson) &&
+        !String(item.course_uid || "").trim()
+      ) {
+        requestedId = allocateTaskId_(requestedId, byId);
+        existingRow = null;
+      }
+    }
+
+    const id = requestedId;
     let row = existingRow
-      ? sheet.getRange(existingRow, 1, 1, 20).getValues()[0]
-      : new Array(20).fill("");
+      ? sheet.getRange(existingRow, 1, 1, TASK_TOTAL_COLUMNS).getValues()[0]
+      : new Array(TASK_TOTAL_COLUMNS).fill("");
 
     const previousUrl = String(row[4] || "").trim();
     const sourceChanged = !!(
@@ -1720,12 +1815,8 @@ function upsertTasks_(items) {
     );
 
     if (sourceChanged) {
-      // A replacement YouTube URL invalidates every derived artifact. Keep the
-      // old Drive files for audit/recovery, but clear sheet completion flags
-      // and mark completed workflow stages stale so Studio cannot silently
-      // reuse outputs from the previous video.
-      row[3] = "";  // title
-      row[5] = "";  // lecturer
+      row[3] = "";
+      row[5] = "";
       for (let idx = 7; idx <= 13; idx++) row[idx] = "";
 
       ["zh", "en-review", "multi", "tts"].forEach(function(stage) {
@@ -1747,8 +1838,18 @@ function upsertTasks_(items) {
       ? "YouTube 來源已更新；需從中文 ASR/校稿重新執行"
       : (note || row[19] || "由 SoulKey Studio 建立");
 
+    row[TASK_COL.course_uid] =
+      String(row[TASK_COL.course_uid] || item.course_uid || "").trim() ||
+      allocateCourseUid_(sheet);
+    row[TASK_COL.schedule_status] =
+      String(row[TASK_COL.schedule_status] || "").trim() || "已排定";
+    row[TASK_COL.original_period] =
+      String(row[TASK_COL.original_period] || "").trim() || period;
+    row[TASK_COL.original_lesson] =
+      String(row[TASK_COL.original_lesson] || "").trim() || lesson;
+
     if (existingRow) {
-      sheet.getRange(existingRow, 1, 1, 20).setValues([row]);
+      sheet.getRange(existingRow, 1, 1, TASK_TOTAL_COLUMNS).setValues([row]);
     } else {
       sheet.appendRow(row);
       byId[id] = sheet.getLastRow();
@@ -1756,6 +1857,7 @@ function upsertTasks_(items) {
 
     saved.push({
       id: id,
+      course_uid: row[TASK_COL.course_uid],
       period: period,
       lesson: lesson,
       url: url
