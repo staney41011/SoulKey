@@ -2009,13 +2009,32 @@ function confirmNextStage(taskId){
 
   window.setTimeout(()=>requestTaskStatuses(),1800);
 }
+function taskAtSchedulePosition(period,lessonNo){
+  return tasks.find(t=>
+    Number(t.period)===Number(period) &&
+    Number(String(t.lesson||"").replace(/\D/g,""))===Number(lessonNo)
+  ) || null;
+}
+
+function availableLegacyTaskId(period,lessonNo){
+  const base="P"+period+"-L"+String(lessonNo).padStart(2,"0");
+  if(!tasks.some(t=>String(t.id)===base)) return base;
+  let n=2;
+  while(tasks.some(t=>String(t.id)===base+"-R"+n)) n++;
+  return base+"-R"+n;
+}
+
 function updateTaskCodes(){
   const period=Number(document.getElementById("period").value)||0;
   for(let i=1;i<=4;i++){
-    const id="P"+period+"-L"+String(i).padStart(2,"0");
-    const existing=tasks.find(t=>t.id===id);
+    const existing=taskAtSchedulePosition(period,i);
+    const id=existing?.id || availableLegacyTaskId(period,i);
     const code=document.getElementById("task-code-"+i);
-    if(code) code.textContent=id+(existing?" · 已建立":"");
+    if(code){
+      code.textContent=existing
+        ? ((existing.course_uid||id)+" · 已建立")
+        : id;
+    }
   }
 }
 document.getElementById("dashboard-period")?.addEventListener("change",e=>{
@@ -2117,14 +2136,16 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
   }
 
   const replacements=entries.filter(x=>{
-    const id="P"+period+"-L"+String(x.lessonNo).padStart(2,"0");
-    const existing=tasks.find(t=>t.id===id);
+    const existing=taskAtSchedulePosition(period,x.lessonNo);
     return existing && existing.url && existing.url!==x.url;
   });
 
   if(replacements.length){
-    const ids=replacements.map(x=>"P"+period+"-L"+String(x.lessonNo).padStart(2,"0")).join("、");
-    if(!confirm(ids+" 已經建立過。\n\n這次會用新的 YouTube 網址覆蓋原網址，確定要更新嗎？")){
+    const labels=replacements.map(x=>{
+      const existing=taskAtSchedulePosition(period,x.lessonNo);
+      return existing?.course_uid || existing?.id || ("第"+x.lessonNo+"堂");
+    }).join("、");
+    if(!confirm(labels+" 已經建立過。\n\n這次會用新的 YouTube 網址覆蓋原網址，確定要更新嗎？")){
       return;
     }
   }
@@ -2132,8 +2153,8 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
   const created=[];
   for(const entry of entries){
     const i=entry.lessonNo;
-    const id="P"+period+"-L"+String(i).padStart(2,"0");
-    const existing=tasks.find(t=>t.id===id);
+    const existing=taskAtSchedulePosition(period,i);
+    const id=existing?.id || availableLegacyTaskId(period,i);
 
     const task=existing || {
       id,
@@ -2178,7 +2199,8 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
       period:t.period,
       lesson:t.lesson,
       url:t.url,
-      note:t.note||""
+      note:t.note||"",
+      course_uid:t.course_uid||""
     })))
   });
 
