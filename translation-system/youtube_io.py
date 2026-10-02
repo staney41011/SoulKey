@@ -1710,9 +1710,16 @@ def download_multilingual_cc(
 
     missing = [target for target in targets if target not in results]
     if missing:
+        fallback_info = (
+            dict(info)
+            if 'info' in locals() and isinstance(info, dict)
+            else {}
+        )
+        if not fallback_info.get("id"):
+            fallback_info["id"] = _video_id_from_url(url)
         results.update(
             _download_missing_auto_translations(
-                info if 'info' in locals() and isinstance(info, dict) else {},
+                fallback_info,
                 workdir,
                 missing,
             )
