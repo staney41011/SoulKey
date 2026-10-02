@@ -9,6 +9,8 @@ from config import COL, SPREADSHEET_ID, TASK_SHEET_RANGE
 from drive_naming import formal_drive_name, rename_existing_outputs
 from google_io import (
     build_google_services,
+    download_drive_file,
+    find_file,
     read_values,
     update_cells,
     upload_or_replace_file,
@@ -17,7 +19,12 @@ from runner import resolve_lesson_folders
 from polish_runner import attach_english_cc
 from github_review_cache import publish_review_cache
 from status_io import new_run_id, mark_running, mark_done, mark_error
-from youtube_io import download_multilingual_cc, extract_metadata
+from youtube_io import (
+    AUTO_CC_TARGETS,
+    download_multilingual_cc,
+    extract_metadata,
+    write_cc_readable_files_from_json,
+)
 
 
 RAW_REVIEW_BASE = (
@@ -157,13 +164,56 @@ def main():
                 flush=True,
             )
 
+        # First repair legacy CC JSON already stored on Drive.  This avoids
+        # re-downloading captions just to create TXT/SRT companions.
+        existing_languages = []
+        for lang in AUTO_CC_TARGETS:
+            canonical_json = f"youtube.{lang}.json"
+            item = find_file(drive, folders["source"], canonical_json)
+            if not item:
+                continue
+
+            local_json = workdir / canonical_json
+            download_drive_file(drive, item["id"], local_json)
+            try:
+                write_cc_readable_files_from_json(
+                    local_json,
+                    workdir=workdir,
+                    target=lang,
+                )
+            except Exception as exc:
+                print(
+                    f"[CC] 舊 JSON 可讀檔回填失敗 {lang}: "
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                continue
+
+            for suffix in ("txt", "srt", "transcript.txt"):
+                local_path = local_json.with_suffix("." + suffix)
+                if not local_path.exists():
+                    continue
+                canonical_name = f"youtube.{lang}.{suffix}"
+                upload_or_replace_file(
+                    drive,
+                    folders["source"],
+                    local_path,
+                    canonical_name,
+                    display_name=formal_drive_name(task, canonical_name),
+                )
+                print(
+                    f"[CC] 既有 JSON 回填：{canonical_name}",
+                    flush=True,
+                )
+            existing_languages.append(lang)
+
         cc_paths = download_multilingual_cc(task["youtube_url"], workdir)
-        if not cc_paths:
+        if not cc_paths and not existing_languages:
             raise RuntimeError(
                 "YouTube 沒有抓到任何可用的自動字幕。"
             )
 
-        uploaded_languages = []
+        uploaded_languages = list(existing_languages)
         for lang, cc_path in cc_paths.items():
             # Chinese is never accepted from YouTube auto-translation.
             if str(lang).lower().startswith("zh"):
@@ -194,7 +244,7 @@ def main():
                 uploaded_any = True
                 print(f"[CC] {drive_name} 已更新到 Drive 來源資料夾")
 
-            if uploaded_any:
+            if uploaded_any and lang not in uploaded_languages:
                 uploaded_languages.append(lang)
 
         if not uploaded_languages:
