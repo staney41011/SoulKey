@@ -2353,6 +2353,239 @@ function cachedChildFolder_(parent, name) {
   return folder;
 }
 
+function lessonNumberFromLabel_(value) {
+  const match = String(value || "").match(/(\d+)/);
+  return match ? Number(match[1]) : 0;
+}
+
+function courseFolderForPeriod_(period) {
+  const periodFolder = DriveApp.getFolderById(periodFolderId_(period));
+  return cachedChildFolder_(periodFolder, "01_課程");
+}
+
+function lessonFolderForPosition_(period, lessonNumber) {
+  const courseFolder = courseFolderForPeriod_(period);
+  const name =
+    String(Number(lessonNumber)).padStart(2, "0") +
+    "_第" + Number(lessonNumber) + "堂";
+  return {
+    course: courseFolder,
+    lesson: cachedChildFolder_(courseFolder, name),
+    name: name
+  };
+}
+
+function clearScheduleCaches_(taskIds, positions) {
+  const cache = CacheService.getScriptCache();
+  (taskIds || []).filter(Boolean).forEach(function(taskId) {
+    cache.remove("task-info-v5:" + taskId);
+    cache.remove("lesson-folders-v3:" + taskId);
+  });
+
+  (positions || []).forEach(function(pos) {
+    try {
+      const course = courseFolderForPeriod_(pos.period);
+      const name =
+        String(Number(pos.lesson)).padStart(2, "0") +
+        "_第" + Number(pos.lesson) + "堂";
+      cache.remove("folder-id-v2:" + course.getId() + ":" + name);
+    } catch (_) {}
+  });
+}
+
+function swapLessonFolderPositions_(oldPeriod, oldLesson, newPeriod, newLesson) {
+  ensurePeriodStructure_(oldPeriod);
+  ensurePeriodStructure_(newPeriod);
+
+  const source = lessonFolderForPosition_(oldPeriod, oldLesson);
+  const destination = lessonFolderForPosition_(newPeriod, newLesson);
+
+  if (source.lesson.getId() === destination.lesson.getId()) return;
+
+  const token = Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  const sourceTemp = "__SOULKEY_MOVE_A_" + token;
+  const destinationTemp = "__SOULKEY_MOVE_B_" + token;
+
+  source.lesson.setName(sourceTemp);
+  destination.lesson.setName(destinationTemp);
+
+  try {
+    if (source.course.getId() !== destination.course.getId()) {
+      source.lesson.moveTo(destination.course);
+      destination.lesson.moveTo(source.course);
+    }
+    source.lesson.setName(destination.name);
+    destination.lesson.setName(source.name);
+  } catch (err) {
+    // Best-effort rollback. Folder IDs remain intact even when a rename or
+    // cross-period move fails halfway.
+    try {
+      if (source.course.getId() !== destination.course.getId()) {
+        source.lesson.moveTo(source.course);
+        destination.lesson.moveTo(destination.course);
+      }
+    } catch (_) {}
+    try { source.lesson.setName(source.name); } catch (_) {}
+    try { destination.lesson.setName(destination.name); } catch (_) {}
+    throw err;
+  }
+}
+
+function rescheduleTask_(taskId, newPeriod, newLesson) {
+  const normalizedId = String(taskId || "").trim();
+  newPeriod = Number(newPeriod || 0);
+  newLesson = Number(newLesson || 0);
+
+  if (!normalizedId || !newPeriod || !newLesson) {
+    throw new Error("調課需要 task_id、新期數與新堂次");
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = ensureTaskIdentitySchema_();
+    const values = sheet.getRange(
+      2, 1, Math.max(0, sheet.getLastRow() - 1), TASK_TOTAL_COLUMNS
+    ).getValues();
+
+    let sourceIndex = -1;
+    let destinationIndex = -1;
+
+    for (let i = 0; i < values.length; i++) {
+      const rowId = String(values[i][0] || "").trim();
+      if (rowId === normalizedId) sourceIndex = i;
+
+      const p = Number(String(values[i][1] || "").replace(/[^0-9]/g, ""));
+      const l = lessonNumberFromLabel_(values[i][2]);
+      const scheduleStatus = String(values[i][TASK_COL.schedule_status] || "").trim();
+      if (
+        rowId && rowId !== normalizedId &&
+        p === newPeriod && l === newLesson &&
+        scheduleStatus !== "已取消"
+      ) {
+        destinationIndex = i;
+      }
+    }
+
+    if (sourceIndex < 0) throw new Error("找不到要調整的課程：" + normalizedId);
+
+    const sourceRow = values[sourceIndex].slice();
+    const oldPeriod = Number(String(sourceRow[1] || "").replace(/[^0-9]/g, ""));
+    const oldLesson = lessonNumberFromLabel_(sourceRow[2]);
+    if (!oldPeriod || !oldLesson) throw new Error("原課程期數／堂次不完整");
+
+    if (oldPeriod === newPeriod && oldLesson === newLesson) {
+      return {
+        ok: true,
+        task_id: normalizedId,
+        course_uid: String(sourceRow[TASK_COL.course_uid] || ""),
+        changed: false,
+        message: "課程已經在指定位置"
+      };
+    }
+
+    const destinationRow =
+      destinationIndex >= 0 ? values[destinationIndex].slice() : null;
+    const destinationTaskId =
+      destinationRow ? String(destinationRow[0] || "").trim() : "";
+
+    const timestamp = nowText_();
+    const sourceHistory =
+      "由第" + oldPeriod + "期第" + oldLesson + "堂 → " +
+      "第" + newPeriod + "期第" + newLesson + "堂";
+
+    sourceRow[1] = newPeriod;
+    sourceRow[2] = "第" + newLesson + "堂";
+    sourceRow[TASK_COL.schedule_status] = "已調課";
+    sourceRow[TASK_COL.rescheduled_at] = timestamp;
+    sourceRow[TASK_COL.schedule_note] = sourceHistory;
+    sourceRow[18] = timestamp;
+
+    if (destinationRow) {
+      const destinationHistory =
+        "因 " + normalizedId + " 調課交換：由第" +
+        newPeriod + "期第" + newLesson + "堂 → 第" +
+        oldPeriod + "期第" + oldLesson + "堂";
+      destinationRow[1] = oldPeriod;
+      destinationRow[2] = "第" + oldLesson + "堂";
+      destinationRow[TASK_COL.schedule_status] = "已調課";
+      destinationRow[TASK_COL.rescheduled_at] = timestamp;
+      destinationRow[TASK_COL.schedule_note] = destinationHistory;
+      destinationRow[18] = timestamp;
+    }
+
+    // Write schedule first, then move the whole lesson folders. If Drive fails,
+    // restore the original sheet rows so there is never a silent mismatch.
+    sheet.getRange(sourceIndex + 2, 1, 1, TASK_TOTAL_COLUMNS).setValues([sourceRow]);
+    if (destinationRow) {
+      sheet.getRange(destinationIndex + 2, 1, 1, TASK_TOTAL_COLUMNS)
+        .setValues([destinationRow]);
+    }
+
+    clearScheduleCaches_(
+      [normalizedId, destinationTaskId],
+      [
+        {period: oldPeriod, lesson: oldLesson},
+        {period: newPeriod, lesson: newLesson}
+      ]
+    );
+
+    try {
+      swapLessonFolderPositions_(oldPeriod, oldLesson, newPeriod, newLesson);
+    } catch (err) {
+      sheet.getRange(sourceIndex + 2, 1, 1, TASK_TOTAL_COLUMNS)
+        .setValues([values[sourceIndex]]);
+      if (destinationIndex >= 0) {
+        sheet.getRange(destinationIndex + 2, 1, 1, TASK_TOTAL_COLUMNS)
+          .setValues([values[destinationIndex]]);
+      }
+      clearScheduleCaches_(
+        [normalizedId, destinationTaskId],
+        [
+          {period: oldPeriod, lesson: oldLesson},
+          {period: newPeriod, lesson: newLesson}
+        ]
+      );
+      throw new Error(
+        "Drive 課程資料夾移動失敗，控制表已自動復原：" +
+        String(err && err.message ? err.message : err)
+      );
+    }
+
+    clearScheduleCaches_(
+      [normalizedId, destinationTaskId],
+      [
+        {period: oldPeriod, lesson: oldLesson},
+        {period: newPeriod, lesson: newLesson}
+      ]
+    );
+
+    // Renaming is non-destructive and keeps every Drive file ID.
+    const renamed = [];
+    [normalizedId, destinationTaskId].filter(Boolean).forEach(function(id) {
+      try { renamed.push(migrateOneLessonFormalNames_(id)); } catch (_) {}
+    });
+
+    return {
+      ok: true,
+      task_id: normalizedId,
+      course_uid: String(sourceRow[TASK_COL.course_uid] || ""),
+      changed: true,
+      old_period: oldPeriod,
+      old_lesson: "第" + oldLesson + "堂",
+      new_period: newPeriod,
+      new_lesson: "第" + newLesson + "堂",
+      swapped_with: destinationTaskId || null,
+      renamed: renamed,
+      message: destinationTaskId
+        ? "調課完成，已與 " + destinationTaskId + " 交換"
+        : "調課完成"
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function lessonFolders_(taskId) {
   // task_id is a stable legacy execution key. Schedule position must always
   // come from the control sheet so a rescheduled course does not jump back to
