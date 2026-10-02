@@ -253,16 +253,33 @@ def main():
         # Standalone YouTube capture must be independent from Studio review cache.
         # Uploading available captions is already a successful job.
         if not args.refresh_english_review:
+            completed = [
+                lang for lang in AUTO_CC_TARGETS
+                if lang in set(uploaded_languages)
+            ]
+            missing = [
+                lang for lang in AUTO_CC_TARGETS
+                if lang not in set(uploaded_languages)
+            ]
+            completeness = (
+                f"{len(completed)}/{len(AUTO_CC_TARGETS)}"
+            )
+            message = (
+                f"YouTube CC {completeness} 語言完成："
+                f"{','.join(completed)}"
+            )
+            if missing:
+                message += f"；缺少={','.join(missing)}"
             mark_done(
                 args.task_id,
                 "cc",
                 sheets=sheets,
                 run_id=run_id,
-                message=f"YouTube CC 抓取完成：{','.join(uploaded_languages)}",
+                message=message,
             )
             print(
-                f"[CC] 抓取完成：語言={','.join(uploaded_languages)}；"
-                "已上傳 00_來源資訊，不要求人工校稿快取。",
+                f"[CC] {message}；已上傳 00_來源資訊，"
+                "不要求人工校稿快取。",
                 flush=True,
             )
             return 0
