@@ -3715,6 +3715,37 @@ window.addEventListener("message",event=>{
     }
   }
 
+  if(data.type==="period_reordered"){
+    const state=document.getElementById("schedule-state");
+    const status=document.getElementById("schedule-status");
+    const button=document.getElementById("schedule-apply-order");
+    if(button) button.disabled=false;
+
+    if(data.ok){
+      if(state){
+        state.textContent=data.changed===false ? "順序未變" : "排序完成";
+        state.className="badge complete";
+      }
+      if(status){
+        status.textContent=data.message || "同一期課程排序完成。";
+      }
+      scheduleDraftPeriod=Number(data.period)||scheduleDraftPeriod;
+      scheduleDraftOrder=Array.isArray(data.ordered_task_ids)
+        ? data.ordered_task_ids.map(String)
+        : [];
+      requestTasksFromControlCenter();
+      window.setTimeout(()=>requestTaskStatuses(),200);
+    }else{
+      if(state){
+        state.textContent="排序失敗";
+        state.className="badge";
+      }
+      if(status){
+        status.textContent="期內排序失敗："+(data.message||data.error||"未知錯誤");
+      }
+    }
+  }
+
   if(data.type==="task_rescheduled"){
     const state=document.getElementById("schedule-state");
     const status=document.getElementById("schedule-status");
@@ -3729,6 +3760,8 @@ window.addEventListener("message",event=>{
       if(status){
         status.textContent=data.message || "調課完成。";
       }
+      scheduleDraftPeriod=null;
+      scheduleDraftOrder=[];
       requestTasksFromControlCenter();
       window.setTimeout(()=>requestTaskStatuses(),200);
     }else{
@@ -3883,6 +3916,16 @@ window.addEventListener("message",event=>{
   }
 });
 
+document.getElementById("schedule-period-select")?.addEventListener("change",event=>{
+  resetScheduleDraft(Number(event.target.value)||0);
+});
+document.getElementById("schedule-reset-order")?.addEventListener("click",()=>{
+  resetScheduleDraft(Number(document.getElementById("schedule-period-select")?.value)||0);
+  const status=document.getElementById("schedule-status");
+  if(status) status.textContent="已還原成控制中心目前順序，尚未送出任何變更。";
+});
+document.getElementById("schedule-apply-order")?.addEventListener("click",applyPeriodReorder);
+
 document.getElementById("schedule-task-select")?.addEventListener("change",()=>{
   const task=scheduleSelectedTask();
   const period=document.getElementById("schedule-new-period");
@@ -3893,10 +3936,10 @@ document.getElementById("schedule-task-select")?.addEventListener("change",()=>{
       Number(String(task.lesson||"").replace(/\D/g,""))||1
     );
   }
-  updateSchedulePreview();
+  updateAdvancedSchedulePreview();
 });
-document.getElementById("schedule-new-period")?.addEventListener("input",updateSchedulePreview);
-document.getElementById("schedule-new-lesson")?.addEventListener("change",updateSchedulePreview);
+document.getElementById("schedule-new-period")?.addEventListener("input",updateAdvancedSchedulePreview);
+document.getElementById("schedule-new-lesson")?.addEventListener("change",updateAdvancedSchedulePreview);
 document.getElementById("schedule-apply")?.addEventListener("click",applyScheduleChange);
 
 document.getElementById("drive-name-migrate-all")?.addEventListener("click",()=>{
