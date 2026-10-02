@@ -60,7 +60,7 @@ class PipelineContracts(unittest.TestCase):
             "review_share_draft_save", "review_share_finalize",
             "review_share_finalize_en", "run_stage", "smoke", "status_batch",
             "status_health", "tasks_get", "tasks_upsert", "worker_secret_test",
-            "worker_setup", "drive_names_migrate",
+            "worker_setup", "drive_names_migrate", "task_reschedule",
         }
         for action in required_actions:
             self.assertTrue(
@@ -85,6 +85,24 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("canonicalFromDescription_", bridge)
         self.assertIn("migrateFormalDriveNames_", bridge)
         self.assertIn('action:"drive_names_migrate"', app)
+
+    def test_course_reschedule_preserves_stable_identity_and_moves_drive_slot(self):
+        bridge = read("bridge/apps-script/Code.gs")
+        app = read("studio/app-20260923-48.js")
+        config = read("translation-system/config.py")
+        naming = read("translation-system/drive_naming.py")
+
+        self.assertIn('"課程UID"', bridge)
+        self.assertIn("SKC-", bridge)
+        self.assertIn("function rescheduleTask_", bridge)
+        self.assertIn("swapLessonFolderPositions_", bridge)
+        self.assertIn("lesson-folders-v3:", bridge)
+        self.assertIn("const task = taskInfo_(taskId);", bridge)
+        self.assertIn('action:"task_reschedule"', app)
+        self.assertIn("renderScheduleManager", app)
+        self.assertIn('TASK_SHEET_RANGE = "任務佇列!A2:Z"', config)
+        self.assertIn('"course_uid": 20', config)
+        self.assertIn('re.split(r"[|｜丨]"', naming)
 
     def test_bridge_and_worker_machine_stages_match(self):
         bridge = read("bridge/apps-script/Code.gs")
