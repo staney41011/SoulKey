@@ -209,9 +209,20 @@ def main():
 
         cc_paths = download_multilingual_cc(task["youtube_url"], workdir)
         if not cc_paths and not existing_languages:
-            raise RuntimeError(
-                "YouTube 沒有抓到任何可用的自動字幕。"
+            message = (
+                "NO_YOUTUBE_CC｜此影片沒有可用 YouTube CC；"
+                "請改用原始中文音軌 → Taiwan-Breeze ASR，"
+                "外語由 SoulKey 翻譯流程產生。"
             )
+            mark_done(
+                args.task_id,
+                "cc",
+                sheets=sheets,
+                run_id=run_id,
+                message=message,
+            )
+            print(f"[CC] {message}", flush=True)
+            return 0
 
         uploaded_languages = list(existing_languages)
         for lang, cc_path in cc_paths.items():
