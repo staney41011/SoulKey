@@ -1095,12 +1095,16 @@ function captureStateInfo(task,kind,files){
     return {key:"working",label:"執行中",detail:message || "Kaggle 正在處理這項抓取工作。"};
   }
   if(status==="done"){
+    const match=message.match(/(\d+)\/(\d+)\s*語言完成/);
+    const partial=match && Number(match[1])<Number(match[2]);
     return {
-      key:"complete",
-      label:"已抓取完成",
-      detail:list.length
-        ? "雲端目前有 "+list.length+" 個檔案。"
-        : (message || "工作已完成，正在同步雲端檔案。")
+      key:partial ? "partial" : "complete",
+      label:partial ? "部分完成" : "已抓取完成",
+      detail:message || (
+        list.length
+          ? "雲端目前有 "+list.length+" 個檔案。"
+          : "工作已完成，正在同步雲端檔案。"
+      )
     };
   }
   if(status==="error"){
@@ -1136,6 +1140,33 @@ function setCaptureState(kind,info){
   if(detail) detail.textContent=info.detail||"";
 }
 
+function visibleYoutubeCaptureFiles(kind,files){
+  const list=Array.isArray(files)?files:[];
+  return list.filter(file=>{
+    const raw=String(file?.name||"");
+    const display=String(file?.display_name||raw);
+
+    // General users do not need implementation files in the Studio list.
+    if(/\.json$/i.test(raw) || /\.json$/i.test(display)) return false;
+    if(/\.srt$/i.test(raw) || /\.srt$/i.test(display)) return false;
+
+    if(kind==="cc"){
+      // CC list exposes only the pure transcript.  Keep the timeline TXT on
+      // Drive for downstream processing but do not show it in Studio.
+      return (
+        /\.transcript\.txt$/i.test(raw) ||
+        /CC純逐字稿\.txt$/i.test(display)
+      );
+    }
+
+    if(kind==="audio"){
+      return /\.mp3$/i.test(raw) || /音軌\.mp3$/i.test(display);
+    }
+
+    return true;
+  });
+}
+
 function renderCaptureFileList(containerId,files,emptyText){
   const host=document.getElementById(containerId);
   if(!host) return;
@@ -1163,20 +1194,23 @@ function renderYoutubeCaptureFiles(task){
   const ccFiles=payload?.cc_files || [];
   const asrFiles=payload?.asr_files || [];
   const audioFiles=payload?.audio_files || [];
+  const visibleCcFiles=visibleYoutubeCaptureFiles("cc",ccFiles);
+  const visibleAsrFiles=visibleYoutubeCaptureFiles("asr",asrFiles);
+  const visibleAudioFiles=visibleYoutubeCaptureFiles("audio",audioFiles);
 
   renderCaptureFileList(
     "youtube-asr-files",
-    asrFiles,
+    visibleAsrFiles,
     task ? "尚未產生中文 ASR 檔案。" : "尚未選擇課程。"
   );
   renderCaptureFileList(
     "youtube-cc-files",
-    ccFiles,
-    task ? "尚未抓取任何外語 CC 字幕檔案。" : "尚未選擇課程。"
+    visibleCcFiles,
+    task ? "尚未產生可閱讀的外語 CC 純逐字稿。" : "尚未選擇課程."
   );
   renderCaptureFileList(
     "youtube-audio-files",
-    audioFiles,
+    visibleAudioFiles,
     task ? "尚未抓取任何 YouTube 音軌檔案。" : "尚未選擇課程。"
   );
 
@@ -1201,7 +1235,7 @@ function renderYoutubeCaptureFiles(task){
 
   const badge=document.getElementById("youtube-capture-files-state");
   if(badge && payload){
-    badge.textContent="已同步 "+(asrFiles.length+ccFiles.length+audioFiles.length)+" 個檔案";
+    badge.textContent="可使用 "+(visibleAsrFiles.length+visibleCcFiles.length+visibleAudioFiles.length)+" 個檔案";
     badge.className="badge complete";
   }
 }
