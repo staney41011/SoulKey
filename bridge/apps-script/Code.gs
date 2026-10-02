@@ -31,7 +31,7 @@ const MACHINE_STAGES = [
   "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish", "cc", "batch"
 ];
 const RUNTIME_TTL_MS = 8 * 60 * 60 * 1000;
-const BRIDGE_PROTOCOL_VERSION = 8;
+const BRIDGE_PROTOCOL_VERSION = 9;
 
 function doGet(e) {
   const view = String((e && e.parameter && e.parameter.view) || "").trim();
@@ -342,6 +342,18 @@ function doPost(e) {
         audio_changed: !!planChanges.audio_changed,
         server_time: new Date().toISOString()
       });
+    }
+
+    if (action === "period_reorder") {
+      const period = Number((e && e.parameter && e.parameter.period) || 0);
+      const rawOrder = String((e && e.parameter && e.parameter.ordered_task_ids) || "").trim();
+      const orderedTaskIds = rawOrder.split(",").map(function(x) {
+        return String(x || "").trim();
+      }).filter(Boolean);
+      const result = reorderPeriodTasks_(period, orderedTaskIds);
+      result.source = "soulkey-bridge";
+      result.type = "period_reordered";
+      return postMessage_(result);
     }
 
     if (action === "task_reschedule") {
@@ -2432,6 +2444,210 @@ function swapLessonFolderPositions_(oldPeriod, oldLesson, newPeriod, newLesson) 
   }
 }
 
+function reorderPeriodTasks_(period, orderedTaskIds) {
+  period = Number(period || 0);
+  orderedTaskIds = (orderedTaskIds || []).map(function(x) {
+    return String(x || "").trim();
+  }).filter(Boolean);
+
+  if (!period || !orderedTaskIds.length) {
+    throw new Error("期內排序需要 period 與 ordered_task_ids");
+  }
+  if (new Set(orderedTaskIds).size !== orderedTaskIds.length) {
+    throw new Error("期內排序包含重複課程");
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const sheet = ensureTaskIdentitySchema_();
+    const rowCount = Math.max(0, sheet.getLastRow() - 1);
+    const values = rowCount
+      ? sheet.getRange(2, 1, rowCount, TASK_TOTAL_COLUMNS).getValues()
+      : [];
+
+    const periodItems = [];
+    values.forEach(function(row, index) {
+      const rowPeriod = Number(String(row[1] || "").replace(/[^0-9]/g, ""));
+      const status = String(row[TASK_COL.schedule_status] || "").trim();
+      const id = String(row[0] || "").trim();
+      const lesson = lessonNumberFromLabel_(row[2]);
+      if (id && rowPeriod === period && status !== "已取消" && lesson) {
+        periodItems.push({
+          id: id,
+          rowIndex: index,
+          lesson: lesson,
+          row: row.slice()
+        });
+      }
+    });
+
+    periodItems.sort(function(a, b) { return a.lesson - b.lesson; });
+
+    const existingIds = periodItems.map(function(x) { return x.id; }).sort();
+    const requestedIds = orderedTaskIds.slice().sort();
+    if (
+      existingIds.length !== requestedIds.length ||
+      existingIds.join("|") !== requestedIds.join("|")
+    ) {
+      throw new Error(
+        "新順序必須包含第" + period + "期目前全部課程，不能缺少或加入其他期課程"
+      );
+    }
+
+    const currentOrder = periodItems.map(function(x) { return x.id; });
+    if (currentOrder.join("|") === orderedTaskIds.join("|")) {
+      return {
+        ok: true,
+        period: period,
+        changed: false,
+        ordered_task_ids: orderedTaskIds,
+        message: "課程順序沒有變更"
+      };
+    }
+
+    const courseFolder = courseFolderForPeriod_(period);
+    const byId = {};
+    const foldersByTask = {};
+    periodItems.forEach(function(item) {
+      byId[item.id] = item;
+      const folderName =
+        String(item.lesson).padStart(2, "0") + "_第" + item.lesson + "堂";
+      foldersByTask[item.id] = cachedChildFolder_(courseFolder, folderName);
+    });
+
+    const token = Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+    const originalNames = {};
+    const renamedToTemp = [];
+
+    try {
+      // Phase 1: free every lesson name in one pass. Folder IDs and contents
+      // stay untouched; only the names under the same parent change.
+      periodItems.forEach(function(item, index) {
+        const folder = foldersByTask[item.id];
+        originalNames[item.id] = folder.getName();
+        folder.setName(
+          "__SOULKEY_REORDER_" + token + "_" + String(index + 1).padStart(2, "0")
+        );
+        renamedToTemp.push(item.id);
+      });
+
+      const timestamp = nowText_();
+      const updatedRows = [];
+
+      // Phase 2: assign the requested schedule in the sheet.
+      orderedTaskIds.forEach(function(taskId, positionIndex) {
+        const item = byId[taskId];
+        const newLesson = positionIndex + 1;
+        const oldLesson = item.lesson;
+        const row = item.row.slice();
+
+        row[1] = period;
+        row[2] = "第" + newLesson + "堂";
+        row[TASK_COL.schedule_status] =
+          oldLesson === newLesson ? (row[TASK_COL.schedule_status] || "已排定") : "已調課";
+        if (oldLesson !== newLesson) {
+          row[TASK_COL.rescheduled_at] = timestamp;
+          row[TASK_COL.schedule_note] =
+            "第" + period + "期整批排序：第" + oldLesson +
+            "堂 → 第" + newLesson + "堂";
+        }
+        row[18] = timestamp;
+        updatedRows.push({
+          sheetRow: item.rowIndex + 2,
+          values: row,
+          id: taskId,
+          oldLesson: oldLesson,
+          newLesson: newLesson
+        });
+      });
+
+      updatedRows.forEach(function(item) {
+        sheet.getRange(item.sheetRow, 1, 1, TASK_TOTAL_COLUMNS)
+          .setValues([item.values]);
+      });
+
+      // Phase 3: map the exact same lesson folders to their new slot names.
+      orderedTaskIds.forEach(function(taskId, positionIndex) {
+        const newLesson = positionIndex + 1;
+        foldersByTask[taskId].setName(
+          String(newLesson).padStart(2, "0") + "_第" + newLesson + "堂"
+        );
+      });
+
+      clearScheduleCaches_(
+        orderedTaskIds,
+        orderedTaskIds.map(function(_, index) {
+          return {period: period, lesson: index + 1};
+        })
+      );
+
+      // Formal filenames are updated once per moved course, after the schedule
+      // is already final. This is much faster than chaining pairwise swaps.
+      const renamed = [];
+      updatedRows.forEach(function(item) {
+        if (item.oldLesson === item.newLesson) return;
+        try {
+          renamed.push(migrateOneLessonFormalNames_(item.id));
+        } catch (err) {
+          renamed.push({
+            task_id: item.id,
+            warning: String(err && err.message ? err.message : err)
+          });
+        }
+      });
+
+      return {
+        ok: true,
+        period: period,
+        changed: true,
+        previous_order: currentOrder,
+        ordered_task_ids: orderedTaskIds,
+        moved_count: updatedRows.filter(function(x) {
+          return x.oldLesson !== x.newLesson;
+        }).length,
+        renamed: renamed,
+        message:
+          "第" + period + "期排序完成：" +
+          orderedTaskIds.map(function(id, i) {
+            return "第" + (i + 1) + "堂=" + id;
+          }).join("、")
+      };
+
+    } catch (err) {
+      // Restore both sheet rows and folder names. No file bytes are touched.
+      periodItems.forEach(function(item) {
+        try {
+          sheet.getRange(item.rowIndex + 2, 1, 1, TASK_TOTAL_COLUMNS)
+            .setValues([item.row]);
+        } catch (_) {}
+      });
+
+      renamedToTemp.forEach(function(taskId) {
+        try {
+          foldersByTask[taskId].setName(originalNames[taskId]);
+        } catch (_) {}
+      });
+
+      clearScheduleCaches_(
+        orderedTaskIds,
+        periodItems.map(function(item) {
+          return {period: period, lesson: item.lesson};
+        })
+      );
+
+      throw new Error(
+        "第" + period + "期整批排序失敗，已嘗試復原：" +
+        String(err && err.message ? err.message : err)
+      );
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
 function rescheduleTask_(taskId, newPeriod, newLesson) {
   const normalizedId = String(taskId || "").trim();
   newPeriod = Number(newPeriod || 0);
@@ -3617,6 +3833,7 @@ function responseForAction_(action, payload) {
     language_plan_save: "language_plan_saved",
     tasks_upsert: "tasks_saved",
     task_reschedule: "task_rescheduled",
+    period_reorder: "period_reordered",
     run_stage: "run_stage",
     review_save: "review_saved",
     review_share_create: "review_share_created",
