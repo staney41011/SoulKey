@@ -34,16 +34,15 @@ def _lesson_number(value):
 
 def course_title(task):
     raw = str((task or {}).get("title") or "").strip()
-    if "|" in raw:
-        first = raw.split("|", 1)[0].strip()
-        if first:
-            raw = first
+    parts = [x.strip() for x in re.split(r"[|｜丨]", raw) if x.strip()]
+    if parts:
+        raw = parts[0]
     return _clean(raw, "未命名課程")
 
 
 def lecturer_name(task):
     title = str((task or {}).get("title") or "").strip()
-    parts = [x.strip() for x in title.split("|") if x.strip()]
+    parts = [x.strip() for x in re.split(r"[|｜丨]", title) if x.strip()]
     if len(parts) >= 2:
         return _clean(parts[1], "未標示講師")
     return _clean((task or {}).get("lecturer"), "未標示講師")
