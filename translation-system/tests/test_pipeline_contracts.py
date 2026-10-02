@@ -61,6 +61,7 @@ class PipelineContracts(unittest.TestCase):
             "review_share_finalize_en", "run_stage", "smoke", "status_batch",
             "status_health", "tasks_get", "tasks_upsert", "worker_secret_test",
             "worker_setup", "drive_names_migrate", "task_reschedule",
+            "period_reorder",
         }
         for action in required_actions:
             self.assertTrue(
@@ -101,6 +102,10 @@ class PipelineContracts(unittest.TestCase):
         self.assertNotIn("function parseTaskId_", bridge)
         self.assertIn('action:"task_reschedule"', app)
         self.assertIn("renderScheduleManager", app)
+        self.assertIn("function reorderPeriodTasks_", bridge)
+        self.assertIn('action:"period_reorder"', app)
+        self.assertIn("scheduleDraftOrder", app)
+        self.assertIn("套用新順序", read("studio/index.html"))
         self.assertIn('TASK_SHEET_RANGE = "任務佇列!A2:Z"', config)
         self.assertIn('"course_uid": 20', config)
         self.assertIn('re.split(r"[|｜丨]"', naming)
