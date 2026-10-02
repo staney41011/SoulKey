@@ -5,7 +5,7 @@ SPREADSHEET_ID = os.getenv(
     "1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8",
 )
 
-TASK_SHEET_RANGE = "任務佇列!A2:T"
+TASK_SHEET_RANGE = "任務佇列!A2:Z"
 STATUS_SHEET_NAME = "執行狀態"
 STATUS_SHEET_RANGE = "執行狀態!A2:M"
 PERIOD_SHEET_RANGE = "期數設定!A2:H"
@@ -61,4 +61,10 @@ COL = {
     "progress": 17,
     "updated_at": 18,
     "note": 19,
+    "course_uid": 20,
+    "schedule_status": 21,
+    "original_period": 22,
+    "original_lesson": 23,
+    "rescheduled_at": 24,
+    "schedule_note": 25,
 }
