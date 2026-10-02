@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 
-REQUIRED_BRIDGE_PROTOCOL = 8
+REQUIRED_BRIDGE_PROTOCOL = 9
 
 
 MACHINE_STAGES = {
