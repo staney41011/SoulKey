@@ -589,6 +589,23 @@ def _write_cc_companion_files(
     }
 
 
+def write_cc_readable_files_from_json(json_path: Path, workdir: Path = None, target: str = None):
+    """Generate timeline TXT, plain transcript TXT and SRT from an existing CC JSON."""
+    json_path = Path(json_path)
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    segments = payload.get("segments") or []
+    if not isinstance(segments, list) or not segments:
+        raise RuntimeError(f"CC JSON 沒有可用 segments：{json_path.name}")
+
+    if not target:
+        match = re.match(r"^youtube\.([^.]+)\.json$", json_path.name)
+        target = match.group(1) if match else str(payload.get("language") or "unknown")
+
+    destination = Path(workdir) if workdir else json_path.parent
+    destination.mkdir(parents=True, exist_ok=True)
+    return _write_cc_companion_files(destination, target, segments)
+
+
 def _write_auto_cc_json(
     workdir: Path,
     target: str,
