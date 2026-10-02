@@ -6,7 +6,7 @@ const REVIEW_CACHE_BASE=String(
   "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache"
 ).replace(/\/$/,"");
 const RENDER_BATCH=80;
-const REQUIRED_BRIDGE_PROTOCOL=8;
+const REQUIRED_BRIDGE_PROTOCOL=9;
 let bridgeProtocolVersion=0;
 
 const params=new URLSearchParams(location.search);
