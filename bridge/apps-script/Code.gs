@@ -16,11 +16,22 @@ const STATUS_SHEET_NAME = "執行狀態";
 const LANGUAGE_SHEET_NAME = "語言設定";
 const LANGUAGE_PLAN_SHEET_NAME = "語言任務設定";
 
+const TASK_BASE_COLUMNS = 20;
+const TASK_TOTAL_COLUMNS = 26;
+const TASK_COL = {
+  course_uid: 20,
+  schedule_status: 21,
+  original_period: 22,
+  original_lesson: 23,
+  rescheduled_at: 24,
+  schedule_note: 25
+};
+
 const MACHINE_STAGES = [
   "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish", "cc", "batch"
 ];
 const RUNTIME_TTL_MS = 8 * 60 * 60 * 1000;
-const BRIDGE_PROTOCOL_VERSION = 7;
+const BRIDGE_PROTOCOL_VERSION = 8;
 
 function doGet(e) {
   const view = String((e && e.parameter && e.parameter.view) || "").trim();
@@ -331,6 +342,19 @@ function doPost(e) {
         audio_changed: !!planChanges.audio_changed,
         server_time: new Date().toISOString()
       });
+    }
+
+    if (action === "task_reschedule") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const newPeriod = Number((e && e.parameter && e.parameter.new_period) || 0);
+      const newLesson = Number(
+        String((e && e.parameter && e.parameter.new_lesson) || "")
+          .replace(/[^0-9]/g, "")
+      );
+      const result = rescheduleTask_(taskId, newPeriod, newLesson);
+      result.source = "soulkey-bridge";
+      result.type = "task_rescheduled";
+      return postMessage_(result);
     }
 
     if (action === "drive_names_migrate") {
@@ -2132,7 +2156,7 @@ function ensureTaskNamingMetadata_(taskId) {
     const title = String(payload.title || "").trim();
     if (!title) return task;
 
-    const parts = title.split("|")
+    const parts = title.split(/[|｜丨]/)
       .map(function(x) { return String(x || "").trim(); })
       .filter(Boolean);
     const lecturer = String(
@@ -2656,7 +2680,7 @@ function formalOutputLabel_(canonicalName) {
 
 function formalDriveName_(taskId, canonicalName) {
   const task = ensureTaskNamingMetadata_(taskId);
-  const titleParts = String(task.title || "").split("|")
+  const titleParts = String(task.title || "").split(/[|｜丨]/)
     .map(function(x) { return x.trim(); })
     .filter(Boolean);
   const course = formalNameClean_(titleParts[0] || task.title, "未命名課程");
@@ -3264,6 +3288,7 @@ function responseForAction_(action, payload) {
     language_plan_get: "language_plan",
     language_plan_save: "language_plan_saved",
     tasks_upsert: "tasks_saved",
+    task_reschedule: "task_rescheduled",
     run_stage: "run_stage",
     review_save: "review_saved",
     review_share_create: "review_share_created",
