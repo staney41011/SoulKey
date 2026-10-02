@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -649,6 +650,203 @@ def _write_auto_cc_json(
     return out
 
 
+def _fetch_cc_bytes_with_backoff(url: str, label: str, waits=(0, 20, 60)):
+    """Fetch one timedtext URL with bounded retry for YouTube throttling."""
+    last_error = None
+    for attempt, wait_seconds in enumerate(waits, start=1):
+        if wait_seconds:
+            print(
+                f"[YouTube CC] {label}: 等待 {wait_seconds}s 後重試 "
+                f"({attempt}/{len(waits)})",
+                flush=True,
+            )
+            time.sleep(wait_seconds)
+        try:
+            return _fetch_bytes(
+                url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/153.0.0.0 Safari/537.36"
+                    ),
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Cache-Control": "no-cache",
+                },
+                timeout=30,
+            )
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code == 429 and attempt < len(waits):
+                print(
+                    f"[YouTube CC] {label}: HTTP 429，進入退避重試。",
+                    flush=True,
+                )
+                continue
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt < len(waits):
+                continue
+            break
+
+    print(
+        f"[YouTube CC] {label}: 最終下載失敗："
+        f"{type(last_error).__name__}: {last_error}",
+        flush=True,
+    )
+    return None
+
+
+def _translation_seed_from_info(info: dict):
+    """Pick one caption URL that can be reused with YouTube's tlang parameter."""
+    captions = info.get("automatic_captions") or {}
+    if not isinstance(captions, dict):
+        return None
+
+    ranked = []
+    for language, formats in captions.items():
+        if not isinstance(formats, list):
+            continue
+        normalized = str(language or "").lower().replace("_", "-")
+        language_rank = 0 if normalized == "en" else 1 if normalized.startswith("en-") else 5
+        for item in formats:
+            if not isinstance(item, dict) or not item.get("url"):
+                continue
+            ext = str(item.get("ext") or "").lower()
+            format_rank = 0 if ext == "json3" else 5
+            ranked.append((language_rank, format_rank, str(language), item))
+
+    if not ranked:
+        return None
+    ranked.sort(key=lambda x: (x[0], x[1], x[2]))
+    _, _, language, item = ranked[0]
+    return {
+        "language": language,
+        "url": str(item.get("url") or "").strip(),
+    }
+
+
+def _translation_seed_from_watch_page(video_id: str):
+    tracks = _caption_tracks_from_watch_page(video_id)
+    ranked = []
+    for track in tracks:
+        if not isinstance(track, dict):
+            continue
+        base_url = str(track.get("baseUrl") or "").strip()
+        if not base_url:
+            continue
+        language = str(track.get("languageCode") or "")
+        normalized = language.lower().replace("_", "-")
+        is_translatable = bool(track.get("isTranslatable", True))
+        if not is_translatable:
+            continue
+        rank = 0 if normalized == "en" else 1 if normalized.startswith("en-") else 5
+        if str(track.get("kind") or "").lower() == "asr":
+            rank -= 0.1
+        ranked.append((rank, language, base_url))
+
+    if not ranked:
+        return None
+    ranked.sort(key=lambda x: (x[0], x[1]))
+    _, language, base_url = ranked[0]
+    return {"language": language, "url": base_url}
+
+
+def _translated_caption_url(base_url: str, target: str):
+    parts = urllib.parse.urlsplit(str(base_url or ""))
+    query = dict(urllib.parse.parse_qsl(parts.query, keep_blank_values=True))
+    query["fmt"] = "json3"
+    query["tlang"] = target
+    return urllib.parse.urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urllib.parse.urlencode(query),
+            parts.fragment,
+        )
+    )
+
+
+def _download_missing_auto_translations(
+    info: dict,
+    workdir: Path,
+    missing_targets,
+):
+    """Use one available caption track + YouTube tlang to fill missing languages."""
+    missing_targets = [
+        x for x in missing_targets
+        if x in AUTO_CC_TARGETS
+    ]
+    if not missing_targets:
+        return {}
+
+    video_id = str(info.get("id") or "").strip()
+    seed = _translation_seed_from_info(info)
+    if not seed and video_id:
+        seed = _translation_seed_from_watch_page(video_id)
+    if not seed:
+        print(
+            "[YouTube CC] 找不到可供 tlang 自動翻譯的基礎字幕軌。",
+            flush=True,
+        )
+        return {}
+
+    print(
+        f"[YouTube CC] tlang 補齊模式：基礎字幕={seed['language']}；"
+        f"待補={','.join(missing_targets)}",
+        flush=True,
+    )
+
+    results = {}
+    for index, target in enumerate(missing_targets):
+        # A small gap is deliberate.  YouTube timedtext endpoints throttle
+        # bursts much more aggressively than normal page requests.
+        if index:
+            time.sleep(8)
+
+        translated_url = _translated_caption_url(seed["url"], target)
+        raw = _fetch_cc_bytes_with_backoff(
+            translated_url,
+            f"tlang {seed['language']}->{target}",
+        )
+        if not raw:
+            continue
+        try:
+            segments = _segments_from_json3_bytes(raw)
+        except Exception as exc:
+            print(
+                f"[YouTube CC] tlang {target} JSON3 parse failed: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            continue
+        if not segments:
+            print(
+                f"[YouTube CC] tlang {target}: 回傳成功但沒有字幕內容。",
+                flush=True,
+            )
+            continue
+
+        out = _write_auto_cc_json(
+            workdir,
+            target,
+            segments,
+            video_id,
+            target,
+            source="youtube_auto_translated_tlang",
+        )
+        if out:
+            results[target] = out
+            print(
+                f"[YouTube CC] ✅ tlang {target}: {len(segments)} cues",
+                flush=True,
+            )
+
+    return results
+
+
 def _download_multilingual_auto_cc_from_info(
     info: dict,
     workdir: Path,
@@ -675,22 +873,11 @@ def _download_multilingual_auto_cc_from_info(
         if not url:
             continue
 
-        try:
-            request = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0",
-                    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-                },
-            )
-            with urllib.request.urlopen(request, timeout=30) as response:
-                raw = response.read()
-        except Exception as exc:
-            print(
-                f"[YouTube CC] {target}/{lang_key} direct download failed: "
-                f"{type(exc).__name__}: {exc}",
-                flush=True,
-            )
+        raw = _fetch_cc_bytes_with_backoff(
+            url,
+            f"{target}/{lang_key}",
+        )
+        if not raw:
             continue
 
         ext = str(caption.get("ext") or "").lower()
@@ -726,6 +913,7 @@ def _download_multilingual_auto_cc_from_info(
                 f"{len(segments)} cues",
                 flush=True,
             )
+            time.sleep(8)
 
     return results
 
@@ -1519,6 +1707,16 @@ def download_multilingual_cc(
                     f"{type(exc).__name__}: {exc}",
                     flush=True,
                 )
+
+    missing = [target for target in targets if target not in results]
+    if missing:
+        results.update(
+            _download_missing_auto_translations(
+                info if 'info' in locals() and isinstance(info, dict) else {},
+                workdir,
+                missing,
+            )
+        )
 
     print(
         "[YouTube CC] multilingual result: "
