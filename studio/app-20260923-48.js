@@ -10,7 +10,7 @@ const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
 const STATUS_POLL_MS = 12000;
-const REQUIRED_BRIDGE_PROTOCOL = 7;
+const REQUIRED_BRIDGE_PROTOCOL = 8;
 let bridgeProtocolVersion = 0;
 const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache").replace(/\/$/,"");
 const ZH_RENDER_BATCH = 80;
@@ -183,6 +183,7 @@ if(!localStorage.getItem(STORE.terms)) save(STORE.terms, terms);
 const titles = {
   dashboard:"任務總覽",
   "new-task":"建立任務",
+  schedule:"課表管理",
   "task-detail":"課程任務",
   review:"人工中文定稿",
   "vernacular-review":"人工白話文定稿",
@@ -991,8 +992,8 @@ function renderTasks(){
         '<div class="course-task-main">'+
           '<div class="course-task-title">'+
             '<span class="course-lesson">'+escapeHtml(t.lesson)+'</span>'+
-            '<div><b>'+escapeHtml(t.id)+'</b>'+
-            '<small>第'+escapeHtml(t.period)+'期</small></div>'+
+            '<div><b>'+escapeHtml(t.title||t.id)+'</b>'+
+            '<small>'+escapeHtml(t.course_uid||t.id)+'・第'+escapeHtml(t.period)+'期</small></div>'+
           '</div>'+
           '<div class="course-url" title="'+escapeHtml(t.url)+'">'+escapeHtml(t.url)+'</div>'+
         '</div>'+
@@ -1065,6 +1066,150 @@ function renderTasks(){
   document.getElementById("stat-tasks").textContent=tasks.length;
   document.getElementById("stat-terms").textContent=terms.length;
   renderYoutubeAudioTasks();
+  renderScheduleManager();
+}
+
+function scheduleSelectedTask(){
+  const select=document.getElementById("schedule-task-select");
+  if(!select) return null;
+  return tasks.find(x=>String(x.id)===String(select.value)) || null;
+}
+
+function renderScheduleManager(){
+  const select=document.getElementById("schedule-task-select");
+  const list=document.getElementById("schedule-course-list");
+  if(!select || !list) return;
+
+  const sorted=tasks.slice().sort((a,b)=>{
+    if(Number(a.period)!==Number(b.period)) return Number(a.period)-Number(b.period);
+    return Number(String(a.lesson||"").replace(/\D/g,""))-
+      Number(String(b.lesson||"").replace(/\D/g,""));
+  });
+
+  const previous=String(select.value||"");
+  select.innerHTML=sorted.length
+    ? sorted.map(t=>
+        '<option value="'+escapeHtml(t.id)+'">'+
+        escapeHtml("第"+t.period+"期 "+t.lesson+"｜"+(t.title||t.id))+
+        '</option>'
+      ).join("")
+    : '<option value="">尚無課程</option>';
+  select.disabled=!sorted.length;
+
+  if(previous && sorted.some(t=>String(t.id)===previous)){
+    select.value=previous;
+  }
+
+  const selected=scheduleSelectedTask();
+  const periodInput=document.getElementById("schedule-new-period");
+  const lessonSelect=document.getElementById("schedule-new-lesson");
+  if(selected){
+    if(!periodInput.value) periodInput.value=String(selected.period||"");
+    if(!lessonSelect.value) lessonSelect.value=String(
+      Number(String(selected.lesson||"").replace(/\D/g,""))||1
+    );
+  }
+
+  list.innerHTML=sorted.length ? sorted.map(t=>{
+    const moved=Number(t.original_period)&&(
+      Number(t.original_period)!==Number(t.period) ||
+      String(t.original_lesson||"")!==String(t.lesson||"")
+    );
+    return '<article class="course-task-row">'+
+      '<div class="course-task-main">'+
+        '<div class="course-task-title">'+
+          '<span class="course-lesson">'+escapeHtml(t.lesson||"—")+'</span>'+
+          '<div><b>'+escapeHtml(t.title||t.id)+'</b>'+
+          '<small>'+escapeHtml(t.course_uid||t.id)+'・第'+escapeHtml(t.period)+'期</small></div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="course-task-flow">'+
+        '<span class="badge '+(moved?"":"complete")+'">'+
+          escapeHtml(moved?"已調課":"原排程")+
+        '</span>'+
+        '<span class="muted">'+escapeHtml(
+          moved
+            ? ("原：第"+t.original_period+"期 "+t.original_lesson)
+            : (t.schedule_status||"已排定")
+        )+'</span>'+
+      '</div>'+
+    '</article>';
+  }).join("") : '<div class="empty">尚無課程。</div>';
+
+  updateSchedulePreview();
+}
+
+function updateSchedulePreview(){
+  const task=scheduleSelectedTask();
+  const preview=document.getElementById("schedule-preview");
+  if(!preview) return;
+  if(!task){
+    preview.textContent="尚未選擇課程。";
+    return;
+  }
+
+  const newPeriod=Number(document.getElementById("schedule-new-period")?.value)||0;
+  const newLesson=Number(document.getElementById("schedule-new-lesson")?.value)||0;
+  if(!newPeriod || !newLesson){
+    preview.textContent="請選擇新的期數與堂次。";
+    return;
+  }
+
+  const occupant=tasks.find(t=>
+    String(t.id)!==String(task.id) &&
+    Number(t.period)===newPeriod &&
+    Number(String(t.lesson||"").replace(/\D/g,""))===newLesson
+  );
+
+  preview.textContent=
+    (task.course_uid||task.id)+"｜目前：第"+task.period+"期 "+task.lesson+
+    " → 新位置：第"+newPeriod+"期 第"+newLesson+"堂"+
+    (occupant
+      ? "；目的位置已有「"+(occupant.title||occupant.course_uid||occupant.id)+"」，會自動交換兩堂。"
+      : "；目的位置目前沒有課程，會直接移動。");
+}
+
+function applyScheduleChange(){
+  const task=scheduleSelectedTask();
+  const status=document.getElementById("schedule-status");
+  const state=document.getElementById("schedule-state");
+  const button=document.getElementById("schedule-apply");
+
+  if(!task){
+    if(status) status.textContent="請先選擇課程。";
+    return;
+  }
+  if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+    if(status) status.textContent=
+      "Apps Script 控制中心版本過舊，目前 v"+bridgeProtocolVersion+
+      "，需要 v"+REQUIRED_BRIDGE_PROTOCOL+"。";
+    return;
+  }
+
+  const newPeriod=Number(document.getElementById("schedule-new-period")?.value)||0;
+  const newLesson=Number(document.getElementById("schedule-new-lesson")?.value)||0;
+  if(!newPeriod || !newLesson){
+    if(status) status.textContent="請填入新的期數與堂次。";
+    return;
+  }
+
+  const sent=submitBridgePost({
+    action:"task_reschedule",
+    task_id:task.id,
+    new_period:String(newPeriod),
+    new_lesson:String(newLesson)
+  });
+  if(!sent){
+    if(status) status.textContent="調課工作未送出，請重新連線控制中心。";
+    return;
+  }
+
+  if(button) button.disabled=true;
+  if(state){
+    state.textContent="調整中";
+    state.className="badge";
+  }
+  if(status) status.textContent="正在更新課表、交換 Drive 課程資料夾並整理正式檔名…";
 }
 
 function youtubeAudioSelectedTask(){
@@ -3369,6 +3514,33 @@ window.addEventListener("message",event=>{
     }
   }
 
+  if(data.type==="task_rescheduled"){
+    const state=document.getElementById("schedule-state");
+    const status=document.getElementById("schedule-status");
+    const button=document.getElementById("schedule-apply");
+    if(button) button.disabled=false;
+
+    if(data.ok){
+      if(state){
+        state.textContent="調課完成";
+        state.className="badge complete";
+      }
+      if(status){
+        status.textContent=data.message || "調課完成。";
+      }
+      requestTasksFromControlCenter();
+      window.setTimeout(()=>requestTaskStatuses(),200);
+    }else{
+      if(state){
+        state.textContent="調課失敗";
+        state.className="badge";
+      }
+      if(status){
+        status.textContent="調課失敗："+(data.message||data.error||"未知錯誤");
+      }
+    }
+  }
+
   if(data.type==="drive_names_migrated"){
     const state=document.getElementById("drive-name-state");
     const status=document.getElementById("drive-name-status");
@@ -3509,6 +3681,22 @@ window.addEventListener("message",event=>{
     }
   }
 });
+
+document.getElementById("schedule-task-select")?.addEventListener("change",()=>{
+  const task=scheduleSelectedTask();
+  const period=document.getElementById("schedule-new-period");
+  const lesson=document.getElementById("schedule-new-lesson");
+  if(task){
+    if(period) period.value=String(task.period||"");
+    if(lesson) lesson.value=String(
+      Number(String(task.lesson||"").replace(/\D/g,""))||1
+    );
+  }
+  updateSchedulePreview();
+});
+document.getElementById("schedule-new-period")?.addEventListener("input",updateSchedulePreview);
+document.getElementById("schedule-new-lesson")?.addEventListener("change",updateSchedulePreview);
+document.getElementById("schedule-apply")?.addEventListener("click",applyScheduleChange);
 
 document.getElementById("drive-name-migrate-all")?.addEventListener("click",()=>{
   const state=document.getElementById("drive-name-state");
