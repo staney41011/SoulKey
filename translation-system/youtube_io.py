@@ -363,7 +363,7 @@ def detect_lecturer(info: dict):
 
     # Many course uploads use title segments such as:
     # "心念的力量225 | 中和老師 | 打開心靈的鎖匙253期"
-    for segment in re.split(r"[｜|]", title):
+    for segment in re.split(r"[｜|丨]", title):
         segment = segment.strip()
         if re.fullmatch(r"[\u4e00-\u9fff·]{2,12}老師", segment):
             return normalize_lecturer(segment), "title_teacher_segment"
