@@ -125,6 +125,7 @@ def upload_metadata(drive, source_folder_id, metadata, task, workdir):
     payload.update(
         {
             "task_id": task["task_id"],
+            "course_uid": task.get("course_uid") or "",
             "period": task["period"],
             "lesson": task["lesson"],
             "youtube_url": task.get("youtube_url") or "",
@@ -306,6 +307,10 @@ def row_to_task(raw, sheet_row):
         "title": str(row[COL["title"]] or "").strip(),
         "youtube_url": str(row[COL["youtube_url"]] or "").strip(),
         "lecturer": str(row[COL["lecturer"]] or "").strip(),
+        "course_uid": str(row[COL["course_uid"]] or "").strip(),
+        "schedule_status": str(row[COL["schedule_status"]] or "").strip(),
+        "original_period": digits(row[COL["original_period"]]),
+        "original_lesson": str(row[COL["original_lesson"]] or "").strip(),
         "asr": str(row[COL["asr"]] or "").strip(),
     }
 
