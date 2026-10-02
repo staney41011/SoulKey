@@ -1948,6 +1948,10 @@ def discover_multilingual_audio_tracks(url: str, workdir: Path):
             "format_note": note,
             "is_audio_only": str(best.get("vcodec") or "none") == "none",
             "is_dubbed_hint": ("dub" in combined),
+            # Reuse the already-authorized media URL instead of forcing a
+            # second YouTube extraction during download.
+            "media_url": str(best.get("url") or ""),
+            "http_headers": dict(best.get("http_headers") or {}),
         })
 
     tracks.sort(key=lambda x: x["language"].lower())
@@ -1990,6 +1994,71 @@ def _match_requested_audio_tracks(tracks, requested):
                 seen.add(key)
                 selected.append(item)
     return selected
+
+
+def _download_audio_from_discovered_url(
+    track: dict,
+    destination: Path,
+    preferred_codec: str,
+):
+    media_url = str(track.get("media_url") or "").strip()
+    if not media_url:
+        return None
+
+    raw_ext = str(track.get("ext") or "m4a").strip() or "m4a"
+    raw_path = destination.with_suffix("." + raw_ext)
+    headers = dict(track.get("http_headers") or {})
+    headers.setdefault(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153 Safari/537.36",
+    )
+
+    print(
+        f"[YouTube MultiAudio] direct media URL first: "
+        f"{track.get('language')} / {track.get('format_id')}",
+        flush=True,
+    )
+
+    try:
+        request = urllib.request.Request(media_url, headers=headers)
+        with urllib.request.urlopen(request, timeout=60) as response:
+            with raw_path.open("wb") as handle:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+
+        final_path = destination.with_suffix("." + preferred_codec)
+        if raw_path.suffix.lower() == final_path.suffix.lower():
+            if raw_path != final_path:
+                raw_path.replace(final_path)
+        else:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-i", str(raw_path),
+                    "-vn",
+                    "-codec:a", "libmp3lame" if preferred_codec == "mp3" else "copy",
+                    str(final_path),
+                ],
+                check=True,
+            )
+            try:
+                raw_path.unlink()
+            except Exception:
+                pass
+
+        if final_path.exists() and final_path.stat().st_size > 0:
+            return final_path
+    except Exception as exc:
+        print(
+            f"[YouTube MultiAudio] direct URL failed: "
+            f"{type(exc).__name__}: {exc}; fallback to yt-dlp.",
+            flush=True,
+        )
+    return None
 
 
 def download_multilingual_audio_tracks(
@@ -2046,18 +2115,24 @@ def download_multilingual_audio_tracks(
         )
 
         try:
-            _extract_info(
-                url=url,
-                options=options,
-                download=True,
-                has_cookies=has_cookies,
+            expected = _download_audio_from_discovered_url(
+                track,
+                workdir / target_stem,
+                preferred_codec,
             )
-            expected = workdir / f"{target_stem}.{preferred_codec}"
-            if not expected.exists():
-                candidates = sorted(workdir.glob(f"{target_stem}.*"))
-                if not candidates:
-                    raise RuntimeError("下載完成但找不到輸出音檔")
-                expected = candidates[0]
+            if not expected:
+                _extract_info(
+                    url=url,
+                    options=options,
+                    download=True,
+                    has_cookies=has_cookies,
+                )
+                expected = workdir / f"{target_stem}.{preferred_codec}"
+                if not expected.exists():
+                    candidates = sorted(workdir.glob(f"{target_stem}.*"))
+                    if not candidates:
+                        raise RuntimeError("下載完成但找不到輸出音檔")
+                    expected = candidates[0]
 
             downloaded.append({
                 **track,
