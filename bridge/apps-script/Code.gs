@@ -2198,17 +2198,6 @@ function readLatestStatuses_(taskIds) {
   return result;
 }
 
-function parseTaskId_(taskId) {
-  const match = /^P(\d+)-L(\d+)$/i.exec(String(taskId || "").trim());
-  if (!match) return null;
-  return {
-    id: String(taskId || "").trim(),
-    period: Number(match[1]),
-    lessonNumber: Number(match[2]),
-    lesson: "第" + Number(match[2]) + "堂"
-  };
-}
-
 function taskInfo_(taskId) {
   const cache = CacheService.getScriptCache();
   const cacheKey = "task-info-v5:" + String(taskId || "").trim();
