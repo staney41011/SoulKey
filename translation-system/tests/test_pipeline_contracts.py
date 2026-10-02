@@ -98,6 +98,7 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("swapLessonFolderPositions_", bridge)
         self.assertIn("lesson-folders-v3:", bridge)
         self.assertIn("const task = taskInfo_(taskId);", bridge)
+        self.assertNotIn("function parseTaskId_", bridge)
         self.assertIn('action:"task_reschedule"', app)
         self.assertIn("renderScheduleManager", app)
         self.assertIn('TASK_SHEET_RANGE = "任務佇列!A2:Z"', config)
