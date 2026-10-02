@@ -569,19 +569,44 @@
 
       <section class="view" id="view-schedule">
         <div class="page-back-row"><button class="page-back-button" type="button" data-page-back>← 回上一頁</button></div>
+
         <div class="panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">SCHEDULE MANAGER</p>
-              <h3>課表調整</h3>
+              <p class="eyebrow">PERIOD REORDER</p>
+              <h3>同一期課程排序</h3>
             </div>
             <span class="badge" id="schedule-state">待調整</span>
           </div>
           <p class="muted block-copy">
-            課程有永久 UID，調課只改「目前排程」。既有 CC、ASR、翻譯、TTS、人工定稿與執行狀態都跟著課程保留。
-            若目的堂次已有課程，系統會自動交換兩堂，並同步移動 Google Drive 課程資料夾與正式檔名。
+            日常調課請使用這個模式。先選期數，再用上下鍵排成新的第1～4堂；只有按下「套用新順序」時才會一次更新控制表、Drive 課程資料夾與正式檔名。
           </p>
 
+          <div class="bridge-form">
+            <label>期數
+              <select id="schedule-period-select"></select>
+            </label>
+            <button class="ghost" id="schedule-reset-order" type="button">還原目前順序</button>
+            <button class="primary" id="schedule-apply-order" type="button">套用新順序</button>
+          </div>
+
+          <div id="schedule-order-list" class="task-list">
+            <div class="empty">等待控制中心同步課程。</div>
+          </div>
+
+          <div class="bridge-status" id="schedule-preview">
+            調整順序後，這裡會顯示新課表。
+          </div>
+          <div class="bridge-status" id="schedule-status">
+            尚未執行調課。
+          </div>
+        </div>
+
+        <details class="panel">
+          <summary><b>進階：單堂／跨期調課</b></summary>
+          <p class="muted block-copy">
+            只有需要跨期移動或單獨交換兩堂時才使用。一般同一期 ABCD → ACDB 請使用上方整批排序。
+          </p>
           <div class="bridge-form">
             <label>選擇課程
               <select id="schedule-task-select"></select>
@@ -597,16 +622,12 @@
                 <option value="4">第4堂</option>
               </select>
             </label>
-            <button class="primary" id="schedule-apply" type="button">套用調課</button>
+            <button class="ghost" id="schedule-apply" type="button">執行單堂調課</button>
           </div>
-
-          <div class="bridge-status" id="schedule-preview">
-            選擇課程後，這裡會顯示目前位置與調課影響。
+          <div class="bridge-status" id="schedule-advanced-preview">
+            選擇課程後，這裡會顯示跨期／單堂調課影響。
           </div>
-          <div class="bridge-status" id="schedule-status">
-            尚未執行調課。
-          </div>
-        </div>
+        </details>
 
         <div class="panel">
           <div class="panel-head">
@@ -733,6 +754,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20261002-5"></script>
+  <script src="./app-20260923-48.js?v=20261002-6"></script>
 </body>
 </html>
