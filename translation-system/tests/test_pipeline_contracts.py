@@ -41,6 +41,8 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('youtube.{target}.txt', youtube_io)
         self.assertIn('youtube.{target}.srt', youtube_io)
         self.assertIn('youtube.{target}.transcript.txt', youtube_io)
+        self.assertIn("write_cc_readable_files_from_json", youtube_io)
+        self.assertIn("既有 JSON 回填", cc_runner)
         self.assertIn('zh-TW.transcript.txt', read("translation-system/asr.py"))
         self.assertIn('中文一律使用 Taiwan-Breeze ASR', cc_runner)
         self.assertIn('中文只使用原始音軌 Taiwan-Breeze ASR', runner)
