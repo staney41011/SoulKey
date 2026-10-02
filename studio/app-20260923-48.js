@@ -10,7 +10,7 @@ const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
 const STATUS_POLL_MS = 12000;
-const REQUIRED_BRIDGE_PROTOCOL = 8;
+const REQUIRED_BRIDGE_PROTOCOL = 9;
 let bridgeProtocolVersion = 0;
 const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache").replace(/\/$/,"");
 const ZH_RENDER_BATCH = 80;
@@ -177,6 +177,8 @@ const viewHistory = [];
 const youtubeCaptureFilesCache = {};
 const youtubeCaptureFilesFetchedAt = {};
 let youtubeCaptureFilesLoadingTask = "";
+let scheduleDraftPeriod = null;
+let scheduleDraftOrder = [];
 
 if(!localStorage.getItem(STORE.terms)) save(STORE.terms, terms);
 
@@ -1075,29 +1077,166 @@ function scheduleSelectedTask(){
   return tasks.find(x=>String(x.id)===String(select.value)) || null;
 }
 
+function scheduleShortTitle(task){
+  const raw=String(task?.title||task?.course_uid||task?.id||"未命名課程");
+  return raw.split(/[|｜丨]/)[0].trim() || raw;
+}
+
+function tasksForSchedulePeriod(period){
+  return tasks
+    .filter(t=>Number(t.period)===Number(period))
+    .slice()
+    .sort((a,b)=>
+      Number(String(a.lesson||"").replace(/\D/g,""))-
+      Number(String(b.lesson||"").replace(/\D/g,""))
+    );
+}
+
+function resetScheduleDraft(period){
+  const current=tasksForSchedulePeriod(period);
+  scheduleDraftPeriod=Number(period)||null;
+  scheduleDraftOrder=current.map(t=>String(t.id));
+  renderScheduleOrderDraft();
+}
+
+function renderScheduleOrderDraft(){
+  const list=document.getElementById("schedule-order-list");
+  const preview=document.getElementById("schedule-preview");
+  if(!list) return;
+
+  const period=Number(scheduleDraftPeriod)||0;
+  const current=tasksForSchedulePeriod(period);
+  const currentIds=current.map(t=>String(t.id));
+  const validDraft=
+    scheduleDraftOrder.length===currentIds.length &&
+    scheduleDraftOrder.slice().sort().join("|")===currentIds.slice().sort().join("|");
+
+  if(!validDraft){
+    scheduleDraftOrder=currentIds.slice();
+  }
+
+  if(!current.length){
+    list.innerHTML='<div class="empty">這一期目前沒有課程。</div>';
+    if(preview) preview.textContent="沒有可排序的課程。";
+    return;
+  }
+
+  const byId=new Map(tasks.map(t=>[String(t.id),t]));
+  list.innerHTML=scheduleDraftOrder.map((id,index)=>{
+    const t=byId.get(String(id))||{};
+    const currentLesson=Number(String(t.lesson||"").replace(/\D/g,""))||0;
+    const newLesson=index+1;
+    const moved=currentLesson!==newLesson;
+
+    return '<article class="course-task-row">'+
+      '<div class="course-task-main">'+
+        '<div class="course-task-title">'+
+          '<span class="course-lesson">第'+newLesson+'堂</span>'+
+          '<div><b>'+escapeHtml(scheduleShortTitle(t))+'</b>'+
+          '<small>'+escapeHtml(t.course_uid||t.id||"")+
+          (moved ? "・原 "+escapeHtml(t.lesson||"") : "・位置不變")+
+          '</small></div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="course-task-actions">'+
+        '<button class="ghost" type="button" data-schedule-up="'+index+'" '+
+          (index===0?"disabled":"")+'>↑</button>'+
+        '<button class="ghost" type="button" data-schedule-down="'+index+'" '+
+          (index===scheduleDraftOrder.length-1?"disabled":"")+'>↓</button>'+
+      '</div>'+
+    '</article>';
+  }).join("");
+
+  document.querySelectorAll("[data-schedule-up]").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      moveScheduleDraft(Number(btn.dataset.scheduleUp),-1);
+    });
+  });
+  document.querySelectorAll("[data-schedule-down]").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      moveScheduleDraft(Number(btn.dataset.scheduleDown),1);
+    });
+  });
+
+  if(preview){
+    const oldText=current.map(t=>scheduleShortTitle(t)).join(" → ");
+    const newText=scheduleDraftOrder
+      .map(id=>scheduleShortTitle(byId.get(String(id))))
+      .join(" → ");
+    preview.textContent=
+      "目前："+oldText+"｜新順序："+newText+
+      (currentIds.join("|")===scheduleDraftOrder.join("|")
+        ? "｜尚未變更"
+        : "｜按「套用新順序」才會真正更新");
+  }
+}
+
+function moveScheduleDraft(index,delta){
+  const target=index+delta;
+  if(
+    index<0 || target<0 ||
+    index>=scheduleDraftOrder.length ||
+    target>=scheduleDraftOrder.length
+  ) return;
+
+  const next=scheduleDraftOrder.slice();
+  const tmp=next[index];
+  next[index]=next[target];
+  next[target]=tmp;
+  scheduleDraftOrder=next;
+  renderScheduleOrderDraft();
+}
+
 function renderScheduleManager(){
-  const select=document.getElementById("schedule-task-select");
-  const list=document.getElementById("schedule-course-list");
-  if(!select || !list) return;
+  const periodSelect=document.getElementById("schedule-period-select");
+  const taskSelect=document.getElementById("schedule-task-select");
+  const identityList=document.getElementById("schedule-course-list");
+  if(!periodSelect || !taskSelect || !identityList) return;
+
+  const periods=[...new Set(
+    tasks.map(t=>Number(t.period)||0).filter(Boolean)
+  )].sort((a,b)=>b-a);
+
+  const priorPeriod=Number(periodSelect.value)||
+    Number(scheduleDraftPeriod)||
+    Number(selectedPeriod)||
+    periods[0]||0;
+
+  periodSelect.innerHTML=periods.length
+    ? periods.map(p=>'<option value="'+p+'">第'+p+'期</option>').join("")
+    : '<option value="">尚無期數</option>';
+
+  if(periods.includes(priorPeriod)){
+    periodSelect.value=String(priorPeriod);
+  }
+  const activePeriod=Number(periodSelect.value)||periods[0]||0;
+
+  const activeIds=tasksForSchedulePeriod(activePeriod).map(t=>String(t.id));
+  if(
+    Number(scheduleDraftPeriod)!==activePeriod ||
+    scheduleDraftOrder.slice().sort().join("|")!==activeIds.slice().sort().join("|")
+  ){
+    scheduleDraftPeriod=activePeriod;
+    scheduleDraftOrder=activeIds.slice();
+  }
 
   const sorted=tasks.slice().sort((a,b)=>{
-    if(Number(a.period)!==Number(b.period)) return Number(a.period)-Number(b.period);
+    if(Number(a.period)!==Number(b.period)) return Number(b.period)-Number(a.period);
     return Number(String(a.lesson||"").replace(/\D/g,""))-
       Number(String(b.lesson||"").replace(/\D/g,""));
   });
 
-  const previous=String(select.value||"");
-  select.innerHTML=sorted.length
+  const previousTask=String(taskSelect.value||"");
+  taskSelect.innerHTML=sorted.length
     ? sorted.map(t=>
         '<option value="'+escapeHtml(t.id)+'">'+
-        escapeHtml("第"+t.period+"期 "+t.lesson+"｜"+(t.title||t.id))+
+        escapeHtml("第"+t.period+"期 "+t.lesson+"｜"+scheduleShortTitle(t))+
         '</option>'
       ).join("")
     : '<option value="">尚無課程</option>';
-  select.disabled=!sorted.length;
-
-  if(previous && sorted.some(t=>String(t.id)===previous)){
-    select.value=previous;
+  taskSelect.disabled=!sorted.length;
+  if(previousTask && sorted.some(t=>String(t.id)===previousTask)){
+    taskSelect.value=previousTask;
   }
 
   const selected=scheduleSelectedTask();
@@ -1110,7 +1249,7 @@ function renderScheduleManager(){
     );
   }
 
-  list.innerHTML=sorted.length ? sorted.map(t=>{
+  identityList.innerHTML=sorted.length ? sorted.map(t=>{
     const moved=Number(t.original_period)&&(
       Number(t.original_period)!==Number(t.period) ||
       String(t.original_lesson||"")!==String(t.lesson||"")
@@ -1119,7 +1258,7 @@ function renderScheduleManager(){
       '<div class="course-task-main">'+
         '<div class="course-task-title">'+
           '<span class="course-lesson">'+escapeHtml(t.lesson||"—")+'</span>'+
-          '<div><b>'+escapeHtml(t.title||t.id)+'</b>'+
+          '<div><b>'+escapeHtml(scheduleShortTitle(t))+'</b>'+
           '<small>'+escapeHtml(t.course_uid||t.id)+'・第'+escapeHtml(t.period)+'期</small></div>'+
         '</div>'+
       '</div>'+
@@ -1127,21 +1266,17 @@ function renderScheduleManager(){
         '<span class="badge '+(moved?"":"complete")+'">'+
           escapeHtml(moved?"已調課":"原排程")+
         '</span>'+
-        '<span class="muted">'+escapeHtml(
-          moved
-            ? ("原：第"+t.original_period+"期 "+t.original_lesson)
-            : (t.schedule_status||"已排定")
-        )+'</span>'+
       '</div>'+
     '</article>';
   }).join("") : '<div class="empty">尚無課程。</div>';
 
-  updateSchedulePreview();
+  renderScheduleOrderDraft();
+  updateAdvancedSchedulePreview();
 }
 
-function updateSchedulePreview(){
+function updateAdvancedSchedulePreview(){
   const task=scheduleSelectedTask();
-  const preview=document.getElementById("schedule-preview");
+  const preview=document.getElementById("schedule-advanced-preview");
   if(!preview) return;
   if(!task){
     preview.textContent="尚未選擇課程。";
@@ -1162,11 +1297,55 @@ function updateSchedulePreview(){
   );
 
   preview.textContent=
-    (task.course_uid||task.id)+"｜目前：第"+task.period+"期 "+task.lesson+
+    scheduleShortTitle(task)+"｜目前：第"+task.period+"期 "+task.lesson+
     " → 新位置：第"+newPeriod+"期 第"+newLesson+"堂"+
     (occupant
-      ? "；目的位置已有「"+(occupant.title||occupant.course_uid||occupant.id)+"」，會自動交換兩堂。"
-      : "；目的位置目前沒有課程，會直接移動。");
+      ? "；目的位置已有「"+scheduleShortTitle(occupant)+"」，會交換兩堂。"
+      : "；目的位置目前沒有課程。");
+}
+
+function applyPeriodReorder(){
+  const status=document.getElementById("schedule-status");
+  const state=document.getElementById("schedule-state");
+  const button=document.getElementById("schedule-apply-order");
+  const period=Number(scheduleDraftPeriod)||0;
+
+  if(!period || !scheduleDraftOrder.length){
+    if(status) status.textContent="這一期沒有可排序的課程。";
+    return;
+  }
+  if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+    if(status) status.textContent=
+      "Apps Script 控制中心版本過舊，目前 v"+bridgeProtocolVersion+
+      "，需要 v"+REQUIRED_BRIDGE_PROTOCOL+"。";
+    return;
+  }
+
+  const current=tasksForSchedulePeriod(period).map(t=>String(t.id));
+  if(current.join("|")===scheduleDraftOrder.join("|")){
+    if(status) status.textContent="順序沒有變更，不需要送出。";
+    return;
+  }
+
+  const sent=submitBridgePost({
+    action:"period_reorder",
+    period:String(period),
+    ordered_task_ids:scheduleDraftOrder.join(",")
+  });
+  if(!sent){
+    if(status) status.textContent="排序工作未送出，請重新連線控制中心。";
+    return;
+  }
+
+  if(button) button.disabled=true;
+  if(state){
+    state.textContent="排序中";
+    state.className="badge";
+  }
+  if(status){
+    status.textContent=
+      "正在一次更新第"+period+"期課表與 Drive 資料夾；不會逐堂交換。";
+  }
 }
 
 function applyScheduleChange(){
@@ -1209,7 +1388,7 @@ function applyScheduleChange(){
     state.textContent="調整中";
     state.className="badge";
   }
-  if(status) status.textContent="正在更新課表、交換 Drive 課程資料夾並整理正式檔名…";
+  if(status) status.textContent="正在執行進階單堂調課…";
 }
 
 function youtubeAudioSelectedTask(){
