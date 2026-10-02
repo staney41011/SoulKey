@@ -2207,13 +2207,13 @@ function parseTaskId_(taskId) {
 
 function taskInfo_(taskId) {
   const cache = CacheService.getScriptCache();
-  const cacheKey = "task-info-v4:" + String(taskId || "").trim();
+  const cacheKey = "task-info-v5:" + String(taskId || "").trim();
   const cached = cache.get(cacheKey);
   if (cached) {
     try { return JSON.parse(cached); } catch (_) {}
   }
 
-  const sheet = getSheetByName_(TASK_SHEET_NAME);
+  const sheet = ensureTaskIdentitySchema_();
   const values = sheet.getDataRange().getDisplayValues();
 
   for (let r = 1; r < values.length; r++) {
@@ -2221,6 +2221,12 @@ function taskInfo_(taskId) {
       const result = {
         row: r + 1,
         id: taskId,
+        course_uid: String(values[r][TASK_COL.course_uid] || "").trim(),
+        schedule_status: String(values[r][TASK_COL.schedule_status] || "").trim(),
+        original_period: Number(String(values[r][TASK_COL.original_period] || "").replace(/[^0-9]/g, "")) || null,
+        original_lesson: String(values[r][TASK_COL.original_lesson] || "").trim(),
+        rescheduled_at: String(values[r][TASK_COL.rescheduled_at] || "").trim(),
+        schedule_note: String(values[r][TASK_COL.schedule_note] || "").trim(),
         period: Number(String(values[r][1] || "").replace(/[^0-9]/g, "")),
         lesson: String(values[r][2] || "").trim(),
         title: String(values[r][3] || "").trim(),
@@ -2272,7 +2278,7 @@ function ensureTaskNamingMetadata_(taskId) {
     if (lecturer) sheet.getRange(task.row, 6).setValue(lecturer);
 
     CacheService.getScriptCache().remove(
-      "task-info-v4:" + String(taskId || "").trim()
+      "task-info-v5:" + String(taskId || "").trim()
     );
     task = taskInfo_(taskId);
     return task;
