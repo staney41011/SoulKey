@@ -1645,6 +1645,9 @@ function getSheetByName_(name) {
 
 function ensureTaskIdentitySchema_() {
   const sheet = getSheetByName_(TASK_SHEET_NAME);
+  const schemaCache = CacheService.getScriptCache();
+  if (schemaCache.get("task-identity-schema-v1") === "ok") return sheet;
+
   const maxColumns = sheet.getMaxColumns();
   if (maxColumns < TASK_TOTAL_COLUMNS) {
     sheet.insertColumnsAfter(maxColumns, TASK_TOTAL_COLUMNS - maxColumns);
@@ -1692,6 +1695,7 @@ function ensureTaskIdentitySchema_() {
   updates.forEach(function(item) {
     sheet.getRange(item.row, 1, 1, TASK_TOTAL_COLUMNS).setValues([item.values]);
   });
+  schemaCache.put("task-identity-schema-v1", "ok", 21600);
   return sheet;
 }
 
