@@ -201,16 +201,21 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('failure_details = "｜".join(', runner)
         self.assertIn('f"原因：{failure_details}；"', runner)
 
-    def test_sindhi_tts_uses_gemini_flash_not_missing_mms_bundle(self):
+    def test_tts_never_uses_hosted_inference_api(self):
         config = read("translation-system/config.py")
         engine = read("translation-system/tts_engine.py")
         runner = read("translation-system/tts_runner.py")
+        converter = read("translation-system/mms_vits_converter.py")
 
-        self.assertIn('"sd": "gemini-3.8-flash-tts"', config)
-        self.assertNotIn('"sd": "facebook/mms-tts/models/snd"', config)
-        self.assertIn("def synthesize_gemini_language(", engine)
-        self.assertIn('if lang == "sd":', runner)
-        self.assertIn("synthesize_gemini_language(", runner)
+        self.assertIn('"sd": "facebook/mms-tts/models/snd"', config)
+        self.assertNotIn("GeminiClient", engine)
+        self.assertNotIn("synthesize_gemini_language", engine)
+        self.assertNotIn("synthesize_gemini_language", runner)
+        self.assertNotIn("gemini-3.8-flash-tts", config)
+        self.assertIn("MMS_HF_RESOLVE_BASE", converter)
+        self.assertIn("urllib.request.Request", converter)
+        self.assertNotIn("hf_hub_download", converter)
+        self.assertNotIn("dl.fbaipublicfiles.com", converter)
 
     def test_partial_tts_failure_is_not_success(self):
         runner = read("translation-system/tts_runner.py")
