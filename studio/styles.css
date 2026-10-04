@@ -161,6 +161,11 @@ dialog{border:0;border-radius:17px;padding:0;width:min(540px,92vw);box-shadow:0 
 .youtube-cloud-file a{white-space:nowrap}
 
 .course-files-panel{scroll-margin-top:18px}
+.course-files-panel.collapsed{padding-top:14px;padding-bottom:14px}
+.course-files-panel.collapsed .panel-head{margin-bottom:0}
+.course-files-panel.collapsed #course-files-folder-link,
+.course-files-panel.collapsed #course-files-refresh{display:none}
+.course-files-body[hidden]{display:none!important}
 .course-files-list{display:grid;gap:14px;margin-top:16px}
 .course-file-group{border:1px solid var(--line);border-radius:13px;background:#fbfcfb;overflow:hidden}
 .course-file-group-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;background:#f4f7f4;border-bottom:1px solid var(--line)}
