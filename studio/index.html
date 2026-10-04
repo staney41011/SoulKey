@@ -65,7 +65,7 @@
     })();
   </script>
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20261004-2">
+  <link rel="stylesheet" href="./styles.css?v=20261004-3">
 </head>
 <body>
   <div class="shell">
@@ -297,7 +297,8 @@
             <button class="primary" id="finalize-zh">中文定稿</button>
           </div>
         </div>
-        <div class="panel zh-review-media-bar">
+        <div class="zh-review-media-anchor" id="zh-review-media-anchor">
+          <div class="panel zh-review-media-bar" id="zh-review-media-bar">
           <div class="youtube-review-wrap">
             <div id="youtube-review-player" class="youtube-review-player">
               <div class="empty">選擇課程後載入 YouTube 原片。</div>
@@ -315,6 +316,7 @@
               <button class="mini ghost" id="review-forward-5" type="button">+5 秒</button>
             </div>
             <small>按「▶ 聽這段」會直接跳到該段起始秒數</small>
+          </div>
           </div>
         </div>
 
@@ -384,6 +386,8 @@
             <p class="muted">逐段對照中文 Final 與YouTube English CC。人工確認後，專有名詞的英文譯法會同步學習進詞庫。</p>
           </div>
           <div class="toolbar-actions">
+            <span class="muted" id="en-review-share-state"></span>
+            <button class="ghost" id="create-en-review-share" type="button">複製單堂英文定稿連結</button>
             <button class="primary" id="finalize-en">英文定稿</button>
           </div>
         </div>
@@ -773,6 +777,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20261004-3"></script>
+  <script src="./app-20260923-48.js?v=20261004-4"></script>
 </body>
 </html>
