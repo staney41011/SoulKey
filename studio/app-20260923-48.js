@@ -179,6 +179,9 @@ const viewHistory = [];
 const youtubeCaptureFilesCache = {};
 const youtubeCaptureFilesFetchedAt = {};
 let youtubeCaptureFilesLoadingTask = "";
+const courseFilesCache = {};
+const courseFilesFetchedAt = {};
+let courseFilesLoadingTask = "";
 let scheduleDraftPeriod = null;
 let scheduleDraftOrder = [];
 
@@ -1993,6 +1996,120 @@ function requestLanguagePlan(taskId){
   return jsonpBridgeRequest({action:"language_plan_get",task_id:taskId});
 }
 
+function renderCourseFiles(task){
+  const host=document.getElementById("course-files-list");
+  const badge=document.getElementById("course-files-state");
+  const folderLink=document.getElementById("course-files-folder-link");
+  if(!host || !task) return;
+
+  const payload=courseFilesCache[task.id];
+  if(!payload){
+    if(courseFilesLoadingTask===task.id){
+      host.innerHTML='<div class="empty">正在讀取 Google Drive 檔案…</div>';
+      if(badge){
+        badge.textContent="讀取中";
+        badge.className="badge";
+      }
+    }else{
+      host.innerHTML='<div class="empty">尚未載入這堂課的檔案。</div>';
+      if(badge){
+        badge.textContent="尚未載入";
+        badge.className="badge";
+      }
+    }
+    if(folderLink) folderLink.hidden=true;
+    return;
+  }
+
+  const groups=Array.isArray(payload.groups) ? payload.groups : [];
+  const total=Number(payload.total_files||0);
+  if(badge){
+    badge.textContent=total+" 個檔案";
+    badge.className="badge complete";
+  }
+  if(folderLink){
+    folderLink.hidden=!payload.lesson_folder_url;
+    folderLink.href=payload.lesson_folder_url || "#";
+  }
+
+  host.innerHTML=groups.map(group=>{
+    const files=Array.isArray(group.files) ? group.files : [];
+    const rows=files.length ? files.map(file=>{
+      const updated=file.updated_at ? new Date(file.updated_at).toLocaleString() : "";
+      const size=formatCaptureFileSize(file.size);
+      const url=String(file.url||"");
+      return '<div class="course-file-row">'+
+        '<div class="course-file-main">'+
+          '<b>'+escapeHtml(file.display_name||file.name||"未命名檔案")+'</b>'+
+          '<span>'+escapeHtml([size,updated].filter(Boolean).join("・"))+'</span>'+
+        '</div>'+
+        '<div class="course-file-actions">'+
+          '<a href="'+escapeHtml(url||"#")+'" target="_blank" rel="noopener">開啟</a>'+
+          '<button class="mini ghost" type="button" data-course-file-copy="'+escapeHtml(url)+'">複製連結</button>'+
+        '</div>'+
+      '</div>';
+    }).join("") : '<div class="course-file-empty">目前沒有檔案</div>';
+
+    return '<section class="course-file-group">'+
+      '<div class="course-file-group-head">'+
+        '<div><b>'+escapeHtml(group.label||group.key||"檔案")+'</b><span>'+files.length+' 個</span></div>'+
+        (group.folder_url
+          ? '<a href="'+escapeHtml(group.folder_url)+'" target="_blank" rel="noopener">開啟資料夾</a>'
+          : '')+
+      '</div>'+
+      rows+
+    '</section>';
+  }).join("");
+
+  host.querySelectorAll("[data-course-file-copy]").forEach(button=>{
+    button.addEventListener("click",()=>{
+      const url=String(button.dataset.courseFileCopy||"");
+      if(!url) return;
+      const done=()=>{
+        const old=button.textContent;
+        button.textContent="已複製";
+        window.setTimeout(()=>{ button.textContent=old; },1200);
+      };
+      if(navigator.clipboard && window.isSecureContext){
+        navigator.clipboard.writeText(url).then(done).catch(()=>{
+          window.prompt("請複製檔案連結：",url);
+        });
+      }else{
+        window.prompt("請複製檔案連結：",url);
+      }
+    });
+  });
+}
+
+function requestCourseFiles(taskId,force=false){
+  const id=String(taskId||"").trim();
+  if(!id) return false;
+
+  const age=Date.now()-Number(courseFilesFetchedAt[id]||0);
+  if(!force && courseFilesCache[id] && age<30000){
+    const task=tasks.find(x=>String(x.id)===id);
+    if(task) renderCourseFiles(task);
+    return true;
+  }
+  if(courseFilesLoadingTask===id && !force) return true;
+
+  courseFilesLoadingTask=id;
+  const task=tasks.find(x=>String(x.id)===id);
+  if(task) renderCourseFiles(task);
+
+  const fields={action:"course_files",task_id:id};
+  const sent=bridgeClientRequest(fields) || jsonpBridgeRequest(fields);
+  if(!sent){
+    courseFilesLoadingTask="";
+    const badge=document.getElementById("course-files-state");
+    if(badge){
+      badge.textContent="尚未連線控制中心";
+      badge.className="badge";
+    }
+  }
+  return sent;
+}
+
 function renderTaskDetail(task){
   normalizeTask(task);
   renderLanguagePlan(task);
@@ -2021,7 +2138,16 @@ function renderTaskDetail(task){
       (stageFailure ? '｜失敗原因：'+escapeHtml(stageFailure) : '')+'</small></div>'+
       (reviewStage?'<em>'+(stage.key==="en-review"?"英文定稿":"中文定稿")+'</em>':'')+
     '</button>';
-  }).join("");
+  }).join("")+
+    '<button class="detail-stage file-overview" type="button" data-course-files-jump>'+
+      '<span class="detail-stage-number">05</span>'+
+      '<div><b>檔案總覽</b><small>查看這堂課目前已產生的 Drive 檔案與固定連結</small></div>'+
+      '<em>檔案</em>'+
+    '</button>';
+
+  renderCourseFiles(task);
+  const filesRefresh=document.getElementById("course-files-refresh");
+  if(filesRefresh) filesRefresh.onclick=()=>requestCourseFiles(task.id,true);
 
   const current=next || workflow[workflow.length-1];
   const currentRemote = next ? remoteStageStatus(task,next.key) : null;
@@ -2104,6 +2230,13 @@ function renderTaskDetail(task){
       }
     });
   });
+
+  document.querySelector("[data-course-files-jump]")?.addEventListener("click",()=>{
+    document.getElementById("course-files-panel")?.scrollIntoView({
+      behavior:"smooth",
+      block:"start"
+    });
+  });
 }
 
 function rollbackPreviousStage(taskId){
@@ -2142,6 +2275,7 @@ function openTaskDetail(taskId){
   if(!task) return;
   renderTaskDetail(task);
   requestLanguagePlan(task.id);
+  requestCourseFiles(task.id);
   showView("task-detail");
 }
 
@@ -3724,6 +3858,27 @@ window.addEventListener("message",event=>{
       }
     }else if(badge){
       badge.textContent="雲端檔案讀取失敗";
+      badge.className="badge";
+    }
+  }
+
+  if(data.type==="course_files"){
+    courseFilesLoadingTask="";
+    const badge=document.getElementById("course-files-state");
+
+    if(data.ok && data.task_id){
+      courseFilesCache[data.task_id]=data;
+      courseFilesFetchedAt[data.task_id]=Date.now();
+      const selected=tasks.find(x=>String(x.id)===String(data.task_id));
+      if(
+        selected &&
+        currentView==="task-detail" &&
+        String(selectedTaskId)===String(data.task_id)
+      ){
+        renderCourseFiles(selected);
+      }
+    }else if(badge){
+      badge.textContent="檔案讀取失敗";
       badge.className="badge";
     }
   }
