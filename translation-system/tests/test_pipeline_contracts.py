@@ -188,6 +188,19 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('"source_sha256": segments_fingerprint(segments)', engine)
         self.assertIn('manifest.get("source_sha256")', runner)
 
+    def test_tts_token_length_accepts_transformers_batch_encoding(self):
+        engine = read("translation-system/tts_engine.py")
+        block = engine.split("def _input_length(inputs):", 1)[1].split(
+            "def _numeric_spoken_fallback", 1
+        )[0]
+        self.assertIn('inputs.get("input_ids")', block)
+        self.assertNotIn("isinstance(inputs, dict)", block)
+
+    def test_tts_aggregate_status_keeps_per_language_errors(self):
+        runner = read("translation-system/tts_runner.py")
+        self.assertIn('failure_details = "｜".join(', runner)
+        self.assertIn('f"原因：{failure_details}；"', runner)
+
     def test_partial_tts_failure_is_not_success(self):
         runner = read("translation-system/tts_runner.py")
         self.assertIn("any_failed = True", runner)
