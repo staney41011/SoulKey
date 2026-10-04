@@ -12,6 +12,13 @@ let bridgeProtocolVersion=0;
 const params=new URLSearchParams(location.search);
 const taskId=String(params.get("task")||"").trim();
 const videoId=String(params.get("video")||"").trim();
+const requestedStep=String(params.get("step")||"").trim().toLowerCase();
+const requestedStepNumber={
+  zh:1,
+  en:2,
+  output:3,
+  done:4
+}[requestedStep]||0;
 
 let payload=null;
 let segments=[];
@@ -472,6 +479,10 @@ function applyReviewPayload(loaded){
   else if(payload.en_finalized_at) setStep(3);
   else if(payload.zh_finalized_at) setStep(2);
   else setStep(1);
+
+  if(requestedStepNumber){
+    setStep(requestedStepNumber);
+  }
 
   if(!dirty) setStatus("已載入最新工作稿","ok");
 }
