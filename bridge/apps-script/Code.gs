@@ -3146,11 +3146,52 @@ function courseFilesOverview_(taskId) {
     .map(function(lang) { return transcriptChoice_(transcriptPool, lang); })
     .filter(Boolean);
 
-  const audioFiles = collectFolder_(audioFolder, "audio", "音檔")
+  const audioPool = collectFolder_(audioFolder, "audio", "音檔")
     .filter(function(item) {
       const name = canonicalName_(item);
       return /\.mp3$/i.test(name || item.name || "");
     });
+
+  function audioBaseLang_(name) {
+    const value = String(name || "").trim();
+    let m = /^youtube\.([A-Za-z-]+)\.mp3$/i.exec(value);
+    if (m) return String(m[1] || "").toLowerCase().split("-")[0];
+    m = /^([A-Za-z-]+)\.mp3$/i.exec(value);
+    if (m) return String(m[1] || "").toLowerCase().split("-")[0];
+    return "";
+  }
+
+  function audioChoice_(items, lang) {
+    const wanted = String(lang || "").toLowerCase().split("-")[0];
+    const candidates = [];
+
+    items.forEach(function(item) {
+      const name = canonicalName_(item);
+      if (audioBaseLang_(name) !== wanted) return;
+
+      let priority = 0;
+      if (/^youtube\.[A-Za-z-]+\.mp3$/i.test(name)) priority = 100;
+      else if (/^[A-Za-z-]+\.mp3$/i.test(name)) priority = 80;
+
+      if (priority) {
+        candidates.push({priority: priority, item: item});
+      }
+    });
+
+    candidates.sort(function(a, b) {
+      if (b.priority !== a.priority) return b.priority - a.priority;
+      return String(b.item.updated_at || "").localeCompare(
+        String(a.item.updated_at || "")
+      );
+    });
+
+    return candidates.length ? candidates[0].item : null;
+  }
+
+  const audioLanguages = ["en", "th", "es", "id", "vi", "sd", "ta"];
+  const audioFiles = audioLanguages
+    .map(function(lang) { return audioChoice_(audioPool, lang); })
+    .filter(Boolean);
 
   const videoFiles = collectFolder_(videoFolder, "video", "完成影片")
     .filter(function(item) {
