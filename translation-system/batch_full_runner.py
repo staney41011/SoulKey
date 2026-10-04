@@ -114,6 +114,45 @@ def drive_has_file(drive, folder_id, name):
     return bool(find_file(drive, folder_id, name))
 
 
+def drive_has_youtube_primary_audio(drive, folder_id, lang, workdir):
+    manifest_item = find_file(
+        drive,
+        folder_id,
+        "youtube-audio-manifest.json",
+    )
+    if not manifest_item:
+        return False
+
+    check_dir = workdir / "youtube-audio-check"
+    check_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = check_dir / "youtube-audio-manifest.json"
+    try:
+        download_drive_file(drive, manifest_item["id"], manifest_path)
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+
+    selected = payload.get("selected_as_primary_audio") or {}
+    item = selected.get(lang)
+    if isinstance(item, dict):
+        canonical = str(item.get("canonical_name") or "").strip()
+        if canonical and find_file(drive, folder_id, canonical):
+            return True
+
+    wanted = str(lang or "").lower().split("-", 1)[0]
+    for uploaded in payload.get("uploaded") or []:
+        audio_lang = str(uploaded.get("language") or "").lower()
+        if audio_lang.split("-", 1)[0] != wanted:
+            continue
+        canonical = str(
+            uploaded.get("canonical_name") or uploaded.get("file") or ""
+        ).strip()
+        if canonical and find_file(drive, folder_id, canonical):
+            return True
+
+    return False
+
+
 def segments_fingerprint(segments):
     canonical = [
         {
@@ -760,9 +799,9 @@ def process_task(task_id, system_dir):
             f"{task_id} six-language translation",
         )
 
-        # 6. Meta MMS seven-language TTS on Kaggle GPU.
-        # tts_runner has its own manifest-based resume logic; do not force
-        # regeneration of languages that already completed.
+        # 6. Audio stage: YouTube multilingual / auto-dubbed track first;
+        # local TTS only fills languages YouTube does not provide.
+        # tts_runner keeps its own resume logic for the TTS fallback.
         run([
             sys.executable, system_dir / "tts_runner.py",
             "--task-id", task_id,
@@ -770,19 +809,27 @@ def process_task(task_id, system_dir):
             "--max-tasks", "1",
         ])
 
-        # tts_runner intentionally continues after one language fails so the
-        # other languages still get a chance to finish. The batch itself must
-        # nevertheless stay incomplete until every requested WAV + MP3 exists;
-        # otherwise we would report a false full-batch success.
+        # Audio is complete when either:
+        # 1) YouTube supplied a multilingual / auto-dubbed MP3 selected as the
+        #    primary source, OR
+        # 2) local TTS supplied the normal WAV + MP3 pair.
         missing_audio = []
         for lang in LANGS:
-            has_wav = drive_has_file(drive, folders["audio"], f"{lang}.wav")
-            has_mp3 = drive_has_file(drive, folders["audio"], f"{lang}.mp3")
-            if not (has_wav and has_mp3):
+            has_youtube = drive_has_youtube_primary_audio(
+                drive,
+                folders["audio"],
+                lang,
+                workdir,
+            )
+            has_tts = (
+                drive_has_file(drive, folders["audio"], f"{lang}.wav")
+                and drive_has_file(drive, folders["audio"], f"{lang}.mp3")
+            )
+            if not (has_youtube or has_tts):
                 missing_audio.append(lang)
         if missing_audio:
             raise RuntimeError(
-                "Meta MMS TTS 尚未完成：" + ",".join(missing_audio)
+                "多語音檔尚未完成：" + ",".join(missing_audio)
             )
 
         # 7. Put all final SRTs into the dedicated subtitle folder.
