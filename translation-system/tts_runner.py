@@ -33,7 +33,11 @@ LANGUAGE_NAMES = {
     "sd": "Sindhi",
     "ta": "Tamil",
 }
-from tts_engine import (\n    segments_fingerprint,\n    synthesize_gemini_language,\n    synthesize_language,\n)
+from tts_engine import (
+    segments_fingerprint,
+    synthesize_gemini_language,
+    synthesize_language,
+)
 from status_io import new_run_id, mark_running, mark_done, mark_needs_review, mark_error
 
 
