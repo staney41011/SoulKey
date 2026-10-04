@@ -50,6 +50,16 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('中文一律使用 Taiwan-Breeze ASR', cc_runner)
         self.assertIn('中文只使用原始音軌 Taiwan-Breeze ASR', runner)
 
+        app = read("studio/app-20260923-48.js")
+        index = read("studio/index.html")
+        self.assertIn('const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","sd","ta"]', app)
+        self.assertIn('if(kind==="asr")', app)
+        self.assertIn('zh-TW\\.transcript\\.txt', app)
+        self.assertIn("7/7 語純逐字稿已齊全", app)
+        self.assertIn("一般使用者只顯示無時間軸純逐字稿", index)
+        self.assertIn("429 會逐語言退避重試", index)
+        self.assertNotIn("JSON / 時間軸 TXT / SRT / 純逐字稿", index)
+
     def test_frontend_bridge_actions_have_server_handlers(self):
         app = read("studio/app-20260923-48.js")
         quick = read("studio/review-editor.js")
