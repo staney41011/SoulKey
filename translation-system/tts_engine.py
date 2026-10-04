@@ -53,7 +53,7 @@ def _input_length(inputs):
     """Return tokenizer input length for dicts and Transformers BatchEncoding.
 
     AutoTokenizer returns BatchEncoding (a mapping-like object, not necessarily
-    an actual dict). The old isinstance(inputs, dict) guard misclassified every
+    an actual dict). The old native-dict-only guard misclassified every
     normal MMS tokenization as zero-length and skipped all speech generation.
     """
     ids = None
