@@ -376,6 +376,31 @@ def main():
                 "--force",
             ])
 
+    def run_polish_with_local_fallback():
+            try:
+                run([
+                    sys.executable,
+                    str(system_dir / "gemini_text_production_runner.py"),
+                    "--task-id", args.task_id,
+                    "--stage", "polish",
+                ])
+                return "Gemini"
+            except subprocess.CalledProcessError as exc:
+                print(
+                    "[POLISH] Gemini 校稿失敗；"
+                    "改用 Kaggle 本地 Qwen3-4B 校稿，不等待 API 額度。"
+                    f" 原因={type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                run([
+                    sys.executable,
+                    str(system_dir / "polish_runner.py"),
+                    "--task-id", args.task_id,
+                    "--max-tasks", "1",
+                    "--force",
+                ])
+                return "Qwen3-4B local"
+
         if args.stage == "cc" or (
             args.stage == "en" and args.lang == "cc-refresh"
         ):
@@ -403,17 +428,13 @@ def main():
                 )
                 run_gemini_source_fallback()
 
-            run([
-                sys.executable,
-                str(system_dir / "gemini_text_production_runner.py"),
-                "--task-id", args.task_id,
-                "--stage", "polish",
-            ])
+            polish_engine = run_polish_with_local_fallback()
             report(
                 args.bridge_url,
                 args.runtime_nonce,
                 "needs_review",
-                "Taiwan-Breeze逐字稿 + Gemini校稿完成，待人工中文定稿",
+                "Taiwan-Breeze逐字稿 + " + polish_engine +
+                " 校稿完成，待人工中文定稿",
             )
             cmd = None
 
@@ -434,12 +455,8 @@ def main():
             cmd = None
 
         elif args.stage == "polish":
-            cmd = [
-                sys.executable,
-                str(system_dir / "gemini_text_production_runner.py"),
-                "--task-id", args.task_id,
-                "--stage", "polish",
-            ]
+            run_polish_with_local_fallback()
+            cmd = None
 
         elif args.stage == "vernacular":
             cmd = [
