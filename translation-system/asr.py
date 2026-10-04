@@ -3,6 +3,9 @@ import os
 import re
 from pathlib import Path
 
+import numpy as np
+from scipy.io import wavfile
+
 import ctranslate2
 from faster_whisper import WhisperModel
 
@@ -246,6 +249,41 @@ def _regroup_words(word_items):
     return merged
 
 
+
+def _load_local_pcm(audio_path: str, expected_rate=16000):
+    """Load ffmpeg-normalized WAV locally and bypass PyAV inside faster-whisper.
+
+    Kaggle can ship a PyAV build that does not accept faster-whisper's
+    metadata_errors keyword. SoulKey already normalizes every ASR source to
+    16 kHz mono WAV, so passing a float32 NumPy waveform directly is both
+    simpler and insulated from PyAV version drift.
+    """
+    rate, audio = wavfile.read(str(audio_path))
+    if int(rate) != int(expected_rate):
+        raise RuntimeError(
+            f"ASR WAV 取樣率錯誤：{rate} Hz；預期 {expected_rate} Hz"
+        )
+
+    audio = np.asarray(audio)
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+
+    if np.issubdtype(audio.dtype, np.integer):
+        info = np.iinfo(audio.dtype)
+        scale = float(max(abs(info.min), abs(info.max)))
+        audio = audio.astype(np.float32) / scale
+    else:
+        audio = audio.astype(np.float32, copy=False)
+
+    if audio.size == 0:
+        raise RuntimeError("ASR WAV 沒有任何音訊 sample")
+
+    if not np.isfinite(audio).all():
+        audio = np.nan_to_num(audio, nan=0.0, posinf=1.0, neginf=-1.0)
+
+    return np.ascontiguousarray(audio, dtype=np.float32)
+
+
 def transcribe_audio(
     audio_path: str,
     output_dir: Path,
@@ -262,8 +300,14 @@ def transcribe_audio(
         initial_prompt = "可能出現的專有名詞：" + "、".join(glossary_terms)
 
     print(f"[ASR] 開始辨識: {audio_path}", flush=True)
+    audio_samples = _load_local_pcm(audio_path)
+    print(
+        f"[ASR] 本地 WAV 直接載入：samples={audio_samples.size}；"
+        "略過 PyAV 解碼層",
+        flush=True,
+    )
     segments_iter, info = model.transcribe(
-        str(audio_path),
+        audio_samples,
         language="zh",
         task="transcribe",
         beam_size=5,
