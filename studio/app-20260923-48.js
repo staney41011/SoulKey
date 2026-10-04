@@ -71,6 +71,8 @@ const workflow = [
   {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
 
+const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","sd","ta"];
+
 function load(key, fallback){
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
   catch { return fallback; }
@@ -1409,11 +1411,30 @@ function formatCaptureFileSize(bytes){
   return value+" B";
 }
 
+function ccCompletedLanguageCodes(files){
+  const found=new Set();
+  (Array.isArray(files)?files:[]).forEach(file=>{
+    const raw=String(file?.name||"");
+    const match=raw.match(/youtube\.([^.]+)\.transcript\.txt$/i);
+    if(!match) return;
+    const code=String(match[1]||"").toLowerCase().replace("_","-");
+    const base=code.split("-",1)[0];
+    if(YOUTUBE_CC_TARGETS.includes(code)) found.add(code);
+    else if(YOUTUBE_CC_TARGETS.includes(base)) found.add(base);
+  });
+  return [...found];
+}
+
 function captureStateInfo(task,kind,files){
   const list=Array.isArray(files)?files:[];
   const remote=task?.remoteStages?.[kind==="cc" ? "cc" : "youtube-audio"] || null;
   const status=String(remote?.status||"").toLowerCase();
   const message=String(remote?.message||remote?.error_message||"").trim();
+  const ccDone=kind==="cc" ? ccCompletedLanguageCodes(list).length : 0;
+  const ccTotal=YOUTUBE_CC_TARGETS.length;
+  const ccDetail=ccDone
+    ? ccDone+"/"+ccTotal+" 語已有可閱讀的純逐字稿。"
+    : "尚未找到可閱讀的外語 CC 純逐字稿。";
 
   if(status==="running" || status==="queued"){
     return {key:"working",label:"執行中",detail:message || "Kaggle 正在處理這項抓取工作。"};
@@ -1427,18 +1448,29 @@ function captureStateInfo(task,kind,files){
       };
     }
     const match=message.match(/(\d+)\/(\d+)\s*語言完成/);
-    const partial=match && Number(match[1])<Number(match[2]);
+    const messagePartial=match && Number(match[1])<Number(match[2]);
+    const filePartial=kind==="cc" && ccDone>0 && ccDone<ccTotal;
+    const partial=!!(messagePartial || filePartial);
     return {
       key:partial ? "partial" : "complete",
       label:partial ? "部分完成" : "已抓取完成",
       detail:message || (
-        list.length
-          ? "雲端目前有 "+list.length+" 個檔案。"
-          : "工作已完成，正在同步雲端檔案。"
+        kind==="cc"
+          ? (ccDone===ccTotal ? "7/7 語純逐字稿已齊全。" : ccDetail)
+          : list.length
+            ? "雲端目前有 "+list.length+" 個音檔。"
+            : "工作已完成，正在同步雲端檔案。"
       )
     };
   }
   if(status==="error"){
+    if(kind==="cc" && ccDone){
+      return {
+        key:"partial",
+        label:"部分完成",
+        detail:ccDetail+(message ? "｜最近一次錯誤："+message : "")
+      };
+    }
     if(list.length){
       return {
         key:"partial",
@@ -1449,14 +1481,32 @@ function captureStateInfo(task,kind,files){
     return {key:"error",label:"執行失敗",detail:message || "最近一次抓取工作失敗。"};
   }
   if(status==="stale"){
+    if(kind==="cc" && ccDone){
+      return {key:"partial",label:"部分完成",detail:ccDetail+"｜目前結果需要重新確認。"};
+    }
     return {
       key:list.length ? "partial" : "error",
       label:list.length ? "部分檔案已存在" : "需重新執行",
       detail:message || "目前結果已標記為過期。"
     };
   }
+  if(kind==="cc"){
+    if(ccDone===ccTotal){
+      return {key:"complete",label:"已抓取完成",detail:"7/7 語純逐字稿已齊全。"};
+    }
+    if(ccDone>0){
+      return {key:"partial",label:"部分完成",detail:ccDetail};
+    }
+    if(list.length){
+      return {
+        key:"partial",
+        label:"處理中資料已存在",
+        detail:"Drive 已有 CC 處理檔，但尚未找到可閱讀的純逐字稿。"
+      };
+    }
+  }
   if(list.length){
-    return {key:"complete",label:"已抓取完成",detail:"Drive 已找到 "+list.length+" 個檔案。"};
+    return {key:"complete",label:"已抓取完成",detail:"Drive 已找到 "+list.length+" 個音檔。"};
   }
   return {key:"idle",label:"未執行",detail:"尚未找到執行紀錄或雲端檔案。"};
 }
@@ -1482,11 +1532,20 @@ function visibleYoutubeCaptureFiles(kind,files){
     if(/\.srt$/i.test(raw) || /\.srt$/i.test(display)) return false;
 
     if(kind==="cc"){
-      // CC list exposes only the pure transcript.  Keep the timeline TXT on
-      // Drive for downstream processing but do not show it in Studio.
+      // CC list exposes only the pure transcript. Keep JSON / timeline TXT /
+      // SRT on Drive for downstream processing but hide them from Studio.
       return (
         /\.transcript\.txt$/i.test(raw) ||
         /CC純逐字稿\.txt$/i.test(display)
+      );
+    }
+
+    if(kind==="asr"){
+      // Chinese source follows the same user-facing rule: only show the
+      // no-timestamp transcript, not ASR JSON / timeline TXT / SRT.
+      return (
+        /zh-TW\.transcript\.txt$/i.test(raw) ||
+        /中文純逐字稿\.txt$/i.test(display)
       );
     }
 
@@ -1679,7 +1738,7 @@ function syncYoutubeCaptureModeUi(){
   if(button) button.textContent=mode==="cc" ? "抓取 CC 字幕" : "抓取音軌";
   if(status && !/已送出|Kaggle|完成|錯誤|處理中/.test(String(status.textContent||""))){
     status.textContent=mode==="cc"
-      ? "將抓取 YouTube 目前可取得的多語 CC 字幕。"
+      ? "固定補齊 7 語 CC 純逐字稿；遇到 YouTube 429 會逐語言退避重試。"
       : "將抓取 YouTube 目前可取得的多語音軌。";
   }
 }
