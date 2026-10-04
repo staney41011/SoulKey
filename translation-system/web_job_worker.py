@@ -376,7 +376,7 @@ def main():
                 "--force",
             ])
 
-    def run_polish_with_local_fallback():
+        def run_polish_with_local_fallback():
             try:
                 run([
                     sys.executable,
