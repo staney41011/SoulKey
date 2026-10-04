@@ -3351,31 +3351,126 @@ async function openEnglishReview(taskId){
   }
 }
 
+function mergeEnglishTextParts(parts){
+  const tokens=[];
+  for(const raw of parts||[]){
+    const text=String(raw||"").replace(/\s+/g," ").trim();
+    if(!text) continue;
+    const next=text.split(" ").filter(Boolean);
+    if(!next.length) continue;
+
+    let overlap=0;
+    const max=Math.min(tokens.length,next.length,18);
+    for(let size=max;size>0;size--){
+      const left=tokens.slice(tokens.length-size).join(" ").toLowerCase();
+      const right=next.slice(0,size).join(" ").toLowerCase();
+      if(left===right){
+        overlap=size;
+        break;
+      }
+    }
+    tokens.push(...next.slice(overlap));
+  }
+  return tokens.join(" ").replace(/\s+([,.;:!?])/g,"$1").trim();
+}
+
+function englishSentenceEnded(text){
+  return /[.!?][\"'’”\)\]]*$/.test(String(text||"").trim());
+}
+
+function groupEnglishReviewItems(items){
+  const rows=(Array.isArray(items)?items:[]).filter(Boolean);
+  const groups=[];
+  let current=null;
+
+  const flush=()=>{
+    if(!current) return;
+    current.en=mergeEnglishTextParts(current.enParts);
+    current.source_en=mergeEnglishTextParts(current.sourceParts);
+    current.original=current.originalParts.join("");
+    delete current.enParts;
+    delete current.sourceParts;
+    delete current.originalParts;
+    groups.push(current);
+    current=null;
+  };
+
+  rows.forEach((item,index)=>{
+    const en=String(item.en||"").replace(/\s+/g," ").trim();
+    const start=Number(item.start||0);
+    const end=Number(item.end||start);
+
+    if(!current){
+      current={
+        id:Number(item.id??index),
+        ids:[Number(item.id??index)],
+        start,
+        end,
+        time:item.time||"",
+        enParts:[en],
+        sourceParts:[en],
+        originalParts:[String(item.original||"")],
+        terms:Array.isArray(item.terms)?item.terms.slice():[]
+      };
+    }else{
+      current.ids.push(Number(item.id??index));
+      current.end=Math.max(current.end,end);
+      current.enParts.push(en);
+      current.sourceParts.push(en);
+      current.originalParts.push(String(item.original||""));
+      (item.terms||[]).forEach(term=>{
+        const key=String(term.zh||"")+"|||"+String(term.en||"");
+        if(!current.terms.some(x=>String(x.zh||"")+"|||"+String(x.en||"")===key)){
+          current.terms.push(term);
+        }
+      });
+    }
+
+    const merged=mergeEnglishTextParts(current.enParts);
+    const next=rows[index+1];
+    const nextGap=next ? Number(next.start||0)-current.end : Infinity;
+    const duration=current.end-current.start;
+    const shouldBreak=
+      englishSentenceEnded(merged) ||
+      merged.length>=320 ||
+      duration>=20 ||
+      nextGap>2.2 ||
+      !next;
+
+    if(shouldBreak) flush();
+  });
+
+  flush();
+  return groups;
+}
+
 function renderEnglishReview(items){
-  currentEnglishReview=items;
+  const groupedItems=groupEnglishReviewItems(items);
+  currentEnglishReview=groupedItems;
   document.getElementById("en-review-head")?.classList.add("hide-vernacular");
   document.getElementById("en-review-list")?.classList.add("hide-vernacular");
   const list=document.getElementById("en-review-list");
   const termBox=document.getElementById("en-term-learning");
   if(!list || !termBox) return;
 
-  list.innerHTML=items.map(item=>
-    '<article class="en-review-row" data-en-segment="'+item.id+'" data-start="'+escapeHtml(item.start ?? 0)+'" data-end="'+escapeHtml(item.end ?? 0)+'">'+
+  list.innerHTML=groupedItems.map((item,index)=>
+    '<article class="en-review-row" data-en-segment="'+item.id+'" data-en-ids="'+escapeHtml(item.ids.join(","))+'" data-start="'+escapeHtml(item.start ?? 0)+'" data-end="'+escapeHtml(item.end ?? 0)+'">'+
       '<div class="en-review-meta">'+
-        '<span>#'+item.id+'</span><span>'+escapeHtml(item.time)+'</span>'+
+        '<span>句 '+(index+1)+'</span><span>'+escapeHtml(item.time)+'</span>'+
+        (item.ids.length>1 ? '<span>合併 '+item.ids.length+' 個原始片段</span>' : '')+
       '</div>'+
       '<div class="en-review-pair">'+
         '<div class="zh-source original-column">'+escapeHtml(item.original)+'</div>'+
         '<textarea class="en-draft">'+escapeHtml(item.en)+'</textarea>'+
       '</div>'+
       '<div class="segment-actions">'+
-        '<button class="mini confirm" data-confirm-en-segment="'+item.id+'">確認此段</button>'+
+        '<button class="mini confirm" data-confirm-en-segment="'+item.id+'">確認此句</button>'+
       '</div>'+
     '</article>'
   ).join("");
 
   const pairs=[];
-  items.forEach(item=>{
+  groupedItems.forEach(item=>{
     (item.terms||[]).forEach(pair=>{
       const key=pair.zh+"|||"+pair.en;
       if(!pairs.some(x=>x.key===key)) pairs.push({...pair,key});
