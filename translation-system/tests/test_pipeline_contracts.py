@@ -349,6 +349,24 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn(assignment, multi)
         self.assertLess(multi.index(assignment), multi.index('"nvidia_second_opinion_used": nvidia_used'))
 
+    def test_review_video_floats_and_english_share_link_opens_step_two(self):
+        app = read("studio/app-20260923-48.js")
+        index = read("studio/index.html")
+        styles = read("studio/styles.css")
+        review = read("studio/review-editor.js")
+
+        self.assertIn('id="zh-review-media-anchor"', index)
+        self.assertIn('id="zh-review-media-bar"', index)
+        self.assertIn('id="create-en-review-share"', index)
+        self.assertIn('id="en-review-share-state"', index)
+        self.assertIn("function updateZhReviewVideoFloat()", app)
+        self.assertIn('bar.classList.add("floating-video")', app)
+        self.assertIn('quickReviewUrl(task,"en")', app)
+        self.assertIn('.zh-review-media-bar.floating-video', styles)
+        self.assertIn('const requestedStep=String(params.get("step")', review)
+        self.assertIn("en:2", review)
+        self.assertIn("if(requestedStepNumber===2) setStep(2)", review)
+
     def test_task_file_overview_is_read_only_step_after_workflow(self):
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
