@@ -33,7 +33,7 @@ LANGUAGE_NAMES = {
     "sd": "Sindhi",
     "ta": "Tamil",
 }
-from tts_engine import segments_fingerprint, synthesize_language
+from tts_engine import (\n    segments_fingerprint,\n    synthesize_gemini_language,\n    synthesize_language,\n)
 from status_io import new_run_id, mark_running, mark_done, mark_needs_review, mark_error
 
 
@@ -186,7 +186,7 @@ def main():
 
     print("=" * 72)
     print("打開心靈的鎖匙｜多語 TTS")
-    print("引擎：Meta MMS-TTS / VITS")
+    print("引擎：Meta MMS-TTS / VITS；Sindhi 使用 Gemini TTS")
     print("=" * 72)
 
     drive, sheets = build_google_services()
@@ -303,13 +303,22 @@ def main():
                         float(seg.get("end", 0) or 0)
                         for seg in segments
                     )
-                    result = synthesize_language(
-                        segments=segments,
-                        lang=lang,
-                        model_id=TTS_MODELS[lang],
-                        output_dir=workdir / f"tts-{lang}",
-                        target_duration=source_duration,
-                    )
+                    if lang == "sd":
+                        result = synthesize_gemini_language(
+                            segments=segments,
+                            lang=lang,
+                            model_id=TTS_MODELS[lang],
+                            output_dir=workdir / f"tts-{lang}",
+                            target_duration=source_duration,
+                        )
+                    else:
+                        result = synthesize_language(
+                            segments=segments,
+                            lang=lang,
+                            model_id=TTS_MODELS[lang],
+                            output_dir=workdir / f"tts-{lang}",
+                            target_duration=source_duration,
+                        )
                     upload_tts_outputs(drive, folders["audio"], result, task)
                     completed.append(lang)
 
