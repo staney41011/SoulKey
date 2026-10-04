@@ -349,6 +349,24 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn(assignment, multi)
         self.assertLess(multi.index(assignment), multi.index('"nvidia_second_opinion_used": nvidia_used'))
 
+    def test_english_cc_review_groups_fragments_into_sentences(self):
+        app = read("studio/app-20260923-48.js")
+        review = read("studio/review-editor.js")
+
+        for source in (app, review):
+            self.assertIn("function mergeEnglishTextParts(parts)", source)
+            self.assertIn("function englishSentenceEnded(text)", source)
+
+        self.assertIn("function groupEnglishReviewItems(items)", app)
+        self.assertIn("const groupedItems=groupEnglishReviewItems(items)", app)
+        self.assertIn('data-en-ids=', app)
+
+        self.assertIn("function englishGroups()", review)
+        self.assertIn("function writeEnglishGroup(group,text)", review)
+        self.assertIn('data-ids=', review)
+        self.assertIn("const groups=englishGroups();", review)
+        self.assertIn("segments_json:JSON.stringify(finalSegments)", review)
+
     def test_review_video_floats_and_english_share_link_opens_step_two(self):
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
