@@ -300,10 +300,14 @@ function englishGroups(){
 function writeEnglishGroup(group,text){
   const ids=Array.isArray(group?.ids)?group.ids:[group?.id];
   const normalized=String(text||"").trim();
-  ids.forEach((id,index)=>{
+  ids.forEach(id=>{
     const item=segments.find(x=>Number(x.id)===Number(id));
     if(!item) return;
-    item.en_text=index===0 ? normalized : "";
+    // Keep the same edited sentence on every source fragment in the group.
+    // mergeEnglishTextParts() collapses the repeated full sentence back to
+    // one review sentence, while autosave/reload no longer resurrects the
+    // original fragmented CC text.
+    item.en_text=normalized;
     item.en_confirmed=false;
   });
 }
