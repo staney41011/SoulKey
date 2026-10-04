@@ -100,7 +100,7 @@ jobs:
           grep -q 'completedStep=i-1' studio/app-20260923-48.js
           grep -q '3 次重翻 + 2 次強制修復' translation-system/translation_engine.py
           ! grep -q 'status = "待人工確認" if result\["review_required_count"\]' translation-system/translate_runner.py
-          grep -q 'facebook/mms-tts/models/snd' translation-system/config.py
+          grep -q 'gemini-3.8-flash-tts' translation-system/config.py
           grep -q 'run_taiwan_breeze_asr' translation-system/web_job_worker.py
           grep -q 'Taiwan-Breeze 為正式主 ASR' translation-system/web_job_worker.py
           grep -q '"batch"' bridge/apps-script/Code.gs
