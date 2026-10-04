@@ -188,6 +188,13 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('"source_sha256": segments_fingerprint(segments)', engine)
         self.assertIn('manifest.get("source_sha256")', runner)
 
+    def test_zh_polish_falls_back_to_local_qwen(self):
+        worker = read("translation-system/web_job_worker.py")
+        self.assertIn("def run_polish_with_local_fallback()", worker)
+        self.assertIn("polish_runner.py", worker)
+        self.assertIn("Qwen3-4B local", worker)
+        self.assertIn("polish_engine = run_polish_with_local_fallback()", worker)
+
     def test_asr_bypasses_pyav_for_normalized_wav(self):
         asr = read("translation-system/asr.py")
         self.assertIn("def _load_local_pcm(", asr)
