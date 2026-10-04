@@ -1998,6 +1998,36 @@ function requestLanguagePlan(taskId){
   return jsonpBridgeRequest({action:"language_plan_get",task_id:taskId});
 }
 
+const COURSE_FILES_COLLAPSED_KEY="soulkey_course_files_collapsed";
+
+function courseFilesCollapsed(){
+  try{
+    return localStorage.getItem(COURSE_FILES_COLLAPSED_KEY)==="1";
+  }catch(_){
+    return false;
+  }
+}
+
+function setCourseFilesCollapsed(collapsed,persist=true){
+  const panel=document.getElementById("course-files-panel");
+  const body=document.getElementById("course-files-body");
+  const toggle=document.getElementById("course-files-toggle");
+  const isCollapsed=!!collapsed;
+
+  panel?.classList.toggle("collapsed",isCollapsed);
+  if(body) body.hidden=isCollapsed;
+  if(toggle){
+    toggle.textContent=isCollapsed ? "顯示檔案總覽" : "隱藏檔案總覽";
+    toggle.setAttribute("aria-expanded",isCollapsed ? "false" : "true");
+  }
+
+  if(persist){
+    try{
+      localStorage.setItem(COURSE_FILES_COLLAPSED_KEY,isCollapsed ? "1" : "0");
+    }catch(_){}
+  }
+}
+
 function renderCourseFiles(task){
   const host=document.getElementById("course-files-list");
   const badge=document.getElementById("course-files-state");
@@ -2148,8 +2178,21 @@ function renderTaskDetail(task){
     '</button>';
 
   renderCourseFiles(task);
+  setCourseFilesCollapsed(courseFilesCollapsed(),false);
+
   const filesRefresh=document.getElementById("course-files-refresh");
   if(filesRefresh) filesRefresh.onclick=()=>requestCourseFiles(task.id,true);
+
+  const filesToggle=document.getElementById("course-files-toggle");
+  if(filesToggle){
+    filesToggle.onclick=()=>{
+      const nextCollapsed=!courseFilesCollapsed();
+      setCourseFilesCollapsed(nextCollapsed,true);
+      if(!nextCollapsed && !courseFilesCache[task.id]){
+        requestCourseFiles(task.id);
+      }
+    };
+  }
 
   const current=next || workflow[workflow.length-1];
   const currentRemote = next ? remoteStageStatus(task,next.key) : null;
@@ -2234,6 +2277,8 @@ function renderTaskDetail(task){
   });
 
   document.querySelector("[data-course-files-jump]")?.addEventListener("click",()=>{
+    setCourseFilesCollapsed(false,true);
+    if(!courseFilesCache[task.id]) requestCourseFiles(task.id);
     document.getElementById("course-files-panel")?.scrollIntoView({
       behavior:"smooth",
       block:"start"
@@ -2277,7 +2322,7 @@ function openTaskDetail(taskId){
   if(!task) return;
   renderTaskDetail(task);
   requestLanguagePlan(task.id);
-  requestCourseFiles(task.id);
+  if(!courseFilesCollapsed()) requestCourseFiles(task.id);
   showView("task-detail");
 }
 
