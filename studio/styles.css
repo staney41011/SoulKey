@@ -64,7 +64,25 @@ dialog{border:0;border-radius:17px;padding:0;width:min(540px,92vw);box-shadow:0 
 @media(max-width:1050px){.dashboard-bridge-card{grid-template-columns:1fr}.dashboard-bridge-form{grid-template-columns:1fr auto}.dashboard-bridge-form .badge{grid-column:1/-1;justify-self:start}.bridge-diagnostic-form{grid-template-columns:1fr}}
 @media(max-width:650px){.dashboard-bridge-form{grid-template-columns:1fr}.dashboard-bridge-form button{width:100%}.dashboard-bridge-copy{display:block}}
 
-.zh-review-media-bar{display:flex;gap:16px;align-items:center;justify-content:space-between}
+.zh-review-media-anchor{position:relative}
+.zh-review-media-bar{display:flex;gap:16px;align-items:center;justify-content:space-between;transition:box-shadow .18s ease,transform .18s ease}
+.zh-review-media-bar.floating-video{
+  position:fixed;
+  right:22px;
+  bottom:22px;
+  z-index:70;
+  width:min(430px,calc(100vw - 44px));
+  padding:12px;
+  display:block;
+  border-color:#cfd7d1;
+  box-shadow:0 22px 60px rgba(22,34,66,.24);
+  transform:translateZ(0);
+}
+.zh-review-media-bar.floating-video .youtube-review-player{min-height:0;border-radius:12px}
+.zh-review-media-bar.floating-video .youtube-review-caption{font-size:10px;margin-top:6px}
+.zh-review-media-bar.floating-video .review-time-card{margin-top:8px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:7px 10px;padding:9px 10px}
+.zh-review-media-bar.floating-video .review-time-card small{display:none}
+.zh-review-media-bar.floating-video .review-time-actions{grid-column:2;grid-row:1/3}
 .youtube-review-wrap{flex:1;min-width:0}
 .youtube-review-player{width:100%;aspect-ratio:16/9;min-height:280px;border-radius:16px;overflow:hidden;background:#111;display:flex;align-items:center;justify-content:center}
 .youtube-review-player iframe{width:100%;height:100%;border:0}
@@ -89,7 +107,14 @@ dialog{border:0;border-radius:17px;padding:0;width:min(540px,92vw);box-shadow:0 
 .zh-polished-final{min-height:104px;width:100%;resize:vertical;margin:0;line-height:1.7}
 .zh-review-row.uncertain .zh-asr-source,.zh-review-row.uncertain .zh-polished-final{border-color:#e2b85c}
 .zh-review-row.confirmed{background:rgba(86,185,129,.04)}
-@media(max-width:900px){.zh-review-pair,.zh-final-head{grid-template-columns:1fr}.zh-final-head span:first-child{border-bottom:1px solid var(--line)}.zh-review-media-bar{align-items:stretch;flex-direction:column}.context-card.compact{min-width:0}}
+@media(max-width:900px){
+  .zh-review-pair,.zh-final-head{grid-template-columns:1fr}
+  .zh-final-head span:first-child{border-bottom:1px solid var(--line)}
+  .zh-review-media-anchor{position:sticky;top:8px;z-index:24}
+  .zh-review-media-bar{align-items:stretch;flex-direction:column;box-shadow:0 10px 28px rgba(22,34,66,.12)}
+  .zh-review-media-bar.floating-video{position:static;width:auto;padding:20px;display:flex;box-shadow:0 10px 28px rgba(22,34,66,.12)}
+  .context-card.compact{min-width:0}
+}
 
 
 /* YouTube capture dashboard */
