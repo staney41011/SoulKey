@@ -529,6 +529,14 @@ function bridgeRequest(request) {
       return payload;
     }
 
+    if (action === "course_files") {
+      const taskId = String(request.task_id || "").trim();
+      const payload = courseFilesOverview_(taskId);
+      payload.source = "soulkey-bridge";
+      payload.type = "course_files";
+      return payload;
+    }
+
     if (action === "review_load") {
       const taskId = String(request.task_id || "").trim();
       const kind = String(request.kind || "").trim();
@@ -3026,6 +3034,90 @@ function youtubeCaptureFiles_(taskId) {
     cc_files: ccFiles,
     asr_files: asrFiles,
     audio_files: audioFiles,
+    server_time: new Date().toISOString()
+  };
+}
+
+
+function courseFilesOverview_(taskId) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!normalizedTaskId) {
+    return {
+      ok: false,
+      task_id: normalizedTaskId,
+      error: "missing_task_id",
+      message: "缺少 task_id",
+      groups: [],
+      total_files: 0
+    };
+  }
+
+  const task = ensureTaskNamingMetadata_(normalizedTaskId);
+  const resolved = lessonFolders_(normalizedTaskId);
+  const lessonFolder = resolved.lesson;
+
+  const folders = [
+    {key: "source", label: "來源資訊", folder: resolved.source},
+    {key: "transcript", label: "中文逐字稿", folder: resolved.transcript},
+    {key: "translation", label: "翻譯稿", folder: resolved.translation},
+    {key: "subtitle", label: "字幕", folder: cachedChildFolder_(lessonFolder, "03_字幕")},
+    {key: "audio", label: "音檔", folder: cachedChildFolder_(lessonFolder, "04_音檔")},
+    {key: "video", label: "完成影片", folder: cachedChildFolder_(lessonFolder, "05_完成影片")}
+  ];
+
+  function fileInfo_(file, group) {
+    const actualName = String(file.getName() || "");
+    const canonical =
+      canonicalFromDescription_(file.getDescription()) ||
+      (formalizableCanonicalName_(actualName) ? actualName : "");
+    const displayName =
+      canonical && String(task.title || "").trim()
+        ? formalDriveName_(normalizedTaskId, canonical)
+        : actualName;
+
+    return {
+      id: file.getId(),
+      name: actualName,
+      canonical_name: canonical,
+      display_name: displayName,
+      url: file.getUrl(),
+      size: Number(file.getSize() || 0),
+      updated_at: file.getLastUpdated()
+        ? file.getLastUpdated().toISOString()
+        : "",
+      group_key: group.key,
+      group_label: group.label
+    };
+  }
+
+  let totalFiles = 0;
+  const groups = folders.map(function(group) {
+    const files = [];
+    const iter = group.folder.getFiles();
+    while (iter.hasNext()) {
+      files.push(fileInfo_(iter.next(), group));
+    }
+    files.sort(function(a, b) {
+      return String(a.display_name || a.name || "")
+        .localeCompare(String(b.display_name || b.name || ""));
+    });
+    totalFiles += files.length;
+    return {
+      key: group.key,
+      label: group.label,
+      folder_url:
+        "https://drive.google.com/drive/folders/" + group.folder.getId(),
+      files: files
+    };
+  });
+
+  return {
+    ok: true,
+    task_id: normalizedTaskId,
+    lesson_folder_url:
+      "https://drive.google.com/drive/folders/" + lessonFolder.getId(),
+    total_files: totalFiles,
+    groups: groups,
     server_time: new Date().toISOString()
   };
 }
