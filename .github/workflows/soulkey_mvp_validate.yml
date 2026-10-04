@@ -108,3 +108,6 @@ jobs:
           grep -q 'gpu_stages = {"zh", "asr", "tts", "batch"}' .github/workflows/kaggle_web_job.yml
           grep -q 'batch_full_runner.py' translation-system/web_job_worker.py
           grep -q 'facebook/mms-tts-tam' translation-system/config.py
+          grep -q 'course_files' bridge/apps-script/Code.gs
+          grep -q 'course-files-panel' studio/index.html
+          grep -q 'data-course-file-copy' studio/app-20260923-48.js
