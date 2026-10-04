@@ -1138,6 +1138,12 @@ def main():
         else:
             output_engine = "gemini"
 
+        # Keep one explicit boolean for the QA report / task summary.
+        # A refactor split NVIDIA usage into fallback vs second-opinion flags,
+        # but the legacy nvidia_used references below were accidentally left
+        # behind, causing a NameError after translation + QA had already run.
+        nvidia_used = bool(nvidia_repair_used or nvidia_fallback_used)
+
         outdir = workdir / "final"
         outdir.mkdir(parents=True, exist_ok=True)
         for lang in requested:
