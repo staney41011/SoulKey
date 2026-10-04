@@ -65,7 +65,7 @@
     })();
   </script>
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20261004-1">
+  <link rel="stylesheet" href="./styles.css?v=20261004-2">
 </head>
 <body>
   <div class="shell">
@@ -227,6 +227,26 @@
             <span class="muted">每一堂課獨立執行、獨立確認</span>
           </div>
           <div id="detail-stage-list" class="detail-stage-list"></div>
+        </div>
+
+        <div class="panel course-files-panel" id="course-files-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">FILE OVERVIEW</p>
+              <h3>05・檔案總覽</h3>
+            </div>
+            <div class="toolbar-actions">
+              <span class="badge" id="course-files-state">尚未載入</span>
+              <a class="ghost course-files-folder-link" id="course-files-folder-link" href="#" target="_blank" rel="noopener" hidden>開啟課程資料夾</a>
+              <button class="ghost" id="course-files-refresh" type="button">重新整理</button>
+            </div>
+          </div>
+          <p class="muted block-copy">
+            直接查看這堂課目前已產生的 Google Drive 檔案。每一個檔案都可以開啟或複製固定連結。
+          </p>
+          <div id="course-files-list" class="course-files-list">
+            <div class="empty">進入課程後會自動讀取檔案。</div>
+          </div>
         </div>
 
         <div class="panel" id="detail-current-panel">
@@ -753,6 +773,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20261004-2"></script>
+  <script src="./app-20260923-48.js?v=20261004-3"></script>
 </body>
 </html>
