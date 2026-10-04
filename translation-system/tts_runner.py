@@ -23,6 +23,7 @@ from google_io import (
     upload_or_replace_file,
 )
 from lesson_paths import digits, resolve_lesson_folders
+from youtube_io import download_multilingual_audio_tracks
 
 LANGUAGE_NAMES = {
     "en": "English",
@@ -54,6 +55,7 @@ def row_to_task(raw, sheet_row):
         "lesson": str(row[COL["lesson"]] or "").strip(),
         "title": str(row[COL["title"]] or "").strip(),
         "lecturer": str(row[COL["lecturer"]] or "").strip(),
+        "youtube_url": str(row[COL["youtube_url"]] or "").strip(),
         "en": str(row[COL["en"]] or "").strip(),
         "th": str(row[COL["th"]] or "").strip(),
         "es": str(row[COL["es"]] or "").strip(),
@@ -109,6 +111,107 @@ def load_translation_from_drive(drive, folder_id, lang, workdir):
         flush=True,
     )
     return segments
+
+
+def _base_language(value):
+    return str(value or "").strip().lower().replace("_", "-").split("-", 1)[0]
+
+
+def _youtube_audio_for_requested(downloaded, requested_lang):
+    wanted = _base_language(requested_lang)
+    if not wanted:
+        return None
+
+    exact = [
+        item for item in downloaded
+        if str(item.get("language") or "").strip().lower() == str(requested_lang).lower()
+    ]
+    if exact:
+        return exact[0]
+
+    for item in downloaded:
+        if _base_language(item.get("language")) == wanted:
+            return item
+    return None
+
+
+def acquire_youtube_audio_first(task, langs, workdir):
+    """Try YouTube language audio before any TTS model is loaded.
+
+    YouTube CC text itself has no audio.  What we can reuse is the video's
+    alternate / auto-dubbed language audio track exposed by yt-dlp.  Any
+    requested language found here becomes the authoritative audio source and
+    must not be synthesized again.
+    """
+    url = str(task.get("youtube_url") or "").strip()
+    if not url:
+        return {}, None, "任務沒有 YouTube URL"
+
+    youtube_dir = workdir / "youtube-audio"
+    youtube_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        manifest, manifest_path = download_multilingual_audio_tracks(
+            url,
+            youtube_dir,
+            requested_languages=langs,
+            preferred_codec="mp3",
+        )
+    except Exception as exc:
+        return {}, None, f"{type(exc).__name__}: {exc}"
+
+    downloaded = list(manifest.get("downloaded") or [])
+    matched = {}
+    for lang in langs:
+        item = _youtube_audio_for_requested(downloaded, lang)
+        if item:
+            matched[lang] = item
+
+    return matched, (manifest, manifest_path), ""
+
+
+def upload_youtube_audio_outputs(
+    drive,
+    audio_folder,
+    task,
+    matched,
+    manifest_bundle,
+):
+    uploaded = {}
+    for requested_lang, item in matched.items():
+        path = Path(item["path"])
+        canonical_name = path.name
+        upload_or_replace_file(
+            drive,
+            audio_folder,
+            path,
+            canonical_name,
+            display_name=formal_drive_name(task, canonical_name),
+        )
+        uploaded[requested_lang] = {
+            "language": item.get("language") or requested_lang,
+            "canonical_name": canonical_name,
+            "format_id": item.get("format_id") or "",
+            "is_dubbed_hint": bool(item.get("is_dubbed_hint")),
+        }
+
+    if manifest_bundle:
+        manifest, manifest_path = manifest_bundle
+        final_manifest = dict(manifest)
+        final_manifest["selected_as_primary_audio"] = uploaded
+        manifest_path.write_text(
+            json.dumps(final_manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        upload_or_replace_file(
+            drive,
+            audio_folder,
+            manifest_path,
+            "youtube-audio-manifest.json",
+            display_name=formal_drive_name(task, "youtube-audio-manifest.json"),
+        )
+
+    return uploaded
 
 
 def upload_tts_outputs(drive, audio_folder, result, task):
@@ -248,6 +351,35 @@ def main():
             completed = []
             failed = []
             over_duration = []
+            youtube_completed = []
+            tts_completed = []
+
+            # Priority 1: YouTube alternate / auto-dubbed audio tracks.
+            # This runs once for all requested languages before translations or
+            # TTS models are loaded.  Missing languages fall through to TTS.
+            youtube_matches, youtube_manifest_bundle, youtube_probe_error = (
+                acquire_youtube_audio_first(task, langs, workdir)
+            )
+            youtube_uploaded = {}
+            if youtube_matches:
+                youtube_uploaded = upload_youtube_audio_outputs(
+                    drive,
+                    folders["audio"],
+                    task,
+                    youtube_matches,
+                    youtube_manifest_bundle,
+                )
+                print(
+                    "[YOUTUBE-AUDIO] 作為正式音檔來源：" +
+                    ",".join(youtube_uploaded.keys()),
+                    flush=True,
+                )
+            elif youtube_probe_error:
+                print(
+                    "[YOUTUBE-AUDIO] 沒有可用的指定語言音軌；"
+                    "缺少語言才進本地 TTS。原因=" + youtube_probe_error,
+                    flush=True,
+                )
 
             for lang in langs:
                 lang_stage = f"tts:{lang}"
@@ -262,8 +394,32 @@ def main():
                 )
 
                 try:
-                    # Always resolve the authoritative translation first. Audio
-                    # resume is valid only when the stored manifest was built
+                    if lang in youtube_uploaded:
+                        selected = youtube_uploaded[lang]
+                        completed.append(lang)
+                        youtube_completed.append(lang)
+                        actual_lang = selected.get("language") or lang
+                        canonical_name = selected.get("canonical_name") or ""
+                        message = (
+                            f"{LANGUAGE_NAMES[lang]} 使用 YouTube "
+                            f"{actual_lang} 多語／自動配音音軌；"
+                            "不產生 TTS"
+                        )
+                        print(
+                            f"[YOUTUBE-AUDIO:{lang}] {canonical_name}；skip TTS",
+                            flush=True,
+                        )
+                        mark_done(
+                            task["task_id"],
+                            lang_stage,
+                            sheets=sheets,
+                            run_id=lang_run_id,
+                            message=message,
+                        )
+                        continue
+
+                    # Only languages missing a YouTube audio track enter TTS.
+                    # Resume is valid only when the stored manifest was built
                     # from exactly this text/timing revision.
                     segments = load_translation_from_drive(
                         drive,
@@ -287,6 +443,7 @@ def main():
                             flush=True,
                         )
                         completed.append(lang)
+                        tts_completed.append(lang)
                         mark_done(
                             task["task_id"],
                             lang_stage,
@@ -312,6 +469,7 @@ def main():
                     )
                     upload_tts_outputs(drive, folders["audio"], result, task)
                     completed.append(lang)
+                    tts_completed.append(lang)
 
                     if not result["within_source_duration"]:
                         over_duration.append({
@@ -383,7 +541,9 @@ def main():
                     for item in failed
                 )
                 note = (
-                    f"TTS完成：{','.join(completed) or '無'}；"
+                    f"音檔完成：{','.join(completed) or '無'}；"
+                    f"YouTube優先：{','.join(youtube_completed) or '無'}；"
+                    f"TTS補缺：{','.join(tts_completed) or '無'}；"
                     f"失敗：{','.join(x['lang'] for x in failed)}；"
                     f"原因：{failure_details}；"
                     "單一語言錯誤不阻擋其他語言"
@@ -400,21 +560,25 @@ def main():
                     for item in over_duration
                 )
                 note = (
-                    f"TTS已產生：{','.join(completed)}；"
+                    f"音檔完成：{','.join(completed)}；"
+                    f"YouTube優先：{','.join(youtube_completed) or '無'}；"
+                    f"TTS補缺：{','.join(tts_completed) or '無'}；"
                     f"超過原片總長：{over_text}；"
                     "未調速、未截斷，請先處理超時語言"
                 )
             elif len(completed) == len(langs):
                 status = "完成"
                 note = (
-                    f"TTS完成：{','.join(completed)}；"
-                    "本次指定語言皆在原片總長內結束；較短音檔只在尾端補靜音"
+                    f"音檔完成：{','.join(completed)}；"
+                    f"YouTube優先：{','.join(youtube_completed) or '無'}；"
+                    f"TTS補缺：{','.join(tts_completed) or '無'}"
                 )
             else:
                 status = "部分完成"
                 note = (
-                    f"TTS完成：{','.join(completed)}；"
-                    "已輸出 WAV/MP3/segments.zip；不做逐段時間對齊或調速"
+                    f"音檔完成：{','.join(completed)}；"
+                    f"YouTube優先：{','.join(youtube_completed) or '無'}；"
+                    f"TTS補缺：{','.join(tts_completed) or '無'}"
                 )
 
             update_audio_status(
