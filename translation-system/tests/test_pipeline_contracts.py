@@ -385,6 +385,21 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("en:2", review)
         self.assertIn("if(requestedStepNumber===2) setStep(2)", review)
 
+    def test_course_file_overview_can_collapse_and_remember_state(self):
+        app = read("studio/app-20260923-48.js")
+        index = read("studio/index.html")
+        styles = read("studio/styles.css")
+
+        self.assertIn('id="course-files-toggle"', index)
+        self.assertIn('id="course-files-body"', index)
+        self.assertIn('const COURSE_FILES_COLLAPSED_KEY=', app)
+        self.assertIn("function courseFilesCollapsed()", app)
+        self.assertIn("function setCourseFilesCollapsed(collapsed,persist=true)", app)
+        self.assertIn("setCourseFilesCollapsed(false,true)", app)
+        self.assertIn("if(!courseFilesCollapsed()) requestCourseFiles(task.id)", app)
+        self.assertIn(".course-files-panel.collapsed", styles)
+        self.assertIn(".course-files-body[hidden]", styles)
+
     def test_task_file_overview_is_read_only_step_after_workflow(self):
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
