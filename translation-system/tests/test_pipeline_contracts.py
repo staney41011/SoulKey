@@ -201,6 +201,17 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('failure_details = "｜".join(', runner)
         self.assertIn('f"原因：{failure_details}；"', runner)
 
+    def test_sindhi_tts_uses_gemini_flash_not_missing_mms_bundle(self):
+        config = read("translation-system/config.py")
+        engine = read("translation-system/tts_engine.py")
+        runner = read("translation-system/tts_runner.py")
+
+        self.assertIn('"sd": "gemini-3.8-flash-tts"', config)
+        self.assertNotIn('"sd": "facebook/mms-tts/models/snd"', config)
+        self.assertIn("def synthesize_gemini_language(", engine)
+        self.assertIn('if lang == "sd":', runner)
+        self.assertIn("synthesize_gemini_language(", runner)
+
     def test_partial_tts_failure_is_not_success(self):
         runner = read("translation-system/tts_runner.py")
         self.assertIn("any_failed = True", runner)
