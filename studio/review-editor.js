@@ -208,14 +208,115 @@ function bindZhRows(){
   });
 }
 
+function mergeEnglishTextParts(parts){
+  const tokens=[];
+  for(const raw of parts||[]){
+    const text=String(raw||"").replace(/\s+/g," ").trim();
+    if(!text) continue;
+    const next=text.split(" ").filter(Boolean);
+    if(!next.length) continue;
+
+    let overlap=0;
+    const max=Math.min(tokens.length,next.length,18);
+    for(let size=max;size>0;size--){
+      const left=tokens.slice(tokens.length-size).join(" ").toLowerCase();
+      const right=next.slice(0,size).join(" ").toLowerCase();
+      if(left===right){
+        overlap=size;
+        break;
+      }
+    }
+    tokens.push(...next.slice(overlap));
+  }
+  return tokens.join(" ").replace(/\s+([,.;:!?])/g,"$1").trim();
+}
+
+function englishSentenceEnded(text){
+  return /[.!?][\"'’”\)\]]*$/.test(String(text||"").trim());
+}
+
+function englishGroups(){
+  const rows=segments||[];
+  const groups=[];
+  let current=null;
+
+  const flush=()=>{
+    if(!current) return;
+    current.source_en=mergeEnglishTextParts(current.sourceParts);
+    current.en_text=mergeEnglishTextParts(current.enParts);
+    current.text=current.zhParts.join("");
+    delete current.sourceParts;
+    delete current.enParts;
+    delete current.zhParts;
+    groups.push(current);
+    current=null;
+  };
+
+  rows.forEach((item,index)=>{
+    const source=String(item.source_en||"").replace(/\s+/g," ").trim();
+    const edited=String(item.en_text||source).replace(/\s+/g," ").trim();
+    const start=Number(item.start||0);
+    const end=Number(item.end||start);
+
+    if(!current){
+      current={
+        id:Number(item.id??index),
+        ids:[Number(item.id??index)],
+        start,
+        end,
+        time:String(item.time||clock(start)),
+        sourceParts:[source],
+        enParts:[edited],
+        zhParts:[String(item.text||"")]
+      };
+    }else{
+      current.ids.push(Number(item.id??index));
+      current.end=Math.max(current.end,end);
+      current.sourceParts.push(source);
+      current.enParts.push(edited);
+      current.zhParts.push(String(item.text||""));
+    }
+
+    const sentence=mergeEnglishTextParts(current.sourceParts.length
+      ? current.sourceParts
+      : current.enParts);
+    const next=rows[index+1];
+    const nextGap=next ? Number(next.start||0)-current.end : Infinity;
+    const duration=current.end-current.start;
+    const shouldBreak=
+      englishSentenceEnded(sentence) ||
+      sentence.length>=320 ||
+      duration>=20 ||
+      nextGap>2.2 ||
+      !next;
+
+    if(shouldBreak) flush();
+  });
+
+  flush();
+  return groups;
+}
+
+function writeEnglishGroup(group,text){
+  const ids=Array.isArray(group?.ids)?group.ids:[group?.id];
+  const normalized=String(text||"").trim();
+  ids.forEach((id,index)=>{
+    const item=segments.find(x=>Number(x.id)===Number(id));
+    if(!item) return;
+    item.en_text=index===0 ? normalized : "";
+    item.en_confirmed=false;
+  });
+}
+
 function updateEnglishSummary(){
-  const available=segments.filter(x=>String(x.en_text||"").trim()).length;
-  const changed=segments.filter(x=>String(x.en_text||"").trim()!==String(x.source_en||"").trim()).length;
+  const groups=englishGroups();
+  const available=groups.filter(x=>String(x.en_text||"").trim()).length;
+  const changed=groups.filter(x=>String(x.en_text||"").trim()!==String(x.source_en||"").trim()).length;
   $("english-summary").textContent=
-    "English CC 有內容 "+available+" / "+segments.length+" 段・人工修改 "+changed+" 段";
+    "English CC "+available+" / "+groups.length+" 句・人工修改 "+changed+" 句";
 
   const hasEnglishCc=payload?.english_cc_available===true ||
-    segments.some(x=>String(x.source_en||"").trim());
+    groups.some(x=>String(x.source_en||"").trim());
   if(hasEnglishCc){
     $("cc-notice").className="cc-notice card ok";
     $("cc-notice").textContent=
@@ -231,18 +332,19 @@ function updateEnglishSummary(){
 
 function renderEn(){
   const list=$("en-segment-list");
-  const shown=segments.slice(0,enVisibleCount);
+  const groups=englishGroups();
+  const shown=groups.slice(0,enVisibleCount);
   updateEnglishSummary();
 
   if(!shown.length){
-    list.innerHTML='<div class="card empty">沒有可編輯的段落。</div>';
+    list.innerHTML='<div class="card empty">沒有可編輯的英文句子。</div>';
   }else{
     list.innerHTML=shown.map((s,i)=>`
-      <article class="card segment-card en-card" data-id="${esc(s.id??i)}" data-start="${esc(s.start)}">
+      <article class="card segment-card en-card" data-id="${esc(s.id??i)}" data-ids="${esc(s.ids.join(","))}" data-start="${esc(s.start)}" data-end="${esc(s.end)}">
         <div class="segment-meta">
-          <b>#${esc((s.id??i)+1)}</b>
+          <b>句 ${esc(i+1)}</b>
           <span>${esc(s.time||clock(s.start))}</span>
-          <span class="segment-flags">${s.source_en?"YouTube CC":"⚠ 無 English CC"}</span>
+          <span class="segment-flags">${s.source_en?"YouTube CC":"⚠ 無 English CC"}${s.ids.length>1?"・合併 "+s.ids.length+" 個原始片段":""}</span>
         </div>
         <div class="segment-grid">
           <div class="source final-zh-source">${esc(s.text||"")}</div>
@@ -250,30 +352,34 @@ function renderEn(){
         </div>
         ${s.source_en?'<details class="cc-original"><summary>查看 English CC 原稿</summary><div>'+esc(s.source_en)+'</div></details>':""}
         <div class="segment-actions">
-          <button class="play-segment" type="button">▶ 聽這段</button>
+          <button class="play-segment" type="button">▶ 聽這句</button>
         </div>
       </article>
     `).join("");
   }
 
-  const more=segments.length-shown.length;
+  const more=groups.length-shown.length;
   $("load-more-en").hidden=more<=0;
   if(more>0){
-    $("load-more-en").textContent="再顯示 "+Math.min(RENDER_BATCH,more)+" 段（尚有 "+more+" 段）";
+    $("load-more-en").textContent="再顯示 "+Math.min(RENDER_BATCH,more)+" 句（尚有 "+more+" 句）";
   }
   bindEnRows();
 }
 
 function bindEnRows(){
   document.querySelectorAll("#en-segment-list .segment-card").forEach(card=>{
-    const id=Number(card.dataset.id);
+    const ids=String(card.dataset.ids||card.dataset.id||"")
+      .split(",").map(Number).filter(Number.isFinite);
+    const group={
+      id:Number(card.dataset.id),
+      ids,
+      start:Number(card.dataset.start||0),
+      end:Number(card.dataset.end||0)
+    };
     const textarea=card.querySelector(".en-final-text");
 
     textarea?.addEventListener("input",()=>{
-      const item=segments.find(x=>Number(x.id)===id);
-      if(!item) return;
-      item.en_text=textarea.value;
-      item.en_confirmed=false;
+      writeEnglishGroup(group,textarea.value);
       revision++;
       dirty=true;
       persistLocalDraft();
@@ -592,23 +698,28 @@ function finalizeZh(){
 }
 
 function finalizeEnglish(){
-  const missing=segments.filter(x=>!String(x.en_text||"").trim());
+  const groups=englishGroups();
+  const missing=groups.filter(x=>!String(x.en_text||"").trim());
   if(missing.length){
-    alert("還有 "+missing.length+" 段英文是空白，請補完後再定稿。");
+    alert("還有 "+missing.length+" 句英文是空白，請補完後再定稿。");
     return;
   }
   if(!confirm("確定完成 English Final？\n\n之後其他語言會直接以這份英文定稿翻譯。")) return;
 
   const p=currentPayload();
+  const finalSegments=groups.map(x=>({
+    id:x.id,
+    start:x.start,
+    end:x.end,
+    text:String(x.en_text||"").trim()
+  }));
   setStatus("寫入 English Final…","working");
   $("finalize-en").disabled=true;
   submit({
     action:"review_share_finalize_en",
     task_id:taskId,
     payload_json:JSON.stringify(p),
-    segments_json:JSON.stringify(p.segments.map(x=>({
-      id:x.id,start:x.start,end:x.end,text:x.en_text
-    })))
+    segments_json:JSON.stringify(finalSegments)
   });
 }
 
