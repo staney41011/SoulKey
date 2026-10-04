@@ -53,7 +53,8 @@ function doGet(e) {
     "language_plan_get",
     "tasks_get",
     "review_load",
-    "youtube_capture_files"
+    "youtube_capture_files",
+    "course_files"
   ];
 
   if (callback && jsonpActions.indexOf(action) >= 0) {
