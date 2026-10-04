@@ -45,7 +45,17 @@ def segments_fingerprint(segments):
 
 
 def _input_length(inputs):
-    ids = inputs.get("input_ids") if isinstance(inputs, dict) else None
+    """Return tokenizer input length for dicts and Transformers BatchEncoding.
+
+    AutoTokenizer returns BatchEncoding (a mapping-like object, not necessarily
+    an actual dict). The old isinstance(inputs, dict) guard misclassified every
+    normal MMS tokenization as zero-length and skipped all speech generation.
+    """
+    ids = None
+    try:
+        ids = inputs.get("input_ids")
+    except Exception:
+        ids = getattr(inputs, "input_ids", None)
     if ids is None:
         return 0
     try:
