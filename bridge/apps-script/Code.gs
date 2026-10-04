@@ -3056,17 +3056,10 @@ function courseFilesOverview_(taskId) {
   const task = ensureTaskNamingMetadata_(normalizedTaskId);
   const resolved = lessonFolders_(normalizedTaskId);
   const lessonFolder = resolved.lesson;
+  const audioFolder = cachedChildFolder_(lessonFolder, "04_音檔");
+  const videoFolder = cachedChildFolder_(lessonFolder, "05_完成影片");
 
-  const folders = [
-    {key: "source", label: "來源資訊", folder: resolved.source},
-    {key: "transcript", label: "中文逐字稿", folder: resolved.transcript},
-    {key: "translation", label: "翻譯稿", folder: resolved.translation},
-    {key: "subtitle", label: "字幕", folder: cachedChildFolder_(lessonFolder, "03_字幕")},
-    {key: "audio", label: "音檔", folder: cachedChildFolder_(lessonFolder, "04_音檔")},
-    {key: "video", label: "完成影片", folder: cachedChildFolder_(lessonFolder, "05_完成影片")}
-  ];
-
-  function fileInfo_(file, group) {
+  function fileInfo_(file, groupKey, groupLabel) {
     const actualName = String(file.getName() || "");
     const canonical =
       canonicalFromDescription_(file.getDescription()) ||
@@ -3086,31 +3079,119 @@ function courseFilesOverview_(taskId) {
       updated_at: file.getLastUpdated()
         ? file.getLastUpdated().toISOString()
         : "",
-      group_key: group.key,
-      group_label: group.label
+      group_key: groupKey,
+      group_label: groupLabel
     };
   }
 
-  let totalFiles = 0;
-  const groups = folders.map(function(group) {
-    const files = [];
-    const iter = group.folder.getFiles();
+  function collectFolder_(folder, groupKey, groupLabel) {
+    const out = [];
+    const iter = folder.getFiles();
     while (iter.hasNext()) {
-      files.push(fileInfo_(iter.next(), group));
+      out.push(fileInfo_(iter.next(), groupKey, groupLabel));
     }
+    return out;
+  }
+
+  function canonicalName_(item) {
+    return String(item.canonical_name || item.name || "").trim();
+  }
+
+  function transcriptChoice_(items, language) {
+    const lang = String(language || "").trim();
+    const candidates = [];
+
+    items.forEach(function(item) {
+      const name = canonicalName_(item);
+      let priority = 0;
+
+      if (lang === "zh-TW") {
+        if (name === "zh-TW.final.txt") priority = 100;
+        else if (name === "zh-TW.readable.txt") priority = 80;
+        else if (name === "zh-TW.transcript.txt") priority = 60;
+      } else if (lang === "en") {
+        if (name === "en.final.txt") priority = 100;
+        else if (name === "en.txt") priority = 80;
+        else if (name === "youtube.en.transcript.txt") priority = 60;
+      } else {
+        if (name === lang + ".final.txt") priority = 100;
+        else if (name === lang + ".txt") priority = 80;
+      }
+
+      if (priority) {
+        candidates.push({priority: priority, item: item});
+      }
+    });
+
+    candidates.sort(function(a, b) {
+      if (b.priority !== a.priority) return b.priority - a.priority;
+      return String(b.item.updated_at || "").localeCompare(
+        String(a.item.updated_at || "")
+      );
+    });
+
+    return candidates.length ? candidates[0].item : null;
+  }
+
+  // File overview is intentionally a deliverables view, not a raw Drive browser.
+  // JSON / manifests / checkpoints / QA / WAV / ZIP / SRT / intermediate
+  // timeline files remain in Drive for the pipeline but are hidden here.
+  const transcriptPool = []
+    .concat(collectFolder_(resolved.source, "transcript", "逐字稿"))
+    .concat(collectFolder_(resolved.transcript, "transcript", "逐字稿"))
+    .concat(collectFolder_(resolved.translation, "transcript", "逐字稿"));
+
+  const transcriptLanguages = ["zh-TW", "en", "th", "es", "id", "vi", "sd", "ta"];
+  const transcriptFiles = transcriptLanguages
+    .map(function(lang) { return transcriptChoice_(transcriptPool, lang); })
+    .filter(Boolean);
+
+  const audioFiles = collectFolder_(audioFolder, "audio", "音檔")
+    .filter(function(item) {
+      const name = canonicalName_(item);
+      return /\.mp3$/i.test(name || item.name || "");
+    });
+
+  const videoFiles = collectFolder_(videoFolder, "video", "完成影片")
+    .filter(function(item) {
+      const name = canonicalName_(item);
+      return /\.(mp4|mkv|webm)$/i.test(name || item.name || "");
+    });
+
+  function sortFiles_(files) {
     files.sort(function(a, b) {
       return String(a.display_name || a.name || "")
         .localeCompare(String(b.display_name || b.name || ""));
     });
-    totalFiles += files.length;
-    return {
-      key: group.key,
-      label: group.label,
+    return files;
+  }
+
+  const groups = [
+    {
+      key: "transcript",
+      label: "逐字稿",
+      folder_url: "",
+      files: sortFiles_(transcriptFiles)
+    },
+    {
+      key: "audio",
+      label: "音檔",
       folder_url:
-        "https://drive.google.com/drive/folders/" + group.folder.getId(),
-      files: files
-    };
-  });
+        "https://drive.google.com/drive/folders/" + audioFolder.getId(),
+      files: sortFiles_(audioFiles)
+    },
+    {
+      key: "video",
+      label: "完成影片",
+      folder_url:
+        "https://drive.google.com/drive/folders/" + videoFolder.getId(),
+      files: sortFiles_(videoFiles)
+    }
+  ];
+
+  const totalFiles = groups.reduce(function(total, group) {
+    return total + group.files.length;
+  }, 0);
 
   return {
     ok: true,
@@ -3122,7 +3203,6 @@ function courseFilesOverview_(taskId) {
     server_time: new Date().toISOString()
   };
 }
-
 
 function formalizableCanonicalName_(name) {
   const value = String(name || "").trim();
