@@ -297,6 +297,7 @@ function showView(name, options={}){
   document.getElementById("view-title").textContent=titles[name]||"SoulKey Studio";
   currentView=name;
   updateBackButton();
+  window.setTimeout(updateZhReviewVideoFloat,0);
 
   if(name==="new-task"){
     applyLatestPeriodToNewTask();
@@ -952,11 +953,12 @@ function requestReviewData(taskId,kind,chunkIndex=0){
     chunk_index:chunkIndex
   });
 }
-function quickReviewUrl(task){
+function quickReviewUrl(task,step=""){
   const videoId=youtubeVideoIdFromUrl(task?.url||"");
   const url=new URL("./review.html",window.location.href);
   url.searchParams.set("task",String(task?.id||""));
   if(videoId) url.searchParams.set("video",videoId);
+  if(step) url.searchParams.set("step",String(step));
   return url.toString();
 }
 
@@ -2279,6 +2281,41 @@ function openTaskDetail(taskId){
   showView("task-detail");
 }
 
+let zhVideoFloatFrame=0;
+
+function updateZhReviewVideoFloat(){
+  if(zhVideoFloatFrame) return;
+  zhVideoFloatFrame=requestAnimationFrame(()=>{
+    zhVideoFloatFrame=0;
+    const anchor=document.getElementById("zh-review-media-anchor");
+    const bar=document.getElementById("zh-review-media-bar");
+    if(!anchor || !bar) return;
+
+    const desktop=window.innerWidth>900;
+    const active=currentView==="review";
+    if(!desktop || !active){
+      bar.classList.remove("floating-video");
+      anchor.style.height="";
+      return;
+    }
+
+    const rect=anchor.getBoundingClientRect();
+    const shouldFloat=rect.top<76;
+    if(shouldFloat){
+      if(!bar.classList.contains("floating-video")){
+        anchor.style.height=bar.offsetHeight+"px";
+        bar.classList.add("floating-video");
+      }
+    }else{
+      bar.classList.remove("floating-video");
+      anchor.style.height="";
+    }
+  });
+}
+
+window.addEventListener("scroll",updateZhReviewVideoFloat,{passive:true});
+window.addEventListener("resize",updateZhReviewVideoFloat);
+
 function openTaskReview(taskId){
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
@@ -2319,6 +2356,7 @@ function openTaskReview(taskId){
 
   showView("review");
   mountReviewYouTubePlayer(task);
+  window.setTimeout(updateZhReviewVideoFloat,0);
   loadZhReviewFromGithub(task.id);
 }
 
@@ -2831,6 +2869,31 @@ document.getElementById("create-review-share")?.addEventListener("click",()=>{
   }
 });
 
+document.getElementById("create-en-review-share")?.addEventListener("click",()=>{
+  if(!selectedTaskId){
+    alert("請先選擇一堂課。");
+    return;
+  }
+
+  const task=tasks.find(x=>x.id===selectedTaskId);
+  if(!task) return;
+
+  const shareUrl=quickReviewUrl(task,"en");
+  const state=document.getElementById("en-review-share-state");
+  const copied=()=>{
+    if(state) state.textContent="已複製英文定稿固定連結";
+  };
+
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(shareUrl).then(copied).catch(()=>{
+      window.prompt("請複製這堂課的英文定稿連結：",shareUrl);
+    });
+  }else{
+    window.prompt("請複製這堂課的英文定稿連結：",shareUrl);
+  }
+});
+
+
 
 document.getElementById("finalize-zh").addEventListener("click",()=>{
   if(!selectedTaskId){
@@ -3234,6 +3297,9 @@ async function openEnglishReview(taskId){
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
+
+  const shareState=document.getElementById("en-review-share-state");
+  if(shareState) shareState.textContent="";
 
   const context=document.getElementById("en-review-task-context");
   context.innerHTML=
