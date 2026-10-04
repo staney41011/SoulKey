@@ -65,7 +65,7 @@
     })();
   </script>
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20261004-3">
+  <link rel="stylesheet" href="./styles.css?v=20261004-4">
 </head>
 <body>
   <div class="shell">
@@ -238,14 +238,17 @@
             <div class="toolbar-actions">
               <span class="badge" id="course-files-state">尚未載入</span>
               <a class="ghost course-files-folder-link" id="course-files-folder-link" href="#" target="_blank" rel="noopener" hidden>開啟課程資料夾</a>
+              <button class="ghost" id="course-files-toggle" type="button" aria-expanded="true">隱藏檔案總覽</button>
               <button class="ghost" id="course-files-refresh" type="button">重新整理</button>
             </div>
           </div>
-          <p class="muted block-copy">
-            只顯示這堂課目前可直接交付的成果：逐字稿、MP3 音檔與完成影片。系統 JSON、SRT、時間軸中間檔、QA、manifest、WAV 與分段檔案不會出現在這裡。
-          </p>
-          <div id="course-files-list" class="course-files-list">
-            <div class="empty">進入課程後會自動讀取檔案。</div>
+          <div id="course-files-body" class="course-files-body">
+            <p class="muted block-copy">
+              只顯示這堂課目前可直接交付的成果：逐字稿、MP3 音檔與完成影片。系統 JSON、SRT、時間軸中間檔、QA、manifest、WAV 與分段檔案不會出現在這裡。
+            </p>
+            <div id="course-files-list" class="course-files-list">
+              <div class="empty">進入課程後會自動讀取檔案。</div>
+            </div>
           </div>
         </div>
 
@@ -777,6 +780,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20261004-5"></script>
+  <script src="./app-20260923-48.js?v=20261004-6"></script>
 </body>
 </html>
