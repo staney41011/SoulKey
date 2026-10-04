@@ -401,9 +401,20 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('if (action === "course_files")', bridge)
         self.assertIn('function courseFilesOverview_(taskId)', bridge)
         self.assertIn('"course_files"', bridge)
-        self.assertIn('"03_字幕"', bridge)
-        self.assertIn('"04_音檔"', bridge)
-        self.assertIn('"05_完成影片"', bridge)
+        overview = bridge.split("function courseFilesOverview_(taskId)", 1)[1].split(
+            "function formalizableCanonicalName_", 1
+        )[0]
+        self.assertIn('"逐字稿"', overview)
+        self.assertIn('"音檔"', overview)
+        self.assertIn('"完成影片"', overview)
+        self.assertIn('"zh-TW.final.txt"', overview)
+        self.assertIn('"en.final.txt"', overview)
+        self.assertIn('"youtube.en.transcript.txt"', overview)
+        self.assertIn('/\\.mp3$/i', overview)
+        self.assertIn('/\\.(mp4|mkv|webm)$/i', overview)
+        self.assertNotIn('"03_字幕"', overview)
+        self.assertNotIn('key: "subtitle"', overview)
+        self.assertNotIn('.srt"', overview)
         self.assertNotIn('key:"course-files"', app)
 
     def test_studio_surfaces_root_failure_reason_and_removes_p255_test_button(self):
