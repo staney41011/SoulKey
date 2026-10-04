@@ -536,6 +536,16 @@ function remoteStatusText(status){
   return map[status] || status || "";
 }
 
+function remoteErrorReason(item){
+  if(!item || String(item.status||"")!=="error") return "";
+  return String(
+    item.root_error_message ||
+    item.error_message ||
+    item.message ||
+    ""
+  ).trim();
+}
+
 function activeRemoteStatus(task){
   for(const stage of workflow){
     const item=remoteStageStatus(task,stage.key);
@@ -992,6 +1002,7 @@ function renderTasks(){
       const complete=!next;
       const remoteActive=activeRemoteStatus(t);
       const nextRemote=next ? remoteStageStatus(t,next.key) : null;
+      const failureReason=remoteErrorReason(remoteActive);
       return '<article class="course-task-row" data-open-task="'+escapeHtml(t.id)+'">'+
         '<div class="course-task-main">'+
           '<div class="course-task-title">'+
@@ -1014,6 +1025,9 @@ function renderTasks(){
                 : t.status
             )+'</span>'+
           '</div>'+
+          (failureReason
+            ? '<div class="course-error-reason"><b>失敗原因</b><span>'+escapeHtml(failureReason)+'</span></div>'
+            : '')+
         '</div>'+
         '<div class="course-task-actions">'+
           '<button class="ghost task-review-btn" data-review-task="'+escapeHtml(t.id)+'" '+
@@ -1999,15 +2013,19 @@ function renderTaskDetail(task){
     const label=remote
       ? remoteStatusText(remote.status)+(remote.progress ? " "+remote.progress+"%" : "")
       : state==="done"?"已完成":state==="current"?"目前步驟":"尚未開放";
+    const stageFailure=remoteErrorReason(remote);
     const reviewStage=["zh","en-review"].includes(stage.key);
     return '<button class="detail-stage '+state+'" data-detail-stage="'+i+'" '+(state==="locked"?"disabled":"")+'>'+
       '<span class="detail-stage-number">'+String(i+1).padStart(2,"0")+'</span>'+
-      '<div><b>'+escapeHtml(stage.label)+'</b><small>'+label+'・'+escapeHtml(stage.hint)+'</small></div>'+
+      '<div><b>'+escapeHtml(stage.label)+'</b><small>'+label+'・'+escapeHtml(stage.hint)+
+      (stageFailure ? '｜失敗原因：'+escapeHtml(stageFailure) : '')+'</small></div>'+
       (reviewStage?'<em>'+(stage.key==="en-review"?"英文定稿":"中文定稿")+'</em>':'')+
     '</button>';
   }).join("");
 
   const current=next || workflow[workflow.length-1];
+  const currentRemote = next ? remoteStageStatus(task,next.key) : null;
+  const currentFailure = remoteErrorReason(currentRemote);
   const zhRemote = next && next.key==="zh" ? remoteStageStatus(task,"zh") : null;
   const isChineseReview = next && next.key==="zh" && zhRemote && zhRemote.status==="needs_review";
   const isEnglishReview = next && next.key==="en-review";
@@ -2017,6 +2035,11 @@ function renderTaskDetail(task){
   if(!next){
     document.getElementById("detail-current-body").innerHTML=
       '<div class="stage-message success"><b>這堂課已全部完成</b><span>所有流程均已完成。</span></div>';
+  }else if(currentFailure){
+    document.getElementById("detail-current-body").innerHTML=
+      '<div class="stage-message error">'+
+        '<div><b>這一步執行失敗</b><span><strong>失敗原因：</strong>'+escapeHtml(currentFailure)+'</span></div>'+
+      '</div>';
   }else if(isChineseReview){
     document.getElementById("detail-current-body").innerHTML=
       '<div class="stage-message review-ready">'+
@@ -2278,75 +2301,6 @@ function updateTaskCodes(){
 document.getElementById("dashboard-period")?.addEventListener("change",e=>{
   selectedPeriod=Number(e.target.value)||null;
   renderTasks();
-});
-
-document.getElementById("run-p255-batch")?.addEventListener("click",()=>{
-  if(!bridgeKeyValue()){
-    alert("請先在總覽輸入 Bridge Key 並連線控制中心。");
-    document.getElementById("dashboard-bridge-key")?.focus();
-    return;
-  }
-
-  const available = ["P255-L01","P255-L02"].filter(id=>
-    tasks.some(task=>String(task.id||"")===id)
-  );
-  if(available.length!==2){
-    alert("控制中心目前找不到 P255-L01 與 P255-L02 兩堂完整任務，請先同步控制中心。");
-    return;
-  }
-
-  const ok=confirm(
-    "確定直接跑完第255期兩堂課？\n\n"+
-    "會執行：Taiwan-Breeze ASR → Gemini 中文/英文/六語 QA → Meta MMS 七語 TTS → 字幕輸出。\n"+
-    "這次採批次自動定稿，Final 會標示 batch_auto_user_requested。"
-  );
-  if(!ok) return;
-
-  // Give each lesson its own authenticated runtime nonce and GitHub/Kaggle
-  // job. GitHub keeps them serial via the workflow concurrency group, but a
-  // long P255-L01 can no longer consume P255-L02's runtime/timeout budget.
-  const sentL01=submitBridgePost({
-    action:"run_stage",
-    task_id:"P255-L01",
-    stage:"batch",
-    lang:"",
-    langs:"P255-L01"
-  });
-  const sentL02=submitBridgePost({
-    action:"run_stage",
-    task_id:"P255-L02",
-    stage:"batch",
-    lang:"",
-    langs:"P255-L02"
-  });
-
-  if(!sentL01 || !sentL02){
-    alert("至少一堂批次工作送出失敗：請重新連線控制中心後再試一次。");
-    return;
-  }
-
-  const btn=document.getElementById("run-p255-batch");
-  if(btn){
-    btn.disabled=true;
-    btn.textContent="已送出255期兩個續跑工作";
-  }
-
-  ["P255-L01","P255-L02"].forEach(id=>{
-    const task=tasks.find(x=>x.id===id);
-    if(!task) return;
-    task.status="排隊中：255期斷點續跑";
-    task.remoteStages=task.remoteStages||{};
-    task.remoteStages.batch={
-      task_id:id,
-      stage:"batch",
-      status:"queued",
-      progress:"0",
-      message:id+" 已獨立送出斷點續跑"
-    };
-  });
-  save(STORE.tasks,tasks);
-  renderTasks();
-  window.setTimeout(()=>requestTaskStatuses(),1800);
 });
 
 document.getElementById("period").addEventListener("input",updateTaskCodes);
