@@ -749,7 +749,19 @@ window.addEventListener("message",event=>{
           en_text:String(row.en||item.en_text||item.source_en||"")
         };
       });
+
+      // A successful English Drive response proves zh-TW.final.json exists,
+      // because the Bridge refuses to return English review data otherwise.
+      // Preserve that fact when GitHub cache is temporarily unavailable so a
+      // shared ?step=en link still opens the English editor directly.
+      if(!payload) payload={};
+      if(!payload.zh_finalized_at){
+        payload.zh_finalized_at="drive-final";
+      }
+
       renderEn();
+      $("finalize-en").disabled=!!payload.en_finalized_at;
+      if(requestedStepNumber===2) setStep(2);
       setStatus("GitHub 快取缺少・已由 Google Drive 恢復中英文稿","ok");
       return;
     }
