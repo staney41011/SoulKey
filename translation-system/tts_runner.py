@@ -378,9 +378,14 @@ def main():
 
             if failed:
                 status = "部分完成"
+                failure_details = "｜".join(
+                    f"{item['lang']}={item['error']}"
+                    for item in failed
+                )
                 note = (
                     f"TTS完成：{','.join(completed) or '無'}；"
                     f"失敗：{','.join(x['lang'] for x in failed)}；"
+                    f"原因：{failure_details}；"
                     "單一語言錯誤不阻擋其他語言"
                 )
                 if over_duration:
