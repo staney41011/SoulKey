@@ -2166,6 +2166,20 @@ function getStatusSheet_() {
   return getSheetByName_(STATUS_SHEET_NAME);
 }
 
+function isGenericWorkerError_(errorCode, errorMessage, message) {
+  const code = String(errorCode || "").trim();
+  const text = [
+    String(errorMessage || "").trim(),
+    String(message || "").trim()
+  ].filter(Boolean).join("｜");
+
+  return (
+    code === "web_worker_error" ||
+    /CalledProcessError/.test(text) ||
+    /Kaggle Kernel 執行失敗/.test(text)
+  );
+}
+
 function readLatestStatuses_(taskIds) {
   const sheet = getStatusSheet_();
   const values = sheet.getDataRange().getDisplayValues();
@@ -2190,18 +2204,55 @@ function readLatestStatuses_(taskIds) {
     if (!wanted[taskId] || !stage) continue;
     if (!result[taskId]) result[taskId] = { stages: {} };
 
+    const status = String(row[col.status] || "").trim();
+    const errorCode = String(row[col.error_code] || "").trim();
+    const errorMessage = String(row[col.error_message] || "").trim();
+    const message = String(row[col.message] || "").trim();
+    const prior = result[taskId].stages[stage] || null;
+
+    let rootErrorCode = "";
+    let rootErrorMessage = "";
+
+    if (status === "error") {
+      const generic = isGenericWorkerError_(errorCode, errorMessage, message);
+
+      if (!generic) {
+        rootErrorCode = errorCode;
+        rootErrorMessage = errorMessage || message;
+      } else if (prior && prior.status === "error") {
+        rootErrorCode = String(
+          prior.root_error_code ||
+          (!isGenericWorkerError_(
+            prior.error_code,
+            prior.error_message,
+            prior.message
+          ) ? prior.error_code : "")
+        ).trim();
+        rootErrorMessage = String(
+          prior.root_error_message ||
+          (!isGenericWorkerError_(
+            prior.error_code,
+            prior.error_message,
+            prior.message
+          ) ? (prior.error_message || prior.message) : "")
+        ).trim();
+      }
+    }
+
     result[taskId].stages[stage] = {
       task_id: taskId,
       stage: stage,
-      status: String(row[col.status] || "").trim(),
+      status: status,
       run_id: String(row[col.run_id] || "").trim(),
       progress: String(row[col.progress] || "").trim(),
-      message: String(row[col.message] || "").trim(),
+      message: message,
       started_at: String(row[col.started_at] || "").trim(),
       finished_at: String(row[col.finished_at] || "").trim(),
       updated_at: String(row[col.updated_at] || "").trim(),
-      error_code: String(row[col.error_code] || "").trim(),
-      error_message: String(row[col.error_message] || "").trim(),
+      error_code: errorCode,
+      error_message: errorMessage,
+      root_error_code: rootErrorCode,
+      root_error_message: rootErrorMessage,
       input_revision: String(row[col.input_revision] || "").trim(),
       output_revision: String(row[col.output_revision] || "").trim()
     };
