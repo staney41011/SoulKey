@@ -299,6 +299,30 @@ class PipelineContracts(unittest.TestCase):
         )
         self.assertNotIn("legacy metadata upgraded", batch)
 
+    def test_multi_runner_defines_nvidia_usage_before_final_reporting(self):
+        multi = read("translation-system/gemini_multi_production_runner.py")
+        assignment = "nvidia_used = bool(nvidia_repair_used or nvidia_fallback_used)"
+        self.assertIn(assignment, multi)
+        self.assertLess(multi.index(assignment), multi.index('"nvidia_second_opinion_used": nvidia_used'))
+
+    def test_studio_surfaces_root_failure_reason_and_removes_p255_test_button(self):
+        app = read("studio/app-20260923-48.js")
+        index = read("studio/index.html")
+        styles = read("studio/styles.css")
+        bridge = read("bridge/apps-script/Code.gs")
+
+        self.assertNotIn("run-p255-batch", index)
+        self.assertNotIn("run-p255-batch", app)
+        self.assertIn("function remoteErrorReason(item)", app)
+        self.assertIn("root_error_message", app)
+        self.assertIn("失敗原因", app)
+        self.assertIn("course-error-reason", styles)
+        self.assertIn("stage-message.error", styles)
+        self.assertIn("root_error_message: rootErrorMessage", bridge)
+        self.assertIn("function isGenericWorkerError_", bridge)
+        self.assertIn("CalledProcessError", bridge)
+        self.assertIn("Kaggle Kernel 執行失敗", bridge)
+
     def test_every_multi_checkpoint_keeps_english_source_fingerprint(self):
         multi = read("translation-system/gemini_multi_production_runner.py")
         self.assertIn("缺少 source fingerprint", multi)
