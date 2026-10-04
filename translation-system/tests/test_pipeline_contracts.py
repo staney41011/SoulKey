@@ -334,6 +334,27 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn(assignment, multi)
         self.assertLess(multi.index(assignment), multi.index('"nvidia_second_opinion_used": nvidia_used'))
 
+    def test_task_file_overview_is_read_only_step_after_workflow(self):
+        app = read("studio/app-20260923-48.js")
+        index = read("studio/index.html")
+        bridge = read("bridge/apps-script/Code.gs")
+
+        self.assertIn('id="course-files-panel"', index)
+        self.assertIn('id="course-files-list"', index)
+        self.assertIn('data-course-files-jump', app)
+        self.assertIn('data-course-file-copy', app)
+        self.assertIn('function requestCourseFiles(taskId,force=false)', app)
+        self.assertIn('function renderCourseFiles(task)', app)
+        self.assertIn('action:"course_files"', app)
+        self.assertIn('if(data.type==="course_files")', app)
+        self.assertIn('if (action === "course_files")', bridge)
+        self.assertIn('function courseFilesOverview_(taskId)', bridge)
+        self.assertIn('"course_files"', bridge)
+        self.assertIn('"03_字幕"', bridge)
+        self.assertIn('"04_音檔"', bridge)
+        self.assertIn('"05_完成影片"', bridge)
+        self.assertNotIn('key:"course-files"', app)
+
     def test_studio_surfaces_root_failure_reason_and_removes_p255_test_button(self):
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
