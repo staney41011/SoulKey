@@ -50,6 +50,49 @@ def row_to_task(raw, sheet_row):
     }
 
 
+def _english_overlap_key(token: str):
+    return re.sub(r"^[^a-z0-9]+|[^a-z0-9]+$", "", str(token or "").lower())
+
+
+def _english_leading_overlap_count(previous_text: str, next_text: str):
+    previous = re.sub(r"\s+", " ", str(previous_text or "")).strip().split()
+    next_tokens = re.sub(r"\s+", " ", str(next_text or "")).strip().split()
+    maximum = min(len(previous), len(next_tokens), 40)
+
+    for size in range(maximum, 2, -1):
+        left = [_english_overlap_key(x) for x in previous[-size:]]
+        right = [_english_overlap_key(x) for x in next_tokens[:size]]
+        if not all(left) or not all(right):
+            continue
+        phrase = " ".join(left)
+        if len(phrase) < 12:
+            continue
+        if left == right:
+            return size
+    return 0
+
+
+def _trim_english_leading_overlap(previous_text: str, next_text: str):
+    text = re.sub(r"\s+", " ", str(next_text or "")).strip()
+    if not text:
+        return ""
+    tokens = text.split()
+    overlap = _english_leading_overlap_count(previous_text, text)
+    if overlap:
+        return " ".join(tokens[overlap:]).strip()
+    return text
+
+
+def _merge_english_rolling_parts(parts):
+    merged = ""
+    for part in parts or []:
+        cleaned = _trim_english_leading_overlap(merged, part)
+        if not cleaned:
+            continue
+        merged = (merged + " " + cleaned).strip()
+    return re.sub(r"\s+([,.;:!?])", r"\1", merged).strip()
+
+
 def attach_english_cc(review_cache_path: Path, english_cc_path: Path | None):
     payload = json.loads(Path(review_cache_path).read_text(encoding="utf-8"))
     review_segments = payload.get("segments") or []
@@ -69,6 +112,7 @@ def attach_english_cc(review_cache_path: Path, english_cc_path: Path | None):
                 flush=True,
             )
 
+    english_history = ""
     for item in review_segments:
         start = float(item.get("start") or 0)
         end = float(item.get("end") or start)
@@ -89,7 +133,16 @@ def attach_english_cc(review_cache_path: Path, english_cc_path: Path | None):
                 seen.add(text)
                 matched.append(text)
 
-        source_en = " ".join(matched).strip()
+        merged_matched = _merge_english_rolling_parts(matched)
+        source_en = _trim_english_leading_overlap(
+            english_history,
+            merged_matched,
+        )
+        if source_en:
+            english_history = _merge_english_rolling_parts(
+                [english_history, source_en]
+            )
+
         item["source_en"] = source_en
         item["en_text"] = source_en
         item["en_confirmed"] = False
