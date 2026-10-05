@@ -77,6 +77,60 @@ def update_audio_status(sheets, row, status, note):
     )
 
 
+def _english_overlap_key(token):
+    import re
+    return re.sub(
+        r"^[^a-z0-9]+|[^a-z0-9]+$",
+        "",
+        str(token or "").lower(),
+    )
+
+
+def _trim_english_segment_overlap(previous_text, next_text):
+    import re
+    previous = re.sub(r"\s+", " ", str(previous_text or "")).strip().split()
+    current = re.sub(r"\s+", " ", str(next_text or "")).strip().split()
+    maximum = min(len(previous), len(current), 40)
+
+    for size in range(maximum, 2, -1):
+        left = [_english_overlap_key(x) for x in previous[-size:]]
+        right = [_english_overlap_key(x) for x in current[:size]]
+        if not all(left) or not all(right):
+            continue
+        if len(" ".join(left)) < 12:
+            continue
+        if left == right:
+            return " ".join(current[size:]).strip()
+    return " ".join(current).strip()
+
+
+def _dedupe_english_segments_for_tts(segments):
+    cleaned = []
+    history = ""
+
+    for index, source in enumerate(segments or []):
+        item = dict(source)
+        text = _trim_english_segment_overlap(
+            history,
+            item.get("text") or "",
+        )
+        if not text:
+            continue
+        item["text"] = text
+        cleaned.append(item)
+        history = (history + " " + text).strip()
+        # Only a bounded suffix is needed for rolling-caption overlap checks.
+        history = " ".join(history.split()[-120:])
+
+    if len(cleaned) != len(segments or []):
+        print(
+            f"[TTS:en] rolling overlap cleanup: "
+            f"{len(segments or [])} -> {len(cleaned)} segments",
+            flush=True,
+        )
+    return cleaned
+
+
 def load_translation_from_drive(drive, folder_id, lang, workdir):
     # English 已經有人工 Final，TTS 必須讀 en.final.json。
     # 其他目標語言則直接讀 AI 翻譯輸出的 <lang>.json。
@@ -105,6 +159,11 @@ def load_translation_from_drive(drive, folder_id, lang, workdir):
     segments = payload.get("segments") or []
     if not segments:
         raise RuntimeError(f"{selected_name} 沒有 segments")
+
+    if lang == "en":
+        segments = _dedupe_english_segments_for_tts(segments)
+        if not segments:
+            raise RuntimeError(f"{selected_name} 去除重複後沒有可朗讀內容")
 
     print(
         f"[TTS:{lang}] 使用翻譯稿：{selected_name}",
