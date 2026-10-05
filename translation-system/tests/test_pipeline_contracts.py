@@ -395,6 +395,30 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("const groups=englishGroups();", review)
         self.assertIn("segments_json:JSON.stringify(finalSegments)", review)
 
+    def test_english_cc_removes_cross_group_rolling_overlap(self):
+        app = read("studio/app-20260923-48.js")
+        review = read("studio/review-editor.js")
+        bridge = read("bridge/apps-script/Code.gs")
+        polish = read("translation-system/polish_runner.py")
+
+        for source in (app, review):
+            self.assertIn("function englishLeadingOverlapCount(", source)
+            self.assertIn("function trimLeadingEnglishOverlap(", source)
+            self.assertIn("function dedupeEnglishRows(", source)
+            self.assertIn("size>=3", source)
+            self.assertIn("duration>=60", source)
+            self.assertNotIn("duration>=20", source)
+
+        self.assertIn("function englishLeadingOverlapCount_", bridge)
+        self.assertIn("function trimLeadingEnglishOverlap_", bridge)
+        self.assertIn("mergeEnglishRollingParts_(matched)", bridge)
+        self.assertIn("englishHistory", bridge)
+
+        self.assertIn("def _english_leading_overlap_count(", polish)
+        self.assertIn("def _trim_english_leading_overlap(", polish)
+        self.assertIn("def _merge_english_rolling_parts(", polish)
+        self.assertIn("english_history = \"\"", polish)
+
     def test_review_video_floats_and_english_share_link_opens_step_two(self):
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
