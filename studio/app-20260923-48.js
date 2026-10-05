@@ -174,6 +174,8 @@ let zhGithubLastSavedRevision = 0;
 let zhGithubSaveRevisionInFlight = 0;
 let currentVernacularReview = [];
 let currentEnglishReview = [];
+let englishDraftSavePendingId = null;
+let englishFinalizePendingTaskId = "";
 let currentView = "dashboard";
 const viewHistory = [];
 const youtubeCaptureFilesCache = {};
@@ -3159,6 +3161,7 @@ function englishReviewItemsFromGithub(payload){
       vernacular:"",
       en:editableEn,
       source_en:sourceEn,
+      en_confirmed:item.en_confirmed===true,
       terms:pairs
     };
   });
@@ -3354,8 +3357,15 @@ async function openEnglishReview(taskId){
 
   const list=document.getElementById("en-review-list");
   list.innerHTML=
-    '<div class="empty">正在讀取英文來源（優先 YouTube English CC；無快取則讀取 Drive 英文稿）…</div>';
+    '<div class="empty">正在讀取 Google Drive 最新英文 Final／草稿…</div>';
   showView("en-review");
+
+  // Google Drive is authoritative because it contains en.final.json and the
+  // persisted English review draft. GitHub is only a fallback cache.
+  if(requestReviewData(taskId,"en",0)) return;
+
+  list.innerHTML=
+    '<div class="empty">控制中心尚未連線，正在改讀 GitHub 英文校稿快取…</div>';
 
   try{
     const response=await fetch(githubReviewUrl(task.id),{
@@ -3371,19 +3381,12 @@ async function openEnglishReview(taskId){
 
       if(items.length && available){
         renderEnglishReview(items);
+        if(shareState) shareState.textContent="目前顯示 GitHub 備援快取";
         return;
       }
     }
 
-    // GitHub review cache is only an acceleration layer. It may legitimately
-    // be absent on resumed batches. The authoritative English draft is in
-    // Google Drive (en.json), so always try the Bridge/Drive loader before
-    // declaring English CC unavailable.
-    list.innerHTML=
-      '<div class="empty">GitHub 英文對照快取不存在或沒有 English CC，正在改由 Google Drive 載入英文稿…</div>';
-    if(requestReviewData(taskId,"en",0)) return;
-
-    throw new Error("Google Drive 英文稿備援目前未連線");
+    throw new Error("找不到可用的英文定稿／草稿");
   }catch(err){
     list.innerHTML=
       '<div class="empty">英文稿讀取失敗：'+
@@ -3502,7 +3505,8 @@ function groupEnglishReviewItems(items){
         enParts:[en],
         sourceParts:[en],
         originalParts:[String(item.original||"")],
-        terms:Array.isArray(item.terms)?item.terms.slice():[]
+        terms:Array.isArray(item.terms)?item.terms.slice():[],
+        en_confirmed:item.en_confirmed===true
       };
     }else{
       current.ids.push(Number(item.id??index));
@@ -3510,6 +3514,7 @@ function groupEnglishReviewItems(items){
       current.enParts.push(en);
       current.sourceParts.push(en);
       current.originalParts.push(String(item.original||""));
+      current.en_confirmed=current.en_confirmed && item.en_confirmed===true;
       (item.terms||[]).forEach(term=>{
         const key=String(term.zh||"")+"|||"+String(term.en||"");
         if(!current.terms.some(x=>String(x.zh||"")+"|||"+String(x.en||"")===key)){
@@ -3536,6 +3541,47 @@ function groupEnglishReviewItems(items){
   return groups;
 }
 
+function englishReviewDraftPayload(){
+  return {
+    version:5,
+    task_id:String(selectedTaskId||""),
+    english_cc_available:true,
+    english_cc_language:"en",
+    english_cc_source:"youtube_or_ai_review",
+    segments:(currentEnglishReview||[]).map((item,index)=>({
+      id:Number(item.id??index),
+      start:Number(item.start||0),
+      end:Number(item.end||item.start||0),
+      time:String(item.time||formatClock(item.start)),
+      raw:"",
+      text:String(item.original||""),
+      confirmed:true,
+      source_en:String(item.source_en||item.en||""),
+      en_text:String(item.en||""),
+      en_confirmed:item.en_confirmed===true
+    }))
+  };
+}
+
+function saveEnglishReviewDraft(confirmedId){
+  if(!selectedTaskId || !currentEnglishReview.length) return false;
+  englishDraftSavePendingId=Number(confirmedId);
+  const state=document.getElementById("en-review-share-state");
+  if(state) state.textContent="正在儲存英文確認進度…";
+
+  const sent=submitBridgePost({
+    action:"review_en_draft_save",
+    task_id:selectedTaskId,
+    payload_json:JSON.stringify(englishReviewDraftPayload())
+  });
+
+  if(!sent){
+    englishDraftSavePendingId=null;
+    if(state) state.textContent="英文草稿尚未儲存：Bridge 未連線";
+  }
+  return sent;
+}
+
 function renderEnglishReview(items){
   const groupedItems=groupEnglishReviewItems(items);
   currentEnglishReview=groupedItems;
@@ -3556,7 +3602,9 @@ function renderEnglishReview(items){
         '<textarea class="en-draft">'+escapeHtml(item.en)+'</textarea>'+
       '</div>'+
       '<div class="segment-actions">'+
-        '<button class="mini confirm" data-confirm-en-segment="'+item.id+'">確認此句</button>'+
+        '<button class="mini confirm" data-confirm-en-segment="'+item.id+'" '+(item.en_confirmed?"disabled":"")+'>'+
+          (item.en_confirmed?"已確認":"確認此句")+
+        '</button>'+
       '</div>'+
     '</article>'
   ).join("");
@@ -3583,12 +3631,40 @@ function renderEnglishReview(items){
     '</article>';
   }).join("");
 
-  document.querySelectorAll("[data-confirm-en-segment]").forEach(btn=>{
-    btn.addEventListener("click",()=>{
-      const row=btn.closest(".en-review-row");
+  document.querySelectorAll("#en-review-list .en-review-row").forEach(row=>{
+    const id=Number(row.dataset.enSegment);
+    const item=currentEnglishReview.find(x=>Number(x.id)===id);
+    const textarea=row.querySelector(".en-draft");
+    const btn=row.querySelector("[data-confirm-en-segment]");
+
+    if(item?.en_confirmed) row.classList.add("confirmed");
+
+    textarea?.addEventListener("input",()=>{
+      if(!item) return;
+      item.en=textarea.value;
+      item.en_confirmed=false;
+      row.classList.remove("confirmed");
+      if(btn){
+        btn.disabled=false;
+        btn.textContent="確認此句";
+      }
+      const state=document.getElementById("en-review-share-state");
+      if(state) state.textContent="有尚未確認的英文修改";
+    });
+
+    btn?.addEventListener("click",()=>{
+      if(!item) return;
+      item.en=String(textarea?.value||item.en||"").trim();
+      item.en_confirmed=true;
       row.classList.add("confirmed");
-      btn.textContent="已確認";
+      btn.textContent="儲存中…";
       btn.disabled=true;
+      if(!saveEnglishReviewDraft(id)){
+        item.en_confirmed=false;
+        row.classList.remove("confirmed");
+        btn.textContent="確認此句";
+        btn.disabled=false;
+      }
     });
   });
 
@@ -3643,43 +3719,64 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   const task=tasks.find(x=>x.id===selectedTaskId);
   if(!task) return;
 
-  const ok=confirm(
-    task.id+"｜"+task.lesson+"\n\n"+
-    "確定英文稿已人工確認完成並定稿？\n"+
-    "定稿會寫回 Google Drive；其他語言會直接使用這份 English Final。"
-  );
-  if(!ok) return;
+  document.querySelectorAll("#en-review-list .en-review-row").forEach(row=>{
+    const item=currentEnglishReview.find(
+      x=>Number(x.id)===Number(row.dataset.enSegment)
+    );
+    if(item){
+      item.en=String(row.querySelector(".en-draft")?.value||"").trim();
+    }
+  });
 
-  const segments=[...document.querySelectorAll("#en-review-list .en-review-row")].map(row=>({
-    id:Number(row.dataset.enSegment),
-    start:Number(row.dataset.start||0),
-    end:Number(row.dataset.end||0),
-    text:String(row.querySelector(".en-draft")?.value||"").trim()
-  }));
-
-  const learnedTerms=[...document.querySelectorAll("[data-term-en-input]")].map(input=>({
-    zh:String(input.dataset.termEnInput||"").trim(),
-    en:String(input.value||"").trim()
-  })).filter(x=>x.zh&&x.en);
+  const segments=(currentEnglishReview||[]).map((item,index)=>({
+    id:Number(item.id??index),
+    start:Number(item.start||0),
+    end:Number(item.end||item.start||0),
+    text:String(item.en||"").trim()
+  })).filter(x=>x.text);
 
   if(!segments.length){
     alert("目前沒有可定稿的英文段落。");
     return;
   }
 
-  submitBridgePost({
+  const ok=confirm(
+    task.id+"｜"+task.lesson+"\n\n"+
+    "確定英文稿已人工確認完成並定稿？\n"+
+    "系統會先確認 Google Drive 寫入成功，再顯示完成。"
+  );
+  if(!ok) return;
+
+  const button=document.getElementById("finalize-en");
+  const state=document.getElementById("en-review-share-state");
+  if(button){
+    button.disabled=true;
+    button.textContent="正在儲存…";
+  }
+  if(state) state.textContent="正在寫入 Google Drive English Final…";
+  englishFinalizePendingTaskId=task.id;
+
+  const sent=submitBridgePost({
     action:"review_save",
     task_id:task.id,
     kind:"en",
     segments_json:JSON.stringify(segments),
-    terms_json:JSON.stringify(learnedTerms)
+    terms_json:JSON.stringify(
+      [...document.querySelectorAll("[data-term-en-input]")].map(input=>({
+        zh:String(input.dataset.termEnInput||"").trim(),
+        en:String(input.value||"").trim()
+      })).filter(x=>x.zh&&x.en)
+    )
   });
 
-  task.status="英文定稿儲存中";
-  save(STORE.tasks,tasks);
-  alert("已送出 English Final。系統確認後會自動解鎖各國語言翻譯。");
-  openTaskDetail(task.id);
-  window.setTimeout(()=>requestTaskStatuses(),1500);
+  if(!sent){
+    englishFinalizePendingTaskId="";
+    if(button){
+      button.disabled=false;
+      button.textContent="英文定稿";
+    }
+    if(state) state.textContent="儲存失敗：Bridge 尚未連線";
+  }
 });
 
 function submitBridgePost(fields){
@@ -4073,11 +4170,67 @@ window.addEventListener("message",event=>{
     }
   }
 
+  if(data.type==="english_review_draft_saved"){
+    const state=document.getElementById("en-review-share-state");
+    const pendingId=englishDraftSavePendingId;
+    englishDraftSavePendingId=null;
+
+    if(data.ok){
+      if(state) state.textContent="英文確認進度已儲存";
+      const row=document.querySelector(
+        '#en-review-list .en-review-row[data-en-segment="'+String(pendingId)+'"]'
+      );
+      const button=row?.querySelector("[data-confirm-en-segment]");
+      if(button){
+        button.textContent="已確認";
+        button.disabled=true;
+      }
+    }else{
+      if(state) state.textContent="英文確認進度儲存失敗："+(data.message||data.error||"未知錯誤");
+      const row=document.querySelector(
+        '#en-review-list .en-review-row[data-en-segment="'+String(pendingId)+'"]'
+      );
+      const button=row?.querySelector("[data-confirm-en-segment]");
+      if(button){
+        button.textContent="確認此句";
+        button.disabled=false;
+      }
+      const item=currentEnglishReview.find(x=>Number(x.id)===Number(pendingId));
+      if(item) item.en_confirmed=false;
+    }
+  }
+
   if(data.type==="review_saved"){
+    const state=document.getElementById("en-review-share-state");
+    const button=document.getElementById("finalize-en");
+
     if(data.ok){
       requestTaskStatuses();
+
+      if(
+        data.kind==="en" &&
+        englishFinalizePendingTaskId &&
+        String(data.task_id||"")===String(englishFinalizePendingTaskId)
+      ){
+        englishFinalizePendingTaskId="";
+        if(state) state.textContent="英文定稿已寫入 Google Drive";
+        if(button){
+          button.disabled=true;
+          button.textContent="已定稿";
+        }
+        window.setTimeout(()=>openEnglishReview(data.task_id),350);
+      }
     }else{
-      alert("人工定稿寫入失敗："+(data.message || data.error || "未知錯誤"));
+      if(englishFinalizePendingTaskId){
+        englishFinalizePendingTaskId="";
+        if(button){
+          button.disabled=false;
+          button.textContent="英文定稿";
+        }
+        if(state) state.textContent="英文定稿儲存失敗："+(data.message||data.error||"未知錯誤");
+      }else{
+        alert("人工定稿寫入失敗："+(data.message || data.error || "未知錯誤"));
+      }
     }
   }
 
