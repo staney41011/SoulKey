@@ -395,6 +395,40 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("const groups=englishGroups();", review)
         self.assertIn("segments_json:JSON.stringify(finalSegments)", review)
 
+    def test_english_review_persists_drafts_and_loads_final_first(self):
+        app = read("studio/app-20260923-48.js")
+        bridge = read("bridge/apps-script/Code.gs")
+
+        self.assertIn('action:"review_en_draft_save"', app)
+        self.assertIn("function saveEnglishReviewDraft(", app)
+        self.assertIn("英文確認進度已儲存", app)
+        self.assertIn("正在寫入 Google Drive English Final", app)
+        self.assertIn("englishFinalizePendingTaskId", app)
+
+        self.assertIn('action === "review_en_draft_save"', bridge)
+        self.assertIn("function reviewEnglishDraftSave_(", bridge)
+        self.assertIn('"en.review.draft.json"', bridge)
+
+        en_loader = bridge.split('if (kind === "en") {', 1)[1].split(
+            'return { ok: false, error: "unsupported_review_kind" }', 1
+        )[0]
+        self.assertIn('"en.final.json"', en_loader)
+        self.assertIn('"en.review.draft.json"', en_loader)
+        self.assertLess(en_loader.index('"en.final.json"'), en_loader.index('"en.json"'))
+        self.assertIn('source: "en.final.json"', en_loader)
+
+    def test_tts_cleans_english_overlap_and_keeps_one_voice_seed(self):
+        runner = read("translation-system/tts_runner.py")
+        engine = read("translation-system/tts_engine.py")
+
+        self.assertIn("def _dedupe_english_segments_for_tts(", runner)
+        self.assertIn('if lang == "en":', runner)
+        self.assertIn("_dedupe_english_segments_for_tts(segments)", runner)
+
+        self.assertIn("set_seed(seed)", engine)
+        self.assertNotIn("set_seed(seed + seg_id + chunk_index)", engine)
+        self.assertIn('"voice_policy": "single_deterministic_voice_per_lesson"', engine)
+
     def test_english_cc_removes_cross_group_rolling_overlap(self):
         app = read("studio/app-20260923-48.js")
         review = read("studio/review-editor.js")
