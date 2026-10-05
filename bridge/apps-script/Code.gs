@@ -132,6 +132,12 @@ function doPost(e) {
       return postMessage_(reviewShareDraftSave_(taskId, payloadJson));
     }
 
+    if (action === "review_en_draft_save") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const payloadJson = String((e && e.parameter && e.parameter.payload_json) || "").trim();
+      return postMessage_(reviewEnglishDraftSave_(taskId, payloadJson));
+    }
+
     if (action === "review_share_finalize") {
       const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
       const segmentsJson = String((e && e.parameter && e.parameter.segments_json) || "").trim();
@@ -983,6 +989,67 @@ function reviewShareDraftSave_(taskId, payloadJson) {
     message: published.ok
       ? "進度已儲存"
       : (published.message || "進度儲存失敗")
+  };
+}
+
+function reviewEnglishDraftSave_(taskId, payloadJson) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
+    return {
+      source: "soulkey-bridge",
+      type: "english_review_draft_saved",
+      ok: false,
+      error: "invalid_task_id",
+      message: "task_id 格式不正確"
+    };
+  }
+
+  try {
+    taskInfo_(normalizedTaskId);
+  } catch (err) {
+    return {
+      source: "soulkey-bridge",
+      type: "english_review_draft_saved",
+      ok: false,
+      error: "task_not_found",
+      message: String(err && err.message ? err.message : err)
+    };
+  }
+
+  const normalized = normalizedReviewSharePayload_(
+    normalizedTaskId,
+    payloadJson
+  );
+  if (!normalized.ok) {
+    normalized.source = "soulkey-bridge";
+    normalized.type = "english_review_draft_saved";
+    return normalized;
+  }
+
+  const folders = lessonFolders_(normalizedTaskId);
+  writeTextFile_(
+    folders.translation,
+    "en.review.draft.json",
+    JSON.stringify(normalized.payload, null, 2),
+    "application/json",
+    normalizedTaskId
+  );
+
+  const published = publishReviewSharePayload_(
+    normalizedTaskId,
+    normalized.payload
+  );
+
+  return {
+    source: "soulkey-bridge",
+    type: "english_review_draft_saved",
+    ok: !!published.ok,
+    task_id: normalizedTaskId,
+    saved_at: normalized.payload.draft_saved_at,
+    error: published.error || "",
+    message: published.ok
+      ? "英文確認進度已儲存"
+      : (published.message || "英文確認進度儲存失敗")
   };
 }
 
@@ -3860,6 +3927,8 @@ function loadReview_(taskId, kind, chunkIndex) {
 
   if (kind === "en") {
     const original = readJsonFile_(folders.transcript, "zh-TW.final.json");
+    const englishFinal = readJsonFile_(folders.translation, "en.final.json");
+    const englishDraft = readJsonFile_(folders.translation, "en.review.draft.json");
     const english = readJsonFile_(folders.translation, "en.json");
     const youtubeCc = readJsonFile_(folders.source, "youtube.en.json");
 
@@ -3877,6 +3946,93 @@ function loadReview_(taskId, kind, chunkIndex) {
     }).filter(function(x) { return x.zh; });
 
     const originalSegments = original.segments || [];
+
+    function zhForRange(start, end, id) {
+      const exact = originalSegments.find(function(x, i) {
+        return Number(x.id !== undefined ? x.id : i) === Number(id);
+      });
+      if (exact) return String(exact.text || "");
+
+      return originalSegments.filter(function(x) {
+        const xs = Number(x.start || 0);
+        const xe = Number(x.end || xs);
+        return xe > start && xs < end;
+      }).map(function(x) {
+        return String(x.text || "").trim();
+      }).filter(Boolean).join("");
+    }
+
+    function termsFor(text) {
+      return terms.filter(function(t) {
+        return String(text || "").indexOf(t.zh) >= 0;
+      });
+    }
+
+    if (
+      englishFinal &&
+      Array.isArray(englishFinal.segments) &&
+      englishFinal.segments.length
+    ) {
+      return {
+        ok: true,
+        task_id: taskId,
+        kind: kind,
+        source: "en.final.json",
+        finalized_at: String(englishFinal.finalized_at || ""),
+        load_ms: Date.now() - startedAt,
+        segments: englishFinal.segments.map(function(x, i) {
+          const start = Number(x.start || 0);
+          const end = Number(x.end || start);
+          const id = Number(x.id !== undefined ? x.id : i);
+          const zhText = zhForRange(start, end, id);
+          return {
+            id: id,
+            start: start,
+            end: end,
+            time: formatPlainTime_(start),
+            original: zhText,
+            vernacular: "",
+            en: String(x.text || ""),
+            en_confirmed: true,
+            terms: termsFor(zhText)
+          };
+        })
+      };
+    }
+
+    if (
+      englishDraft &&
+      Array.isArray(englishDraft.segments) &&
+      englishDraft.segments.length
+    ) {
+      return {
+        ok: true,
+        task_id: taskId,
+        kind: kind,
+        source: "en.review.draft.json",
+        draft_saved_at: String(englishDraft.draft_saved_at || ""),
+        load_ms: Date.now() - startedAt,
+        segments: englishDraft.segments.map(function(x, i) {
+          const start = Number(x.start || 0);
+          const end = Number(x.end || start);
+          const id = Number(x.id !== undefined ? x.id : i);
+          const zhText = String(x.text || "") || zhForRange(start, end, id);
+          return {
+            id: id,
+            start: start,
+            end: end,
+            time: String(x.time || formatPlainTime_(start)),
+            original: zhText,
+            vernacular: "",
+            en: String(x.en_text || x.source_en || ""),
+            source_en: String(x.source_en || ""),
+            en_confirmed: x.en_confirmed === true,
+            terms: termsFor(zhText)
+          };
+        })
+      };
+    }
+
     let englishSegments = [];
 
     if (english && Array.isArray(english.segments) && english.segments.length) {
@@ -3916,7 +4072,7 @@ function loadReview_(taskId, kind, chunkIndex) {
       return {
         ok: false,
         error: "review_files_missing",
-        message: "找不到英文 AI 稿或可對齊的 YouTube English CC"
+        message: "找不到英文 Final、英文草稿、AI 稿或可對齊的 YouTube English CC"
       };
     }
 
@@ -3935,9 +4091,6 @@ function loadReview_(taskId, kind, chunkIndex) {
         const sid = Number(src.id !== undefined ? src.id : i);
         const x = englishById[sid] || {};
         const zhText = String(src.text || "");
-        const pairs = terms.filter(function(t) {
-          return zhText.indexOf(t.zh) >= 0;
-        });
         return {
           id: sid,
           start: Number(src.start || 0),
@@ -3946,7 +4099,8 @@ function loadReview_(taskId, kind, chunkIndex) {
           original: zhText,
           vernacular: "",
           en: String(x.text || ""),
-          terms: pairs
+          en_confirmed: false,
+          terms: termsFor(zhText)
         };
       })
     };
@@ -3961,7 +4115,7 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
   }
 
   const folders = lessonFolders_(taskId);
-  const normalized = segments.map(function(x, i) {
+  let normalized = segments.map(function(x, i) {
     return {
       id: Number(x.id !== undefined ? x.id : i),
       start: Number(x.start || 0),
@@ -3995,6 +4149,19 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
     taskColumn = 10;
   } else {
     return { ok: false, error: "unsupported_review_kind" };
+  }
+
+  if (kind === "en") {
+    let englishHistory = "";
+    normalized = normalized.map(function(item) {
+      const cleaned = trimLeadingEnglishOverlap_(englishHistory, item.text);
+      if (cleaned) {
+        englishHistory = mergeEnglishRollingParts_([englishHistory, cleaned]);
+      }
+      return Object.assign({}, item, { text: cleaned });
+    }).filter(function(item) {
+      return !!String(item.text || "").trim();
+    });
   }
 
   const payload = JSON.stringify({
