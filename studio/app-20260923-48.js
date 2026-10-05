@@ -3419,12 +3419,59 @@ function mergeEnglishTextParts(parts){
   return tokens.join(" ").replace(/\s+([,.;:!?])/g,"$1").trim();
 }
 
+function englishTokenKey(token){
+  return String(token||"")
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g,"");
+}
+
+function englishLeadingOverlapCount(previousText,nextText){
+  const previous=String(previousText||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
+  const next=String(nextText||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
+  const max=Math.min(previous.length,next.length,40);
+
+  for(let size=max;size>=3;size--){
+    const left=previous.slice(previous.length-size).map(englishTokenKey);
+    const right=next.slice(0,size).map(englishTokenKey);
+    if(left.some(x=>!x) || right.some(x=>!x)) continue;
+    const phrase=left.join(" ");
+    if(phrase.length<12) continue;
+    if(phrase===right.join(" ")) return size;
+  }
+  return 0;
+}
+
+function trimLeadingEnglishOverlap(previousText,nextText){
+  const text=String(nextText||"").replace(/\s+/g," ").trim();
+  if(!text) return "";
+  const tokens=text.split(" ").filter(Boolean);
+  const overlap=englishLeadingOverlapCount(previousText,text);
+  return overlap ? tokens.slice(overlap).join(" ").trim() : text;
+}
+
+function dedupeEnglishRows(rows,textGetter){
+  let history="";
+  let lastEnd=null;
+  return (rows||[]).map((item,index)=>{
+    const start=Number(item.start||0);
+    const end=Number(item.end||start);
+    const raw=String(textGetter(item,index)||"").replace(/\s+/g," ").trim();
+    const closeEnough=lastEnd===null || start-lastEnd<=3.5;
+    const cleaned=closeEnough ? trimLeadingEnglishOverlap(history,raw) : raw;
+    if(cleaned) history=mergeEnglishTextParts([history,cleaned]);
+    else if(raw && !history) history=raw;
+    lastEnd=end;
+    return {...item,__englishCleaned:cleaned};
+  });
+}
+
 function englishSentenceEnded(text){
   return /[.!?][\"'’”\)\]]*$/.test(String(text||"").trim());
 }
 
 function groupEnglishReviewItems(items){
-  const rows=(Array.isArray(items)?items:[]).filter(Boolean);
+  const sourceRows=(Array.isArray(items)?items:[]).filter(Boolean);
+  const rows=dedupeEnglishRows(sourceRows,item=>item.en||"");
   const groups=[];
   let current=null;
 
@@ -3441,7 +3488,7 @@ function groupEnglishReviewItems(items){
   };
 
   rows.forEach((item,index)=>{
-    const en=String(item.en||"").replace(/\s+/g," ").trim();
+    const en=String(item.__englishCleaned||"").replace(/\s+/g," ").trim();
     const start=Number(item.start||0);
     const end=Number(item.end||start);
 
@@ -3477,8 +3524,8 @@ function groupEnglishReviewItems(items){
     const duration=current.end-current.start;
     const shouldBreak=
       englishSentenceEnded(merged) ||
-      merged.length>=320 ||
-      duration>=20 ||
+      merged.length>=900 ||
+      duration>=60 ||
       nextGap>2.2 ||
       !next;
 
