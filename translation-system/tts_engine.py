@@ -303,7 +303,10 @@ def synthesize_language(
                 continue
 
             inputs = {k: v.to(device) for k, v in inputs.items()}
-            set_seed(seed + seg_id + chunk_index)
+            # Keep one deterministic voice identity for the whole lesson.
+            # Varying the random seed per segment/chunk can make a single
+            # speaker VITS checkpoint sound like multiple AI voices.
+            set_seed(seed)
 
             with torch.inference_mode():
                 output = model(**inputs).waveform[0]
@@ -383,6 +386,8 @@ def synthesize_language(
     manifest = {
         "language": lang,
         "model": model_id,
+        "voice_policy": "single_deterministic_voice_per_lesson",
+        "voice_seed": int(seed),
         "source_sha256": segments_fingerprint(segments),
         "sample_rate": sample_rate,
         "timeline_aligned": False,
