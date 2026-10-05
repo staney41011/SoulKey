@@ -231,12 +231,65 @@ function mergeEnglishTextParts(parts){
   return tokens.join(" ").replace(/\s+([,.;:!?])/g,"$1").trim();
 }
 
+function englishTokenKey(token){
+  return String(token||"")
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g,"");
+}
+
+function englishLeadingOverlapCount(previousText,nextText){
+  const previous=String(previousText||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
+  const next=String(nextText||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
+  const max=Math.min(previous.length,next.length,40);
+
+  for(let size=max;size>=3;size--){
+    const left=previous.slice(previous.length-size).map(englishTokenKey);
+    const right=next.slice(0,size).map(englishTokenKey);
+    if(left.some(x=>!x) || right.some(x=>!x)) continue;
+    const phrase=left.join(" ");
+    if(phrase.length<12) continue;
+    if(phrase===right.join(" ")) return size;
+  }
+  return 0;
+}
+
+function trimLeadingEnglishOverlap(previousText,nextText){
+  const text=String(nextText||"").replace(/\s+/g," ").trim();
+  if(!text) return "";
+  const tokens=text.split(" ").filter(Boolean);
+  const overlap=englishLeadingOverlapCount(previousText,text);
+  return overlap ? tokens.slice(overlap).join(" ").trim() : text;
+}
+
+function dedupeEnglishRows(rows,textGetter){
+  let history="";
+  let lastEnd=null;
+  return (rows||[]).map((item,index)=>{
+    const start=Number(item.start||0);
+    const end=Number(item.end||start);
+    const raw=String(textGetter(item,index)||"").replace(/\s+/g," ").trim();
+    const closeEnough=lastEnd===null || start-lastEnd<=3.5;
+    const cleaned=closeEnough ? trimLeadingEnglishOverlap(history,raw) : raw;
+    if(cleaned) history=mergeEnglishTextParts([history,cleaned]);
+    else if(raw && !history) history=raw;
+    lastEnd=end;
+    return cleaned;
+  });
+}
+
 function englishSentenceEnded(text){
   return /[.!?][\"'’”\)\]]*$/.test(String(text||"").trim());
 }
 
 function englishGroups(){
-  const rows=segments||[];
+  const baseRows=segments||[];
+  const sourceCleaned=dedupeEnglishRows(baseRows,item=>item.source_en||"");
+  const editedCleaned=dedupeEnglishRows(baseRows,item=>item.en_text||item.source_en||"");
+  const rows=baseRows.map((item,index)=>({
+    ...item,
+    __sourceCleaned:sourceCleaned[index]||"",
+    __editedCleaned:editedCleaned[index]||""
+  }));
   const groups=[];
   let current=null;
 
@@ -253,8 +306,8 @@ function englishGroups(){
   };
 
   rows.forEach((item,index)=>{
-    const source=String(item.source_en||"").replace(/\s+/g," ").trim();
-    const edited=String(item.en_text||source).replace(/\s+/g," ").trim();
+    const source=String(item.__sourceCleaned||"").replace(/\s+/g," ").trim();
+    const edited=String(item.__editedCleaned||source).replace(/\s+/g," ").trim();
     const start=Number(item.start||0);
     const end=Number(item.end||start);
 
@@ -285,8 +338,8 @@ function englishGroups(){
     const duration=current.end-current.start;
     const shouldBreak=
       englishSentenceEnded(sentence) ||
-      sentence.length>=320 ||
-      duration>=20 ||
+      sentence.length>=900 ||
+      duration>=60 ||
       nextGap>2.2 ||
       !next;
 
