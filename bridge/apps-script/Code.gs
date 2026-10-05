@@ -3660,12 +3660,53 @@ function zhReviewItems_(raw, polished) {
   });
 }
 
+function englishOverlapTokenKey_(token) {
+  return String(token || "")
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+}
+
+function englishLeadingOverlapCount_(previousText, nextText) {
+  const previous = String(previousText || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const next = String(nextText || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const max = Math.min(previous.length, next.length, 40);
+
+  for (let size = max; size >= 3; size--) {
+    const left = previous.slice(previous.length - size).map(englishOverlapTokenKey_);
+    const right = next.slice(0, size).map(englishOverlapTokenKey_);
+    if (left.some(function(x) { return !x; }) || right.some(function(x) { return !x; })) continue;
+    const phrase = left.join(" ");
+    if (phrase.length < 12) continue;
+    if (phrase === right.join(" ")) return size;
+  }
+  return 0;
+}
+
+function trimLeadingEnglishOverlap_(previousText, nextText) {
+  const text = String(nextText || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const tokens = text.split(" ").filter(Boolean);
+  const overlap = englishLeadingOverlapCount_(previousText, text);
+  return overlap ? tokens.slice(overlap).join(" ").trim() : text;
+}
+
+function mergeEnglishRollingParts_(parts) {
+  let merged = "";
+  (parts || []).forEach(function(part) {
+    const cleaned = trimLeadingEnglishOverlap_(merged, part);
+    if (!cleaned) return;
+    merged = (merged ? merged + " " : "") + cleaned;
+  });
+  return merged.replace(/\s+([,.;:!?])/g, "$1").trim();
+}
+
 function alignEnglishCcToReviewItems_(items, ccPayload) {
   const cues = (ccPayload && ccPayload.segments) || [];
   if (!Array.isArray(items) || !Array.isArray(cues) || !cues.length) {
     return items || [];
   }
 
+  let englishHistory = "";
   return items.map(function(item) {
     const start = Number(item.start || 0);
     const end = Number(item.end || start);
@@ -3682,7 +3723,11 @@ function alignEnglishCcToReviewItems_(items, ccPayload) {
       matched.push(text);
     });
 
-    const sourceEn = matched.join(" ").trim();
+    const mergedMatched = mergeEnglishRollingParts_(matched);
+    const sourceEn = trimLeadingEnglishOverlap_(englishHistory, mergedMatched);
+    if (sourceEn) {
+      englishHistory = mergeEnglishRollingParts_([englishHistory, sourceEn]);
+    }
     return Object.assign({}, item, {
       source_en: sourceEn,
       en_text: sourceEn,
