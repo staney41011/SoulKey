@@ -1,0 +1,147 @@
+name: SoulKey Edge TTS Kaggle Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "translation-system/.edge-natural-smoke-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-edge-tts-kaggle-smoke
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-edge-natural-smoke
+
+    steps:
+      - name: Install Kaggle CLI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install kaggle
+
+      - name: Build Kaggle smoke kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="${RUNNER_TEMP}/edge-tts-smoke"
+          rm -rf "$DIR"
+          mkdir -p "$DIR"
+
+          cat > "$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-edge-natural-smoke",
+            "title": "SoulKey Edge Natural TTS Smoke",
+            "code_file": "soulkey-edge-natural-smoke.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          JSON
+
+          cat > "$DIR/soulkey-edge-natural-smoke.py" <<'PY'
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          repo = Path("/kaggle/working/SoulKey")
+          if repo.exists():
+              subprocess.run(["rm", "-rf", str(repo)], check=True)
+
+          subprocess.run(
+              [
+                  "git", "clone", "--depth", "1",
+                  "https://github.com/staney41011/SoulKey.git",
+                  str(repo),
+              ],
+              check=True,
+          )
+          subprocess.run(
+              [sys.executable, "-m", "pip", "install", "-q", "edge-tts==7.2.8"],
+              check=True,
+          )
+
+          output_dir = Path("/kaggle/working/edge-natural-output")
+          output_dir.mkdir(parents=True, exist_ok=True)
+
+          subprocess.run(
+              [
+                  sys.executable,
+                  str(repo / "translation-system" / "edge_tts_smoke.py"),
+                  "--text-file",
+                  str(
+                      repo
+                      / "translation-system"
+                      / "tests"
+                      / "fixtures"
+                      / "P256-L01-edge-natural-sample.txt"
+                  ),
+                  "--output-dir",
+                  str(output_dir),
+                  "--name",
+                  "256_L01_English_Kaggle_Edge_Natural_v1",
+              ],
+              check=True,
+          )
+          PY
+
+      - name: Run Kaggle
+        id: kaggle
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="${RUNNER_TEMP}/edge-tts-smoke"
+          kaggle kernels push -p "$DIR" -t 1800
+
+          FINAL="UNKNOWN"
+          for i in $(seq 1 180); do
+            STATUS="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+            echo "$STATUS"
+            if echo "$STATUS" | grep -Eqi 'complete|completed'; then
+              FINAL="COMPLETE"
+              break
+            fi
+            if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
+              FINAL="ERROR"
+              break
+            fi
+            sleep 10
+          done
+
+          echo "status=$FINAL" >> "$GITHUB_OUTPUT"
+          if [ "$FINAL" != "COMPLETE" ]; then
+            kaggle kernels logs "$KAGGLE_KERNEL" || true
+            exit 1
+          fi
+
+      - name: Download Kaggle output
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/edge-tts-output"
+          mkdir -p "$OUT"
+          kaggle kernels output "$KAGGLE_KERNEL" -p "$OUT"
+          find "$OUT" -maxdepth 3 -type f -print
+
+      - name: Upload smoke artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soulkey-edge-natural-kaggle-v1
+          path: ${{ runner.temp }}/edge-tts-output/**
+          if-no-files-found: error
+          retention-days: 7
