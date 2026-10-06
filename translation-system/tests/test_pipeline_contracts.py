@@ -211,6 +211,27 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('inputs.get("input_ids")', block)
         self.assertNotIn("isinstance(inputs, dict)", block)
 
+    def test_youtube_audio_filename_keeps_language_code(self):
+        youtube_io = read("translation-system/youtube_io.py")
+        runner = read("translation-system/tts_runner.py")
+
+        self.assertIn(
+            'destination.parent / (destination.name + "." + raw_ext)',
+            youtube_io,
+        )
+        self.assertIn(
+            'destination.name + "." + preferred_codec',
+            youtube_io,
+        )
+        self.assertNotIn(
+            'destination.with_suffix("." + preferred_codec)',
+            youtube_io,
+        )
+        self.assertIn(
+            'canonical_name = f"youtube.{actual_lang}.mp3"',
+            runner,
+        )
+
     def test_youtube_multiaudio_download_reuses_discovery_client(self):
         youtube_io = read("translation-system/youtube_io.py")
 
