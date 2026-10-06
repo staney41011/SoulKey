@@ -211,6 +211,20 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('inputs.get("input_ids")', block)
         self.assertNotIn("isinstance(inputs, dict)", block)
 
+    def test_youtube_multiaudio_download_reuses_discovery_client(self):
+        youtube_io = read("translation-system/youtube_io.py")
+
+        self.assertIn('"_soulkey_discovery_client"', youtube_io)
+        self.assertIn('"discovery_client"', youtube_io)
+        self.assertIn('"discovery_extractor_args"', youtube_io)
+        self.assertIn("def _download_audio_with_discovery_profile(", youtube_io)
+        self.assertIn("same-client fallback", youtube_io)
+        self.assertIn("ordered = exact + [", youtube_io)
+        self.assertNotIn(
+            "_extract_info(\n                    url=url,\n                    options=options,\n                    download=True",
+            youtube_io,
+        )
+
     def test_youtube_multiaudio_probes_multiple_player_clients(self):
         youtube_io = read("translation-system/youtube_io.py")
 
