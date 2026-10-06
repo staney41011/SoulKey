@@ -211,6 +211,17 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('inputs.get("input_ids")', block)
         self.assertNotIn("isinstance(inputs, dict)", block)
 
+    def test_youtube_audio_prefers_true_auto_dub_over_generic_en(self):
+        youtube_io = read("translation-system/youtube_io.py")
+
+        self.assertIn("def _requested_track_score(", youtube_io)
+        self.assertIn("dubbed-auto", youtube_io)
+        self.assertIn('"is_original_hint"', youtube_io)
+        self.assertIn("1 if dubbed else 0", youtube_io)
+        self.assertIn("1 if audio_only else 0", youtube_io)
+        self.assertIn("best = max(", youtube_io)
+        self.assertIn("選定主音軌", youtube_io)
+
     def test_youtube_audio_filename_keeps_language_code(self):
         youtube_io = read("translation-system/youtube_io.py")
         runner = read("translation-system/tts_runner.py")
