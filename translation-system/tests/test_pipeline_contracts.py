@@ -239,6 +239,33 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("合併後語言音軌", youtube_io)
         self.assertIn("requested_languages=requested_languages", youtube_io)
 
+    def test_audio_stages_prepare_youtube_runtime_before_tts(self):
+        worker = read("translation-system/web_job_worker.py")
+
+        tts_branch = worker.split('elif args.stage == "tts":', 1)[1].split(
+            'elif args.stage == "batch":', 1
+        )[0]
+        self.assertIn("prepare_youtube_runtime()", tts_branch)
+        self.assertIn("保留本地 TTS fallback", tts_branch)
+
+        batch_branch = worker.split('elif args.stage == "batch":', 1)[1].split(
+            'elif args.stage == "finish":', 1
+        )[0]
+        self.assertIn("prepare_youtube_runtime()", batch_branch)
+
+        finish_branch = worker.split('elif args.stage == "finish":', 1)[1]
+        self.assertIn("prepare_youtube_runtime()", finish_branch)
+
+    def test_single_language_tts_failure_does_not_fail_worker(self):
+        runner = read("translation-system/tts_runner.py")
+
+        failed_block = runner.split("if failed:", 1)[1].split(
+            'elif status == "完成":', 1
+        )[0]
+        self.assertIn("mark_needs_review(", failed_block)
+        self.assertNotIn("any_failed = True", failed_block)
+        self.assertIn("單一語言若失敗會保留為 needs_review", runner)
+
     def test_youtube_audio_is_primary_before_tts(self):
         runner = read("translation-system/tts_runner.py")
         batch = read("translation-system/batch_full_runner.py")
