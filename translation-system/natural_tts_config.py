@@ -8,7 +8,7 @@ LANGUAGE_NAMES = {
     "es": "Spanish",
     "id": "Indonesian",
     "vi": "Vietnamese",
-    "sd": "Sindhi",
+    "hi": "Hindi",
     "ta": "Tamil",
 }
 
@@ -61,13 +61,13 @@ NATURAL_TTS_PROFILES = {
         "max_chars": 360,
         "min_chars": 120,
     },
-    "sd": {
-        "engine": "mms",
-        "voice": None,
-        "rate": None,
-        "pitch": None,
-        "max_chars": 320,
-        "min_chars": 120,
+    "hi": {
+        "engine": "edge",
+        "voice": "hi-IN-MadhurNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 420,
+        "min_chars": 140,
     },
 }
 

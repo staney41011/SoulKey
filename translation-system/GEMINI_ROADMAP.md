@@ -19,7 +19,7 @@
 - Spanish (es)
 - Indonesian (id)
 - Vietnamese (vi)
-- Sindhi (sd)
+- Hindi (hi)
 - Tamil (ta)
 
 設計：
@@ -57,7 +57,7 @@ Meta MMS-TTS / VITS 作正式 production 語音引擎；Gemini TTS 保留為可�
 - Spanish
 - Indonesian
 - Vietnamese
-- Sindhi
+- Hindi
 - Tamil
 
 要求：
@@ -95,7 +95,7 @@ Taiwan Breeze ASR
 - 備註
 
 後續需擴充：
-- Sindhi
+- Hindi
 - Tamil
 - 別名 / 常見誤聽
 - 典型正確例句

@@ -11,7 +11,7 @@
 
 ## 已實作
 
-1. English Final → Thai / Spanish / Indonesian / Vietnamese / Sindhi / Tamil
+1. English Final → Thai / Spanish / Indonesian / Vietnamese / Hindi / Tamil
 2. Structured Output，固定 segment id
 3. Gemini translation QA
 4. QA fail → 單段自動 repair → 再 QA
@@ -90,7 +90,7 @@ python gemini_full_lesson_shadow.py --task-id P254-L03
 ```
 
 The runner uses the approved `02_翻譯稿/en.final.json` source and translates
-`th/es/id/vi/sd/ta` in 12-segment multi-language batches.
+`th/es/id/vi/hi/ta` in 12-segment multi-language batches.
 
 Checkpoint rules:
 

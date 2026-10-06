@@ -300,7 +300,7 @@ Taiwan-Breeze ASR
 → Gemini 中文語意校稿
 → 繁中白話化
 → English Final
-→ Gemini 六語翻譯（th/es/id/vi/sd/ta）
+→ Gemini 六語翻譯（th/es/id/vi/hi/ta）
 → 本地規則 QA + Gemini 語意 QA
 → NVIDIA Riva Translate v2（選用，只處理 QA 已失敗的 th/es/id/vi）
 → Gemini 再審 / Repair
@@ -311,7 +311,7 @@ Taiwan-Breeze ASR
 NVIDIA 不是主翻譯引擎，也不會取代 Gemini。若未設定 `NVIDIA_API_KEY`，
 系統完全維持 Gemini-only 流程。若有設定，NVIDIA 只會對 Gemini QA 已判定有
 問題的泰文、西班牙文、印尼文、越南文片段提出第二版本；候選仍必須通過
-SoulKey 本地語言/數字檢查與 Gemini 語意複驗。Sindhi、Tamil 繼續完全由
+SoulKey 本地語言/數字檢查與 Gemini 語意複驗。Hindi、Tamil 繼續完全由
 Gemini 負責。
 
 NVIDIA 使用模型：

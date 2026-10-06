@@ -39,13 +39,13 @@ from lesson_paths import digits, resolve_lesson_folders
 
 
 MODEL = os.getenv("GEMINI_SHADOW_MODEL", "gemini-3.1-flash-lite")
-LANGS = ["th", "es", "id", "vi", "sd", "ta"]
+LANGS = ["th", "es", "id", "vi", "hi", "ta"]
 LANGUAGE_NAMES = {
     "th": "Thai",
     "es": "Spanish",
     "id": "Indonesian",
     "vi": "Vietnamese",
-    "sd": "Sindhi",
+    "hi": "Hindi",
     "ta": "Tamil",
 }
 BATCH_SIZE = 12
@@ -66,7 +66,7 @@ TRANSLATION_SCHEMA = {
                     "es": {"type": "string"},
                     "id": {"type": "string"},
                     "vi": {"type": "string"},
-                    "sd": {"type": "string"},
+                    "hi": {"type": "string"},
                     "ta": {"type": "string"},
                 },
                 "required": [
@@ -75,7 +75,7 @@ TRANSLATION_SCHEMA = {
                     "es",
                     "id",
                     "vi",
-                    "sd",
+                    "hi",
                     "ta",
                 ],
             },
@@ -235,7 +235,7 @@ th = Thai
 es = Spanish
 id = Indonesian
 vi = Vietnamese
-sd = Sindhi
+hi = Hindi
 ta = Tamil
 
 IMPORTANT:
@@ -275,7 +275,7 @@ def _qa_prompt(batch, rows):
             "es": row["es"],
             "id": row["id"],
             "vi": row["vi"],
-            "sd": row["sd"],
+            "hi": row["hi"],
             "ta": row["ta"],
         })
 
@@ -287,7 +287,7 @@ th Thai
 es Spanish
 id Indonesian
 vi Vietnamese
-sd Sindhi
+hi Hindi
 ta Tamil
 
 Only report genuine translation failures:

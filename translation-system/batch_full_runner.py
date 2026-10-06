@@ -26,8 +26,8 @@ from lesson_paths import digits, resolve_lesson_folders
 from status_io import new_run_id, mark_done, mark_error, mark_running
 
 
-LANGS = ["en", "th", "es", "id", "vi", "sd", "ta"]
-TARGET_LANGS = ["th", "es", "id", "vi", "sd", "ta"]
+LANGS = ["en", "th", "es", "id", "vi", "hi", "ta"]
+TARGET_LANGS = ["th", "es", "id", "vi", "hi", "ta"]
 
 
 def run(cmd, cwd=None):

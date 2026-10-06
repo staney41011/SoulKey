@@ -125,7 +125,7 @@ jobs:
           pip("--force-reinstall", "transformers==4.57.6")
           run_probe("PINNED_4_57_6")
 
-          # Verify that Meta's original Sindhi MMS files really exist and that
+          # Verify that Meta's legacy MMS fallback files really exist and that
           # the SoulKey vendored converter can at least fetch/parse them.
           print("\n" + "=" * 80, flush=True)
           print("SINDHI_SOURCE_PROBE", flush=True)

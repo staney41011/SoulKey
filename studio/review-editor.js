@@ -786,7 +786,7 @@ const LANG_NAMES={
   es:"Español",
   id:"Bahasa Indonesia",
   vi:"Tiếng Việt",
-  sd:"سنڌي",
+  hi:"हिन्दी",
   ta:"தமிழ்"
 };
 

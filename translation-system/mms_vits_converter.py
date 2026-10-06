@@ -1,6 +1,6 @@
 # Vendored from Hugging Face Transformers main (Apache-2.0).
 # Kept locally because PyPI transformers 5.17.0 does not ship this converter,
-# while SoulKey needs it to convert the original Meta MMS Sindhi checkpoint.
+# while SoulKey needs it to convert the original Meta MMS Hindi/Tamil legacy checkpoint.
 
 # Copyright 2023 The HuggingFace Inc. team. All rights reserved.
 #
