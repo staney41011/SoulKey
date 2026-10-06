@@ -2127,7 +2127,19 @@ def discover_multilingual_audio_tracks(
         best = max(candidates, key=_audio_format_score)
         note = str(best.get("format_note") or "")
         track_name = str(best.get("format") or best.get("format_id") or lang)
-        combined = (note + " " + track_name).lower()
+        media_url = str(best.get("url") or "")
+        combined = (note + " " + track_name + " " + media_url).lower()
+        is_dubbed = (
+            "dubbed-auto" in combined
+            or "acont%3ddubbed" in combined
+            or "acont=dubbed" in combined
+            or "dubbed" in combined
+        )
+        is_original = (
+            "acont%3doriginal" in combined
+            or "acont=original" in combined
+            or " original " in (" " + combined + " ")
+        )
         tracks.append({
             "language": lang,
             "format_id": str(best.get("format_id") or ""),
@@ -2138,8 +2150,9 @@ def discover_multilingual_audio_tracks(
             "tbr": best.get("tbr"),
             "format_note": note,
             "is_audio_only": str(best.get("vcodec") or "none") == "none",
-            "is_dubbed_hint": ("dub" in combined),
-            "media_url": str(best.get("url") or ""),
+            "is_dubbed_hint": bool(is_dubbed),
+            "is_original_hint": bool(is_original),
+            "media_url": media_url,
             "http_headers": dict(best.get("http_headers") or {}),
             "discovery_client": str(
                 best.get("_soulkey_discovery_client") or ""
@@ -2173,6 +2186,31 @@ def discover_multilingual_audio_tracks(
     }
 
 
+def _requested_track_score(track, wanted):
+    language = str(track.get("language") or "").lower()
+    wanted_low = str(wanted or "").lower()
+    wanted_base = wanted_low.split("-", 1)[0]
+    language_base = language.split("-", 1)[0]
+
+    same_base = language_base == wanted_base
+    exact = language == wanted_low
+    dubbed = bool(track.get("is_dubbed_hint"))
+    original = bool(track.get("is_original_hint"))
+    audio_only = bool(track.get("is_audio_only"))
+
+    # For a requested translated language, an explicit YouTube auto-dub must
+    # beat a generic muxed video stream carrying the same language tag.
+    return (
+        1 if dubbed else 0,
+        1 if audio_only else 0,
+        0 if original else 1,
+        1 if same_base else 0,
+        1 if exact else 0,
+        float(track.get("abr") or 0),
+        float(track.get("tbr") or 0),
+    )
+
+
 def _match_requested_audio_tracks(tracks, requested):
     requested = [
         _normalize_audio_language(x)
@@ -2183,27 +2221,40 @@ def _match_requested_audio_tracks(tracks, requested):
         return list(tracks)
 
     selected = []
-    seen = set()
+    selected_languages = set()
+
     for wanted in requested:
         wanted_low = wanted.lower()
-        exact = [
-            x for x in tracks
-            if str(x.get("language") or "").lower() == wanted_low
-        ]
-        base = [
+        wanted_base = wanted_low.split("-", 1)[0]
+        candidates = [
             x for x in tracks
             if str(x.get("language") or "").lower().split("-", 1)[0]
-            == wanted_low.split("-", 1)[0]
+            == wanted_base
         ]
-        ordered = exact + [
-            item for item in base
-            if item not in exact
-        ]
-        for item in ordered:
-            key = str(item.get("language") or "").lower()
-            if key and key not in seen:
-                seen.add(key)
-                selected.append(item)
+        if not candidates:
+            continue
+
+        best = max(
+            candidates,
+            key=lambda x: _requested_track_score(x, wanted),
+        )
+        language = str(best.get("language") or "").lower()
+        key = wanted_base
+        if key in selected_languages:
+            continue
+        selected_languages.add(key)
+        selected.append(best)
+
+        print(
+            "[YouTube MultiAudio] 選定主音軌："
+            f"requested={wanted} -> "
+            f"{best.get('language')} / "
+            f"format={best.get('format_id')} / "
+            f"dubbed={bool(best.get('is_dubbed_hint'))} / "
+            f"audio_only={bool(best.get('is_audio_only'))}",
+            flush=True,
+        )
+
     return selected
 
 
