@@ -259,7 +259,10 @@ def upload_youtube_audio_outputs(
     uploaded = {}
     for requested_lang, item in matched.items():
         path = Path(item["path"])
-        canonical_name = path.name
+        actual_lang = str(item.get("language") or requested_lang).strip()
+        # Never trust a legacy local filename such as "youtube.mp3".
+        # The canonical Drive name must always retain the discovered language.
+        canonical_name = f"youtube.{actual_lang}.mp3"
         upload_or_replace_file(
             drive,
             audio_folder,
@@ -268,7 +271,7 @@ def upload_youtube_audio_outputs(
             display_name=formal_drive_name(task, canonical_name),
         )
         uploaded[requested_lang] = {
-            "language": item.get("language") or requested_lang,
+            "language": actual_lang,
             "canonical_name": canonical_name,
             "format_id": item.get("format_id") or "",
             "is_dubbed_hint": bool(item.get("is_dubbed_hint")),
