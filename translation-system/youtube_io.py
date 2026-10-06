@@ -2217,7 +2217,10 @@ def _download_audio_from_discovered_url(
         return None
 
     raw_ext = str(track.get("ext") or "m4a").strip() or "m4a"
-    raw_path = destination.with_suffix("." + raw_ext)
+    # destination is a language-bearing stem such as "youtube.en-US".
+    # Path.with_suffix() would incorrectly treat ".en-US" as a suffix and
+    # collapse it to "youtube.m4a". Build the filename explicitly instead.
+    raw_path = destination.parent / (destination.name + "." + raw_ext)
     headers = dict(track.get("http_headers") or {})
     headers.setdefault(
         "User-Agent",
@@ -2241,7 +2244,9 @@ def _download_audio_from_discovered_url(
                         break
                     handle.write(chunk)
 
-        final_path = destination.with_suffix("." + preferred_codec)
+        final_path = destination.parent / (
+            destination.name + "." + preferred_codec
+        )
         if raw_path.suffix.lower() == final_path.suffix.lower():
             if raw_path != final_path:
                 raw_path.replace(final_path)
