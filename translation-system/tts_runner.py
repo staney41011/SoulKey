@@ -226,7 +226,27 @@ def acquire_youtube_audio_first(task, langs, workdir):
         if item:
             matched[lang] = item
 
-    return matched, (manifest, manifest_path), ""
+    available = [
+        str(item.get("language") or "").strip()
+        for item in (manifest.get("tracks") or [])
+        if str(item.get("language") or "").strip()
+    ]
+    failures = list(manifest.get("failures") or [])
+    parts = []
+    if available:
+        parts.append("可見音軌=" + ",".join(available))
+    else:
+        parts.append("可見音軌=無")
+    if failures:
+        failure_text = ",".join(
+            str(x.get("language") or "?") + ":" +
+            str(x.get("error") or "download_failed")[:90]
+            for x in failures[:6]
+        )
+        parts.append("下載失敗=" + failure_text)
+
+    diagnostic = "；".join(parts)
+    return matched, (manifest, manifest_path), diagnostic
 
 
 def upload_youtube_audio_outputs(
@@ -433,6 +453,11 @@ def main():
                     ",".join(youtube_uploaded.keys()),
                     flush=True,
                 )
+                if youtube_probe_error:
+                    print(
+                        "[YOUTUBE-AUDIO] 探測摘要：" + youtube_probe_error,
+                        flush=True,
+                    )
             elif youtube_probe_error:
                 print(
                     "[YOUTUBE-AUDIO] 沒有可用的指定語言音軌；"
@@ -593,6 +618,12 @@ def main():
                     )
                     continue
 
+            youtube_probe_note = (
+                youtube_probe_error[:220]
+                if youtube_probe_error
+                else ""
+            )
+
             if failed:
                 status = "部分完成"
                 failure_details = "｜".join(
@@ -602,6 +633,7 @@ def main():
                 note = (
                     f"音檔完成：{','.join(completed) or '無'}；"
                     f"YouTube優先：{','.join(youtube_completed) or '無'}；"
+                    f"YouTube偵測：{youtube_probe_note or '未提供摘要'}；"
                     f"TTS補缺：{','.join(tts_completed) or '無'}；"
                     f"失敗：{','.join(x['lang'] for x in failed)}；"
                     f"原因：{failure_details}；"
@@ -621,6 +653,7 @@ def main():
                 note = (
                     f"音檔完成：{','.join(completed)}；"
                     f"YouTube優先：{','.join(youtube_completed) or '無'}；"
+                    f"YouTube偵測：{youtube_probe_note or '未提供摘要'}；"
                     f"TTS補缺：{','.join(tts_completed) or '無'}；"
                     f"超過原片總長：{over_text}；"
                     "未調速、未截斷，請先處理超時語言"
@@ -630,6 +663,7 @@ def main():
                 note = (
                     f"音檔完成：{','.join(completed)}；"
                     f"YouTube優先：{','.join(youtube_completed) or '無'}；"
+                    f"YouTube偵測：{youtube_probe_note or '未提供摘要'}；"
                     f"TTS補缺：{','.join(tts_completed) or '無'}"
                 )
             else:
@@ -637,6 +671,7 @@ def main():
                 note = (
                     f"音檔完成：{','.join(completed)}；"
                     f"YouTube優先：{','.join(youtube_completed) or '無'}；"
+                    f"YouTube偵測：{youtube_probe_note or '未提供摘要'}；"
                     f"TTS補缺：{','.join(tts_completed) or '無'}"
                 )
 
