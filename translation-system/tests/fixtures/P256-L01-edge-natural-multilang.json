@@ -1,0 +1,63 @@
+{
+  "task_id": "P256-L01",
+  "sample": "segments 0,4,7 (~00:02-00:58 source)",
+  "languages": {
+    "en": {
+      "name": "English",
+      "voice": "en-US-AndrewMultilingualNeural",
+      "rate": "-4%",
+      "pitch": "-2Hz",
+      "native_voice": true,
+      "text": "Dear family, peace be with you all. Hello, everyone. We are here for \"Unlocking the Heart Every Week.\" We have been talking about body, mind, and spirit environmental protection. How do we practice body, mind, and spirit environmental protection? It is actually a circular, unified concept.\n\nWhen our thoughts are polluted and negative ideas enter, they create negative desires or emotions, which then manifest in our external words and behaviors. In the end, this, in turn, affects our own body, mind, and spirit.\n\nTherefore, if our body, mind, and spirit are not grounded in mindfulness, this internal environmental protection will not be successful. We can use \"Unlocking the Heart Every Week\" to practice this body, mind, and spirit environmental protection together every week. Today, we humbly invite Mr. Su Niu to share his compassion with us."
+    },
+    "th": {
+      "name": "Thai",
+      "voice": "th-TH-NiwatNeural",
+      "rate": "-3%",
+      "pitch": "-1Hz",
+      "native_voice": true,
+      "text": "สวัสดีครอบครัวธรรมทุกท่าน ขอให้ทุกคนมีความสุข สวัสดีครับ เรามาอยู่ที่นี่เพื่อรายการ \"ไขความลับใจในทุกสัปดาห์\" เราได้พูดคุยเกี่ยวกับการปกป้องสภาพแวดล้อมทางกาย จิต และวิญญาณ เราจะฝึกการปกป้องสภาพแวดล้อมทางกาย จิต และวิญญาณได้อย่างไร? แท้จริงแล้วมันเป็นแนวคิดแบบวงกลมที่เป็นหนึ่งเดียวกัน\n\nเมื่อความคิดของเราปนเปื้อนและมีแนวคิดเชิงลบเข้ามา มันจะสร้างความปรารถนาหรืออารมณ์เชิงลบ ซึ่งจะปรากฏออกมาในคำพูดและพฤติกรรมภายนอกของเรา ในที่สุด สิ่งนี้ก็จะย้อนกลับมาส่งผลกระทบต่อร่างกาย จิตใจ และจิตวิญญาณของเราเอง\n\nดังนั้น หากร่างกาย จิตใจ และจิตวิญญาณของเราไม่ได้ตั้งอยู่บนพื้นฐานของความมีสติ การปกป้องสภาพแวดล้อมภายในนี้จะไม่ประสบความสำเร็จ เราสามารถใช้ \"ไขความลับใจในทุกสัปดาห์\" เพื่อฝึกฝนการปกป้องสภาพแวดล้อมทางกาย จิต และวิญญาณนี้ร่วมกันในทุกสัปดาห์ วันนี้เราขอเชิญคุณซูหนิวแบ่งปันความเมตตาของเขาแก่เราอย่างถ่อมตน"
+    },
+    "es": {
+      "name": "Spanish",
+      "voice": "es-US-AlonsoNeural",
+      "rate": "-3%",
+      "pitch": "-1Hz",
+      "native_voice": true,
+      "text": "Querida familia, la paz sea con todos ustedes. Hola a todos. Estamos aquí para \"Desbloqueando el Corazón cada Semana\". Hemos estado hablando sobre la protección del medio ambiente del cuerpo, la mente y el espíritu. ¿Cómo practicamos la protección del medio ambiente del cuerpo, la mente y el espíritu? En realidad, es un concepto circular y unificado.\n\nCuando nuestros pensamientos están contaminados y entran ideas negativas, crean deseos o emociones negativas, que luego se manifiestan en nuestras palabras y comportamientos externos. Al final, esto, a su vez, afecta nuestro propio cuerpo, mente y espíritu.\n\nPor lo tanto, si nuestro cuerpo, mente y espíritu no están basados en la atención plena, esta protección ambiental interna no tendrá éxito. Podemos usar \"Desbloqueando el Corazón cada Semana\" para practicar esta protección ambiental del cuerpo, mente y espíritu juntos cada semana. Hoy, humildemente invitamos al Sr. Su Niu a compartir su compasión con nosotros."
+    },
+    "id": {
+      "name": "Indonesian",
+      "voice": "id-ID-ArdiNeural",
+      "rate": "-3%",
+      "pitch": "-1Hz",
+      "native_voice": true,
+      "text": "Keluarga yang terkasih, damai sejahtera bagi Anda semua. Halo semuanya. Kita di sini untuk acara \"Membuka Kunci Hati Setiap Minggu\". Kita telah berbicara tentang perlindungan lingkungan tubuh, pikiran, dan jiwa. Bagaimana kita mempraktikkan perlindungan lingkungan tubuh, pikiran, dan jiwa? Ini sebenarnya adalah konsep melingkar yang menyatu.\n\nKetika pikiran kita tercemar dan ide-ide negatif masuk, hal itu menciptakan keinginan atau emosi negatif, yang kemudian bermanifestasi dalam kata-kata dan perilaku eksternal kita. Pada akhirnya, ini pun berdampak pada tubuh, pikiran, dan jiwa kita sendiri.\n\nOleh karena itu, jika tubuh, pikiran, dan jiwa kita tidak didasarkan pada kesadaran penuh, perlindungan lingkungan internal ini tidak akan berhasil. Kita dapat menggunakan \"Membuka Kunci Hati Setiap Minggu\" untuk melatih perlindungan lingkungan tubuh, pikiran, dan jiwa ini bersama-sama setiap minggu. Hari ini, kami dengan rendah hati mengundang Bapak Su Niu untuk berbagi kasih sayangnya dengan kita."
+    },
+    "vi": {
+      "name": "Vietnamese",
+      "voice": "vi-VN-NamMinhNeural",
+      "rate": "-3%",
+      "pitch": "-1Hz",
+      "native_voice": true,
+      "text": "Chào gia đình thân yêu, cầu mong sự bình an đến với tất cả các bạn. Xin chào mọi người. Chúng ta ở đây vì chương trình \"Mở Khóa Trái Tim Hàng Tuần\". Chúng ta đã nói về bảo vệ môi trường thân, tâm và linh. Làm thế nào để chúng ta thực hành bảo vệ môi trường thân, tâm và linh? Thực ra đây là một khái niệm mang tính vòng tròn và thống nhất.\n\nKhi suy nghĩ của chúng ta bị ô nhiễm và những ý tưởng tiêu cực xâm nhập, chúng tạo ra những ham muốn hoặc cảm xúc tiêu cực, sau đó biểu hiện qua lời nói và hành vi bên ngoài của chúng ta. Cuối cùng, điều này lại ảnh hưởng ngược lại đến thân, tâm và linh của chính chúng ta.\n\nDo đó, nếu thân, tâm và linh của chúng ta không được đặt trên nền tảng của sự chánh niệm, thì việc bảo vệ môi trường bên trong này sẽ không thành công. Chúng ta có thể sử dụng \"Mở Khóa Trái Tim Hàng Tuần\" để cùng thực hành bảo vệ môi trường thân, tâm và linh này mỗi tuần. Hôm nay, chúng tôi trân trọng kính mời ông Tô Nữu chia sẻ lòng từ bi của ông với chúng ta."
+    },
+    "sd": {
+      "name": "Sindhi",
+      "voice": "ur-PK-AsadNeural",
+      "rate": "-3%",
+      "pitch": "-1Hz",
+      "native_voice": false,
+      "note": "Experimental fallback: Edge has no native Sindhi voice; using Pakistani Urdu neural voice.",
+      "text": "پيارا خاندان، اوهان سڀني تي سلامتي هجي، سڀني کي سلام. اسان هتي \"هر هفتي دل جا راز کولڻ\" لاء آهيون. اسان جسم، ذهن ۽ روح جي ماحولياتي تحفظ بابت ڳالهائي رهيا آهيون. اسان جسم، ذهن ۽ روح جي ماحولياتي تحفظ تي ڪيئن عمل ڪريون؟ حقيقت ۾، هي هڪ گول ۽ متحد تصور آهي.\n\nجڏهن اسان جا خيال آلوده ٿين ٿا ۽ منفي خيال اندر اچن ٿا، ته اهي منفي خواهشون يا جذبا پيدا ڪن ٿا، جيڪي پوءِ اسان جي ٻاهرين لفظن ۽ عملن ۾ ظاهر ٿين ٿا. آخر ۾، هيءَ شيءِ موٽ ۾ اسان جي پنهنجي جسم، ذهن ۽ روح کي متاثر ڪري ٿي.\n\nتنهن ڪري، جيڪڏهن اسان جو جسم، ذهن ۽ روح سجاڳي تي ٻڌل نه آهن، ته هي اندروني ماحولياتي تحفظ ڪامياب نه ٿيندو. اسان \"هر هفتي دل جا راز کولڻ\" کي استعمال ڪري سگهون ٿا ته جيئن هر هفتي گڏجي هن جسم، ذهن ۽ روح جي ماحولياتي تحفظ جي مشق ڪري سگهون. اڄ، اسان عاجزي سان مسٽر سو نيو کي دعوت ڏيون ٿا ته هو اسان سان پنهنجي شفقت ونڊي."
+    },
+    "ta": {
+      "name": "Tamil",
+      "voice": "ta-IN-ValluvarNeural",
+      "rate": "-3%",
+      "pitch": "-1Hz",
+      "native_voice": true,
+      "text": "அன்பான குடும்பத்தினரே, உங்கள் அனைவருக்கும் அமைதி நிலவட்டும், அனைவருக்கும் வணக்கம். நாம் இங்கே \"ஒவ்வொரு வாரமும் இதயத்தைத் திறப்போம்\" என்பதற்காக இருக்கிறோம். உடல், மனம் மற்றும் ஆன்மாவைப் பாதுகாப்பது பற்றி பேசி வருகிறோம். உடல், மனம் மற்றும் ஆன்மாவைப் பாதுகாக்கும் சூழலை நாம் எவ்வாறு நடைமுறைப்படுத்துவது? உண்மையில், இது ஒரு சுழற்சி மற்றும் ஒருங்கிணைந்த கருத்தாகும்.\n\nநமது எண்ணங்கள் மாசுபட்டு எதிர்மறையான கருத்துக்கள் உள்ளே வரும்போது, அவை எதிர்மறையான ஆசைகளையும் உணர்ச்சிகளையும் உருவாக்குகின்றன, அவை நமது வெளிப்புற வார்த்தைகளிலும் நடத்தைகளிலும் வெளிப்படுகின்றன. இறுதியில், இது நம்முடைய உடல், மனம் மற்றும் ஆன்மாவையே பாதிக்கிறது.\n\nஎனவே, நம்முடைய உடல், மனம் மற்றும் ஆன்மா விழிப்புணர்வைக் கொண்டிருக்கவில்லை என்றால், இந்த உள்நாட்டு சுற்றுச்சூழல் பாதுகாப்பு வெற்றிபெறாது. ஒவ்வொரு வாரமும் உடல், மனம் மற்றும் ஆன்மாவின் சுற்றுச்சூழல் பாதுகாப்பைப் பயிற்சி செய்ய \"ஒவ்வொரு வாரமும் இதயத்தைத் திறப்போம்\" என்பதை நாம் பயன்படுத்தலாம். இன்று, திரு. சு நியு அவர்கள் தனது கருணையை நம்முடன் பகிர்ந்து கொள்ளுமாறு பணிவுடன் அழைக்கிறோம்."
+    }
+  }
+}
