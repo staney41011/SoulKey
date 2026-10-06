@@ -251,7 +251,8 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('"discovery_extractor_args"', youtube_io)
         self.assertIn("def _download_audio_with_discovery_profile(", youtube_io)
         self.assertIn("same-client fallback", youtube_io)
-        self.assertIn("ordered = exact + [", youtube_io)
+        self.assertIn("def _requested_track_score(", youtube_io)
+        self.assertIn("best = max(", youtube_io)
         self.assertNotIn(
             "_extract_info(\n                    url=url,\n                    options=options,\n                    download=True",
             youtube_io,
