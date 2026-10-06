@@ -2052,12 +2052,16 @@ def discover_multilingual_audio_tracks(
             # by player client, so keep language + id + URL as the dedupe key.
             for lang, formats in groups.items():
                 for fmt in formats:
+                    annotated = dict(fmt)
+                    annotated["_soulkey_discovery_client"] = label
+                    annotated["_soulkey_extractor_args"] = extractor_args or {}
+                    annotated["_soulkey_with_cookies"] = bool(with_cookies)
                     key = (
                         str(lang).lower(),
-                        str(fmt.get("format_id") or ""),
-                        str(fmt.get("url") or ""),
+                        str(annotated.get("format_id") or ""),
+                        str(annotated.get("url") or ""),
                     )
-                    all_formats[key] = fmt
+                    all_formats[key] = annotated
 
             if score > best_score:
                 best_score = score
@@ -2096,12 +2100,16 @@ def discover_multilingual_audio_tracks(
         best_groups = _audio_language_groups_from_info(info)
         for lang, formats in best_groups.items():
             for fmt in formats:
+                annotated = dict(fmt)
+                annotated["_soulkey_discovery_client"] = "compat-extract-info"
+                annotated["_soulkey_extractor_args"] = {}
+                annotated["_soulkey_with_cookies"] = bool(has_cookies)
                 key = (
                     str(lang).lower(),
-                    str(fmt.get("format_id") or ""),
-                    str(fmt.get("url") or ""),
+                    str(annotated.get("format_id") or ""),
+                    str(annotated.get("url") or ""),
                 )
-                all_formats[key] = fmt
+                all_formats[key] = annotated
 
     # Rebuild merged language groups from every client response.
     merged_groups = {}
@@ -2133,6 +2141,15 @@ def discover_multilingual_audio_tracks(
             "is_dubbed_hint": ("dub" in combined),
             "media_url": str(best.get("url") or ""),
             "http_headers": dict(best.get("http_headers") or {}),
+            "discovery_client": str(
+                best.get("_soulkey_discovery_client") or ""
+            ),
+            "discovery_extractor_args": dict(
+                best.get("_soulkey_extractor_args") or {}
+            ),
+            "discovery_with_cookies": bool(
+                best.get("_soulkey_with_cookies")
+            ),
         })
 
     tracks.sort(key=lambda x: x["language"].lower())
@@ -2178,7 +2195,11 @@ def _match_requested_audio_tracks(tracks, requested):
             if str(x.get("language") or "").lower().split("-", 1)[0]
             == wanted_low.split("-", 1)[0]
         ]
-        for item in (exact or base):
+        ordered = exact + [
+            item for item in base
+            if item not in exact
+        ]
+        for item in ordered:
             key = str(item.get("language") or "").lower()
             if key and key not in seen:
                 seen.add(key)
@@ -2251,6 +2272,45 @@ def _download_audio_from_discovered_url(
     return None
 
 
+def _download_audio_with_discovery_profile(
+    url: str,
+    track: dict,
+    workdir: Path,
+    out_template: str,
+    preferred_codec: str,
+):
+    """Re-extract using the exact player profile that exposed this track."""
+    options, _has_cookies = _base_options(workdir, quiet=False)
+    if not bool(track.get("discovery_with_cookies")):
+        options = _without_cookiefile(options)
+
+    extractor_args = dict(track.get("discovery_extractor_args") or {})
+    if extractor_args:
+        options["extractor_args"] = extractor_args
+    else:
+        options.pop("extractor_args", None)
+
+    options.update({
+        "format": str(track.get("format_id") or ""),
+        "outtmpl": out_template,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": preferred_codec,
+            "preferredquality": "192",
+        }],
+    })
+
+    print(
+        "[YouTube MultiAudio] same-client fallback："
+        f"{track.get('discovery_client') or 'unknown'} / "
+        f"{track.get('language')} / {track.get('format_id')}",
+        flush=True,
+    )
+
+    with YoutubeDL(options) as ydl:
+        ydl.extract_info(url, download=True)
+
+
 def download_multilingual_audio_tracks(
     url: str,
     workdir: Path,
@@ -2292,17 +2352,6 @@ def download_multilingual_audio_tracks(
 
         target_stem = f"youtube.{safe_lang}"
         out_template = str(workdir / f"{target_stem}.%(ext)s")
-        options, has_cookies = _base_options(workdir, quiet=False)
-        options.update({
-            "format": format_id,
-            "outtmpl": out_template,
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": preferred_codec,
-                "preferredquality": "192",
-            }],
-        })
-
         print(
             f"[YouTube MultiAudio] download {lang} (format={format_id})",
             flush=True,
@@ -2315,11 +2364,12 @@ def download_multilingual_audio_tracks(
                 preferred_codec,
             )
             if not expected:
-                _extract_info(
+                _download_audio_with_discovery_profile(
                     url=url,
-                    options=options,
-                    download=True,
-                    has_cookies=has_cookies,
+                    track=track,
+                    workdir=workdir,
+                    out_template=out_template,
+                    preferred_codec=preferred_codec,
                 )
                 expected = workdir / f"{target_stem}.{preferred_codec}"
                 if not expected.exists():
