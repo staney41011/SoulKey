@@ -211,6 +211,20 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('inputs.get("input_ids")', block)
         self.assertNotIn("isinstance(inputs, dict)", block)
 
+    def test_youtube_multiaudio_probes_multiple_player_clients(self):
+        youtube_io = read("translation-system/youtube_io.py")
+
+        self.assertIn("def _audio_discovery_attempts(", youtube_io)
+        self.assertIn("def _audio_language_groups_from_info(", youtube_io)
+        self.assertIn("def _audio_discovery_score(", youtube_io)
+        self.assertIn('for client in ("web", "web_safari", "mweb")', youtube_io)
+        self.assertIn('"web_embedded"', youtube_io)
+        self.assertIn('"android_vr"', youtube_io)
+        self.assertIn("successful_clients", youtube_io)
+        self.assertIn("discovery_clients", youtube_io)
+        self.assertIn("合併後語言音軌", youtube_io)
+        self.assertIn("requested_languages=requested_languages", youtube_io)
+
     def test_youtube_audio_is_primary_before_tts(self):
         runner = read("translation-system/tts_runner.py")
         batch = read("translation-system/batch_full_runner.py")
