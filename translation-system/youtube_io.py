@@ -1906,19 +1906,7 @@ def _audio_format_score(fmt: dict):
     )
 
 
-def discover_multilingual_audio_tracks(url: str, workdir: Path):
-    """Return the best downloadable audio-bearing format for every language tag."""
-    workdir.mkdir(parents=True, exist_ok=True)
-    options, has_cookies = _base_options(workdir, quiet=False)
-    options["skip_download"] = True
-
-    info = _extract_info(
-        url=url,
-        options=options,
-        download=False,
-        has_cookies=has_cookies,
-    )
-
+def _audio_language_groups_from_info(info: dict):
     groups = {}
     for fmt in info.get("formats") or []:
         acodec = str(fmt.get("acodec") or "none")
@@ -1928,6 +1916,201 @@ def discover_multilingual_audio_tracks(url: str, workdir: Path):
         if not lang:
             continue
         groups.setdefault(lang, []).append(fmt)
+    return groups
+
+
+def _requested_audio_bases(requested_languages):
+    result = []
+    for value in requested_languages or []:
+        lang = _normalize_audio_language(value)
+        if not lang or lang.lower() == "all":
+            continue
+        base = lang.lower().split("-", 1)[0]
+        if base not in result:
+            result.append(base)
+    return result
+
+
+def _audio_discovery_score(groups, requested_languages):
+    wanted = _requested_audio_bases(requested_languages)
+    languages = {
+        str(lang or "").lower().split("-", 1)[0]
+        for lang in groups
+        if str(lang or "").strip()
+    }
+    matched = len([x for x in wanted if x in languages])
+    return matched, len(languages)
+
+
+def _audio_discovery_attempts(workdir: Path, has_cookies: bool):
+    """Yield richer YouTube clients instead of stopping at first success.
+
+    YouTube auto-dubbed tracks are not exposed consistently across player
+    clients. A client can successfully return the video while exposing only
+    the original audio track, so multilingual discovery must compare several
+    successful player responses.
+    """
+    attempts = []
+    seen = set()
+
+    def add(label, extractor_args, with_cookies=False):
+        key = (
+            label,
+            json.dumps(extractor_args or {}, sort_keys=True, ensure_ascii=False),
+            bool(with_cookies),
+        )
+        if key in seen:
+            return
+        seen.add(key)
+        attempts.append((label, extractor_args, with_cookies))
+
+    for client in ("web", "web_safari", "mweb"):
+        profile = _bgutil_profile(client)
+        if profile:
+            add("bgutil-" + client, profile, False)
+
+    # Explicit rich discovery clients. Some of these may fail on a given day
+    # because YouTube changes PO-token requirements; failures are expected and
+    # must not prevent the remaining clients from being checked.
+    for client in ("web", "web_safari", "mweb", "web_embedded", "android_vr"):
+        add(
+            "guest-" + client,
+            {"youtube": {"player_client": [client]}},
+            False,
+        )
+
+    wpc = _wpc_profile()
+    if wpc:
+        add("wpc-mweb", wpc, False)
+
+    if has_cookies:
+        for client in ("web", "web_safari", "mweb"):
+            profile = _bgutil_profile(client)
+            if profile:
+                add("cookies-bgutil-" + client, profile, True)
+        add("cookies-direct", None, True)
+
+    return attempts
+
+
+def discover_multilingual_audio_tracks(
+    url: str,
+    workdir: Path,
+    requested_languages=None,
+):
+    """Discover YouTube multilingual / auto-dubbed audio across clients."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    base_options, has_cookies = _base_options(workdir, quiet=False)
+    base_options["skip_download"] = True
+
+    best_info = None
+    best_groups = {}
+    best_score = (-1, -1)
+    successful_clients = []
+    failed_clients = []
+    all_formats = {}
+    metadata_info = None
+
+    for label, extractor_args, with_cookies in _audio_discovery_attempts(
+        workdir,
+        has_cookies,
+    ):
+        attempt = dict(base_options)
+        if not with_cookies:
+            attempt = _without_cookiefile(attempt)
+        if extractor_args:
+            attempt["extractor_args"] = extractor_args
+        else:
+            attempt.pop("extractor_args", None)
+
+        try:
+            print(
+                f"[YouTube MultiAudio] 探測 player client：{label}",
+                flush=True,
+            )
+            with YoutubeDL(attempt) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+            if metadata_info is None:
+                metadata_info = info
+
+            groups = _audio_language_groups_from_info(info)
+            score = _audio_discovery_score(groups, requested_languages)
+            langs = sorted(groups.keys())
+            successful_clients.append({
+                "client": label,
+                "languages": langs,
+                "requested_matches": score[0],
+            })
+            print(
+                "[YouTube MultiAudio] "
+                f"{label} 可見語言音軌：{','.join(langs) or '無'}",
+                flush=True,
+            )
+
+            # Merge formats from every successful client. Format IDs can differ
+            # by player client, so keep language + id + URL as the dedupe key.
+            for lang, formats in groups.items():
+                for fmt in formats:
+                    key = (
+                        str(lang).lower(),
+                        str(fmt.get("format_id") or ""),
+                        str(fmt.get("url") or ""),
+                    )
+                    all_formats[key] = fmt
+
+            if score > best_score:
+                best_score = score
+                best_info = info
+                best_groups = groups
+
+            wanted = _requested_audio_bases(requested_languages)
+            if wanted and score[0] >= len(wanted):
+                print(
+                    "[YouTube MultiAudio] 已找到全部指定語言，停止額外 client 探測。",
+                    flush=True,
+                )
+                break
+        except Exception as exc:
+            failed_clients.append({
+                "client": label,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            print(
+                f"[YouTube MultiAudio] {label} 探測失敗："
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+    # Last-resort compatibility path. It can recover videos where all explicit
+    # discovery clients were temporarily rejected.
+    if best_info is None:
+        info = _extract_info(
+            url=url,
+            options=base_options,
+            download=False,
+            has_cookies=has_cookies,
+        )
+        metadata_info = metadata_info or info
+        best_info = info
+        best_groups = _audio_language_groups_from_info(info)
+        for lang, formats in best_groups.items():
+            for fmt in formats:
+                key = (
+                    str(lang).lower(),
+                    str(fmt.get("format_id") or ""),
+                    str(fmt.get("url") or ""),
+                )
+                all_formats[key] = fmt
+
+    # Rebuild merged language groups from every client response.
+    merged_groups = {}
+    for (lang_low, _format_id, _url), fmt in all_formats.items():
+        lang = _normalize_audio_language(fmt.get("language")) or lang_low
+        merged_groups.setdefault(lang, []).append(fmt)
+
+    groups = merged_groups or best_groups
+    info = best_info or metadata_info or {}
 
     tracks = []
     for lang, formats in groups.items():
@@ -1948,13 +2131,18 @@ def discover_multilingual_audio_tracks(url: str, workdir: Path):
             "format_note": note,
             "is_audio_only": str(best.get("vcodec") or "none") == "none",
             "is_dubbed_hint": ("dub" in combined),
-            # Reuse the already-authorized media URL instead of forcing a
-            # second YouTube extraction during download.
             "media_url": str(best.get("url") or ""),
             "http_headers": dict(best.get("http_headers") or {}),
         })
 
     tracks.sort(key=lambda x: x["language"].lower())
+
+    print(
+        "[YouTube MultiAudio] 合併後語言音軌：" +
+        (",".join(x["language"] for x in tracks) or "無"),
+        flush=True,
+    )
+
     return {
         "video_id": str(info.get("id") or ""),
         "title": str(info.get("title") or ""),
@@ -1963,6 +2151,8 @@ def discover_multilingual_audio_tracks(url: str, workdir: Path):
             info.get("language") or info.get("original_language")
         ),
         "tracks": tracks,
+        "discovery_clients": successful_clients,
+        "discovery_failures": failed_clients,
     }
 
 
@@ -2069,7 +2259,11 @@ def download_multilingual_audio_tracks(
 ):
     """Discover and download YouTube language audio tracks independently."""
     workdir.mkdir(parents=True, exist_ok=True)
-    discovery = discover_multilingual_audio_tracks(url, workdir)
+    discovery = discover_multilingual_audio_tracks(
+        url,
+        workdir,
+        requested_languages=requested_languages,
+    )
     tracks = discovery.get("tracks") or []
     selected = _match_requested_audio_tracks(tracks, requested_languages)
 
