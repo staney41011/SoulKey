@@ -22,9 +22,9 @@
 | id | Indonesian | Edge Natural | id-ID-ArdiNeural | -3% | MMS |
 | vi | Vietnamese | Edge Natural | vi-VN-NamMinhNeural | -3% | MMS |
 | ta | Tamil | Edge Natural | ta-IN-ValluvarNeural | -3% | MMS |
-| sd | Sindhi | MMS native | facebook/mms-tts/models/snd | natural | manual experimental only |
+| hi | Hindi | Edge Natural | hi-IN-MadhurNeural | -3% | facebook/mms-tts-hin |
 
-Sindhi 不使用 Urdu voice 當正式版；Urdu 只留在 TTS Lab 試聽。
+Hindi 使用原生 hi-IN Neural voice；MMS Hindi（facebook/mms-tts-hin）只保留為故障 fallback。
 
 ## 正式資料流
 Final Transcript
@@ -68,7 +68,7 @@ Manifest 記錄 removed_overlap / overlap_characters / source_segment_id。
 - 原影片停頓 > 1.5 秒可強制分 block。
 - 句尾強標點 + 已有足夠內容時優先分 block。
 - 英文 / 西文 / 印尼 / 越南約 350～500 chars。
-- 泰文 / 泰米爾文約 260～400 chars。
+- 泰文 / 泰米爾文約 260～400 chars。\n- 印地語約 300～450 chars。
 - 目標約 2～5 blocks / minute，避免頻繁重新起音。
 
 ## TTS 生成
@@ -142,7 +142,7 @@ Optional Deep QA：
 - en.wav
 - en.preview.mp3
 - en.tts_manifest.json
-- th / es / id / vi / ta / sd 同格式
+- th / es / id / vi / hi / ta 同格式
 
 內部檔（檔案總覽預設隱藏）：
 - <lang>.tts_checkpoint.json
@@ -182,7 +182,7 @@ Optional Deep QA：
 
 一般使用者不需選 voice。進階設定才顯示 engine / voice / rate / pitch / force。
 
-Sindhi 顯示：MMS native；Edge native voice unavailable。
+Hindi 顯示：Edge Natural / hi-IN-MadhurNeural；可在進階設定切換其他 hi-IN Neural voice。
 
 ## YouTube Auto-Dub 政策
 只用於：
@@ -194,7 +194,7 @@ Sindhi 顯示：MMS native；Edge native voice unavailable。
 
 ## Kaggle Runtime Router
 CPU：
-- Edge Natural：en/th/es/id/vi/ta。
+- Edge Natural：en/th/es/id/vi/hi/ta。
 - 字幕 / manifest / audio assembly。
 
 GPU T4：
