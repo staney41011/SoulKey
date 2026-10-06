@@ -3208,7 +3208,7 @@ function courseFilesOverview_(taskId) {
     .concat(collectFolder_(resolved.transcript, "transcript", "逐字稿"))
     .concat(collectFolder_(resolved.translation, "transcript", "逐字稿"));
 
-  const transcriptLanguages = ["zh-TW", "en", "th", "es", "id", "vi", "sd", "ta"];
+  const transcriptLanguages = ["zh-TW", "en", "th", "es", "id", "vi", "hi", "ta"];
   const transcriptFiles = transcriptLanguages
     .map(function(lang) { return transcriptChoice_(transcriptPool, lang); })
     .filter(Boolean);
@@ -3255,7 +3255,7 @@ function courseFilesOverview_(taskId) {
     return candidates.length ? candidates[0].item : null;
   }
 
-  const audioLanguages = ["en", "th", "es", "id", "vi", "sd", "ta"];
+  const audioLanguages = ["en", "th", "es", "id", "vi", "hi", "ta"];
   const audioFiles = audioLanguages
     .map(function(lang) { return audioChoice_(audioPool, lang); })
     .filter(Boolean);
@@ -3471,7 +3471,7 @@ function formalLangLabel_(code) {
     "zh-Hant": "中文", "zh-TW": "中文", "zh": "中文",
     "en": "英文", "en-US": "英文", "en-GB": "英文",
     "th": "泰文", "es": "西班牙文", "es-419": "西班牙文",
-    "id": "印尼文", "vi": "越南文", "sd": "信德文", "ta": "泰米爾文"
+    "id": "印尼文", "vi": "越南文", "hi": "印地語", "ta": "泰米爾文"
   };
   const raw = String(code || "");
   return labels[raw] || labels[raw.split("-")[0]] || raw || "未知語言";

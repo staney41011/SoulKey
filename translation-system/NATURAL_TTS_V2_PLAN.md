@@ -68,7 +68,8 @@ Manifest 記錄 removed_overlap / overlap_characters / source_segment_id。
 - 原影片停頓 > 1.5 秒可強制分 block。
 - 句尾強標點 + 已有足夠內容時優先分 block。
 - 英文 / 西文 / 印尼 / 越南約 350～500 chars。
-- 泰文 / 泰米爾文約 260～400 chars。\n- 印地語約 300～450 chars。
+- 泰文 / 泰米爾文約 260～400 chars。
+- 印地語約 300～450 chars。
 - 目標約 2～5 blocks / minute，避免頻繁重新起音。
 
 ## TTS 生成
@@ -80,8 +81,9 @@ Edge：
 - Edge 成功後不載入 GPU 模型。
 
 MMS：
-- Sindhi 正式主引擎。
-- 其他六語只在手動 fallback 時使用。
+- 不再有任何語言以 MMS 作日常主引擎。
+- 各語言只在 Edge 失敗或人工指定 fallback 時使用。
+- Hindi fallback 使用 facebook/mms-tts-hin。
 - 使用目前永久 Kaggle Input 模型。
 
 ## 兩種輸出
@@ -200,11 +202,9 @@ CPU：
 GPU T4：
 - ASR。
 - local LLM。
-- MMS Sindhi。
 - 手動 MMS fallback。
 
-若只做 en/th/es/id/vi/ta TTS，不申請 GPU。
-若包含 sd，可拆成 Edge CPU + sd GPU 子工作。
+七個正式語言 en/th/es/id/vi/hi/ta 的 Natural TTS 都可用 Kaggle CPU 執行；只有手動切換 MMS fallback 時才使用 T4。
 
 ## 狀態
 每語言：

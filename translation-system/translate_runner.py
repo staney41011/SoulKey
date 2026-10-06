@@ -560,7 +560,7 @@ def main():
                         "請先執行 --stage modernize。"
                     )
 
-                for lang in ["en", "th", "es", "id", "vi", "sd", "ta"]:
+                for lang in ["en", "th", "es", "id", "vi", "hi", "ta"]:
                     if lang != "en":
                         en_file = find_file(
                             drive,

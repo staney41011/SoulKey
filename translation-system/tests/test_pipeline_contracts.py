@@ -31,7 +31,7 @@ class PipelineContracts(unittest.TestCase):
         runner = read("translation-system/runner.py")
 
         self.assertIn(
-            'AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "sd", "ta")',
+            'AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "hi", "ta")',
             youtube_io,
         )
         self.assertNotIn(
@@ -52,7 +52,7 @@ class PipelineContracts(unittest.TestCase):
 
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
-        self.assertIn('const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","sd","ta"]', app)
+        self.assertIn('const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta"]', app)
         self.assertIn('if(kind==="asr")', app)
         self.assertIn('zh-TW\\.transcript\\.txt', app)
         self.assertIn("7/7 語純逐字稿已齊全", app)
@@ -138,7 +138,7 @@ class PipelineContracts(unittest.TestCase):
         quick = read("studio/review-editor.js")
         config = read("translation-system/config.py")
         multi = read("translation-system/gemini_multi_production_runner.py")
-        for code in ("th","es","id","vi","sd","ta"):
+        for code in ("th","es","id","vi","hi","ta"):
             self.assertIn('code:"' + code + '"', app)
             self.assertIn('"' + code + '":', config)
             self.assertIn('"' + code + '"', multi)
@@ -338,7 +338,7 @@ class PipelineContracts(unittest.TestCase):
         runner = read("translation-system/tts_runner.py")
         converter = read("translation-system/mms_vits_converter.py")
 
-        self.assertIn('"sd": "facebook/mms-tts/models/snd"', config)
+        self.assertIn('"hi": "facebook/mms-tts-hin"', config)
         self.assertNotIn("GeminiClient", engine)
         self.assertNotIn("synthesize_gemini_language", engine)
         self.assertNotIn("synthesize_gemini_language", runner)

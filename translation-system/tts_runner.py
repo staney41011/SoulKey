@@ -31,7 +31,7 @@ LANGUAGE_NAMES = {
     "es": "Spanish",
     "id": "Indonesian",
     "vi": "Vietnamese",
-    "sd": "Sindhi",
+    "hi": "Hindi",
     "ta": "Tamil",
 }
 from tts_engine import segments_fingerprint, synthesize_language

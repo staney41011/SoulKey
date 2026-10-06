@@ -34,7 +34,7 @@ LANGUAGE_NAMES = {
     "es": "Spanish",
     "id": "Indonesian",
     "vi": "Vietnamese",
-    "sd": "Sindhi",
+    "hi": "Hindi",
     "ta": "Tamil",
 }
 VOICE = os.getenv("GEMINI_TTS_VOICE", "Kore")

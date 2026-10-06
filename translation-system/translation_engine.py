@@ -12,7 +12,7 @@ LANGUAGE_NAMES = {
     "es": "Spanish",
     "id": "Indonesian",
     "vi": "Vietnamese",
-    "sd": "Sindhi",
+    "hi": "Hindi",
     "ta": "Tamil",
 }
 
@@ -310,7 +310,7 @@ JSON 格式：
 
 TARGET_SCRIPT_PATTERNS = {
     "th": re.compile(r"[\u0E00-\u0E7F]"),
-    "sd": re.compile(r"[\u0600-\u06FF]"),
+    "hi": re.compile(r"[\u0900-\u097F]"),
     "ta": re.compile(r"[\u0B80-\u0BFF]"),
 }
 
@@ -349,7 +349,7 @@ def _translation_quality_issue(text: str, source_text: str, target_code: str):
             if ratio < 0.70 and latin_count > 15:
                 return "target_script_ratio_too_low"
 
-        # 防止整段中文誤混入泰文／辛迪文／泰米爾文。
+        # 防止整段中文誤混入泰文／印地語／泰米爾文。
         han_count = len(re.findall(r"[\u3400-\u9FFF]", text))
         if han_count >= 8 and han_count > script_count * 0.25:
             return "unexpected_chinese_content"

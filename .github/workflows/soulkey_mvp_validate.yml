@@ -80,9 +80,9 @@ jobs:
           grep -q 'showNoEnglishCcFallback' studio/app-20260923-48.js
           grep -q 'dispatchAiEnglishTranslation' studio/app-20260923-48.js
           grep -q 'refresh-zh-review' studio/app-20260923-48.js
-          grep -q 'code:"sd"' studio/app-20260923-48.js
+          grep -q 'code:"hi"' studio/app-20260923-48.js
           grep -q 'code:"ta"' studio/app-20260923-48.js
-          grep -q '"sd": "Sindhi"' translation-system/translation_engine.py
+          grep -q '"hi": "Hindi"' translation-system/translation_engine.py
           grep -q '"ta": "Tamil"' translation-system/translation_engine.py
           grep -q '不阻擋流程' translation-system/translate_runner.py
           grep -q 'en.final.json' translation-system/tts_runner.py

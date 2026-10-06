@@ -55,7 +55,7 @@ jobs:
           assert nv.nvidia_target_code("id") == "id"
           assert nv.nvidia_target_code("vi") == "vi"
           assert nv.nvidia_target_code("es") in {"es-US", "es-ES"}
-          assert "sd" not in nv.SUPPORTED_TARGETS
+          assert "hi" not in nv.SUPPORTED_TARGETS
           assert "ta" not in nv.SUPPORTED_TARGETS
 
           sample = {
@@ -87,12 +87,12 @@ jobs:
                       raise GeminiAPIError(
                           'HTTP 503: service_unavailable high demand'
                       )
-                  # The reduced request is only for Riva-unsupported sd/ta.
+                  # The reduced request is only for Riva-unsupported hi/ta.
                   return {
                       'segments': [
                           {
                               'segment_id': 1,
-                              'sd': 'سمجھ سان مهرباني شروع ٿئي ٿي۔',
+                              'hi': 'سمجھ سان مهرباني شروع ٿئي ٿي۔',
                               'ta': 'புரிதலுடன் கருணை தொடங்குகிறது.',
                           }
                       ]
@@ -121,13 +121,13 @@ jobs:
               FakeNvidia(),
               batch,
               '(no glossary entries)',
-              ['th', 'es', 'id', 'vi', 'sd', 'ta'],
+              ['th', 'es', 'id', 'vi', 'hi', 'ta'],
           )
 
           assert engine == 'nvidia-riva-fallback', engine
           assert len(rows) == 1, rows
           row = rows[0]
-          for lang in ['th', 'es', 'id', 'vi', 'sd', 'ta']:
+          for lang in ['th', 'es', 'id', 'vi', 'hi', 'ta']:
               assert str(row.get(lang) or '').strip(), (lang, row)
 
           print('NVIDIA TRANSLATION FALLBACK CONTRACT: PASS')

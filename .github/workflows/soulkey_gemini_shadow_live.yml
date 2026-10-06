@@ -39,7 +39,7 @@ jobs:
         working-directory: translation-system
         run: |
           set -euo pipefail
-          for lang in th es id vi sd ta; do
+          for lang in th es id vi hi ta; do
             echo "===== GEMINI SHADOW $lang ====="
             python gemini_shadow_runner.py \
               --mode translate \

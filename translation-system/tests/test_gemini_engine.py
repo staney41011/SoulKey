@@ -144,7 +144,7 @@ class GeminiEngineTest(unittest.TestCase):
     def test_script_guard_allows_numeric_only_fragments(self):
         for lang, text in [
             ("th", "7."),
-            ("sd", "٧."),
+            ("hi", "७."),
             ("ta", "7."),
         ]:
             self.assertEqual(
