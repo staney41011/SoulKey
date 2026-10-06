@@ -39,7 +39,7 @@ jobs:
           cat > "$DIR/kernel-metadata.json" <<'JSON'
           {
             "id": "cwlmrcsir/soulkey-edge-natural-smoke",
-            "title": "SoulKey Edge Natural TTS Smoke",
+            "title": "SoulKey Edge Natural Smoke",
             "code_file": "soulkey-edge-natural-smoke.py",
             "language": "python",
             "kernel_type": "script",
@@ -145,3 +145,4 @@ jobs:
           path: ${{ runner.temp }}/edge-tts-output/**
           if-no-files-found: error
           retention-days: 7
+
