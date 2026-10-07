@@ -449,7 +449,8 @@ function syncCompletedFromRemote(task){
     const remote=remoteStageStatus(task,workflow[i].key);
     if(
       remote &&
-      ["error","stale"].includes(remote.status) &&
+      (["error","stale"].includes(remote.status) ||
+        (["multi","tts"].includes(workflow[i].key) && remote.status==="needs_review")) &&
       i<=task.completedStep
     ){
       task.completedStep=i-1;
