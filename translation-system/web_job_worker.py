@@ -507,23 +507,10 @@ def main():
             )
             if not langs:
                 raise RuntimeError("TTS 沒有指定任何語言")
-            require_gpu_runtime("tts")
-
-            # TTS now probes YouTube multilingual / auto-dubbed audio before
-            # loading local speech models. The YouTube runtime must therefore
-            # be prepared here too (Deno/EJS + guest PO Token providers).
-            # This preparation is best-effort: if YouTube runtime setup itself
-            # has a transient failure, local TTS fallback must still run.
-            try:
-                prepare_youtube_runtime()
-            except Exception as youtube_runtime_exc:
-                print(
-                    "[YouTube] TTS 音軌優先 runtime 準備失敗；"
-                    "保留本地 TTS fallback。原因="
-                    f"{type(youtube_runtime_exc).__name__}: "
-                    f"{youtube_runtime_exc}",
-                    flush=True,
-                )
+            print(
+                "[TTS] Natural TTS v2 使用 CPU + Internet；不申請 GPU。",
+                flush=True,
+            )
 
             cmd = [
                 sys.executable,
@@ -613,17 +600,10 @@ def main():
                 ])
 
             if audio_langs:
-                require_gpu_runtime("tts")
-                try:
-                    prepare_youtube_runtime()
-                except Exception as youtube_runtime_exc:
-                    print(
-                        "[YouTube] Finish 音軌 runtime 準備失敗；"
-                        "保留本地 TTS fallback。原因="
-                        f"{type(youtube_runtime_exc).__name__}: "
-                        f"{youtube_runtime_exc}",
-                        flush=True,
-                    )
+                print(
+                    "[FINISH:TTS] Natural TTS v2 使用 CPU + Internet。",
+                    flush=True,
+                )
                 run([
                     sys.executable,
                     str(system_dir / "tts_runner.py"),

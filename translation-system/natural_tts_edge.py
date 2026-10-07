@@ -130,23 +130,73 @@ async def render_blocks(
 
     results = []
     wav_paths = []
+    checkpoint_path = output_dir / f"{lang}.tts_checkpoint.json"
+
+    checkpoint = {}
+    if checkpoint_path.exists():
+        try:
+            payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            if (
+                payload.get("voice") == profile["voice"]
+                and payload.get("rate") == profile["rate"]
+                and payload.get("pitch") == profile["pitch"]
+            ):
+                checkpoint = {
+                    int(x["block_index"]): x
+                    for x in (payload.get("blocks") or [])
+                    if "block_index" in x
+                }
+        except Exception:
+            checkpoint = {}
 
     for block in blocks:
         mp3 = block_dir / f"{block.index:04d}.mp3"
         boundary = block_dir / f"{block.index:04d}.boundaries.jsonl"
         wav = wav_dir / f"{block.index:04d}.wav"
 
-        meta = await synthesize_block(
-            block,
-            voice=profile["voice"],
-            rate=profile["rate"],
-            pitch=profile["pitch"],
-            output_mp3=mp3,
-            boundary_path=boundary,
+        previous = checkpoint.get(block.index) or {}
+        can_reuse = bool(
+            previous.get("text_sha256") == block.text_sha256
+            and mp3.exists()
+            and wav.exists()
         )
-        mp3_to_pcm_wav(mp3, wav)
+        if can_reuse:
+            try:
+                duration = _ffprobe_duration(mp3)
+                if duration <= 0:
+                    can_reuse = False
+            except Exception:
+                can_reuse = False
+
+        if can_reuse:
+            meta = dict(previous)
+            meta["reused"] = True
+        else:
+            meta = await synthesize_block(
+                block,
+                voice=profile["voice"],
+                rate=profile["rate"],
+                pitch=profile["pitch"],
+                output_mp3=mp3,
+                boundary_path=boundary,
+            )
+            mp3_to_pcm_wav(mp3, wav)
+            meta["reused"] = False
+
         results.append(meta)
         wav_paths.append(wav)
+
+        checkpoint_payload = {
+            "language": lang,
+            "voice": profile["voice"],
+            "rate": profile["rate"],
+            "pitch": profile["pitch"],
+            "blocks": results,
+        }
+        checkpoint_path.write_text(
+            json.dumps(checkpoint_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     manifest = {
         "language": lang,

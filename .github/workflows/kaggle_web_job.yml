@@ -111,11 +111,8 @@ jobs:
 
           stage = os.environ["JOB_STAGE"].strip()
           lang = os.environ["JOB_LANG"].strip()
-          gpu_stages = {"zh", "asr", "tts", "batch"}
-          needs_gpu = (
-              stage in gpu_stages
-              or (stage == "finish" and bool(lang))
-          )
+          gpu_stages = {"zh", "asr", "batch"}
+          needs_gpu = stage in gpu_stages
 
           # Rebind every run to the dedicated GPU-only kernel. Do not preserve
           # id_no from an older CPU worker because Kaggle prefers id_no over id.
@@ -227,7 +224,7 @@ jobs:
             if [[ "$STAGE" == "batch" ]]; then
               echo "Launching Kaggle batch with NvidiaTeslaT4 accelerator; timeout=14400s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
-            elif [[ "$STAGE" =~ ^(zh|asr|tts)$ ]] || { [[ "$STAGE" == "finish" ]] && [[ -n "$LANG" ]]; }; then
+            elif [[ "$STAGE" =~ ^(zh|asr)$ ]]; then
               echo "Launching Kaggle with NvidiaTeslaT4 accelerator; timeout=7200s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 7200
             else

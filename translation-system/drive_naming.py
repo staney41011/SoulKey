@@ -135,6 +135,14 @@ def output_label(canonical_name):
         }
         return f"{lang}{labels[ext]}"
 
+    match = re.fullmatch(r"([A-Za-z-]+)\.preview\.mp3", name)
+    if match:
+        return f"{_lang_label(match.group(1))}自然試聽版.mp3"
+
+    match = re.fullmatch(r"([A-Za-z-]+)\.alignment_report\.json", name)
+    if match:
+        return f"{_lang_label(match.group(1))}TTS對齊報告.json"
+
     match = re.fullmatch(r"([A-Za-z-]+)\.(mp3|wav)", name)
     if match:
         return f"{_lang_label(match.group(1))}TTS音檔.{match.group(2)}"

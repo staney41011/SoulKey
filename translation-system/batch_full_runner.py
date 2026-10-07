@@ -799,9 +799,8 @@ def process_task(task_id, system_dir):
             f"{task_id} six-language translation",
         )
 
-        # 6. Audio stage: YouTube multilingual / auto-dubbed track first;
-        # local TTS only fills languages YouTube does not provide.
-        # tts_runner keeps its own resume logic for the TTS fallback.
+        # 6. Audio stage: SoulKey Natural TTS v2 from approved Final translations.
+        # YouTube auto-dub is benchmark-only and never satisfies formal audio.
         run([
             sys.executable, system_dir / "tts_runner.py",
             "--task-id", task_id,
@@ -815,17 +814,11 @@ def process_task(task_id, system_dir):
         # 2) local TTS supplied the normal WAV + MP3 pair.
         missing_audio = []
         for lang in LANGS:
-            has_youtube = drive_has_youtube_primary_audio(
-                drive,
-                folders["audio"],
-                lang,
-                workdir,
-            )
             has_tts = (
                 drive_has_file(drive, folders["audio"], f"{lang}.wav")
                 and drive_has_file(drive, folders["audio"], f"{lang}.mp3")
             )
-            if not (has_youtube or has_tts):
+            if not has_tts:
                 missing_audio.append(lang)
         if missing_audio:
             raise RuntimeError(

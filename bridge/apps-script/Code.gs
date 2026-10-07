@@ -3221,7 +3221,9 @@ function courseFilesOverview_(taskId) {
 
   function audioBaseLang_(name) {
     const value = String(name || "").trim();
-    let m = /^youtube\.([A-Za-z-]+)\.mp3$/i.exec(value);
+    let m = /^([A-Za-z-]+)\.preview\.mp3$/i.exec(value);
+    if (m) return String(m[1] || "").toLowerCase().split("-")[0];
+    m = /^youtube\.([A-Za-z-]+)\.mp3$/i.exec(value);
     if (m) return String(m[1] || "").toLowerCase().split("-")[0];
     m = /^([A-Za-z-]+)\.mp3$/i.exec(value);
     if (m) return String(m[1] || "").toLowerCase().split("-")[0];
@@ -3237,8 +3239,8 @@ function courseFilesOverview_(taskId) {
       if (audioBaseLang_(name) !== wanted) return;
 
       let priority = 0;
-      if (/^youtube\.[A-Za-z-]+\.mp3$/i.test(name)) priority = 100;
-      else if (/^[A-Za-z-]+\.mp3$/i.test(name)) priority = 80;
+      if (/^[A-Za-z-]+\.mp3$/i.test(name)) priority = 100;
+      else if (/^youtube\.[A-Za-z-]+\.mp3$/i.test(name)) priority = 40;
 
       if (priority) {
         candidates.push({priority: priority, item: item});
@@ -3256,9 +3258,19 @@ function courseFilesOverview_(taskId) {
   }
 
   const audioLanguages = ["en", "th", "es", "id", "vi", "hi", "ta"];
-  const audioFiles = audioLanguages
+  const canonicalAudioFiles = audioLanguages
     .map(function(lang) { return audioChoice_(audioPool, lang); })
     .filter(Boolean);
+
+  const previewAudioFiles = audioLanguages
+    .map(function(lang) {
+      return audioPool.find(function(item) {
+        return canonicalName_(item) === lang + ".preview.mp3";
+      }) || null;
+    })
+    .filter(Boolean);
+
+  const audioFiles = canonicalAudioFiles.concat(previewAudioFiles);
 
   const videoFiles = collectFolder_(videoFolder, "video", "完成影片")
     .filter(function(item) {

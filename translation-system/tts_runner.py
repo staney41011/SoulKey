@@ -1,5 +1,8 @@
 import argparse
+import asyncio
+import importlib.util
 import json
+import subprocess
 import sys
 import traceback
 from datetime import datetime
@@ -11,7 +14,6 @@ from config import (
     SPREADSHEET_ID,
     TASK_SHEET_RANGE,
     TIMEZONE,
-    TTS_MODELS,
 )
 from drive_naming import formal_drive_name
 from google_io import (
@@ -23,7 +25,6 @@ from google_io import (
     upload_or_replace_file,
 )
 from lesson_paths import digits, resolve_lesson_folders
-from youtube_io import download_multilingual_audio_tracks
 
 LANGUAGE_NAMES = {
     "en": "English",
@@ -34,7 +35,11 @@ LANGUAGE_NAMES = {
     "hi": "Hindi",
     "ta": "Tamil",
 }
-from tts_engine import segments_fingerprint, synthesize_language
+from tts_engine import segments_fingerprint
+from natural_tts_config import EDGE_TTS_VERSION, NATURAL_TTS_PROFILES
+from natural_tts_planner import build_speech_blocks
+from natural_tts_edge import render_blocks
+from natural_tts_assemble import assemble_preview, assemble_timeline, wav_to_mp3, write_alignment_report
 from status_io import new_run_id, mark_running, mark_done, mark_needs_review, mark_error
 
 
@@ -132,12 +137,12 @@ def _dedupe_english_segments_for_tts(segments):
 
 
 def load_translation_from_drive(drive, folder_id, lang, workdir):
-    # English 已經有人工 Final，TTS 必須讀 en.final.json。
-    # 其他目標語言則直接讀 AI 翻譯輸出的 <lang>.json。
+    # TTS 永遠優先讀人工 Final；若該語言尚未建立 Final，
+    # 才回退到既有 AI 翻譯稿。TTS 不負責重新翻譯。
     candidates = (
         ["en.final.json", "en.json"]
         if lang == "en"
-        else [f"{lang}.json"]
+        else [f"{lang}.final.json", f"{lang}.json"]
     )
 
     item = None
@@ -172,172 +177,190 @@ def load_translation_from_drive(drive, folder_id, lang, workdir):
     return segments
 
 
-def _base_language(value):
-    return str(value or "").strip().lower().replace("_", "-").split("-", 1)[0]
+
+def _ensure_edge_tts_runtime():
+    if importlib.util.find_spec("edge_tts") is not None:
+        return
+    print(
+        f"[TTS] 安裝 edge-tts=={EDGE_TTS_VERSION}（CPU / Internet runtime）",
+        flush=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            f"edge-tts=={EDGE_TTS_VERSION}",
+        ],
+        check=True,
+    )
 
 
-def _youtube_audio_for_requested(downloaded, requested_lang):
-    wanted = _base_language(requested_lang)
-    if not wanted:
+def _load_tts_manifest(drive, audio_folder, lang, workdir):
+    item = find_file(drive, audio_folder, f"{lang}.tts_manifest.json")
+    if not item:
+        return None
+    path = workdir / f"{lang}.existing.tts_manifest.json"
+    try:
+        download_drive_file(drive, item["id"], path)
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
         return None
 
-    exact = [
-        item for item in downloaded
-        if str(item.get("language") or "").strip().lower() == str(requested_lang).lower()
-    ]
-    if exact:
-        return exact[0]
 
-    for item in downloaded:
-        if _base_language(item.get("language")) == wanted:
-            return item
-    return None
-
-
-def acquire_youtube_audio_first(task, langs, workdir):
-    """Try YouTube language audio before any TTS model is loaded.
-
-    YouTube CC text itself has no audio.  What we can reuse is the video's
-    alternate / auto-dubbed language audio track exposed by yt-dlp.  Any
-    requested language found here becomes the authoritative audio source and
-    must not be synthesized again.
-    """
-    url = str(task.get("youtube_url") or "").strip()
-    if not url:
-        return {}, None, "任務沒有 YouTube URL"
-
-    youtube_dir = workdir / "youtube-audio"
-    youtube_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        manifest, manifest_path = download_multilingual_audio_tracks(
-            url,
-            youtube_dir,
-            requested_languages=langs,
-            preferred_codec="mp3",
-        )
-    except Exception as exc:
-        return {}, None, f"{type(exc).__name__}: {exc}"
-
-    downloaded = list(manifest.get("downloaded") or [])
-    matched = {}
-    for lang in langs:
-        item = _youtube_audio_for_requested(downloaded, lang)
-        if item:
-            matched[lang] = item
-
-    available = [
-        str(item.get("language") or "").strip()
-        for item in (manifest.get("tracks") or [])
-        if str(item.get("language") or "").strip()
-    ]
-    failures = list(manifest.get("failures") or [])
-    parts = []
-    if available:
-        parts.append("可見音軌=" + ",".join(available))
-    else:
-        parts.append("可見音軌=無")
-    if failures:
-        failure_text = ",".join(
-            str(x.get("language") or "?") + ":" +
-            str(x.get("error") or "download_failed")[:90]
-            for x in failures[:6]
-        )
-        parts.append("下載失敗=" + failure_text)
-
-    diagnostic = "；".join(parts)
-    return matched, (manifest, manifest_path), diagnostic
-
-
-def upload_youtube_audio_outputs(
+def existing_natural_output(
     drive,
     audio_folder,
-    task,
-    matched,
-    manifest_bundle,
+    lang,
+    source_sha256,
+    workdir,
 ):
-    uploaded = {}
-    for requested_lang, item in matched.items():
-        path = Path(item["path"])
-        actual_lang = str(item.get("language") or requested_lang).strip()
-        # Never trust a legacy local filename such as "youtube.mp3".
-        # The canonical Drive name must always retain the discovered language.
-        canonical_name = f"youtube.{actual_lang}.mp3"
-        upload_or_replace_file(
-            drive,
-            audio_folder,
-            path,
-            canonical_name,
-            display_name=formal_drive_name(task, canonical_name),
-        )
-        uploaded[requested_lang] = {
-            "language": actual_lang,
-            "canonical_name": canonical_name,
-            "format_id": item.get("format_id") or "",
-            "is_dubbed_hint": bool(item.get("is_dubbed_hint")),
-        }
-
-    if manifest_bundle:
-        manifest, manifest_path = manifest_bundle
-        final_manifest = dict(manifest)
-        final_manifest["selected_as_primary_audio"] = uploaded
-        manifest_path.write_text(
-            json.dumps(final_manifest, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        upload_or_replace_file(
-            drive,
-            audio_folder,
-            manifest_path,
-            "youtube-audio-manifest.json",
-            display_name=formal_drive_name(task, "youtube-audio-manifest.json"),
-        )
-
-    return uploaded
-
-
-def upload_tts_outputs(drive, audio_folder, result, task):
-    for key in ("mp3", "wav", "manifest", "segments_zip"):
-        path = result[key]
-        canonical_name = Path(path).name
-        upload_or_replace_file(
-            drive,
-            audio_folder,
-            path,
-            canonical_name,
-            display_name=formal_drive_name(task, canonical_name),
-        )
-
-
-def existing_mms_output(drive, audio_folder, lang, source_sha256):
-    manifest_item = find_file(
+    manifest = _load_tts_manifest(
         drive,
         audio_folder,
-        f"{lang}.tts_manifest.json",
+        lang,
+        workdir,
     )
-    if not manifest_item:
+    if not manifest:
         return False
 
-    temp = Path("/kaggle/working/translate-system-tts-cache") / (
-        f"{lang}.tts_manifest.json"
-    )
-    temp.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        download_drive_file(drive, manifest_item["id"], temp)
-        manifest = json.loads(temp.read_text(encoding="utf-8"))
-    except Exception:
-        return False
-
-    if str(manifest.get("model") or "") != TTS_MODELS[lang]:
+    profile = NATURAL_TTS_PROFILES[lang]
+    if str(manifest.get("engine") or "") != "edge-natural-v2":
         return False
     if str(manifest.get("source_sha256") or "") != str(source_sha256 or ""):
+        return False
+    if str(manifest.get("voice") or "") != str(profile.get("voice") or ""):
+        return False
+    if str(manifest.get("rate") or "") != str(profile.get("rate") or ""):
+        return False
+    if str(manifest.get("pitch") or "") != str(profile.get("pitch") or ""):
+        return False
+    if str(manifest.get("status") or "") != "done":
         return False
 
     return bool(
         find_file(drive, audio_folder, f"{lang}.wav")
         and find_file(drive, audio_folder, f"{lang}.mp3")
+        and find_file(drive, audio_folder, f"{lang}.preview.mp3")
     )
 
+
+def render_natural_language(segments, lang, output_dir):
+    _ensure_edge_tts_runtime()
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    blocks, overlap_report = build_speech_blocks(segments, lang)
+    if not blocks:
+        raise RuntimeError(f"{lang} 沒有可朗讀的 speech blocks")
+
+    block_results, wav_parts = asyncio.run(
+        render_blocks(
+            lang=lang,
+            blocks=blocks,
+            output_dir=output_dir,
+        )
+    )
+
+    preview_wav = output_dir / f"{lang}.preview.wav"
+    preview_mp3 = output_dir / f"{lang}.preview.mp3"
+    preview_info = assemble_preview(wav_parts, preview_wav)
+    wav_to_mp3(preview_wav, preview_mp3)
+
+    source_duration = max(
+        float(seg.get("end", 0) or 0)
+        for seg in segments
+    )
+    timeline_wav = output_dir / f"{lang}.wav"
+    timeline_mp3 = output_dir / f"{lang}.mp3"
+    timeline_info = assemble_timeline(
+        blocks,
+        wav_parts,
+        timeline_wav,
+        source_duration=source_duration,
+    )
+    wav_to_mp3(timeline_wav, timeline_mp3)
+
+    alignment_path = output_dir / f"{lang}.alignment_report.json"
+    write_alignment_report(
+        alignment_path,
+        preview=preview_info,
+        timeline=timeline_info,
+    )
+
+    profile = NATURAL_TTS_PROFILES[lang]
+    source_sha256 = segments_fingerprint(segments)
+    status = "needs_review" if timeline_info["needs_review"] else "done"
+    manifest = {
+        "version": 2,
+        "engine": "edge-natural-v2",
+        "edge_tts_version": EDGE_TTS_VERSION,
+        "language": lang,
+        "voice": profile["voice"],
+        "rate": profile["rate"],
+        "pitch": profile["pitch"],
+        "source_sha256": source_sha256,
+        "source_segment_count": len(segments),
+        "block_count": len(blocks),
+        "overlap_cleanup": overlap_report,
+        "blocks": block_results,
+        "preview": preview_info,
+        "timeline": timeline_info,
+        "status": status,
+    }
+    manifest_path = output_dir / f"{lang}.tts_manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    return {
+        "mp3": timeline_mp3,
+        "wav": timeline_wav,
+        "preview_mp3": preview_mp3,
+        "manifest": manifest_path,
+        "alignment_report": alignment_path,
+        "status": status,
+        "source_sha256": source_sha256,
+        "block_count": len(blocks),
+        "timeline": timeline_info,
+        "preview": preview_info,
+    }
+
+
+def upload_natural_outputs(
+    drive,
+    audio_folder,
+    result,
+    task,
+):
+    # Preview / manifest / alignment can always be updated because they are
+    # diagnostic artifacts. Canonical mp3/wav are replaced only after QA pass.
+    always = ("preview_mp3", "manifest", "alignment_report")
+    for key in always:
+        path = Path(result[key])
+        canonical_name = path.name
+        upload_or_replace_file(
+            drive,
+            audio_folder,
+            path,
+            canonical_name,
+            display_name=formal_drive_name(task, canonical_name),
+        )
+
+    if result["status"] == "done":
+        for key in ("mp3", "wav"):
+            path = Path(result[key])
+            canonical_name = path.name
+            upload_or_replace_file(
+                drive,
+                audio_folder,
+                path,
+                canonical_name,
+                display_name=formal_drive_name(task, canonical_name),
+            )
 
 def main():
     parser = argparse.ArgumentParser()
@@ -371,7 +394,7 @@ def main():
 
     print("=" * 72)
     print("打開心靈的鎖匙｜多語 TTS")
-    print("引擎：Meta MMS-TTS / VITS（全語言本地模型推論）")
+    print("引擎：SoulKey Natural TTS v2 / Edge Neural（Final 翻譯為唯一內容來源）")
     print("=" * 72)
 
     drive, sheets = build_google_services()
@@ -433,40 +456,7 @@ def main():
             completed = []
             failed = []
             over_duration = []
-            youtube_completed = []
             tts_completed = []
-
-            # Priority 1: YouTube alternate / auto-dubbed audio tracks.
-            # This runs once for all requested languages before translations or
-            # TTS models are loaded.  Missing languages fall through to TTS.
-            youtube_matches, youtube_manifest_bundle, youtube_probe_error = (
-                acquire_youtube_audio_first(task, langs, workdir)
-            )
-            youtube_uploaded = {}
-            if youtube_matches:
-                youtube_uploaded = upload_youtube_audio_outputs(
-                    drive,
-                    folders["audio"],
-                    task,
-                    youtube_matches,
-                    youtube_manifest_bundle,
-                )
-                print(
-                    "[YOUTUBE-AUDIO] 作為正式音檔來源：" +
-                    ",".join(youtube_uploaded.keys()),
-                    flush=True,
-                )
-                if youtube_probe_error:
-                    print(
-                        "[YOUTUBE-AUDIO] 探測摘要：" + youtube_probe_error,
-                        flush=True,
-                    )
-            elif youtube_probe_error:
-                print(
-                    "[YOUTUBE-AUDIO] 沒有可用的指定語言音軌；"
-                    "缺少語言才進本地 TTS。原因=" + youtube_probe_error,
-                    flush=True,
-                )
 
             for lang in langs:
                 lang_stage = f"tts:{lang}"
@@ -476,38 +466,11 @@ def main():
                     lang_stage,
                     sheets=sheets,
                     run_id=lang_run_id,
-                    message=f"{LANGUAGE_NAMES[lang]} 音檔生成中",
+                    message=f"{LANGUAGE_NAMES[lang]} Natural TTS 生成中",
                     progress=0,
                 )
 
                 try:
-                    if lang in youtube_uploaded:
-                        selected = youtube_uploaded[lang]
-                        completed.append(lang)
-                        youtube_completed.append(lang)
-                        actual_lang = selected.get("language") or lang
-                        canonical_name = selected.get("canonical_name") or ""
-                        message = (
-                            f"{LANGUAGE_NAMES[lang]} 使用 YouTube "
-                            f"{actual_lang} 多語／自動配音音軌；"
-                            "不產生 TTS"
-                        )
-                        print(
-                            f"[YOUTUBE-AUDIO:{lang}] {canonical_name}；skip TTS",
-                            flush=True,
-                        )
-                        mark_done(
-                            task["task_id"],
-                            lang_stage,
-                            sheets=sheets,
-                            run_id=lang_run_id,
-                            message=message,
-                        )
-                        continue
-
-                    # Only languages missing a YouTube audio track enter TTS.
-                    # Resume is valid only when the stored manifest was built
-                    # from exactly this text/timing revision.
                     segments = load_translation_from_drive(
                         drive,
                         folders["translation"],
@@ -518,15 +481,16 @@ def main():
 
                     if (
                         not args.force
-                        and existing_mms_output(
+                        and existing_natural_output(
                             drive,
                             folders["audio"],
                             lang,
                             source_sha256,
+                            workdir,
                         )
                     ):
                         print(
-                            f"[TTS:{lang}] Drive 已有相同來源版本的完整 Meta MMS 音檔，略過重做",
+                            f"[TTS:{lang}] Drive 已有相同 Final / voice 的 Natural TTS v2，略過重做",
                             flush=True,
                         )
                         completed.append(lang)
@@ -537,77 +501,71 @@ def main():
                             sheets=sheets,
                             run_id=lang_run_id,
                             message=(
-                                f"{LANGUAGE_NAMES[lang]} Meta MMS 音檔來源版本一致，略過重做"
+                                f"{LANGUAGE_NAMES[lang]} Natural TTS v2 "
+                                "來源與聲線版本一致，略過重做"
                             ),
                         )
                         continue
 
-                    print(f"[TTS] {LANGUAGE_NAMES[lang]} ({lang})")
-                    source_duration = max(
-                        float(seg.get("end", 0) or 0)
-                        for seg in segments
+                    print(
+                        f"[TTS] {LANGUAGE_NAMES[lang]} ({lang}) / "
+                        f"{NATURAL_TTS_PROFILES[lang]['voice']}",
+                        flush=True,
                     )
-                    result = synthesize_language(
-                        segments=segments,
-                        lang=lang,
-                        model_id=TTS_MODELS[lang],
-                        output_dir=workdir / f"tts-{lang}",
-                        target_duration=source_duration,
+                    result = render_natural_language(
+                        segments,
+                        lang,
+                        workdir / f"natural-tts-{lang}",
                     )
-                    upload_tts_outputs(drive, folders["audio"], result, task)
+                    upload_natural_outputs(
+                        drive,
+                        folders["audio"],
+                        result,
+                        task,
+                    )
                     completed.append(lang)
                     tts_completed.append(lang)
 
-                    if not result["within_source_duration"]:
+                    timeline = result["timeline"]
+                    if result["status"] == "needs_review":
                         over_duration.append({
                             "lang": lang,
-                            "over": result["over_by_seconds"],
+                            "over": float(timeline["over_source"]),
+                            "drift": float(timeline["max_drift"]),
                         })
-                        lang_note = (
-                            f"{LANGUAGE_NAMES[lang]} 音檔已產生；"
-                            f"自然朗讀超過原片 {result['over_by_seconds']:.1f}s；"
-                            "未調速、未截斷"
-                        )
-                        print(
-                            f"[WARN] {lang}: 自然朗讀超過原片 "
-                            f"{result['over_by_seconds']:.1f}s；未調速、未截斷。"
+                        note = (
+                            f"{LANGUAGE_NAMES[lang]} Natural Preview 已完成；"
+                            f"時間軸需確認：max drift={timeline['max_drift']:.1f}s，"
+                            f"over={timeline['over_source']:.1f}s；"
+                            "正式 mp3/wav 保留舊版，不覆蓋"
                         )
                         mark_needs_review(
                             task["task_id"],
                             lang_stage,
                             sheets=sheets,
                             run_id=lang_run_id,
-                            message=lang_note,
+                            message=note,
                         )
                     else:
-                        lang_note = (
-                            f"{LANGUAGE_NAMES[lang]} 音檔完成；"
-                            f"speech={result['speech_duration']:.1f}s；"
-                            f"target={result['target_duration']:.1f}s"
-                        )
-                        print(
-                            f"[DONE] {lang}: speech={result['speech_duration']:.1f}s / "
-                            f"target={result['target_duration']:.1f}s / "
-                            f"尾端靜音={result['remaining_silence']:.1f}s"
+                        note = (
+                            f"{LANGUAGE_NAMES[lang]} Natural TTS v2 完成；"
+                            f"blocks={result['block_count']}；"
+                            f"preview={result['preview']['duration']:.1f}s；"
+                            f"timeline={timeline['final_duration']:.1f}s"
                         )
                         mark_done(
                             task["task_id"],
                             lang_stage,
                             sheets=sheets,
                             run_id=lang_run_id,
-                            message=lang_note,
+                            message=note,
                         )
 
                 except Exception as lang_exc:
-                    lang_message = (
-                        f"{type(lang_exc).__name__}: {lang_exc}"
-                    )
-                    failed.append({
-                        "lang": lang,
-                        "error": lang_message,
-                    })
+                    lang_message = f"{type(lang_exc).__name__}: {lang_exc}"
+                    failed.append({"lang": lang, "error": lang_message})
                     print(
-                        f"[ERROR] TTS:{lang} 失敗，但其他語言繼續："
+                        f"[ERROR] Natural TTS:{lang} 失敗，但其他語言繼續："
                         f"{lang_message}",
                         file=sys.stderr,
                         flush=True,
@@ -621,11 +579,7 @@ def main():
                     )
                     continue
 
-            youtube_probe_note = (
-                youtube_probe_error[:220]
-                if youtube_probe_error
-                else ""
-            )
+            youtube_probe_note = "YouTube 音軌僅作 benchmark，不作正式音檔來源"
 
             if failed:
                 status = "部分完成"
@@ -635,9 +589,8 @@ def main():
                 )
                 note = (
                     f"音檔完成：{','.join(completed) or '無'}；"
-                    f"YouTube優先：{','.join(youtube_completed) or '無'}；"
-                    f"YouTube偵測：{youtube_probe_note or '未提供摘要'}；"
-                    f"TTS補缺：{','.join(tts_completed) or '無'}；"
+                    f"音源政策：{youtube_probe_note}；"
+                    f"Natural TTS：{','.join(tts_completed) or '無'}；"
                     f"失敗：{','.join(x['lang'] for x in failed)}；"
                     f"原因：{failure_details}；"
                     "單一語言錯誤不阻擋其他語言"
@@ -655,9 +608,8 @@ def main():
                 )
                 note = (
                     f"音檔完成：{','.join(completed)}；"
-                    f"YouTube優先：{','.join(youtube_completed) or '無'}；"
-                    f"YouTube偵測：{youtube_probe_note or '未提供摘要'}；"
-                    f"TTS補缺：{','.join(tts_completed) or '無'}；"
+                    f"音源政策：{youtube_probe_note}；"
+                    f"Natural TTS：{','.join(tts_completed) or '無'}；"
                     f"超過原片總長：{over_text}；"
                     "未調速、未截斷，請先處理超時語言"
                 )
@@ -665,17 +617,15 @@ def main():
                 status = "完成"
                 note = (
                     f"音檔完成：{','.join(completed)}；"
-                    f"YouTube優先：{','.join(youtube_completed) or '無'}；"
-                    f"YouTube偵測：{youtube_probe_note or '未提供摘要'}；"
-                    f"TTS補缺：{','.join(tts_completed) or '無'}"
+                    f"音源政策：{youtube_probe_note}；"
+                    f"Natural TTS：{','.join(tts_completed) or '無'}"
                 )
             else:
                 status = "部分完成"
                 note = (
                     f"音檔完成：{','.join(completed)}；"
-                    f"YouTube優先：{','.join(youtube_completed) or '無'}；"
-                    f"YouTube偵測：{youtube_probe_note or '未提供摘要'}；"
-                    f"TTS補缺：{','.join(tts_completed) or '無'}"
+                    f"音源政策：{youtube_probe_note}；"
+                    f"Natural TTS：{','.join(tts_completed) or '無'}"
                 )
 
             update_audio_status(

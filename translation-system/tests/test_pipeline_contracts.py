@@ -238,8 +238,8 @@ class PipelineContracts(unittest.TestCase):
             'destination.with_suffix("." + preferred_codec)',
             youtube_io,
         )
-        self.assertIn(
-            'canonical_name = f"youtube.{actual_lang}.mp3"',
+        self.assertNotIn(
+            "download_multilingual_audio_tracks",
             runner,
         )
 
@@ -272,22 +272,23 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("合併後語言音軌", youtube_io)
         self.assertIn("requested_languages=requested_languages", youtube_io)
 
-    def test_audio_stages_prepare_youtube_runtime_before_tts(self):
+    def test_audio_stages_use_cpu_natural_tts_without_youtube_probe(self):
         worker = read("translation-system/web_job_worker.py")
+        workflow = read(".github/workflows/kaggle_web_job.yml")
 
         tts_branch = worker.split('elif args.stage == "tts":', 1)[1].split(
             'elif args.stage == "batch":', 1
         )[0]
-        self.assertIn("prepare_youtube_runtime()", tts_branch)
-        self.assertIn("保留本地 TTS fallback", tts_branch)
-
-        batch_branch = worker.split('elif args.stage == "batch":', 1)[1].split(
-            'elif args.stage == "finish":', 1
-        )[0]
-        self.assertIn("prepare_youtube_runtime()", batch_branch)
+        self.assertNotIn("require_gpu_runtime", tts_branch)
+        self.assertNotIn("prepare_youtube_runtime()", tts_branch)
+        self.assertIn("Natural TTS v2", tts_branch)
 
         finish_branch = worker.split('elif args.stage == "finish":', 1)[1]
-        self.assertIn("prepare_youtube_runtime()", finish_branch)
+        self.assertNotIn('require_gpu_runtime("tts")', finish_branch)
+        self.assertIn("Natural TTS v2", finish_branch)
+
+        self.assertIn('gpu_stages = {"zh", "asr", "batch"}', workflow)
+        self.assertNotIn('^(zh|asr|tts)$', workflow)
 
     def test_single_language_tts_failure_does_not_fail_worker(self):
         runner = read("translation-system/tts_runner.py")
@@ -299,33 +300,30 @@ class PipelineContracts(unittest.TestCase):
         self.assertNotIn("any_failed = True", failed_block)
         self.assertIn("單一語言若失敗會保留為 needs_review", runner)
 
-    def test_youtube_audio_is_primary_before_tts(self):
+    def test_natural_tts_is_primary_and_youtube_is_benchmark_only(self):
         runner = read("translation-system/tts_runner.py")
         batch = read("translation-system/batch_full_runner.py")
         bridge = read("bridge/apps-script/Code.gs")
 
-        self.assertIn("from youtube_io import download_multilingual_audio_tracks", runner)
-        self.assertIn("def acquire_youtube_audio_first(", runner)
-        self.assertIn("youtube_matches, youtube_manifest_bundle", runner)
-        self.assertIn("if lang in youtube_uploaded:", runner)
-        self.assertIn('"不產生 TTS"', runner)
+        self.assertNotIn(
+            "from youtube_io import download_multilingual_audio_tracks",
+            runner,
+        )
+        self.assertIn("build_speech_blocks", runner)
+        self.assertIn("render_blocks", runner)
+        self.assertIn("edge-natural-v2", runner)
+        self.assertIn("YouTube 音軌僅作 benchmark", runner)
+        self.assertIn('[f"{lang}.final.json", f"{lang}.json"]', runner)
 
-        youtube_branch = runner.index("if lang in youtube_uploaded:")
-        translation_load = runner.index("segments = load_translation_from_drive(", youtube_branch)
-        synth = runner.index("result = synthesize_language(", youtube_branch)
-        self.assertLess(youtube_branch, translation_load)
-        self.assertLess(youtube_branch, synth)
-
-        self.assertIn("def drive_has_youtube_primary_audio(", batch)
-        self.assertIn("has_youtube or has_tts", batch)
-        self.assertIn("selected_as_primary_audio", batch)
+        self.assertNotIn("has_youtube or has_tts", batch)
+        self.assertIn("if not has_tts:", batch)
 
         overview = bridge.split("function courseFilesOverview_(taskId)", 1)[1].split(
             "function formalizableCanonicalName_", 1
         )[0]
-        self.assertIn("function audioChoice_(items, lang)", overview)
         self.assertIn("priority = 100", overview)
-        self.assertIn("youtube\\.[A-Za-z-]+\\.mp3", overview)
+        self.assertIn("priority = 40", overview)
+        self.assertIn('lang + ".preview.mp3"', overview)
 
     def test_tts_aggregate_status_keeps_per_language_errors(self):
         runner = read("translation-system/tts_runner.py")
