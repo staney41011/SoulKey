@@ -10,6 +10,14 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Windows production runners may inherit a CP950 console. Force UTF-8 so
+# multilingual logs (including Hindi/Tamil and status symbols) can never
+# abort the actual translation/TTS job.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from config import COL, GLOSSARY_FULL_RANGE, SPREADSHEET_ID, TASK_SHEET_RANGE
 from gemini_checkpoint import load_persistent_checkpoint, save_persistent_checkpoint
 from drive_naming import formal_drive_name

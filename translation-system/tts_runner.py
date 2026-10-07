@@ -7,6 +7,14 @@ import sys
 import traceback
 from datetime import datetime
 from pathlib import Path
+
+# Windows production runners may inherit a CP950 console. Force UTF-8 so
+# multilingual logs (including Hindi/Tamil and status symbols) can never
+# abort the actual translation/TTS job.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from zoneinfo import ZoneInfo
 
 from config import (
