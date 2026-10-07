@@ -179,7 +179,19 @@ class PipelineContracts(unittest.TestCase):
         multi = read("translation-system/gemini_multi_production_runner.py")
         self.assertIn("source_sha256", multi)
         self.assertIn("English Final 已變更", multi)
-        self.assertIn('"version": 3', multi)
+        self.assertIn("CHECKPOINT_SCHEMA_VERSION = 4", multi)
+
+    def test_multi_checkpoint_migrates_legacy_language_rows_partially(self):
+        multi = read("translation-system/gemini_multi_production_runner.py")
+        self.assertIn("CHECKPOINT_SCHEMA_VERSION = 4", multi)
+        self.assertIn('"languages": active_languages', multi)
+        self.assertIn("row_missing_languages", multi)
+        self.assertIn("incomplete_source_segments", multi)
+        self.assertIn("merge_translation_rows", multi)
+        self.assertIn("CHECKPOINT-MIGRATION", multi)
+        self.assertIn("fill={','.join(missing_langs)}", multi)
+        self.assertIn("missing_langs", multi)
+        self.assertIn("requested,", multi)
 
     def test_tts_resume_is_bound_to_translation_revision(self):
         engine = read("translation-system/tts_engine.py")

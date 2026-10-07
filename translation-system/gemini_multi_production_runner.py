@@ -39,6 +39,7 @@ LANGUAGE_NAMES = {
 }
 LEGACY_COLS = {"th": "K", "es": "L", "id": "M", "vi": "N"}
 REPAIR_MODEL = os.getenv("GEMINI_REPAIR_MODEL", "gemini-3.8-flash")
+CHECKPOINT_SCHEMA_VERSION = 4
 
 MULTI_SCHEMA = {
     "type": "object",
@@ -793,19 +794,56 @@ def checkpoint_payload(
     qa_batches,
     seq,
     source_sha256="",
+    languages=None,
 ):
+    active_languages = [
+        lang for lang in LANGS
+        if lang in set(languages or LANGS)
+    ]
     return {
-        "version": 3,
+        "version": CHECKPOINT_SCHEMA_VERSION,
+        "schema_version": CHECKPOINT_SCHEMA_VERSION,
         "task_id": task_id,
         "engine": "gemini-production-multi",
         "model": DEFAULT_TEXT_MODEL,
         "source_segments": source_count,
         "source_sha256": source_sha256,
+        "languages": active_languages,
         "checkpoint_seq": seq,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "translations": [translations[k] for k in sorted(translations)],
         "qa_batches": qa_batches,
     }
+
+
+
+def row_missing_languages(row, requested):
+    row = row or {}
+    return [
+        lang for lang in requested
+        if not str(row.get(lang) or "").strip()
+    ]
+
+
+def incomplete_source_segments(source_segments, translations, requested):
+    result = []
+    for src in source_segments:
+        sid = int(src["id"])
+        if row_missing_languages(translations.get(sid), requested):
+            result.append(src)
+    return result
+
+
+def merge_translation_rows(translations, generated_rows, generated_langs):
+    for generated in generated_rows:
+        sid = int(generated["segment_id"])
+        current = dict(translations.get(sid) or {"segment_id": sid})
+        for lang in generated_langs:
+            value = str(generated.get(lang) or "").strip()
+            if not value:
+                raise RuntimeError(f"segment {sid} 缺少 {lang}")
+            current[lang] = value
+        translations[sid] = current
 
 
 def main():
@@ -927,16 +965,62 @@ def main():
                     )
                     checkpoint = None
                 else:
+                    checkpoint_languages = [
+                        str(x) for x in (checkpoint.get("languages") or [])
+                    ]
+                    checkpoint_schema = int(
+                        checkpoint.get("schema_version")
+                        or checkpoint.get("version")
+                        or 0
+                    )
                     for row in checkpoint.get("translations") or []:
-                        translations[int(row["segment_id"])] = row
+                        sid = int(row["segment_id"])
+                        clean_row = {"segment_id": sid}
+                        for lang in LANGS:
+                            value = str(row.get(lang) or "").strip()
+                            if value:
+                                clean_row[lang] = value
+                        translations[sid] = clean_row
+
                     qa_batches = dict(checkpoint.get("qa_batches") or {})
+                    for data in qa_batches.values():
+                        data["unresolved"] = [
+                            item for item in (data.get("unresolved") or [])
+                            if str(item.get("lang") or "") in requested
+                        ]
                     seq = int(checkpoint.get("checkpoint_seq") or 0)
+
+                    missing_counts = {
+                        lang: sum(
+                            1 for src in source_segments
+                            if lang in row_missing_languages(
+                                translations.get(int(src["id"])),
+                                [lang],
+                            )
+                        )
+                        for lang in requested
+                    }
+                    missing_summary = ",".join(
+                        f"{lang}:{count}"
+                        for lang, count in missing_counts.items()
+                        if count
+                    ) or "none"
                     print(
                         f"[RESUME] {source}; translations={len(translations)}; "
                         f"qa={len(qa_batches)}; "
+                        f"schema={checkpoint_schema}; "
+                        f"checkpoint_langs={','.join(checkpoint_languages) or 'legacy'}; "
+                        f"missing={missing_summary}; "
                         f"source_sha256={source_sha256[:12]}",
                         flush=True,
                     )
+
+                    if checkpoint_schema < CHECKPOINT_SCHEMA_VERSION:
+                        print(
+                            "[CHECKPOINT-MIGRATION] 舊 schema 可部分沿用；"
+                            "已保留既有語言內容，只補目前 requested 缺少的語言。",
+                            flush=True,
+                        )
 
         # Repair unresolved QA from a previous interrupted run before
         # translating new segments. This is the key checkpoint-resume path:
@@ -997,6 +1081,7 @@ def main():
                     qa_batches,
                     seq,
                     source_sha256,
+                    requested,
                 ),
                 drive=drive,
                 translation_folder_id=folders["translation"],
@@ -1014,7 +1099,11 @@ def main():
                     json.dumps(data["unresolved"], ensure_ascii=False)
                 )
 
-        remaining = [x for x in source_segments if int(x["id"]) not in translations]
+        remaining = incomplete_source_segments(
+            source_segments,
+            translations,
+            requested,
+        )
         batches = [
             remaining[i:i + args.batch_size]
             for i in range(0, len(remaining), args.batch_size)
@@ -1023,26 +1112,52 @@ def main():
         for batch_no, batch in enumerate(batches, start=1):
             ids = [int(x["id"]) for x in batch]
             key = f"{ids[0]}-{ids[-1]}"
-            print(f"\n[BATCH {batch_no}/{len(batches)}] {ids[0]} -> {ids[-1]}", flush=True)
+            missing_langs = [
+                lang for lang in requested
+                if any(
+                    lang in row_missing_languages(
+                        translations.get(int(src["id"])),
+                        requested,
+                    )
+                    for src in batch
+                )
+            ]
+            print(
+                f"\n[BATCH {batch_no}/{len(batches)}] {ids[0]} -> {ids[-1]} "
+                f"/ fill={','.join(missing_langs)}",
+                flush=True,
+            )
 
             rows, translation_engine = translate_batch_with_provider_fallback(
                 client,
                 nvidia_client,
                 batch,
                 glossary,
-                requested,
+                missing_langs,
             )
             expected = sorted(ids)
             got = sorted(int(x["segment_id"]) for x in rows)
             if expected != got:
-                raise RuntimeError(f"Translation ids 不完整：expected={expected}, got={got}")
+                raise RuntimeError(
+                    f"Translation ids 不完整：expected={expected}, got={got}"
+                )
 
-            for row in rows:
-                sid = int(row["segment_id"])
-                for lang in requested:
-                    if not str(row.get(lang) or "").strip():
-                        raise RuntimeError(f"segment {sid} 缺少 {lang}")
-                translations[sid] = row
+            merge_translation_rows(
+                translations,
+                rows,
+                missing_langs,
+            )
+
+            for sid in ids:
+                missing_after_merge = row_missing_languages(
+                    translations.get(sid),
+                    requested,
+                )
+                if missing_after_merge:
+                    raise RuntimeError(
+                        f"segment {sid} 合併後仍缺少 "
+                        + ",".join(missing_after_merge)
+                    )
 
             seq += 1
             save_persistent_checkpoint(
@@ -1054,6 +1169,7 @@ def main():
                     qa_batches,
                     seq,
                     source_sha256,
+                    requested,
                 ),
                 drive=drive,
                 translation_folder_id=folders["translation"],
@@ -1099,6 +1215,7 @@ def main():
                     qa_batches,
                     seq,
                     source_sha256,
+                    requested,
                 ),
                 drive=drive,
                 translation_folder_id=folders["translation"],
@@ -1119,13 +1236,28 @@ def main():
             if batch_no < len(batches) and args.wait_seconds:
                 time.sleep(args.wait_seconds)
 
-        missing = [int(x["id"]) for x in source_segments if int(x["id"]) not in translations]
-        if missing:
-            raise RuntimeError(f"仍有未翻譯 segments：{missing}")
+        incomplete = {
+            int(src["id"]): row_missing_languages(
+                translations.get(int(src["id"])),
+                requested,
+            )
+            for src in source_segments
+        }
+        incomplete = {
+            sid: langs for sid, langs in incomplete.items() if langs
+        }
+        if incomplete:
+            raise RuntimeError(
+                "仍有未翻譯語言：" +
+                json.dumps(incomplete, ensure_ascii=False)
+            )
 
         unresolved = []
         for data in qa_batches.values():
-            unresolved.extend(data.get("unresolved") or [])
+            unresolved.extend(
+                item for item in (data.get("unresolved") or [])
+                if str(item.get("lang") or "") in requested
+            )
         if unresolved:
             raise RuntimeError("既有 checkpoint 仍有 unresolved QA failure")
 
@@ -1216,6 +1348,7 @@ def main():
             qa_batches,
             seq + 1,
             source_sha256,
+            requested,
         )
         final_cp["status"] = "complete"
         save_persistent_checkpoint(
