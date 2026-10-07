@@ -1184,7 +1184,7 @@ def main():
                 workdir=workdir,
                 require_persistent=True,
             )
-            print("✅ Translation persistent checkpoint saved", flush=True)
+            print("[OK] Translation persistent checkpoint saved", flush=True)
 
             failures, local, semantic, repairs, repair_models = (
                 repair_batch_until_clean(
@@ -1231,7 +1231,7 @@ def main():
                 require_persistent=True,
             )
             print(
-                f"✅ QA checkpoint saved; unresolved={len(failures)}",
+                f"[OK] QA checkpoint saved; unresolved={len(failures)}",
                 flush=True,
             )
 
