@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from natural_tts_config import NATURAL_TTS_PROFILES
+from natural_tts_config import NATURAL_TTS_PROFILES, NATURAL_TTS_PROFILE_REVISION
 from natural_tts_planner import SpeechBlock
 
 
@@ -137,7 +137,8 @@ async def render_blocks(
         try:
             payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
             if (
-                payload.get("voice") == profile["voice"]
+                payload.get("profile_revision") == NATURAL_TTS_PROFILE_REVISION
+                and payload.get("voice") == profile["voice"]
                 and payload.get("rate") == profile["rate"]
                 and payload.get("pitch") == profile["pitch"]
             ):
@@ -188,6 +189,7 @@ async def render_blocks(
 
         checkpoint_payload = {
             "language": lang,
+            "profile_revision": NATURAL_TTS_PROFILE_REVISION,
             "voice": profile["voice"],
             "rate": profile["rate"],
             "pitch": profile["pitch"],
@@ -201,6 +203,7 @@ async def render_blocks(
     manifest = {
         "language": lang,
         "engine": "edge",
+        "profile_revision": NATURAL_TTS_PROFILE_REVISION,
         "voice": profile["voice"],
         "rate": profile["rate"],
         "pitch": profile["pitch"],

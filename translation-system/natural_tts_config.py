@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 EDGE_TTS_VERSION = "7.2.8"
+NATURAL_TTS_PROFILE_REVISION = "2026-10-07-accent-tone-v2"
 
 LANGUAGE_NAMES = {
     "en": "English",

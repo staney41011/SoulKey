@@ -43,7 +43,7 @@ class UpstreamTranslationNotReady(RuntimeError):
 
 
 from tts_engine import segments_fingerprint
-from natural_tts_config import EDGE_TTS_VERSION, NATURAL_TTS_PROFILES
+from natural_tts_config import EDGE_TTS_VERSION, NATURAL_TTS_PROFILES, NATURAL_TTS_PROFILE_REVISION
 from natural_tts_planner import build_speech_blocks
 from natural_tts_edge import render_blocks
 from natural_tts_assemble import assemble_preview, assemble_continuous_with_limit, wav_to_mp3, write_alignment_report
@@ -324,6 +324,8 @@ def existing_natural_output(
     profile = NATURAL_TTS_PROFILES[lang]
     if str(manifest.get("engine") or "") != "edge-natural-v2":
         return False
+    if str(manifest.get("profile_revision") or "") != NATURAL_TTS_PROFILE_REVISION:
+        return False
     if str(manifest.get("source_sha256") or "") != str(source_sha256 or ""):
         return False
     if str(manifest.get("voice") or "") != str(profile.get("voice") or ""):
@@ -400,6 +402,7 @@ def render_natural_language(
         "version": 2,
         "engine": "edge-natural-v2",
         "edge_tts_version": EDGE_TTS_VERSION,
+        "profile_revision": NATURAL_TTS_PROFILE_REVISION,
         "language": lang,
         "voice": profile["voice"],
         "rate": profile["rate"],
