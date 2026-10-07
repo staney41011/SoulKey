@@ -325,6 +325,19 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("priority = 40", overview)
         self.assertIn('lang + ".preview.mp3"', overview)
 
+    def test_natural_tts_uses_continuous_total_duration_policy(self):
+        runner = read("translation-system/tts_runner.py")
+        planner = read("translation-system/natural_tts_planner.py")
+        assembler = read("translation-system/natural_tts_assemble.py")
+
+        self.assertIn("assemble_continuous_with_limit", runner)
+        self.assertIn('"assembly_policy": "continuous_total_duration"', runner)
+        self.assertIn('"source_info.json"', runner)
+        self.assertIn('"source_info.duration"', runner)
+        self.assertNotIn("gap >= gap_split_seconds", planner)
+        self.assertIn("required_speedup", assembler)
+        self.assertIn("MAX_SPEEDUP", assembler)
+
     def test_tts_aggregate_status_keeps_per_language_errors(self):
         runner = read("translation-system/tts_runner.py")
         self.assertIn('failure_details = "｜".join(', runner)

@@ -236,3 +236,11 @@ TTS Stage 完成條件：
 Rollback：
 - 以單一 release commit 回復舊 runner。
 - 新檔 QA 成功前不覆蓋舊 canonical。
+
+## 2026-10-07 Timing policy update
+
+- Target-language audio does **not** align to Chinese segment timestamps.
+- Target-language timestamps are not used for alignment. The total ceiling comes from source_info.json duration (original video duration); only legacy lessons without that metadata fall back to the last approved source timestamp.
+- Speech blocks are cut by target-language punctuation and synthesis length, not source pauses.
+- Formal audio is one continuous natural narration. If it is shorter than the video, it stays shorter; no tail padding is required.
+- If it is slightly longer, one global speed correction up to 1.08x is allowed. Beyond that the language is marked needs_review rather than aggressively compressed or truncated.

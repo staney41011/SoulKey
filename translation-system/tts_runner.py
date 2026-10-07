@@ -39,7 +39,7 @@ from tts_engine import segments_fingerprint
 from natural_tts_config import EDGE_TTS_VERSION, NATURAL_TTS_PROFILES
 from natural_tts_planner import build_speech_blocks
 from natural_tts_edge import render_blocks
-from natural_tts_assemble import assemble_preview, assemble_timeline, wav_to_mp3, write_alignment_report
+from natural_tts_assemble import assemble_preview, assemble_continuous_with_limit, wav_to_mp3, write_alignment_report
 from status_io import new_run_id, mark_running, mark_done, mark_needs_review, mark_error
 
 
@@ -198,6 +198,29 @@ def _ensure_edge_tts_runtime():
     )
 
 
+
+def load_source_duration_limit(drive, source_folder, workdir):
+    """Prefer exact original-video duration from source_info.json."""
+    item = find_file(drive, source_folder, "source_info.json")
+    if not item:
+        return None, "source_timestamp_fallback"
+
+    path = Path(workdir) / "source_info.tts.json"
+    try:
+        download_drive_file(drive, item["id"], path)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        duration = float(payload.get("duration") or 0)
+        if duration > 0:
+            return duration, "source_info.duration"
+    except Exception as exc:
+        print(
+            f"[TTS] source_info.json duration 讀取失敗，改用 timestamp："
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+    return None, "source_timestamp_fallback"
+
+
 def _load_tts_manifest(drive, audio_folder, lang, workdir):
     item = find_file(drive, audio_folder, f"{lang}.tts_manifest.json")
     if not item:
@@ -215,6 +238,7 @@ def existing_natural_output(
     audio_folder,
     lang,
     source_sha256,
+    duration_limit,
     workdir,
 ):
     manifest = _load_tts_manifest(
@@ -239,6 +263,11 @@ def existing_natural_output(
         return False
     if str(manifest.get("status") or "") != "done":
         return False
+    if str(manifest.get("assembly_policy") or "") != "continuous_total_duration":
+        return False
+    old_limit = float(manifest.get("duration_limit_seconds") or 0)
+    if abs(old_limit - float(duration_limit or 0)) > 0.5:
+        return False
 
     return bool(
         find_file(drive, audio_folder, f"{lang}.wav")
@@ -247,7 +276,14 @@ def existing_natural_output(
     )
 
 
-def render_natural_language(segments, lang, output_dir):
+def render_natural_language(
+    segments,
+    lang,
+    output_dir,
+    *,
+    source_duration,
+    duration_limit_basis,
+):
     _ensure_edge_tts_runtime()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -269,15 +305,11 @@ def render_natural_language(segments, lang, output_dir):
     preview_info = assemble_preview(wav_parts, preview_wav)
     wav_to_mp3(preview_wav, preview_mp3)
 
-    source_duration = max(
-        float(seg.get("end", 0) or 0)
-        for seg in segments
-    )
+    source_duration = float(source_duration)
     timeline_wav = output_dir / f"{lang}.wav"
     timeline_mp3 = output_dir / f"{lang}.mp3"
-    timeline_info = assemble_timeline(
-        blocks,
-        wav_parts,
+    timeline_info = assemble_continuous_with_limit(
+        preview_wav,
         timeline_wav,
         source_duration=source_duration,
     )
@@ -304,6 +336,9 @@ def render_natural_language(segments, lang, output_dir):
         "source_sha256": source_sha256,
         "source_segment_count": len(segments),
         "block_count": len(blocks),
+        "assembly_policy": "continuous_total_duration",
+        "duration_limit_basis": duration_limit_basis,
+        "duration_limit_seconds": round(source_duration, 3),
         "overlap_cleanup": overlap_report,
         "blocks": block_results,
         "preview": preview_info,
@@ -446,6 +481,12 @@ def main():
             workdir = Path("/kaggle/working/translate-system-tts") / task["task_id"]
             workdir.mkdir(parents=True, exist_ok=True)
 
+            video_duration, duration_limit_basis = load_source_duration_limit(
+                drive,
+                folders["source"],
+                workdir,
+            )
+
             update_audio_status(
                 sheets,
                 task["sheet_row"],
@@ -478,6 +519,16 @@ def main():
                         workdir,
                     )
                     source_sha256 = segments_fingerprint(segments)
+                    duration_limit = (
+                        float(video_duration)
+                        if video_duration
+                        else max(float(seg.get("end", 0) or 0) for seg in segments)
+                    )
+                    effective_duration_basis = (
+                        duration_limit_basis
+                        if video_duration
+                        else "last_approved_source_timestamp"
+                    )
 
                     if (
                         not args.force
@@ -486,6 +537,7 @@ def main():
                             folders["audio"],
                             lang,
                             source_sha256,
+                            duration_limit,
                             workdir,
                         )
                     ):
@@ -516,6 +568,8 @@ def main():
                         segments,
                         lang,
                         workdir / f"natural-tts-{lang}",
+                        source_duration=duration_limit,
+                        duration_limit_basis=effective_duration_basis,
                     )
                     upload_natural_outputs(
                         drive,
@@ -531,13 +585,14 @@ def main():
                         over_duration.append({
                             "lang": lang,
                             "over": float(timeline["over_source"]),
-                            "drift": float(timeline["max_drift"]),
+                            "required_speedup": float(timeline["required_speedup"]),
                         })
                         note = (
-                            f"{LANGUAGE_NAMES[lang]} Natural Preview 已完成；"
-                            f"時間軸需確認：max drift={timeline['max_drift']:.1f}s，"
-                            f"over={timeline['over_source']:.1f}s；"
-                            "正式 mp3/wav 保留舊版，不覆蓋"
+                            f"{LANGUAGE_NAMES[lang]} 自然連續朗讀已完成；"
+                            f"自然長度={timeline['natural_duration']:.1f}s，"
+                            f"影片上限={timeline['source_duration']:.1f}s，"
+                            f"需要調速={timeline['required_speedup']:.3f}x；"
+                            "超過安全調速上限，正式 mp3/wav 保留舊版"
                         )
                         mark_needs_review(
                             task["task_id"],
@@ -550,8 +605,10 @@ def main():
                         note = (
                             f"{LANGUAGE_NAMES[lang]} Natural TTS v2 完成；"
                             f"blocks={result['block_count']}；"
-                            f"preview={result['preview']['duration']:.1f}s；"
-                            f"timeline={timeline['final_duration']:.1f}s"
+                            f"自然朗讀={timeline['natural_duration']:.1f}s；"
+                            f"正式音檔={timeline['final_duration']:.1f}s；"
+                            f"影片上限={timeline['source_duration']:.1f}s；"
+                            f"調速={timeline['applied_speedup']:.3f}x"
                         )
                         mark_done(
                             task["task_id"],

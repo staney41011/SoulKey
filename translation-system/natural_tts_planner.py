@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
-from natural_tts_config import DEFAULT_GAP_SPLIT_SECONDS, NATURAL_TTS_PROFILES
+from natural_tts_config import NATURAL_TTS_PROFILES
 
 _STRONG_END = re.compile(r'[.!?。！？…]+["\'”’）】》]?$')
 _PREFIX = re.compile(r'^\s*(?:>>+|[-–—]\s+)')
@@ -100,8 +100,10 @@ def clean_segments(segments: Iterable[dict]) -> tuple[list[dict], list[dict]]:
 def build_speech_blocks(
     segments: Iterable[dict],
     lang: str,
-    gap_split_seconds: float = DEFAULT_GAP_SPLIT_SECONDS,
 ) -> tuple[list[SpeechBlock], list[dict]]:
+    # Source timestamps are metadata only. Do not let Chinese/source pauses
+    # control target-language phrasing; blocks are cut by target punctuation
+    # and safe synthesis length.
     profile = NATURAL_TTS_PROFILES[lang]
     max_chars = int(profile["max_chars"])
     min_chars = int(profile["min_chars"])
@@ -144,13 +146,7 @@ def build_speech_blocks(
             flush()
             continue
 
-        gap = max(
-            0.0,
-            float(next_seg.get("start") or 0) - float(seg.get("end") or 0),
-        )
-        if gap >= gap_split_seconds:
-            flush()
-        elif _STRONG_END.search(text) and current_chars >= min_chars:
+        if _STRONG_END.search(text) and current_chars >= min_chars:
             flush()
 
     return blocks, overlap_report
