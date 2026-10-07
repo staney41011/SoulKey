@@ -350,6 +350,23 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("required_speedup", assembler)
         self.assertIn("MAX_SPEEDUP", assembler)
 
+    def test_tts_fingerprint_uses_same_text_normalization_as_multi(self):
+        engine = read("translation-system/tts_engine.py")
+        self.assertIn('text = str(seg.get("text") or "").strip()', engine)
+        self.assertIn("if not text:", engine)
+        self.assertIn("continue", engine)
+
+    def test_tts_worker_self_heals_multi_before_non_english_audio(self):
+        worker = read("translation-system/web_job_worker.py")
+        self.assertIn('"zh", "polish", "vernacular", "en", "multi", "tts", "batch"', worker)
+        self.assertIn("[TTS:DEPENDENCY]", worker)
+        self.assertIn("gemini_multi_production_runner.py", worker)
+        tts_branch = worker.split('elif args.stage == "tts":', 1)[1].split('elif args.stage == "batch":', 1)[0]
+        self.assertLess(
+            tts_branch.index("gemini_multi_production_runner.py"),
+            tts_branch.index("tts_runner.py"),
+        )
+
     def test_tts_waits_for_matching_multi_revision(self):
         runner = read("translation-system/tts_runner.py")
         multi = read("translation-system/gemini_multi_production_runner.py")

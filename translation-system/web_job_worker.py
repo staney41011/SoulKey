@@ -248,7 +248,7 @@ def main():
         gemini_api_key = str(runtime.get("gemini_api_key") or "").strip()
         needs_gemini = (
             args.stage in {
-                "zh", "polish", "vernacular", "en", "multi", "batch"
+                "zh", "polish", "vernacular", "en", "multi", "tts", "batch"
             }
             or (
                 args.stage == "finish"
@@ -502,11 +502,40 @@ def main():
             ]
 
         elif args.stage == "tts":
-            langs = ",".join(
+            requested_audio_langs = [
                 x.strip() for x in args.langs.split(",") if x.strip()
-            )
+            ]
+            langs = ",".join(requested_audio_langs)
             if not langs:
                 raise RuntimeError("TTS 沒有指定任何語言")
+
+            # Dependency repair:
+            # Every non-English TTS must be based on translations generated
+            # from the CURRENT en.final.json. The multi runner invalidates its
+            # checkpoint automatically when the English Final fingerprint
+            # changes, so this preflight is cheap when current and performs a
+            # full retranslation when stale.
+            translate_langs = [
+                lang for lang in requested_audio_langs if lang != "en"
+            ]
+            if translate_langs:
+                if not gemini_api_key:
+                    raise RuntimeError(
+                        "非英文 TTS 需要先驗證/更新 multi，"
+                        "但 Apps Script 沒有提供 GEMINI_API_KEY"
+                    )
+                print(
+                    "[TTS:DEPENDENCY] 先同步目前 English Final → "
+                    + ",".join(translate_langs),
+                    flush=True,
+                )
+                run([
+                    sys.executable,
+                    str(system_dir / "gemini_multi_production_runner.py"),
+                    "--task-id", args.task_id,
+                    "--langs", ",".join(translate_langs),
+                ])
+
             print(
                 "[TTS] Natural TTS v2 使用 CPU + Internet；不申請 GPU。",
                 flush=True,

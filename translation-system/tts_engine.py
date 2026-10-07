@@ -26,15 +26,22 @@ DIGIT_WORDS = {
 
 
 def segments_fingerprint(segments):
-    canonical = [
-        {
+    # Keep this normalization identical to gemini_engine.normalize_segments()
+    # so one en.final.json always has one revision fingerprint across
+    # translation and TTS stages.
+    canonical = []
+    for i, seg in enumerate(segments or []):
+        if not isinstance(seg, dict):
+            continue
+        text = str(seg.get("text") or "").strip()
+        if not text:
+            continue
+        canonical.append({
             "id": int(seg.get("id", i)),
             "start": float(seg.get("start", 0) or 0),
             "end": float(seg.get("end", 0) or 0),
-            "text": str(seg.get("text") or ""),
-        }
-        for i, seg in enumerate(segments or [])
-    ]
+            "text": text,
+        })
     raw = json.dumps(
         canonical,
         ensure_ascii=False,
