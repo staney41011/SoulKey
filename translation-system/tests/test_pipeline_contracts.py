@@ -346,6 +346,8 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("source_sha256=source_sha256", multi)
         self.assertIn("load_english_final_fingerprint", runner)
         self.assertIn("validate_translation_revision", runner)
+        self.assertIn("latest_stage_status", runner)
+        self.assertIn("最新 multi 狀態不是 done", runner)
         self.assertIn("UpstreamTranslationNotReady", runner)
         self.assertIn("等待與目前 English Final 相符的 multi 翻譯", runner)
         self.assertIn("translation_payload", runner)

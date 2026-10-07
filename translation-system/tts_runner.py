@@ -13,6 +13,7 @@ from config import (
     COL,
     SPREADSHEET_ID,
     TASK_SHEET_RANGE,
+    STATUS_SHEET_RANGE,
     TIMEZONE,
 )
 from drive_naming import formal_drive_name
@@ -74,6 +75,24 @@ def row_to_task(raw, sheet_row):
         "vi": str(row[COL["vi"]] or "").strip(),
         "audio": str(row[COL["audio"]] or "").strip(),
     }
+
+
+def latest_stage_status(sheets, task_id, stage):
+    """Return the newest appended status row for one task/stage."""
+    latest = None
+    for raw in read_values(sheets, SPREADSHEET_ID, STATUS_SHEET_RANGE):
+        row = list(raw) + [""] * max(0, 13 - len(raw))
+        if (
+            str(row[0] or "").strip() == str(task_id or "").strip()
+            and str(row[1] or "").strip() == str(stage or "").strip()
+        ):
+            latest = {
+                "status": str(row[2] or "").strip().lower(),
+                "run_id": str(row[3] or "").strip(),
+                "message": str(row[5] or "").strip(),
+                "updated_at": str(row[8] or "").strip(),
+            }
+    return latest
 
 
 def update_audio_status(sheets, row, status, note):
@@ -539,7 +558,13 @@ def main():
                 workdir,
             )
             en_source_sha256 = None
+            latest_multi = None
             if any(lang != "en" for lang in langs):
+                latest_multi = latest_stage_status(
+                    sheets,
+                    task["task_id"],
+                    "multi",
+                )
                 en_source_sha256 = load_english_final_fingerprint(
                     drive,
                     folders["translation"],
@@ -572,6 +597,15 @@ def main():
                 )
 
                 try:
+                    if lang != "en":
+                        multi_status = str((latest_multi or {}).get("status") or "")
+                        if multi_status != "done":
+                            raise UpstreamTranslationNotReady(
+                                "最新 multi 狀態不是 done"
+                                + (f"（目前={multi_status}）" if multi_status else "（目前無狀態）")
+                                + "；非英文 TTS 必須等待多語翻譯完成"
+                            )
+
                     segments, translation_payload, selected_name = load_translation_from_drive(
                         drive,
                         folders["translation"],
