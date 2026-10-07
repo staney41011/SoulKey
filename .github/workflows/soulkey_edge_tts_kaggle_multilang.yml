@@ -60,7 +60,7 @@ jobs:
               subprocess.run(["rm", "-rf", str(repo)], check=True)
 
           subprocess.run(
-              ["git", "clone", "--depth", "1", "--branch", "feature/natural-tts-v2-code", "https://github.com/staney41011/SoulKey.git", str(repo)],
+              ["git", "clone", "--depth", "1", "https://github.com/staney41011/SoulKey.git", str(repo)],
               check=True,
           )
           subprocess.run(
