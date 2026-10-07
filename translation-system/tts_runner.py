@@ -35,6 +35,12 @@ LANGUAGE_NAMES = {
     "hi": "Hindi",
     "ta": "Tamil",
 }
+
+
+class UpstreamTranslationNotReady(RuntimeError):
+    """Target translation does not match the current English Final revision."""
+
+
 from tts_engine import segments_fingerprint
 from natural_tts_config import EDGE_TTS_VERSION, NATURAL_TTS_PROFILES
 from natural_tts_planner import build_speech_blocks
@@ -174,8 +180,54 @@ def load_translation_from_drive(drive, folder_id, lang, workdir):
         f"[TTS:{lang}] 使用翻譯稿：{selected_name}",
         flush=True,
     )
-    return segments
+    return segments, payload, selected_name
 
+
+def load_english_final_fingerprint(drive, folder_id, workdir):
+    item = find_file(drive, folder_id, "en.final.json")
+    if not item:
+        raise UpstreamTranslationNotReady(
+            "找不到 en.final.json；非英文 TTS 必須等待 English Final"
+        )
+
+    path = Path(workdir) / "tts-current-en.final.json"
+    download_drive_file(drive, item["id"], path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    segments = payload.get("segments") or []
+    if not segments:
+        raise UpstreamTranslationNotReady("en.final.json 沒有 segments")
+    return segments_fingerprint(segments)
+
+
+def validate_translation_revision(lang, payload, selected_name, en_source_sha256):
+    if lang == "en":
+        return
+
+    declared_source = str(payload.get("source") or "").strip()
+    declared_sha = str(
+        payload.get("source_sha256")
+        or payload.get("approved_source_sha256")
+        or ""
+    ).strip()
+
+    if declared_source != "en.final.json":
+        raise UpstreamTranslationNotReady(
+            f"{selected_name} 不是由 en.final.json 產生；"
+            "等待最新 multi 翻譯完成"
+        )
+
+    if not declared_sha:
+        raise UpstreamTranslationNotReady(
+            f"{selected_name} 缺少 source_sha256；"
+            "屬於舊版翻譯輸出，必須重跑 multi"
+        )
+
+    if declared_sha != en_source_sha256:
+        raise UpstreamTranslationNotReady(
+            f"{selected_name} 的 English Final 版本已過期；"
+            f"translation={declared_sha[:12]}，"
+            f"current={en_source_sha256[:12]}；等待 multi 重跑"
+        )
 
 
 def _ensure_edge_tts_runtime():
@@ -486,6 +538,13 @@ def main():
                 folders["source"],
                 workdir,
             )
+            en_source_sha256 = None
+            if any(lang != "en" for lang in langs):
+                en_source_sha256 = load_english_final_fingerprint(
+                    drive,
+                    folders["translation"],
+                    workdir,
+                )
 
             update_audio_status(
                 sheets,
@@ -496,6 +555,7 @@ def main():
 
             completed = []
             failed = []
+            blocked = []
             over_duration = []
             tts_completed = []
 
@@ -512,12 +572,19 @@ def main():
                 )
 
                 try:
-                    segments = load_translation_from_drive(
+                    segments, translation_payload, selected_name = load_translation_from_drive(
                         drive,
                         folders["translation"],
                         lang,
                         workdir,
                     )
+                    if lang != "en":
+                        validate_translation_revision(
+                            lang,
+                            translation_payload,
+                            selected_name,
+                            en_source_sha256,
+                        )
                     source_sha256 = segments_fingerprint(segments)
                     duration_limit = (
                         float(video_duration)
@@ -618,6 +685,26 @@ def main():
                             message=note,
                         )
 
+                except UpstreamTranslationNotReady as lang_exc:
+                    lang_message = str(lang_exc)
+                    blocked.append({"lang": lang, "reason": lang_message})
+                    print(
+                        f"[WAIT] TTS:{lang} 等待最新 multi：{lang_message}",
+                        flush=True,
+                    )
+                    mark_needs_review(
+                        task["task_id"],
+                        lang_stage,
+                        sheets=sheets,
+                        run_id=lang_run_id,
+                        message=(
+                            f"{LANGUAGE_NAMES[lang]} 尚未配音："
+                            "等待與目前 English Final 相符的 multi 翻譯；"
+                            + lang_message
+                        ),
+                    )
+                    continue
+
                 except Exception as lang_exc:
                     lang_message = f"{type(lang_exc).__name__}: {lang_exc}"
                     failed.append({"lang": lang, "error": lang_message})
@@ -657,19 +744,26 @@ def main():
                         f"{item['lang']}+{item['over']:.1f}s"
                         for item in over_duration
                     )
-            elif over_duration:
+            elif blocked or over_duration:
                 status = "待人工確認"
+                blocked_text = ",".join(
+                    f"{item['lang']}=等待multi"
+                    for item in blocked
+                )
                 over_text = ",".join(
                     f"{item['lang']}+{item['over']:.1f}s"
                     for item in over_duration
                 )
-                note = (
-                    f"音檔完成：{','.join(completed)}；"
-                    f"音源政策：{youtube_probe_note}；"
-                    f"Natural TTS：{','.join(tts_completed) or '無'}；"
-                    f"超過原片總長：{over_text}；"
-                    "未調速、未截斷，請先處理超時語言"
-                )
+                notes = [
+                    f"音檔完成：{','.join(completed) or '無'}",
+                    f"音源政策：{youtube_probe_note}",
+                    f"Natural TTS：{','.join(tts_completed) or '無'}",
+                ]
+                if blocked_text:
+                    notes.append(f"等待最新 multi：{blocked_text}")
+                if over_text:
+                    notes.append(f"超過原片總長：{over_text}")
+                note = "；".join(notes)
             elif len(completed) == len(langs):
                 status = "完成"
                 note = (

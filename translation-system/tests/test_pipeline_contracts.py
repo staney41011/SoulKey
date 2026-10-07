@@ -338,6 +338,19 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("required_speedup", assembler)
         self.assertIn("MAX_SPEEDUP", assembler)
 
+    def test_tts_waits_for_matching_multi_revision(self):
+        runner = read("translation-system/tts_runner.py")
+        multi = read("translation-system/gemini_multi_production_runner.py")
+
+        self.assertIn('"source_sha256": str(source_sha256 or "")', multi)
+        self.assertIn("source_sha256=source_sha256", multi)
+        self.assertIn("load_english_final_fingerprint", runner)
+        self.assertIn("validate_translation_revision", runner)
+        self.assertIn("UpstreamTranslationNotReady", runner)
+        self.assertIn("等待與目前 English Final 相符的 multi 翻譯", runner)
+        self.assertIn("translation_payload", runner)
+        self.assertIn("declared_sha != en_source_sha256", runner)
+
     def test_tts_aggregate_status_keeps_per_language_errors(self):
         runner = read("translation-system/tts_runner.py")
         self.assertIn('failure_details = "｜".join(', runner)

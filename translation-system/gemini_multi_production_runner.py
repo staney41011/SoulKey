@@ -129,7 +129,15 @@ def format_srt_time(seconds):
     return f"{h:02d}:{m:02d}:{s:02d},{milli:03d}"
 
 
-def write_language_set(output_dir, lang, source_segments, translations, model, engine="gemini"):
+def write_language_set(
+    output_dir,
+    lang,
+    source_segments,
+    translations,
+    model,
+    engine="gemini",
+    source_sha256="",
+):
     output_dir.mkdir(parents=True, exist_ok=True)
     by_id = {int(x["segment_id"]): x for x in translations}
     segments = []
@@ -154,6 +162,7 @@ def write_language_set(output_dir, lang, source_segments, translations, model, e
                 "engine": engine,
                 "model": model,
                 "source": "en.final.json",
+                "source_sha256": str(source_sha256 or ""),
                 "segments": segments,
             },
             ensure_ascii=False,
@@ -1153,6 +1162,7 @@ def main():
                 rows,
                 DEFAULT_TEXT_MODEL,
                 engine=output_engine,
+                source_sha256=source_sha256,
             ):
                 upload_or_replace_file(
                     drive,
