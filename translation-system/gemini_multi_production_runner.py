@@ -199,13 +199,14 @@ def write_language_set(
 def glossary_text(rows):
     lines = []
     for raw in rows or []:
-        row = list(raw) + [""] * max(0, 10 - len(raw))
+        row = list(raw) + [""] * max(0, 14 - len(raw))
         zh = str(row[0] or "").strip()
         en = str(row[3] or "").strip()
         if not (zh or en):
             continue
         parts = [f"source={en or zh}"]
-        for code, idx in [("th", 4), ("es", 5), ("id", 6), ("vi", 7)]:
+        for code, idx in [("th", 4), ("es", 5), ("id", 6), ("vi", 7),
+                          ("hi", 10), ("ta", 11), ("ja", 12), ("ko", 13)]:
             value = str(row[idx] or "").strip()
             if value:
                 parts.append(f"{code}={value}")
