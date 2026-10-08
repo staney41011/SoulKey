@@ -1744,7 +1744,7 @@ function getSheetByName_(name) {
 function ensureTaskIdentitySchema_() {
   const sheet = getSheetByName_(TASK_SHEET_NAME);
   const schemaCache = CacheService.getScriptCache();
-  if (schemaCache.get("task-identity-schema-v1") === "ok") return sheet;
+  if (schemaCache.get("task-identity-schema-v2") === "ok") return sheet;
 
   const maxColumns = sheet.getMaxColumns();
   if (maxColumns < TASK_TOTAL_COLUMNS) {
@@ -1767,14 +1767,21 @@ function ensureTaskIdentitySchema_() {
   });
 
   const updates = [];
+  const assignedUids = new Set();
   values.forEach(function(row, index) {
     if (!String(row[0] || "").trim()) return;
     let changed = false;
-    if (!String(row[TASK_COL.course_uid] || "").trim()) {
-      maxUid += 1;
-      row[TASK_COL.course_uid] = "SKC-" + String(maxUid).padStart(6, "0");
+    let uid = String(row[TASK_COL.course_uid] || "").trim();
+    // Keep the first recorded UID; repair duplicates without changing task IDs.
+    if (!uid || assignedUids.has(uid)) {
+      do {
+        maxUid += 1;
+        uid = "SKC-" + String(maxUid).padStart(6, "0");
+      } while (assignedUids.has(uid));
+      row[TASK_COL.course_uid] = uid;
       changed = true;
     }
+    assignedUids.add(uid);
     if (!String(row[TASK_COL.schedule_status] || "").trim()) {
       row[TASK_COL.schedule_status] = "已排定";
       changed = true;
@@ -1793,7 +1800,7 @@ function ensureTaskIdentitySchema_() {
   updates.forEach(function(item) {
     sheet.getRange(item.row, 1, 1, TASK_TOTAL_COLUMNS).setValues([item.values]);
   });
-  schemaCache.put("task-identity-schema-v1", "ok", 21600);
+  schemaCache.put("task-identity-schema-v2", "ok", 21600);
   return sheet;
 }
 
@@ -1865,18 +1872,38 @@ function upsertTasks_(items) {
     throw new Error("tasks_json 必須至少包含一個任務");
   }
 
-  const sheet = ensureTaskIdentitySchema_();
-  const values = sheet.getDataRange().getValues();
-  const byId = {};
+  // Two Studio tabs may save concurrently. Reserve UIDs under one lock.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = ensureTaskIdentitySchema_();
+    const values = sheet.getDataRange().getValues();
+    const byId = {};
+    const uidOwner = {};
+    let maxUid = 0;
 
-  for (let r = 1; r < values.length; r++) {
-    const id = String(values[r][0] || "").trim();
-    if (id) byId[id] = r + 1;
-  }
+    for (let r = 1; r < values.length; r++) {
+      const id = String(values[r][0] || "").trim();
+      if (!id) continue;
+      byId[id] = r + 1;
+      const uid = String(values[r][TASK_COL.course_uid] || "").trim();
+      if (uid) uidOwner[uid] = id;
+      const parsed = /^SKC-(\d+)$/i.exec(uid);
+      if (parsed) maxUid = Math.max(maxUid, Number(parsed[1]) || 0);
+    }
 
-  const saved = [];
+    const allocateUid = function() {
+      let uid;
+      do {
+        maxUid += 1;
+        uid = "SKC-" + String(maxUid).padStart(6, "0");
+      } while (uidOwner[uid]);
+      return uid;
+    };
 
-  items.slice(0, 20).forEach(function(item) {
+    const saved = [];
+
+    items.slice(0, 20).forEach(function(item) {
     let requestedId = String(item.id || item.task_id || "").trim();
     const period = Number(item.period || 0);
     const lesson = String(item.lesson || "").trim();
@@ -1942,9 +1969,15 @@ function upsertTasks_(items) {
       ? "YouTube 來源已更新；需從中文 ASR/校稿重新執行"
       : (note || row[19] || "由 SoulKey Studio 建立");
 
-    row[TASK_COL.course_uid] =
-      String(row[TASK_COL.course_uid] || item.course_uid || "").trim() ||
-      allocateCourseUid_(sheet);
+    // Never trust an old course_uid echoed back by browser storage.
+    // Only the persisted UID can be reused by its own task.
+    const persistedUid = String(row[TASK_COL.course_uid] || "").trim();
+    const chosenUid = (
+      existingRow && persistedUid &&
+      (!uidOwner[persistedUid] || uidOwner[persistedUid] === id)
+    ) ? persistedUid : allocateUid();
+    row[TASK_COL.course_uid] = chosenUid;
+    uidOwner[chosenUid] = id;
     row[TASK_COL.schedule_status] =
       String(row[TASK_COL.schedule_status] || "").trim() || "已排定";
     row[TASK_COL.original_period] =
@@ -1966,9 +1999,12 @@ function upsertTasks_(items) {
       lesson: lesson,
       url: url
     });
-  });
-
-  return saved;
+    });
+    SpreadsheetApp.flush();
+    return saved;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function ensurePeriodStructure_(period, lessonNumber) {
