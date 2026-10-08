@@ -1,0 +1,51 @@
+name: SoulKey Japanese Korean Voice Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/soulkey_ja_ko_voice_smoke_once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  voices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Edge TTS
+        run: python -m pip install -q "edge-tts==7.2.8"
+      - name: Generate real Japanese and Korean speech files
+        run: |
+          python - <<'PY'
+          import asyncio
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "translation-system")
+          import edge_tts
+          from natural_tts_config import NATURAL_TTS_PROFILES
+          pairs = [
+              ("ja", "日本語の音声テストです。皆さん、こんにちは。"),
+              ("ko", "한국어 음성 테스트입니다. 여러분 안녕하세요."),
+          ]
+          async def main():
+              for code, text in pairs:
+                  profile = NATURAL_TTS_PROFILES[code]
+                  path = Path(f"/tmp/soulkey-{code}-voice-smoke.mp3")
+                  await edge_tts.Communicate(
+                      text=text,
+                      voice=profile["voice"],
+                      rate=profile["rate"],
+                      pitch=profile["pitch"],
+                  ).save(str(path))
+                  assert path.is_file() and path.stat().st_size > 2000, (
+                      code, path.stat().st_size if path.is_file() else None
+                  )
+                  print(f"[PASS] {code} voice={profile['voice']} bytes={path.stat().st_size}")
+          asyncio.run(main())
+          PY
