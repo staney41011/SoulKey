@@ -710,6 +710,20 @@ class PipelineContracts(unittest.TestCase):
         self.assertNotIn('.srt"', overview)
         self.assertNotIn('key:"course-files"', app)
 
+    def test_studio_long_running_kaggle_is_not_false_upstream_change(self):
+        app = read("studio/app-20260923-48.js")
+        self.assertIn('copy.status="delayed"', app)
+        self.assertIn('delayed:"長時間未回報，先查Kaggle"', app)
+        self.assertNotIn('copy.status="stale"', app)
+        self.assertIn('remoteActive.status!=="delayed"', app)
+        self.assertIn('if(remote.status==="delayed") return "running"', app)
+
+    def test_optional_review_cache_publication_cannot_erase_gemini_polish(self):
+        bridge = read("translation-system/github_review_cache.py")
+        self.assertIn('except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError)', bridge)
+        self.assertIn('"review_cache_bridge_unavailable"', bridge)
+        self.assertIn('"ok": False', bridge)
+
     def test_studio_surfaces_root_failure_reason_and_removes_p255_test_button(self):
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
