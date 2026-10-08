@@ -1927,8 +1927,9 @@ function upsertTasks_(items) {
       // course created in its former slot must get a fresh legacy ID instead
       // of overwriting the moved course.
       if (
-        (existingPeriod !== period || existingLesson !== lesson) &&
-        !String(item.course_uid || "").trim()
+        // A reused legacy task ID must never overwrite a different lesson.
+        // Scheduling existing courses is handled by the dedicated move action.
+        (existingPeriod !== period || existingLesson !== lesson)
       ) {
         requestedId = allocateTaskId_(requestedId, byId);
         existingRow = null;
