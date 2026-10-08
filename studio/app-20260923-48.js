@@ -1068,6 +1068,9 @@ function renderTasks(){
                     ? "重新執行"
                     : "執行下一步")+
           '</button>'+
+          (!cloudConfirmed
+            ? '<button class="ghost" data-sync-task="'+escapeHtml(t.id)+'">同步至中央</button>'
+            : '')+
         '</div>'+
       '</article>';
     }).join("");
@@ -1097,6 +1100,34 @@ function renderTasks(){
       btn.addEventListener("click",e=>{
         e.stopPropagation();
         confirmNextStage(btn.dataset.nextTask);
+      });
+    });
+
+    // Restore an unsynced lesson using its existing local YouTube URL.
+    document.querySelectorAll("[data-sync-task]").forEach(btn=>{
+      btn.addEventListener("click",e=>{
+        e.stopPropagation();
+        const task=tasks.find(t=>t.id===btn.dataset.syncTask);
+        if(!task || !task.period || !task.lesson || !task.url) return;
+        if(!confirm("將 "+task.id+" 的課程網址重新寫入 Google Sheets 中央控制表？")) return;
+        const sent=submitBridgePost({
+          action:"tasks_upsert",
+          tasks_json:JSON.stringify([{
+            id:task.id,
+            period:task.period,
+            lesson:task.lesson,
+            url:task.url,
+            note:task.note||"",
+            course_uid:task.course_uid||""
+          }])
+        });
+        if(!sent){
+          alert("控制中心尚未連線。請先確認 Bridge Key，再重新按「同步至中央」。");
+          return;
+        }
+        task.status="本機草稿：正在重新同步 Google Sheets";
+        save(STORE.tasks,tasks);
+        renderTasks();
       });
     });
   }
