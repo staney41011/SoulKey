@@ -201,6 +201,16 @@ function doPost(e) {
         });
       }
 
+      if (!readTasks_().some(function(item) { return item.id === taskId; })) {
+        return postMessage_({
+          source: "soulkey-bridge",
+          type: "run_stage",
+          ok: false,
+          error: "task_not_registered",
+          message: "此課程尚未成功建立在 Google Sheets 中央任務佇列。請先重新儲存課程，確認同步後再執行。"
+        });
+      }
+
       if (!githubToken) {
         return postMessage_({
           source: "soulkey-bridge",
@@ -1877,7 +1887,9 @@ function upsertTasks_(items) {
       throw new Error("任務缺少 id / period / lesson / url");
     }
 
-    ensurePeriodStructure_(period);
+    // Only provision folders for the requested lesson. New periods must not
+    // perform 28 Drive folder calls before their first task can be registered.
+    ensurePeriodStructure_(period, Number((lesson.match(/\d+/) || [])[0]) || null);
 
     let existingRow = byId[requestedId] || null;
     if (existingRow) {
@@ -1959,60 +1971,65 @@ function upsertTasks_(items) {
   return saved;
 }
 
-function ensurePeriodStructure_(period) {
+function ensurePeriodStructure_(period, lessonNumber) {
   const sheet = getSheetByName_(PERIOD_SHEET_NAME);
   const values = sheet.getDataRange().getValues();
+  let existingUrl = "";
 
   for (let r = 1; r < values.length; r++) {
     const code = String(values[r][0] || "");
     const name = String(values[r][1] || "");
-    const n = Number((code + " " + name).replace(/[^0-9]/g, ""));
-    if (n === period && String(values[r][5] || "").trim()) {
-      return String(values[r][5]).trim();
+    // P256 and 第256期 must parse as 256, NOT 256256.
+    const codeNumber = Number((code.match(/\d+/) || [])[0] || 0);
+    const nameNumber = Number((name.match(/\d+/) || [])[0] || 0);
+    const url = String(values[r][5] || "").trim();
+    if ((codeNumber === period || nameNumber === period) && url) {
+      existingUrl = url;
+      break;
     }
   }
 
+  // Historical callers expect the whole period to be ready; existing periods
+  // retain their prior full-folder behavior without repeating Drive calls.
+  if (existingUrl && !lessonNumber) return existingUrl;
+
   const root = DriveApp.getFolderById(ROOT_DRIVE_FOLDER_ID);
   const periodName = period + "_第" + period + "期";
-  const periodFolder = findOrCreateFolder_(root, periodName);
-
-  findOrCreateFolder_(periodFolder, "00_期別設定");
-  const courseFolder = findOrCreateFolder_(periodFolder, "01_課程");
-  findOrCreateFolder_(periodFolder, "98_人工檢查");
-  findOrCreateFolder_(periodFolder, "99_期末封存");
-
-  const subNames = [
-    "00_來源資訊",
-    "01_中文逐字稿",
-    "02_翻譯稿",
-    "03_字幕",
-    "04_音檔",
-    "05_完成影片",
-    "99_處理紀錄"
-  ];
-
-  for (let i = 1; i <= 4; i++) {
-    const lesson = findOrCreateFolder_(
-      courseFolder,
-      String(i).padStart(2, "0") + "_第" + i + "堂"
-    );
-    subNames.forEach(function(name) {
-      findOrCreateFolder_(lesson, name);
-    });
+  const folderMatch = existingUrl.match(/\/folders\/([A-Za-z0-9_-]+)/);
+  let periodFolder = null;
+  if (folderMatch) {
+    try { periodFolder = DriveApp.getFolderById(folderMatch[1]); } catch (_) {}
   }
+  if (!periodFolder) periodFolder = findOrCreateFolder_(root, periodName);
+
+  if (!existingUrl) {
+    findOrCreateFolder_(periodFolder, "00_期別設定");
+    findOrCreateFolder_(periodFolder, "98_人工檢查");
+    findOrCreateFolder_(periodFolder, "99_期末封存");
+  }
+  const courseFolder = findOrCreateFolder_(periodFolder, "01_課程");
+  const subNames = [
+    "00_來源資訊", "01_中文逐字稿", "02_翻譯稿", "03_字幕",
+    "04_音檔", "05_完成影片", "99_處理紀錄"
+  ];
+  const requested = Number(lessonNumber || 0);
+  const lessonNumbers = requested >= 1 && requested <= 4
+    ? [requested] : [1, 2, 3, 4];
+
+  lessonNumbers.forEach(function(number) {
+    const lesson = findOrCreateFolder_(
+      courseFolder, String(number).padStart(2, "0") + "_第" + number + "堂"
+    );
+    subNames.forEach(function(name) { findOrCreateFolder_(lesson, name); });
+  });
 
   const url = "https://drive.google.com/drive/folders/" + periodFolder.getId();
-  sheet.appendRow([
-    "P" + period,
-    "第" + period + "期",
-    "啟用",
-    "",
-    "",
-    url,
-    4,
-    "由 SoulKey Studio 自動建立"
-  ]);
-
+  if (!existingUrl) {
+    sheet.appendRow([
+      "P" + period, "第" + period + "期", "啟用", "", "", url, 4,
+      "由 SoulKey Studio 自動建立"
+    ]);
+  }
   return url;
 }
 
