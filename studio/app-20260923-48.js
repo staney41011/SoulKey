@@ -182,6 +182,8 @@ let currentVernacularReview = [];
 let currentEnglishReview = [];
 let englishDraftSavePendingId = null;
 let englishFinalizePendingTaskId = "";
+let englishFinalizePriorFinishedAt = "";
+let englishFinalizeWatchdog = null;
 let currentView = "dashboard";
 const viewHistory = [];
 const youtubeCaptureFilesCache = {};
@@ -3796,6 +3798,20 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   }
   if(state) state.textContent="正在寫入 Google Drive English Final…";
   englishFinalizePendingTaskId=task.id;
+  englishFinalizePriorFinishedAt=String(
+    remoteStageStatus(task,"en-review")?.finished_at || ""
+  );
+  window.clearTimeout(englishFinalizeWatchdog);
+  // An Apps Script Drive write can take longer than iframe startup. A status
+  // probe is an independent acknowledgement if cross-origin postMessage fails.
+  englishFinalizeWatchdog=window.setTimeout(()=>{
+    if(englishFinalizePendingTaskId!==task.id) return;
+    const pending=document.getElementById("en-review-share-state");
+    if(pending) pending.textContent=
+      "仍在向 Google Drive 儲存／核對中。請勿再次提交，已保留本頁編輯內容。";
+    requestTaskStatuses();
+  },35000);
+  window.setTimeout(()=>requestTaskStatuses(),8000);
 
   const sent=submitBridgePost({
     action:"review_save",
@@ -3812,6 +3828,7 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
 
   if(!sent){
     englishFinalizePendingTaskId="";
+    window.clearTimeout(englishFinalizeWatchdog);
     if(button){
       button.disabled=false;
       button.textContent="英文定稿";
@@ -3872,10 +3889,14 @@ function submitBridgePost(fields){
   document.body.appendChild(frame);
   document.body.appendChild(form);
   form.submit();
+  // Previously the response iframe was destroyed after only 10 seconds.
+  // Google Drive saves regularly take longer; removing the iframe discarded
+  // the success event, leaving the button stuck at "正在儲存".
+  const responseWindowMs=fields && fields.action==="review_save" ? 180000 : 120000;
   window.setTimeout(()=>{
     form.remove();
     frame.remove();
-  },10000);
+  },responseWindowMs);
   return true;
 }
 
@@ -3953,6 +3974,26 @@ function jsonpBridgeRequest(fields){
   return true;
 }
 
+function completeEnglishFinalizeUi(taskId,confirmationSource){
+  if(!taskId || englishFinalizePendingTaskId!==taskId) return;
+  englishFinalizePendingTaskId="";
+  englishFinalizePriorFinishedAt="";
+  window.clearTimeout(englishFinalizeWatchdog);
+  const state=document.getElementById("en-review-share-state");
+  const button=document.getElementById("finalize-en");
+  if(state) state.textContent=
+    "英文定稿已寫入 Google Drive"+
+    (confirmationSource==="status"?"（中央狀態已確認）":"");
+  if(button){
+    button.disabled=true;
+    button.textContent="已定稿";
+  }
+  // Refresh only after the server confirms completion. Never submit again.
+  if(currentView==="en-review" && selectedTaskId===taskId){
+    window.setTimeout(()=>openEnglishReview(taskId),500);
+  }
+}
+
 function applyRemoteStatuses(payload){
   const remoteTasks=payload && payload.tasks ? payload.tasks : {};
   let changed=false;
@@ -3964,6 +4005,16 @@ function applyRemoteStatuses(payload){
     task.remoteUpdatedAt=payload.server_time || new Date().toISOString();
     syncCompletedFromRemote(task);
     changed=true;
+  }
+
+  if(englishFinalizePendingTaskId){
+    const pendingTask=tasks.find(x=>x.id===englishFinalizePendingTaskId);
+    const done=remoteStageStatus(pendingTask,"en-review");
+    if(done && done.status==="done" &&
+       done.finished_at &&
+       String(done.finished_at)!==englishFinalizePriorFinishedAt){
+      completeEnglishFinalizeUi(englishFinalizePendingTaskId,"status");
+    }
   }
 
   if(changed){
@@ -4291,17 +4342,12 @@ window.addEventListener("message",event=>{
         englishFinalizePendingTaskId &&
         String(data.task_id||"")===String(englishFinalizePendingTaskId)
       ){
-        englishFinalizePendingTaskId="";
-        if(state) state.textContent="英文定稿已寫入 Google Drive";
-        if(button){
-          button.disabled=true;
-          button.textContent="已定稿";
-        }
-        window.setTimeout(()=>openEnglishReview(data.task_id),350);
+        completeEnglishFinalizeUi(data.task_id,"callback");
       }
     }else{
       if(englishFinalizePendingTaskId){
         englishFinalizePendingTaskId="";
+        window.clearTimeout(englishFinalizeWatchdog);
         if(button){
           button.disabled=false;
           button.textContent="英文定稿";
