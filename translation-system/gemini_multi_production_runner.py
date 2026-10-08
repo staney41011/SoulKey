@@ -36,7 +36,7 @@ from nvidia_translate import NvidiaTranslateClient, SUPPORTED_TARGETS
 from status_io import new_run_id, mark_done, mark_error, mark_running
 
 
-LANGS = ["th", "es", "id", "vi", "hi", "ta"]
+LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko"]
 LANGUAGE_NAMES = {
     "th": "Thai",
     "es": "Spanish",
@@ -44,6 +44,8 @@ LANGUAGE_NAMES = {
     "vi": "Vietnamese",
     "hi": "Hindi",
     "ta": "Tamil",
+    "ja": "Japanese",
+    "ko": "Korean",
 }
 LEGACY_COLS = {"th": "K", "es": "L", "id": "M", "vi": "N"}
 REPAIR_MODEL = os.getenv("GEMINI_REPAIR_MODEL", "gemini-3.8-flash")
@@ -64,8 +66,10 @@ MULTI_SCHEMA = {
                     "vi": {"type": "string"},
                     "hi": {"type": "string"},
                     "ta": {"type": "string"},
+                    "ja": {"type": "string"},
+                    "ko": {"type": "string"},
                 },
-                "required": ["segment_id", "th", "es", "id", "vi", "hi", "ta"],
+                "required": ["segment_id", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"],
             },
         }
     },
@@ -215,8 +219,8 @@ def glossary_text(rows):
 def translation_prompt(batch, glossary):
     payload = [{"segment_id": int(x["id"]), "english": x["text"]} for x in batch]
     return f"""
-Translate every approved English segment into all six languages:
-th Thai, es Spanish, id Indonesian, vi Vietnamese, hi Hindi, ta Tamil.
+Translate every approved English segment into all eight target languages:
+th Thai, es Spanish, id Indonesian, vi Vietnamese, hi Hindi, ta Tamil, ja Japanese, ko Korean.
 
 Rules:
 - segment_id is the source segment number; id is Indonesian.
@@ -404,16 +408,15 @@ def translate_batch_with_provider_fallback(
 ):
     """Keep Gemini primary; use NVIDIA only after transient Gemini exhaustion.
 
-    NVIDIA Riva v2 covers th/es/id/vi. If hi/ta are requested, a much smaller
-    Gemini request is used only for those unsupported targets after NVIDIA has
-    already completed the supported languages.
+    NVIDIA Riva v2 covers th/es/id/vi. Other requested languages
+    (hi/ta/ja/ko) are completed by Gemini after supported targets.
     """
     try:
         parsed = gemini_translate_with_backoff(
             client,
             batch,
             glossary,
-            LANGS,
+            requested,
         )
         return parsed.get("segments") or [], "gemini"
     except Exception as exc:
@@ -536,7 +539,7 @@ Repair only the listed failed translations.
 Preserve all English meaning, names, numbers, examples, and doctrine.
 Fix EVERY stated QA issue visibly and completely. Do not explain.
 Keep segment_id and lang unchanged.
-For th write normal prose in Thai script; for hi write normal prose in Hindi using Devanagari script; for ta write normal prose in Tamil script. Proper names
+Use natural Thai script for th, Hindi Devanagari for hi, Tamil script for ta, Japanese kana/kanji for ja, and Korean Hangul for ko. Proper names
 or LOCKED glossary forms such as Qianxian may remain romanized when appropriate.
 Do not add filler merely to satisfy a script check.
 Return only the requested repaired target-language text.
@@ -857,7 +860,7 @@ def merge_translation_rows(translations, generated_rows, generated_langs):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-id", required=True)
-    parser.add_argument("--langs", default="th,es,id,vi,hi,ta")
+    parser.add_argument("--langs", default="th,es,id,vi,hi,ta,ja,ko")
     parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--wait-seconds", type=int, default=15)
     parser.add_argument("--reset-checkpoint", action="store_true")
@@ -871,8 +874,8 @@ def main():
     if not requested:
         raise RuntimeError("Gemini production multi 沒有指定任何目標語言")
 
-    # Keep one six-language inference/checkpoint for compatibility, but QA,
-    # repair, publishing, and completion are scoped to Studio's requested
+    # Infer only selected languages; QA, repair, publishing, and completion
+    # are scoped to Studio's requested
     # languages so an unselected language cannot block the job.
 
     drive, sheets = build_google_services()
