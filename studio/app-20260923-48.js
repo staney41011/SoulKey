@@ -627,8 +627,9 @@ function requestTasksFromControlCenter(){
   return sent;
 }
 
-function githubReviewUrl(taskId){
-  return REVIEW_CACHE_BASE+"/"+encodeURIComponent(String(taskId||""))+"/zh.json?_="+Date.now();
+function githubReviewUrl(taskId,kind="zh"){
+  const file=kind==="en"?"en.json":"zh.json";
+  return REVIEW_CACHE_BASE+"/"+encodeURIComponent(String(taskId||""))+"/"+file+"?_="+Date.now();
 }
 
 
@@ -3382,13 +3383,17 @@ function showNoEnglishCcFallback(taskId){
 }
 
 async function openEnglishReview(taskId){
+  if(!bridgeAuthenticated){
+    setDashboardBridgeState("請先連線控制中心，才能編輯英文定稿。","error");
+    showView("dashboard");
+    return;
+  }
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
 
   const shareState=document.getElementById("en-review-share-state");
   if(shareState) shareState.textContent="";
-
   const context=document.getElementById("en-review-task-context");
   context.innerHTML=
     '<b>'+escapeHtml(task.id)+'</b>'+
@@ -3396,47 +3401,43 @@ async function openEnglishReview(taskId){
     '<small>'+escapeHtml(task.url)+'</small>';
 
   const list=document.getElementById("en-review-list");
-  list.innerHTML=
-    '<div class="empty">正在讀取 Google Drive 最新英文 Final／草稿…</div>';
+  list.innerHTML='<div class="empty">正在從 GitHub 讀取英文定稿快取…</div>';
   showView("en-review");
 
-  // Google Drive is authoritative because it contains en.final.json and the
-  // persisted English review draft. GitHub is only a fallback cache.
-  if(requestReviewData(taskId,"en",0)) return;
-
-  list.innerHTML=
-    '<div class="empty">控制中心尚未連線，正在改讀 GitHub 英文校稿快取…</div>';
-
-  try{
-    const response=await fetch(githubReviewUrl(task.id),{
-      method:"GET",
-      cache:"no-store",
-      headers:{"Accept":"application/json"}
-    });
-
-    if(response.ok){
+  // GitHub is the fast published snapshot; Drive remains the durable
+  // authoritative source. An unavailable/incomplete snapshot falls back to
+  // Drive instead of waiting for nine sequential Apps Script chunk requests.
+  for(const kind of ["en","zh"]){
+    try{
+      const controller=new AbortController();
+      const timer=window.setTimeout(()=>controller.abort(),7000);
+      let response;
+      try{
+        response=await fetch(githubReviewUrl(task.id,kind),{
+          cache:"no-store",signal:controller.signal,
+          headers:{"Accept":"application/json"}
+        });
+      }finally{window.clearTimeout(timer);}
+      if(!response.ok) continue;
       const payload=await response.json();
+      if(payload.task_id && payload.task_id!==taskId) continue;
       const items=englishReviewItemsFromGithub(payload);
-      const available=items.filter(x=>String(x.en||"").trim()).length;
-
-      if(items.length && available){
+      if(items.length && items.some(x=>String(x.en||"").trim())){
+        if(selectedTaskId!==taskId) return;
         renderEnglishReview(items);
-        if(shareState) shareState.textContent="目前顯示 GitHub 備援快取";
+        if(shareState) shareState.textContent="GitHub 快取已載入；正式儲存仍寫入 Google Drive";
         return;
       }
+    }catch(err){
+      console.warn("GitHub English review cache unavailable, using Drive:",err);
     }
-
-    throw new Error("找不到可用的英文定稿／草稿");
-  }catch(err){
-    list.innerHTML=
-      '<div class="empty">英文稿讀取失敗：'+
-      escapeHtml(String(err?.message||err))+
-      '<br><br><button class="ghost" id="retry-en-cc">重新讀取</button></div>';
-    document.getElementById("retry-en-cc")?.addEventListener(
-      "click",
-      ()=>openEnglishReview(taskId)
-    );
   }
+
+  if(selectedTaskId===taskId && requestReviewData(taskId,"en",0)){
+    list.innerHTML='<div class="empty">GitHub 尚未有英文稿，改從 Google Drive 載入…</div>';
+    return;
+  }
+  list.innerHTML='<div class="empty">無法讀取英文稿。請檢查控制中心連線與 GitHub 快取。</div>';
 }
 
 function mergeEnglishTextParts(parts){
