@@ -332,24 +332,29 @@ def main():
             # studio-review-cache/<task_id>/zh.json
             publish_review_cache(task["task_id"], result["review_cache"])
 
+            preserved_batches = result.get("fallback_batches", 0)
+            degraded_note = (
+                f"；{preserved_batches}批因AI JSON格式錯誤保留原始逐字稿，"
+                "需人工逐段核對"
+                if preserved_batches else ""
+            )
             update_status(
                 sheets,
                 task["sheet_row"],
                 "完成",
                 (
-                    f"AI校稿完成；{result['segment_count']}段；"
+                    f"AI校稿資料已產生；{result['segment_count']}段；"
                     f"修改{result['changed_count']}段；"
                     f"待確認{result['uncertain_count']}處"
+                    + degraded_note
                 ),
             )
             done_message = (
-                f"AI校稿完成：修改 {result['changed_count']} 段；"
+                f"AI校稿資料已產生：修改 {result['changed_count']} 段；"
                 f"待人工確認 {result['uncertain_count']} 處"
+                + degraded_note
             )
-            print(
-                f"[DONE] AI校稿完成：修改 {result['changed_count']} 段，"
-                f"待確認 {result['uncertain_count']} 處"
-            )
+            print("[DONE] " + done_message)
             mark_done(
                 task["task_id"],
                 "polish",
