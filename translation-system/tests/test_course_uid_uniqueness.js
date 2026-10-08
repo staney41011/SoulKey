@@ -111,6 +111,34 @@ assert.equal(reused[0].course_uid,"SKC-000022");
 assert.equal(sheet.rows[2][2],"第2堂");
 assert.equal(new Set(sheet.rows.slice(1).map(x=>x[20])).size,sheet.rows.length-1);
 
+// English Final uses long grouped paragraphs while Chinese Final has many
+// short utterances. IDs can coincide yet must not be matched 1-to-1.
+vm.runInContext(pickFunction("chineseFinalForEnglishTimeRange_"),sandbox);
+const sourceChinese=[
+  {id:0,start:0,end:2.48,text:"各位前賢、各位家人，大家好。"},
+  {id:1,start:3.48,end:7.26,text:"後學首先感謝天恩師德。"},
+  {id:2,start:7.86,end:12.08,text:"感謝老師們的苦心栽培。"},
+  {id:3,start:12.6,end:24.5,text:"心態是最好的風水。"},
+  {id:4,start:25,end:41.2,text:"人生忙碌是為了什麼？"},
+  {id:5,start:42.2,end:56.9,text:"有人希望家庭幸福。"}
+];
+const aligned=vm.runInContext(
+  "chineseFinalForEnglishTimeRange_",
+  sandbox
+)(sourceChinese,0,41.41,0);
+assert.equal(
+  aligned,
+  sourceChinese.slice(0,5).map(x=>x.text).join(""),
+  "A long English paragraph must display all overlapping Chinese sentences"
+);
+assert.equal(vm.runInContext("chineseFinalForEnglishTimeRange_",sandbox)(
+  sourceChinese,42.05,57.39,1
+),"有人希望家庭幸福。");
+assert.equal(vm.runInContext("chineseFinalForEnglishTimeRange_",sandbox)(
+  sourceChinese,0,0,4
+),"人生忙碌是為了什麼？");
+console.log("PASS: English grouped paragraphs show all Chinese Final sentences by time");
+
 console.log("PASS: duplicated historical UIDs repaired");
 console.log("PASS: two new tasks with stale local UID receive different server IDs");
 console.log("PASS: existing task UID stable and reused legacy IDs cannot overwrite it");
