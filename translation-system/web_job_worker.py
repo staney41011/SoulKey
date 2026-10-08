@@ -401,7 +401,7 @@ def main():
                 ])
                 return "Qwen3-4B local"
 
-        def verify_zh_review_outputs():
+        def verify_zh_review_outputs(require_polish=True):
             """Treat success as real only if Drive has nonempty ASR and polish JSON.
 
             Earlier workers could announce needs_review after runners silently
@@ -435,7 +435,11 @@ def main():
             )
             with TemporaryDirectory(prefix="soulkey-zh-review-qa-") as temp:
                 counts = {}
-                for filename in ("segments.json", "polish_report.json"):
+                files_to_check = (
+                    ("segments.json", "polish_report.json")
+                    if require_polish else ("segments.json",)
+                )
+                for filename in files_to_check:
                     item = find_file(drive, folders["transcript"], filename)
                     if not item:
                         raise RuntimeError(
@@ -459,7 +463,7 @@ def main():
                 print(
                     f"[ZH-REVIEW VERIFIED] {args.task_id} "
                     f"ASR={counts['segments.json']} "
-                    f"polished={counts['polish_report.json']}",
+                    + (f"polished={counts['polish_report.json']}" if require_polish else "polish=pending"),
                     flush=True,
                 )
 
@@ -480,15 +484,27 @@ def main():
             ]
 
         elif args.stage == "zh":
+            # Re-running the Chinese stage after a polish-only failure must NOT
+            # overwrite 15+ minutes of previously completed Taiwan-Breeze ASR.
+            # Inspect the actual Drive file instead of trusting sheet status.
             try:
-                run_taiwan_breeze_asr()
-            except Exception as exc:
+                verify_zh_review_outputs(require_polish=False)
                 print(
-                    f"[ASR] Taiwan-Breeze 主流程失敗："
-                    f"{type(exc).__name__}: {exc}",
+                    "[ASR] Drive 既有 segments.json 驗收通過；"
+                    "這次僅重新執行 AI 中文校稿，不重跑 ASR。",
                     flush=True,
                 )
-                run_gemini_source_fallback()
+            except RuntimeError as missing_asr:
+                print(f"[ASR] 既有逐字稿缺失：{missing_asr}", flush=True)
+                try:
+                    run_taiwan_breeze_asr()
+                except Exception as exc:
+                    print(
+                        f"[ASR] Taiwan-Breeze 主流程失敗："
+                        f"{type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+                    run_gemini_source_fallback()
 
             polish_engine = run_polish_with_local_fallback()
             verify_zh_review_outputs()
