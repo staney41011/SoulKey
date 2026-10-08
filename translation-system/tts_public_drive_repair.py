@@ -6,6 +6,7 @@ artifacts; Google Drive upload is deliberately not performed without OAuth.
 """
 import argparse
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 
@@ -24,10 +25,27 @@ from natural_tts_assemble import (
     wav_to_mp3,
     write_alignment_report,
 )
-from tts_engine import segments_fingerprint
+def segments_fingerprint(segments):
+    canonical = []
+    for i, seg in enumerate(segments or []):
+        if not isinstance(seg, dict):
+            continue
+        text = str(seg.get("text") or "").strip()
+        if not text:
+            continue
+        canonical.append({
+            "id": int(seg.get("id", i)),
+            "start": float(seg.get("start", 0) or 0),
+            "end": float(seg.get("end", 0) or 0),
+            "text": text,
+        })
+    raw = json.dumps(
+        canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
 
 DRIVE_SOURCE_IDS = {
-    "en": "1EHj_C2uNdDo_Not_Use_Unverified",  # set in main via verified CLI
     "hi": "1qiB9qXrVavE_dQs2aZiSBtEJVVY9mg8P",
     "ta": "19Cdzo6tUIiKwP27eVlQisd6ozXVHoiDK",
     "source": "1zAFO_3LwsZQPjd7gnYX3L72o-h7BXsx5",
