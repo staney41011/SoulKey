@@ -401,22 +401,6 @@ def main():
                 ])
                 return "Qwen3-4B local"
 
-        if args.stage == "cc" or (
-            args.stage == "en" and args.lang == "cc-refresh"
-        ):
-            prepare_youtube_runtime()
-
-        if args.stage == "cc" and args.lang == "multi-audio":
-            langs = ",".join(
-                x.strip() for x in args.langs.split(",") if x.strip()
-            ) or "all"
-            cmd = [
-                sys.executable,
-                str(system_dir / "youtube_multiaudio_runner.py"),
-                "--task-id", args.task_id,
-                "--langs", langs,
-            ]
-
         def verify_zh_review_outputs():
             """Treat success as real only if Drive has nonempty ASR and polish JSON.
 
@@ -478,6 +462,22 @@ def main():
                     f"polished={counts['polish_report.json']}",
                     flush=True,
                 )
+
+        if args.stage == "cc" or (
+            args.stage == "en" and args.lang == "cc-refresh"
+        ):
+            prepare_youtube_runtime()
+
+        if args.stage == "cc" and args.lang == "multi-audio":
+            langs = ",".join(
+                x.strip() for x in args.langs.split(",") if x.strip()
+            ) or "all"
+            cmd = [
+                sys.executable,
+                str(system_dir / "youtube_multiaudio_runner.py"),
+                "--task-id", args.task_id,
+                "--langs", langs,
+            ]
 
         elif args.stage == "zh":
             try:
