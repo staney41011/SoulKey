@@ -11,6 +11,8 @@ LANGUAGE_NAMES = {
     "vi": "Vietnamese",
     "hi": "Hindi",
     "ta": "Tamil",
+    "ja": "Japanese",
+    "ko": "Korean",
 }
 
 NATURAL_TTS_PROFILES = {
@@ -69,6 +71,22 @@ NATURAL_TTS_PROFILES = {
         "pitch": "-1Hz",
         "max_chars": 420,
         "min_chars": 140,
+    },
+    "ja": {
+        "engine": "edge",
+        "voice": "ja-JP-KeitaNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 260,
+        "min_chars": 85,
+    },
+    "ko": {
+        "engine": "edge",
+        "voice": "ko-KR-InJoonNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 300,
+        "min_chars": 100,
     },
 }
 
