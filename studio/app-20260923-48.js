@@ -71,7 +71,7 @@ const workflow = [
   {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
 
-const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta"];
+const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko"];
 
 function load(key, fallback){
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
@@ -154,7 +154,9 @@ let languageSettings = [
   {code:"id",name:"Bahasa Indonesia",can_ai_translate:true,can_tts:true},
   {code:"vi",name:"Tiếng Việt",can_ai_translate:true,can_tts:true},
   {code:"hi",name:"हिन्दी",can_ai_translate:true,can_tts:true},
-  {code:"ta",name:"தமிழ்",can_ai_translate:true,can_tts:true}
+  {code:"ta",name:"தமிழ்",can_ai_translate:true,can_tts:true},
+  {code:"ja",name:"日本語",can_ai_translate:true,can_tts:true},
+  {code:"ko",name:"한국어",can_ai_translate:true,can_tts:true}
 ];
 let selectedTaskId = null;
 let selectedPeriod = null;
