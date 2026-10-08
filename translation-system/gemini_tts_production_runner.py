@@ -36,6 +36,8 @@ LANGUAGE_NAMES = {
     "vi": "Vietnamese",
     "hi": "Hindi",
     "ta": "Tamil",
+    "ja": "Japanese",
+    "ko": "Korean",
 }
 VOICE = os.getenv("GEMINI_TTS_VOICE", "Kore")
 MAX_CHARS = int(os.getenv("GEMINI_TTS_MAX_CHARS", "3500"))
