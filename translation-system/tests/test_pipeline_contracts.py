@@ -11,6 +11,19 @@ def read(path):
 
 
 class PipelineContracts(unittest.TestCase):
+    def test_new_lessons_require_central_registration_before_execution(self):
+        app = read("studio/app-20260923-48.js")
+        bridge = read("bridge/apps-script/Code.gs")
+        self.assertIn("confirmedRemoteTaskIds = new Set(", app)
+        self.assertIn('if(!confirmedRemoteTaskIds.has(taskId))', app)
+        self.assertIn('if(data.type==="tasks_saved")', app)
+        self.assertIn("const sentToCloud=submitBridgePost(", app)
+        self.assertIn('error: "task_not_registered"', bridge)
+        self.assertIn('readTasks_().some(function(item)', bridge)
+        self.assertIn('const codeNumber = Number(', bridge)
+        self.assertNotIn('(code + " " + name).replace(/[^0-9]/g, "")', bridge)
+        self.assertIn('ensurePeriodStructure_(period, Number(', bridge)
+
     def test_bridge_protocol_prevents_frontend_deployment_drift(self):
         bridge = read("bridge/apps-script/Code.gs")
         app = read("studio/app-20260923-48.js")
