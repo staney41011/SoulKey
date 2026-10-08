@@ -3,6 +3,7 @@ import json
 import os
 import urllib.parse
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 
@@ -45,8 +46,27 @@ def publish_review_cache(task_id: str, cache_path):
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
 
-    with urllib.request.urlopen(request, timeout=90) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+        # The transcript and polish_report.json have ALREADY been written to
+        # Drive. A transient/unavailable GitHub cache bridge must not mark the
+        # entire Gemini polish stage failed and trigger an expensive Qwen rerun.
+        detail = (
+            f"HTTP {exc.code}" if isinstance(exc, urllib.error.HTTPError)
+            else type(exc).__name__
+        )
+        print(
+            "[REVIEW-CACHE] 發佈失敗：" + detail +
+            "；保留已完成中文校稿，人工定稿改由 Drive 讀取。",
+            flush=True,
+        )
+        return {
+            "ok": False,
+            "error": "review_cache_bridge_unavailable",
+            "message": "Review cache bridge unavailable: " + detail,
+        }
 
     if not payload.get("ok"):
         detail = {
