@@ -3954,6 +3954,32 @@ function loadZhReviewChunk_(folders, taskId, chunkIndex, startedAt) {
   };
 }
 
+/**
+ * English Final groups many short Chinese ASR sentences into one passage.
+ * Segment IDs refer to different segmentation schemes and CANNOT be joined
+ * one-to-one. Time overlap is authoritative; ID is a legacy fallback only.
+ */
+function chineseFinalForEnglishTimeRange_(segments, start, end, id) {
+  const source = Array.isArray(segments) ? segments : [];
+  const begin = Number(start);
+  const finish = Number(end);
+  if (Number.isFinite(begin) && Number.isFinite(finish) && finish > begin) {
+    const matched = source.filter(function(item) {
+      const from = Number(item.start || 0);
+      const to = Number(item.end !== undefined ? item.end : from);
+      return to > begin && from < finish;
+    }).map(function(item) {
+      return String(item.text || "").trim();
+    }).filter(Boolean);
+    if (matched.length) return matched.join("");
+  }
+
+  const exact = source.find(function(item, index) {
+    return Number(item.id !== undefined ? item.id : index) === Number(id);
+  });
+  return exact ? String(exact.text || "").trim() : "";
+}
+
 function loadReview_(taskId, kind, chunkIndex) {
   const startedAt = Date.now();
   if (!taskId) return { ok: false, error: "missing_task_id" };
@@ -4015,18 +4041,7 @@ function loadReview_(taskId, kind, chunkIndex) {
     const originalSegments = original.segments || [];
 
     function zhForRange(start, end, id) {
-      const exact = originalSegments.find(function(x, i) {
-        return Number(x.id !== undefined ? x.id : i) === Number(id);
-      });
-      if (exact) return String(exact.text || "");
-
-      return originalSegments.filter(function(x) {
-        const xs = Number(x.start || 0);
-        const xe = Number(x.end || xs);
-        return xe > start && xs < end;
-      }).map(function(x) {
-        return String(x.text || "").trim();
-      }).filter(Boolean).join("");
+      return chineseFinalForEnglishTimeRange_(originalSegments, start, end, id);
     }
 
     function termsFor(text) {
