@@ -14,6 +14,8 @@ LANGUAGE_NAMES = {
     "vi": "Vietnamese",
     "hi": "Hindi",
     "ta": "Tamil",
+    "ja": "Japanese",
+    "ko": "Korean",
 }
 
 GLOSSARY_TARGET_COLUMN = {
@@ -312,6 +314,8 @@ TARGET_SCRIPT_PATTERNS = {
     "th": re.compile(r"[\u0E00-\u0E7F]"),
     "hi": re.compile(r"[\u0900-\u097F]"),
     "ta": re.compile(r"[\u0B80-\u0BFF]"),
+    "ja": re.compile(r"[\u3040-\u30FF]"),
+    "ko": re.compile(r"[\uAC00-\uD7AF\u1100-\u11FF]"),
 }
 
 
