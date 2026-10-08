@@ -39,7 +39,7 @@ from lesson_paths import digits, resolve_lesson_folders
 
 
 MODEL = os.getenv("GEMINI_SHADOW_MODEL", "gemini-3.1-flash-lite")
-LANGS = ["th", "es", "id", "vi", "hi", "ta"]
+LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko"]
 LANGUAGE_NAMES = {
     "th": "Thai",
     "es": "Spanish",
@@ -47,6 +47,8 @@ LANGUAGE_NAMES = {
     "vi": "Vietnamese",
     "hi": "Hindi",
     "ta": "Tamil",
+    "ja": "Japanese",
+    "ko": "Korean",
 }
 BATCH_SIZE = 12
 WAIT_SECONDS = 15
@@ -68,6 +70,8 @@ TRANSLATION_SCHEMA = {
                     "vi": {"type": "string"},
                     "hi": {"type": "string"},
                     "ta": {"type": "string"},
+                    "ja": {"type": "string"},
+                    "ko": {"type": "string"},
                 },
                 "required": [
                     "segment_id",
@@ -77,6 +81,8 @@ TRANSLATION_SCHEMA = {
                     "vi",
                     "hi",
                     "ta",
+                    "ja",
+                    "ko",
                 ],
             },
         }
@@ -230,13 +236,15 @@ def _translation_prompt(batch, glossary_text):
     return f"""
 You are the multilingual translation engine for the SoulKey religious education course.
 
-Translate every approved English segment directly into ALL six target languages:
+Translate every approved English segment directly into ALL eight target languages:
 th = Thai
 es = Spanish
 id = Indonesian
 vi = Vietnamese
 hi = Hindi
 ta = Tamil
+ja = Japanese
+ko = Korean
 
 IMPORTANT:
 - segment_id is the source segment number.
@@ -249,7 +257,7 @@ Rules:
 4. Do not add explanations or doctrine.
 5. Do not merge, split or reorder segments.
 6. Keep segment_id unchanged.
-7. Produce all six languages.
+7. Produce all eight target languages.
 8. Translate every language directly from English.
 9. Use natural spoken language suitable for TTS.
 10. Follow LOCKED glossary mappings when a target mapping exists.
@@ -277,6 +285,8 @@ def _qa_prompt(batch, rows):
             "vi": row["vi"],
             "hi": row["hi"],
             "ta": row["ta"],
+            "ja": row["ja"],
+            "ko": row["ko"],
         })
 
     return f"""
@@ -289,6 +299,8 @@ id Indonesian
 vi Vietnamese
 hi Hindi
 ta Tamil
+ja Japanese
+ko Korean
 
 Only report genuine translation failures:
 - important meaning missing
@@ -366,7 +378,7 @@ def _checkpoint_payload(
     return {
         "version": 1,
         "task_id": task_id,
-        "engine": "gemini-six-language-shadow",
+        "engine": "gemini-eight-target-language-shadow",
         "model": MODEL,
         "source_fingerprint": source_hash,
         "source_segments": source_count,
