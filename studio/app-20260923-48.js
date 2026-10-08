@@ -1481,7 +1481,7 @@ function captureStateInfo(task,kind,files){
       label:partial ? "部分完成" : "已抓取完成",
       detail:message || (
         kind==="cc"
-          ? (ccDone===ccTotal ? "7/7 語純逐字稿已齊全。" : ccDetail)
+          ? (ccDone===ccTotal ? "9/9 語純逐字稿已齊全。" : ccDetail)
           : list.length
             ? "雲端目前有 "+list.length+" 個音檔。"
             : "工作已完成，正在同步雲端檔案。"
@@ -1517,7 +1517,7 @@ function captureStateInfo(task,kind,files){
   }
   if(kind==="cc"){
     if(ccDone===ccTotal){
-      return {key:"complete",label:"已抓取完成",detail:"7/7 語純逐字稿已齊全。"};
+      return {key:"complete",label:"已抓取完成",detail:"9/9 語純逐字稿已齊全。"};
     }
     if(ccDone>0){
       return {key:"partial",label:"部分完成",detail:ccDetail};
