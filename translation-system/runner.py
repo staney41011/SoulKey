@@ -1,6 +1,8 @@
 import argparse
 import re
 import shutil
+import subprocess
+import wave
 import sys
 import traceback
 from datetime import datetime
@@ -20,7 +22,9 @@ from config import (
 )
 from google_io import (
     build_google_services,
+    download_drive_file,
     extract_drive_id,
+    find_file,
     read_values,
     require_child_folder,
     update_cells,
@@ -163,11 +167,55 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         note="使用 YouTube Cookies 下載音訊並進行 ASR",
     )
 
-    print("[SOURCE] 使用 YouTube + Cookies 直接取得音訊")
-    audio_path, download_meta = download_audio(youtube_url, workdir)
+    # A trusted audio file already uploaded into this lesson's source folder
+    # bypasses Kaggle's YouTube egress bot check without accessing browser
+    # cookies. This is optional: ordinary lessons retain YouTube-first.
+    audio_path = None
+    download_meta = {}
+    for extension in ("webm", "m4a", "mp3", "wav"):
+        canonical = "source_audio." + extension
+        item = find_file(drive, folders["source"], canonical)
+        if not item:
+            continue
+        workdir.mkdir(parents=True, exist_ok=True)
+        source_file = workdir / canonical
+        print(f"[SOURCE] Google Drive 預存音訊：{canonical}", flush=True)
+        download_drive_file(drive, item["id"], source_file)
+        normalized = workdir / "audio_16k_mono.wav"
+        subprocess.run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(source_file), "-ac", "1", "-ar", "16000",
+            str(normalized),
+        ], check=True)
+        with wave.open(str(normalized), "rb") as reader:
+            duration = reader.getnframes() / float(reader.getframerate())
+        if duration < 60:
+            raise RuntimeError(
+                f"Drive 預存音訊太短（{duration:.1f} 秒），"
+                "不能當作完整課程音軌。"
+            )
+        download_meta = {
+            "source_type": "drive_cached_audio",
+            "webpage_url": youtube_url,
+            "title": task.get("title") or "",
+            "lecturer": task.get("lecturer") or "",
+            "duration": duration,
+            "auto_cc_paths": {},
+        }
+        audio_path = normalized
+        print(
+            f"[SOURCE] 已驗證預存完整音訊 duration={duration:.0f}s，"
+            "略過 YouTube 下載與過期 Cookies。",
+            flush=True,
+        )
+        break
+
+    if audio_path is None:
+        print("[SOURCE] 使用 YouTube + Cookies 直接取得音訊")
+        audio_path, download_meta = download_audio(youtube_url, workdir)
 
     metadata = dict(metadata or {})
-    download_meta["source_type"] = "youtube"
+    download_meta.setdefault("source_type", "youtube")
 
     title = str(download_meta.get("title") or task.get("title") or "").strip()
     lecturer = str(download_meta.get("lecturer") or task.get("lecturer") or "").strip()
@@ -182,7 +230,7 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         title=task.get("title") or "",
         lecturer=task.get("lecturer") or "",
         updated_at=now_text(),
-        note="YouTube 音訊與 metadata 單次取得完成；開始 ASR",
+        note="已取得音訊（"+download_meta["source_type"]+"）；開始 ASR",
     )
 
     metadata.update({
@@ -289,7 +337,7 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         asr="完成",
         updated_at=now_text(),
         note=(
-            f"ASR完成；來源=YouTube Cookies；"
+            f"ASR完成；來源={download_meta['source_type']}；"
             f"{result['segment_count']}段；音訊長度={duration_text}；"
             f"AutoCC={','.join(uploaded_cc_languages) if uploaded_cc_languages else '無'}"
         ),
