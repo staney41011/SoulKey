@@ -15,7 +15,8 @@ NVIDIA_TRANSLATE_MODEL = os.getenv(
 )
 
 # NVIDIA Riva Translate v2 supports these four SoulKey targets.
-# Hindi (hi) and Tamil (ta) are intentionally excluded.
+# Hindi (hi), Tamil (ta), Japanese (ja), and Korean (ko) are excluded;
+# Gemini handles languages not available in NVIDIA's supported target list.
 SUPPORTED_TARGETS = {"th", "es", "id", "vi"}
 
 
