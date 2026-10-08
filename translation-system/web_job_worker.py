@@ -417,6 +417,67 @@ def main():
                 "--langs", langs,
             ]
 
+        def verify_zh_review_outputs():
+            """Treat success as real only if Drive has nonempty ASR and polish JSON.
+
+            Earlier workers could announce needs_review after runners silently
+            skipped a task absent from the sheet, leaving four blank editors.
+            """
+            from tempfile import TemporaryDirectory
+            if str(system_dir) not in sys.path:
+                sys.path.insert(0, str(system_dir))
+            from config import SPREADSHEET_ID, TASK_SHEET_RANGE
+            from google_io import (
+                build_google_services, read_values, find_file, download_drive_file,
+            )
+            from lesson_paths import resolve_lesson_folders
+            from runner import row_to_task
+
+            drive, sheets = build_google_services()
+            raw_rows = read_values(sheets, SPREADSHEET_ID, TASK_SHEET_RANGE)
+            matches = [
+                row_to_task(row, index)
+                for index, row in enumerate(raw_rows, start=2)
+                if str(row[0] if row else "").strip() == args.task_id
+            ]
+            if not matches:
+                raise RuntimeError(
+                    f"中文定稿前置驗收失敗：中央控制表不存在任務 {args.task_id}"
+                )
+            task = matches[0]
+            folders = resolve_lesson_folders(
+                drive, sheets, int(task["period"]), task["lesson"]
+            )
+            with TemporaryDirectory(prefix="soulkey-zh-review-qa-") as temp:
+                counts = {}
+                for filename in ("segments.json", "polish_report.json"):
+                    item = find_file(drive, folders["transcript"], filename)
+                    if not item:
+                        raise RuntimeError(
+                            f"{args.task_id} 尚未產生 01_中文逐字稿/{filename}；"
+                            "禁止回報人工定稿已就緒"
+                        )
+                    local = Path(temp) / filename
+                    download_drive_file(drive, item["id"], local)
+                    data = json.loads(local.read_text(encoding="utf-8"))
+                    segments = data.get("segments") or []
+                    nonempty = [
+                        row for row in segments
+                        if str(row.get("text") or "").strip()
+                    ]
+                    if not nonempty:
+                        raise RuntimeError(
+                            f"{args.task_id}/{filename} 不含有效逐字稿；"
+                            "禁止回報人工定稿已就緒"
+                        )
+                    counts[filename] = len(nonempty)
+                print(
+                    f"[ZH-REVIEW VERIFIED] {args.task_id} "
+                    f"ASR={counts['segments.json']} "
+                    f"polished={counts['polish_report.json']}",
+                    flush=True,
+                )
+
         elif args.stage == "zh":
             try:
                 run_taiwan_breeze_asr()
@@ -429,6 +490,7 @@ def main():
                 run_gemini_source_fallback()
 
             polish_engine = run_polish_with_local_fallback()
+            verify_zh_review_outputs()
             report(
                 args.bridge_url,
                 args.runtime_nonce,
