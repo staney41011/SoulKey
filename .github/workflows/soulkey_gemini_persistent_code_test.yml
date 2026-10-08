@@ -8,6 +8,7 @@ on:
       - "translation-system/gemini_checkpoint.py"
       - "translation-system/lesson_paths.py"
       - "translation-system/gemini_source_runner.py"
+      - "translation-system/tests/test_gemini_video_fallback.py"
       - "translation-system/gemini_text_production_runner.py"
       - "translation-system/gemini_multi_production_runner.py"
       - "translation-system/nvidia_translate.py"
@@ -43,6 +44,9 @@ jobs:
             translation-system/web_job_worker.py \
             translation-system/tts_runner.py \
             translation-system/tts_engine.py
+
+      - name: Gemini video overload fallback regression
+        run: python translation-system/tests/test_gemini_video_fallback.py
 
       - name: NVIDIA second-opinion offline contract
         working-directory: translation-system
