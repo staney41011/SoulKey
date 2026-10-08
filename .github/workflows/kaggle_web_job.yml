@@ -294,7 +294,7 @@ jobs:
             # this infrastructure startup failure with the SAME runtime nonce.
             ATTEMPT_ELAPSED=$(( $(date +%s) - ATTEMPT_STARTED_AT ))
             COMPACT_LOG="$(printf '%s' "$ATTEMPT_LOG" | tr -d '[:space:]')"
-            if [[ "$STAGE" =~ ^(zh|asr|tts)$ ]] \
+            if [[ "$STAGE" =~ ^(zh|asr)$ ]] \
                && [ "$ATTEMPT_STATUS" = "ERROR" ] \
                && [ "$ATTEMPT_ELAPSED" -lt 120 ] \
                && { [ -z "$COMPACT_LOG" ] || [ "$COMPACT_LOG" = "[]" ]; }; then
