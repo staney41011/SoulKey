@@ -1,0 +1,111 @@
+name: SoulKey P256 Lessons 2-4 Sequential Natural TTS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/p256_l02_l04_tts_sequence.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-p256-l02-l04-natural-tts
+  cancel-in-progress: false
+
+jobs:
+  lesson2:
+    if: contains(github.event.head_commit.message, 'Launch P256 L02-L04 sequential TTS')
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        lang: [en, th, es, id, vi, hi, ta]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Edge TTS + FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.2.8"
+      - name: Generate P256-L02 audio from existing approved translation
+        run: |
+          python -u translation-system/tts_sequential_recovery.py \
+            --task-id P256-L02 --lang "${{ matrix.lang }}" \
+            --output-dir tts-sequence-output
+      - name: Save P256-L02 audio artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: P256-L02-${{ matrix.lang }}-natural-tts
+          path: tts-sequence-output/deliver/*
+          if-no-files-found: error
+          retention-days: 30
+
+  lesson3:
+    needs: lesson2
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        lang: [en, th, es, id, vi, hi, ta]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Edge TTS + FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.2.8"
+      - name: Generate P256-L03 audio from existing approved translation
+        run: |
+          python -u translation-system/tts_sequential_recovery.py \
+            --task-id P256-L03 --lang "${{ matrix.lang }}" \
+            --output-dir tts-sequence-output
+      - name: Save P256-L03 audio artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: P256-L03-${{ matrix.lang }}-natural-tts
+          path: tts-sequence-output/deliver/*
+          if-no-files-found: error
+          retention-days: 30
+
+  lesson4:
+    needs: lesson3
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        lang: [en, th, es, id, vi, hi, ta]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Edge TTS + FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.2.8"
+      - name: Generate P256-L04 audio from existing approved translation
+        run: |
+          python -u translation-system/tts_sequential_recovery.py \
+            --task-id P256-L04 --lang "${{ matrix.lang }}" \
+            --output-dir tts-sequence-output
+      - name: Save P256-L04 audio artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: P256-L04-${{ matrix.lang }}-natural-tts
+          path: tts-sequence-output/deliver/*
+          if-no-files-found: error
+          retention-days: 30
