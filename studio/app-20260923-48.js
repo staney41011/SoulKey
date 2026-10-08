@@ -428,7 +428,7 @@ function remoteStageStatus(task, stageKey){
     // 不可固定優先讀 ASR/error，否則舊失敗會蓋掉較新的重跑 queued/running。
     const candidates=["metadata","asr","polish"]
       .map(key=>stages[key] ? normalizeRemoteStatus({...stages[key],stage:"zh",_sourceStage:key}) : null)
-      .filter(item=>item && ["queued","running","error","stale"].includes(item.status));
+      .filter(item=>item && ["queued","running","delayed","error","stale"].includes(item.status));
 
     if(candidates.length){
       const stamp=item=>{
@@ -528,8 +528,10 @@ function normalizeRemoteStatus(item){
   if(["queued","running"].includes(copy.status) && copy.updated_at){
     const ts=Date.parse(String(copy.updated_at).replace(" ","T"));
     if(Number.isFinite(ts) && Date.now()-ts > 30*60*1000){
-      copy.status="stale";
-      copy.message=(copy.message ? copy.message+"；" : "")+"超過 30 分鐘未更新，可重新執行";
+      // A stale timestamp is NOT proof of an upstream data change.
+      // Reserve "stale" for actual dependency invalidation from backend.
+      copy.status="delayed";
+      copy.message=(copy.message ? copy.message+"；" : "")+"超過30分鐘未更新，請先查看 GitHub Actions，勿重複送出";
     }
   }
   return copy;
@@ -543,7 +545,8 @@ function remoteStatusText(status){
     needs_review:"待人工確認",
     done:"完成",
     error:"執行失敗",
-    stale:"上游已變更，需重跑"
+    stale:"上游資料已失效，需檢查",
+    delayed:"長時間未回報，先查Kaggle"
   };
   return map[status] || status || "";
 }
@@ -562,7 +565,7 @@ function activeRemoteStatus(task){
   for(const stage of workflow){
     const item=remoteStageStatus(task,stage.key);
     if(!item) continue;
-    if(["queued","running","needs_review","error","stale"].includes(item.status)){
+    if(["queued","running","delayed","needs_review","error","stale"].includes(item.status)){
       return item;
     }
   }
@@ -1039,7 +1042,7 @@ function renderTasks(){
             '<span class="muted">'+escapeHtml(
               remoteActive
                 ? remoteStatusText(remoteActive.status)+
-                  (remoteActive.progress ? " "+remoteActive.progress+"%" : "")
+                  (remoteActive.status!=="delayed" && remoteActive.progress ? " "+remoteActive.progress+"%" : "")
                 : t.status
             )+'</span>'+
           '</div>'+
@@ -1900,6 +1903,7 @@ function stageState(task,index){
     if(remote.status==="done") return "done";
     if(remote.status==="running") return "running";
     if(remote.status==="queued") return "queued";
+    if(remote.status==="delayed") return "running";
     if(remote.status==="needs_review") return "needs-review";
     if(remote.status==="error") return "error";
     if(remote.status==="stale") return "stale";
