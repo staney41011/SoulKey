@@ -355,7 +355,10 @@ def main():
         tasks.append(task)
 
     if not tasks:
-        print("沒有可處理的任務。")
+        message = ("找不到任務：" + str(args.task_id)) if args.task_id else "沒有可處理的任務。"
+        print("[ERROR] " + message, file=sys.stderr)
+        if args.task_id:
+            raise RuntimeError(message)
         return 0
 
     processed = 0
