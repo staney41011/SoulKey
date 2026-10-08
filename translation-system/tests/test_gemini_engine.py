@@ -141,11 +141,32 @@ class GeminiEngineTest(unittest.TestCase):
             "",
         )
 
+    def test_japanese_and_korean_script_guard(self):
+        source = "We should practice kindness and respect every person."
+        self.assertEqual(
+            local_language_issue("私たちはすべての人を尊重し、親切を実践すべきです。", source, "ja"),
+            "",
+        )
+        self.assertEqual(
+            local_language_issue("우리는 모든 사람을 존중하며 친절을 실천해야 합니다.", source, "ko"),
+            "",
+        )
+        self.assertEqual(
+            local_language_issue("We must respect everyone.", source, "ja"),
+            "missing_target_script",
+        )
+        self.assertEqual(
+            local_language_issue("We must respect everyone.", source, "ko"),
+            "missing_target_script",
+        )
+
     def test_script_guard_allows_numeric_only_fragments(self):
         for lang, text in [
             ("th", "7."),
             ("hi", "७."),
             ("ta", "7."),
+            ("ja", "7."),
+            ("ko", "7."),
         ]:
             self.assertEqual(
                 local_language_issue(text, "7.", lang),
