@@ -83,6 +83,7 @@ function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
 const REVIEW_CACHE_PREFIX = "soulkey_review_cache_v1:";
 const reviewRequestStartedAt = {};
 const reviewCacheSeedRequested = new Set();
+const englishCacheSeedRequested = new Set();
 
 function reviewCacheKey(taskId,kind){
   return REVIEW_CACHE_PREFIX+String(taskId||"")+":"+String(kind||"");
@@ -4297,6 +4298,14 @@ window.addEventListener("message",event=>{
       renderVernacularReview(data.segments||[]);
     }else if(data.kind==="en"){
       renderEnglishReview(data.segments||[]);
+      // For earlier Drive-completed lessons, seed a separate GitHub /en.json
+      // only once. Future opening is fast and will not touch Chinese /zh.json.
+      if(bridgeAuthenticated && data.task_id &&
+         Array.isArray(data.segments) && data.segments.length &&
+         !englishCacheSeedRequested.has(data.task_id)){
+        englishCacheSeedRequested.add(data.task_id);
+        submitBridgePost({action:"review_cache_seed_en",task_id:data.task_id});
+      }
     }
   }
 
