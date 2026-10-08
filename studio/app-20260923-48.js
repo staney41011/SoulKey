@@ -147,6 +147,8 @@ function reviewElapsedMs(taskId,kind,chunkIndex=0){
 }
 
 let tasks = load(STORE.tasks, []);
+// Local browser drafts cannot launch cloud workers until centrally confirmed.
+let confirmedRemoteTaskIds = new Set();
 let terms = load(STORE.terms, seedTerms);
 let languageSettings = [
   {code:"en",name:"English",can_ai_translate:false,can_tts:true},
@@ -569,6 +571,7 @@ function activeRemoteStatus(task){
 
 function mergeRemoteTasks(remoteTasks){
   if(!Array.isArray(remoteTasks)) return;
+  confirmedRemoteTaskIds = new Set(remoteTasks.map(t=>String(t.id||"")));
 
   const localById=Object.fromEntries(tasks.map(t=>[t.id,t]));
   const merged=remoteTasks.map(remote=>{
@@ -585,9 +588,12 @@ function mergeRemoteTasks(remoteTasks){
     return task;
   });
 
-  // Preserve local drafts that have not reached the sheet yet.
+  // Preserve drafts for recovery, but label as unsynced.
   tasks.forEach(local=>{
-    if(!merged.some(x=>x.id===local.id)) merged.push(local);
+    if(!merged.some(x=>x.id===local.id)){
+      local.status="本機草稿：尚未同步中央控制表";
+      merged.push(local);
+    }
   });
 
   tasks=merged;
@@ -1011,6 +1017,7 @@ function renderTasks(){
       const t=normalizeTask(raw);
       const next=nextStageFor(t);
       const complete=!next;
+      const cloudConfirmed=confirmedRemoteTaskIds.has(t.id);
       const remoteActive=activeRemoteStatus(t);
       const nextRemote=next ? remoteStageStatus(t,next.key) : null;
       const failureReason=remoteErrorReason(remoteActive);
@@ -1027,7 +1034,7 @@ function renderTasks(){
           taskProgressHtml(t)+
           '<div class="course-stage-line">'+
             '<span class="badge '+(complete?"complete":"")+'">'+
-              (complete?"全部完成":"下一步："+escapeHtml(next.label))+
+              (!cloudConfirmed?"本機草稿（尚未同步）":complete?"全部完成":"下一步："+escapeHtml(next.label))+
             '</span>'+
             '<span class="muted">'+escapeHtml(
               remoteActive
@@ -1048,8 +1055,10 @@ function renderTasks(){
             (!(remoteStageStatus(t,"zh") && ["needs_review","done"].includes(remoteStageStatus(t,"zh").status)) ? "disabled" : "")+
             '>快速流程</button>'+
           '<button class="primary task-next-btn" data-next-task="'+escapeHtml(t.id)+'" '+
-            (complete || (nextRemote && ["queued","running"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
-            (complete
+            (complete || !cloudConfirmed || (nextRemote && ["queued","running"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
+            (!cloudConfirmed
+              ? "等待雲端同步"
+              : complete
               ? "已完成"
               : nextRemote && nextRemote.status==="running"
                 ? "執行中 "+(nextRemote.progress||"")+"%"
@@ -2417,6 +2426,11 @@ function openTaskReview(taskId){
 function confirmNextStage(taskId){
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
+  if(!confirmedRemoteTaskIds.has(taskId)){
+    alert("此課程尚未在 Google Sheets 中央控制表確認建立。\n\n請重新連線控制中心，並從「建立任務」重新送出課程網址，確認同步後再執行 Kaggle。");
+    requestTasksFromControlCenter();
+    return;
+  }
   normalizeTask(task);
   const next=nextStageFor(task);
   if(!next) return;
@@ -2610,7 +2624,7 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
   save(STORE.tasks,tasks);
   renderTasks();
 
-  submitBridgePost({
+  const sentToCloud=submitBridgePost({
     action:"tasks_upsert",
     tasks_json:JSON.stringify(created.map(t=>({
       id:t.id,
@@ -2622,6 +2636,14 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
     })))
   });
 
+  if(!sentToCloud){
+    alert("課程已暫存在本機，但中央控制表尚未收到。\n\n請連線控制中心並重新按儲存；不要啟動 Kaggle。");
+    return;
+  }
+  created.forEach(t=>t.status="本機草稿：等待 Google Sheets 確認");
+  save(STORE.tasks,tasks);
+  renderTasks();
+
   // 只清除本次填寫內容，保留期數，方便同一期分批補課程。
   for(const entry of entries){
     document.getElementById("youtube-url-"+entry.lessonNo).value="";
@@ -2630,11 +2652,7 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
   document.getElementById("period").value=period;
   updateTaskCodes();
 
-  alert(
-    "第 "+period+" 期本次已建立／更新 "+created.length+" 堂課：\n"+
-    created.map(t=>"• "+t.id+" "+t.lesson).join("\n")+
-    "\n\n其他堂課可以之後再回來補，不需要一次填滿四堂。"
-  );
+  alert("第 "+period+" 期課程已送出雲端同步。\n\n尚未確認建立成功；請等待中央控制表回覆，確認前不能執行 Kaggle。");
   showView("dashboard");
 });
 
@@ -4034,6 +4052,18 @@ window.addEventListener("message",event=>{
     }
     if(syncText){
       syncText.textContent="Bridge 錯誤："+reason;
+    }
+  }
+
+  if(data.type==="tasks_saved"){
+    if(data.ok){
+      const saved=Array.isArray(data.tasks) ? data.tasks : [];
+      saved.forEach(item=>confirmedRemoteTaskIds.add(String(item.id||"")));
+      requestTasksFromControlCenter();
+      if(saved.length) alert("Google Sheets 中央控制表已確認建立 "+saved.length+" 堂課。其他裝置同步後即可看到。");
+    }else{
+      alert("中央控制表儲存失敗，課程目前只存在本機："+String(data.message||data.error||"未知錯誤")+"\n\n請保留 YouTube 網址並重試，勿啟動 Kaggle。");
+      renderTasks();
     }
   }
 
