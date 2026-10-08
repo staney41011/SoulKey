@@ -38,6 +38,18 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("bridgeProtocolVersion<=0", quick)
         self.assertIn("Apps Script Bridge 版本過舊", worker)
 
+    def test_asr_prefers_verified_drive_audio_over_expired_youtube_cookies(self):
+        runner = read("translation-system/runner.py")
+        self.assertIn('for extension in ("webm", "m4a", "mp3", "wav")', runner)
+        self.assertIn('canonical = "source_audio." + extension', runner)
+        self.assertIn('item = find_file(drive, folders["source"], canonical)', runner)
+        self.assertIn("download_drive_file(drive, item", runner)
+        self.assertIn('"source_type": "drive_cached_audio"', runner)
+        self.assertIn("if duration < 60:", runner)
+        self.assertIn('if audio_path is None:', runner)
+        self.assertIn("audio_path, download_meta = download_audio(", runner)
+        self.assertIn('"audio_16k_mono.wav"', runner)
+
     def test_youtube_cc_keeps_chinese_on_asr_and_writes_readable_files(self):
         youtube_io = read("translation-system/youtube_io.py")
         cc_runner = read("translation-system/cc_runner.py")
