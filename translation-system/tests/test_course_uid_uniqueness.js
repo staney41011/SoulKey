@@ -139,6 +139,38 @@ assert.equal(vm.runInContext("chineseFinalForEnglishTimeRange_",sandbox)(
 ),"人生忙碌是為了什麼？");
 console.log("PASS: English grouped paragraphs show all Chinese Final sentences by time");
 
+// English cache must be a separate en.json built from the FULL Chinese Final.
+let publishedEnglishCache=null;
+sandbox.lessonFolders_=()=>({transcript:"transcript",translation:"translation"});
+sandbox.readJsonFile_=(folder,name)=>{
+  if(folder==="transcript" && name==="zh-TW.final.json"){
+    return {finalized_at:"2026-10-08T10:40:38Z",segments:sourceChinese};
+  }
+  if(folder==="translation" && name==="en.final.json"){
+    return {finalized_at:"2026-10-08T15:44:20Z",segments:[
+      {id:0,start:0,end:41.41,text:"English paragraph 1"},
+      {id:1,start:42.05,end:57.39,text:"English paragraph 2"}
+    ]};
+  }
+  return null;
+};
+sandbox.formatPlainTime_=(seconds)=>"00:"+String(Math.floor(seconds));
+sandbox.publishEnglishReviewCachePayload_=(taskId,payload)=>{
+  publishedEnglishCache={taskId,payload};return {ok:true};
+};
+vm.runInContext(pickFunction("seedEnglishReviewCache_"),sandbox);
+const seeded=vm.runInContext("seedEnglishReviewCache_",sandbox)("P257-L02");
+assert.equal(seeded.ok,true);
+assert.equal(publishedEnglishCache.taskId,"P257-L02");
+assert.equal(publishedEnglishCache.payload.segments.length,2);
+assert.equal(publishedEnglishCache.payload.segments[0].text,
+  sourceChinese.slice(0,5).map(x=>x.text).join(""));
+assert.equal(publishedEnglishCache.payload.segments[0].en_text,"English paragraph 1");
+assert.equal(publishedEnglishCache.payload.en_finalized_at,"2026-10-08T15:44:20Z");
+assert.ok(source.includes('"studio-review-cache/" + taskId + "/en.json"'),
+  "English snapshots must use separate en.json instead of replacing zh.json");
+console.log("PASS: English cache seeds two complete bilingual paragraphs without corrupting zh.json");
+
 console.log("PASS: duplicated historical UIDs repaired");
 console.log("PASS: two new tasks with stale local UID receive different server IDs");
 console.log("PASS: existing task UID stable and reused legacy IDs cannot overwrite it");
