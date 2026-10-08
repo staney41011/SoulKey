@@ -221,6 +221,7 @@ jobs:
             echo "Kaggle attempt $ATTEMPT / $MAX_ATTEMPTS"
             echo "============================================================"
 
+            ATTEMPT_STARTED_AT="$(date +%s)"
             if [[ "$STAGE" == "batch" ]]; then
               echo "Launching Kaggle batch with NvidiaTeslaT4 accelerator; timeout=14400s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
@@ -286,6 +287,25 @@ jobs:
                 sleep 20
                 continue
               fi
+            fi
+
+            # A short-lived Kaggle ERROR with an entirely empty kernel log
+            # happens before Python/ASR can provide diagnostic output. Retry
+            # this infrastructure startup failure with the SAME runtime nonce.
+            ATTEMPT_ELAPSED=$(( $(date +%s) - ATTEMPT_STARTED_AT ))
+            COMPACT_LOG="$(printf '%s' "$ATTEMPT_LOG" | tr -d '[:space:]')"
+            if [[ "$STAGE" =~ ^(zh|asr|tts)$ ]] \
+               && [ "$ATTEMPT_STATUS" = "ERROR" ] \
+               && [ "$ATTEMPT_ELAPSED" -lt 120 ] \
+               && { [ -z "$COMPACT_LOG" ] || [ "$COMPACT_LOG" = "[]" ]; }; then
+              echo "[KAGGLE STARTUP] $STAGE failed after $ATTEMPT_ELAPSED seconds with no kernel log; worker did not confirm startup."
+              if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+                RETRY_DELAY=$((20 * ATTEMPT))
+                echo "[KAGGLE STARTUP] Waiting $RETRY_DELAY seconds before GPU retry, attempt $((ATTEMPT + 1))/$MAX_ATTEMPTS."
+                sleep "$RETRY_DELAY"
+                continue
+              fi
+              echo "[KAGGLE STARTUP] Retries exhausted; infrastructure failed before ASR."
             fi
 
             # Batch jobs are checkpoint-safe. Any worker failure can be resumed
