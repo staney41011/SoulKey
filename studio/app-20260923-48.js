@@ -9,12 +9,13 @@ const STORE = {
 const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
-const STATUS_POLL_MS = 12000;
+const STATUS_POLL_MS = 30000;
 const REQUIRED_BRIDGE_PROTOCOL = 9;
 let bridgeProtocolVersion = 0;
 const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache").replace(/\/$/,"");
 const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
+let bridgeAuthenticated = false; // true only after verified health AND central tasks are loaded
 let youtubeCookiesConfigured = null;
 let reviewYouTubePlayer = null;
 let reviewYouTubeVideoId = "";
@@ -146,7 +147,7 @@ function reviewElapsedMs(taskId,kind,chunkIndex=0){
   return started ? Math.max(0,performance.now()-started) : 0;
 }
 
-let tasks = load(STORE.tasks, []);
+let tasks = []; // Never expose or edit browser-only lessons before central authentication.
 // Local browser drafts cannot launch cloud workers until centrally confirmed.
 let confirmedRemoteTaskIds = new Set();
 let terms = load(STORE.terms, seedTerms);
@@ -257,12 +258,13 @@ function syncStudioNow(){
     return false;
   }
 
+  bridgeAuthenticated=false;
+  confirmedRemoteTaskIds=new Set();
   sessionStorage.setItem(BRIDGE_SESSION_KEY,key);
-  setDashboardBridgeState("正在讀取中央控制中心…","working");
-  initBridgeClient();
+  setDashboardBridgeState("正在驗證控制中心，再讀取正式課程…","working");
+  // A single health probe first. Previously 3 JSONP calls plus iframe
+  // duplicated tasks/status/language requests and delayed the dashboard.
   requestStatusHealth();
-  requestLanguageSettings();
-  requestTasksFromControlCenter();
   return true;
 }
 
@@ -289,6 +291,10 @@ function applyLatestPeriodToNewTask(){
 }
 
 function showView(name, options={}){
+  if(name!=="dashboard" && !bridgeAuthenticated){
+    setDashboardBridgeState("請先完成控制中心連線驗證，才能開啟課程或修改資料。","error");
+    name="dashboard";
+  }
   const {fromBack=false, replace=false}=options;
   if(!document.getElementById("view-"+name)) return;
 
@@ -576,7 +582,7 @@ function mergeRemoteTasks(remoteTasks){
   if(!Array.isArray(remoteTasks)) return;
   confirmedRemoteTaskIds = new Set(remoteTasks.map(t=>String(t.id||"")));
 
-  const localById=Object.fromEntries(tasks.map(t=>[t.id,t]));
+  const localById=Object.fromEntries(load(STORE.tasks,[]).map(t=>[t.id,t]));
   const merged=remoteTasks.map(remote=>{
     const local=localById[remote.id] || {};
     const task={
@@ -591,14 +597,8 @@ function mergeRemoteTasks(remoteTasks){
     return task;
   });
 
-  // Preserve drafts for recovery, but label as unsynced.
-  tasks.forEach(local=>{
-    if(!merged.some(x=>x.id===local.id)){
-      local.status="本機草稿：尚未同步中央控制表";
-      merged.push(local);
-    }
-  });
-
+  // Central control sheet is authoritative. Browser-only drafts never
+  // reappear as actionable lessons and can never be reuploaded implicitly.
   tasks=merged;
   if(!selectedPeriod && tasks.length){
     selectedPeriod=Math.max(...tasks.map(x=>Number(x.period)||0));
@@ -608,7 +608,8 @@ function mergeRemoteTasks(remoteTasks){
 }
 
 function requestTasksFromControlCenter(){
-  const sent=jsonpBridgeRequest({action:"tasks_get"});
+  const sent=bridgeProtocolVersion>=REQUIRED_BRIDGE_PROTOCOL
+    ? jsonpBridgeRequest({action:"tasks_get"}) : false;
   if(!sent){
     const el=document.getElementById("task-list");
     const select=document.getElementById("dashboard-period");
@@ -1006,8 +1007,10 @@ function renderTasks(){
 
   renderPeriodSelector();
 
-  if(!tasks.length){
-    el.innerHTML='<div class="empty">尚無任務。到「建立任務」輸入一期四堂課的 YouTube 網址。</div>';
+  if(!bridgeAuthenticated){
+    el.innerHTML='<div class="empty">請先連線控制中心並完成驗證；未連線時禁止建立或修改課程。</div>';
+  }else if(!tasks.length){
+    el.innerHTML='<div class="empty">中央控制表尚無任務。連線後可在「建立任務」新增課程。</div>';
   }else if(!tasksForSelectedPeriod().length){
     el.innerHTML='<div class="empty">這一期目前沒有課程任務。</div>';
   }else{
@@ -1071,9 +1074,7 @@ function renderTasks(){
                     ? "重新執行"
                     : "執行下一步")+
           '</button>'+
-          (!cloudConfirmed
-            ? '<button class="ghost" data-sync-task="'+escapeHtml(t.id)+'">同步至中央</button>'
-            : '')+
+          ''+
         '</div>'+
       '</article>';
     }).join("");
@@ -1106,33 +1107,7 @@ function renderTasks(){
       });
     });
 
-    // Restore an unsynced lesson using its existing local YouTube URL.
-    document.querySelectorAll("[data-sync-task]").forEach(btn=>{
-      btn.addEventListener("click",e=>{
-        e.stopPropagation();
-        const task=tasks.find(t=>t.id===btn.dataset.syncTask);
-        if(!task || !task.period || !task.lesson || !task.url) return;
-        if(!confirm("將 "+task.id+" 的課程網址重新寫入 Google Sheets 中央控制表？")) return;
-        const sent=submitBridgePost({
-          action:"tasks_upsert",
-          tasks_json:JSON.stringify([{
-            id:task.id,
-            period:task.period,
-            lesson:task.lesson,
-            url:task.url,
-            note:task.note||"",
-            course_uid:task.course_uid||""
-          }])
-        });
-        if(!sent){
-          alert("控制中心尚未連線。請先確認 Bridge Key，再重新按「同步至中央」。");
-          return;
-        }
-        task.status="本機草稿：正在重新同步 Google Sheets";
-        save(STORE.tasks,tasks);
-        renderTasks();
-      });
-    });
+
   }
 
   document.getElementById("stat-tasks").textContent=tasks.length;
@@ -2582,6 +2557,11 @@ document.getElementById("period").addEventListener("input",updateTaskCodes);
 
 document.getElementById("task-form").addEventListener("submit",async e=>{
   e.preventDefault();
+  if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+    alert("請先在總覽連線控制中心並完成驗證。未連線不能新增、修改或暫存課程。");
+    showView("dashboard");
+    return;
+  }
 
   const period=Number(document.getElementById("period").value);
   const note=document.getElementById("task-note").value.trim();
@@ -2672,7 +2652,7 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
   });
 
   if(!sentToCloud){
-    alert("課程已暫存在本機，但中央控制表尚未收到。\n\n請連線控制中心並重新按儲存；不要啟動 Kaggle。");
+    alert("中央儲存尚未確認，請保留原始網址後重新連線確認；未送出本機修改。");
     return;
   }
   created.forEach(t=>t.status="本機草稿：等待 Google Sheets 確認");
@@ -3843,7 +3823,11 @@ function submitBridgePost(fields){
   const endpoint=bridgeEndpointValue();
   const key=bridgeKeyValue();
 
-  if(!endpoint || !key) return false;
+  if(!endpoint || !key || !bridgeAuthenticated ||
+     bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
+    setDashboardBridgeState("控制中心尚未驗證；已禁止所有儲存與修改。","error");
+    return false;
+  }
 
   if(fields && fields.action==="run_stage"){
     if(bridgeProtocolVersion<=0){
@@ -4005,6 +3989,7 @@ function applyRemoteStatuses(payload){
 }
 
 function requestTaskStatuses(){
+  if(!bridgeAuthenticated) return false;
   const key=bridgeKeyValue();
   const endpoint=bridgeEndpointValue();
   if(!key || !endpoint || !tasks.length) return false;
@@ -4067,6 +4052,12 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="bridge_error"){
+    if(data.error==="unauthorized"){
+      bridgeAuthenticated=false;
+      confirmedRemoteTaskIds.clear();
+      tasks=[];
+      renderTasks();
+    }
     const reason=data.message || data.error || "未知錯誤";
     if(currentView==="youtube-audio" && youtubeCaptureFilesLoadingTask){
       const badge=document.getElementById("youtube-capture-files-state");
@@ -4109,6 +4100,7 @@ window.addEventListener("message",event=>{
         apiState.textContent="任務已同步";
         apiState.className="ok";
       }
+      bridgeAuthenticated=true; // first verified central snapshot
       mergeRemoteTasks(data.tasks||[]);
       const backendText=document.getElementById("backend-text");
       const backendDot=document.querySelector(".backend-pill .status-dot");
@@ -4558,15 +4550,17 @@ window.addEventListener("message",event=>{
         }
       }
       if(bridgeProtocolVersion>=REQUIRED_BRIDGE_PROTOCOL){
-        setDashboardBridgeState("控制中心已連線，正在同步任務…","working");
+        setDashboardBridgeState("已驗證控制中心；正在載入正式任務…","working");
       }else{
         setDashboardBridgeState(
           "控制中心可讀取，但 Apps Script 部署版本落後；請重新部署 Code.gs 後再執行新工作。",
           "error"
         );
       }
-      requestLanguageSettings();
-      requestTasksFromControlCenter();
+      if(protocolOk){
+        requestTasksFromControlCenter();
+        requestLanguageSettings();
+      }
     }else if(syncState){
       const reason=data.message || data.error || "未知錯誤";
       syncState.textContent="狀態表連線失敗";
@@ -4671,14 +4665,14 @@ function initStatusPolling(){
   },700);
 
   window.setInterval(()=>{
-    if(!bridgeKeyValue()) return;
+    if(!bridgeAuthenticated) return;
     requestTaskStatuses();
   },STATUS_POLL_MS);
 
   window.setInterval(()=>{
-    if(!bridgeKeyValue()) return;
+    if(!bridgeAuthenticated) return;
     requestTasksFromControlCenter();
-  },60000);
+  },180000);
 }
 function setWorkerStatus(message,state="idle"){
   const box=document.getElementById("web-worker-status");
@@ -4796,7 +4790,7 @@ function initBridgePanel(){
   });
 
   if(savedKey){
-    setDashboardBridgeState("正在自動重新連線中央控制中心…","working");
+    setDashboardBridgeState("已保留 Bridge Key，正在驗證控制中心；驗證前禁止修改。","working");
     window.setTimeout(()=>syncStudioNow(),250);
   }else{
     setDashboardBridgeState("請輸入 Bridge Key 以載入 Google Sheet 任務。","idle");
