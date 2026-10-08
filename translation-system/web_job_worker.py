@@ -431,22 +431,23 @@ def main():
                 build_google_services, read_values, find_file, download_drive_file,
             )
             from lesson_paths import resolve_lesson_folders
-            from runner import row_to_task
-
             drive, sheets = build_google_services()
             raw_rows = read_values(sheets, SPREADSHEET_ID, TASK_SHEET_RANGE)
             matches = [
-                row_to_task(row, index)
-                for index, row in enumerate(raw_rows, start=2)
-                if str(row[0] if row else "").strip() == args.task_id
+                row for row in raw_rows
+                if row and str(row[0]).strip() == args.task_id
             ]
             if not matches:
                 raise RuntimeError(
                     f"中文定稿前置驗收失敗：中央控制表不存在任務 {args.task_id}"
                 )
-            task = matches[0]
+            row = matches[0]
+            if len(row) < 5 or not str(row[4]).strip():
+                raise RuntimeError(
+                    f"中文定稿前置驗收失敗：{args.task_id} 缺少 YouTube 網址"
+                )
             folders = resolve_lesson_folders(
-                drive, sheets, int(task["period"]), task["lesson"]
+                drive, sheets, int(row[1]), str(row[2])
             )
             with TemporaryDirectory(prefix="soulkey-zh-review-qa-") as temp:
                 counts = {}
