@@ -23,12 +23,16 @@ LANGUAGE_NAMES = {
     "vi": "Vietnamese",
     "hi": "Hindi",
     "ta": "Tamil",
+    "ja": "Japanese",
+    "ko": "Korean",
 }
 
 TARGET_SCRIPT_PATTERNS = {
     "th": re.compile(r"[\u0E00-\u0E7F]"),
     "hi": re.compile(r"[\u0900-\u097F]"),
     "ta": re.compile(r"[\u0B80-\u0BFF]"),
+    "ja": re.compile(r"[\u3040-\u30FF]"),
+    "ko": re.compile(r"[\uAC00-\uD7AF\u1100-\u11FF]"),
 }
 
 TRANSLATION_SCHEMA = {
@@ -483,7 +487,7 @@ def local_language_issue(text, source, target_code):
         return "source_text_copied"
 
     # Structural subtitle fragments such as "7.", "2026", timestamps, or
-    # punctuation are language-neutral. Requiring Thai/Hindi/Tamil script for
+    # punctuation are language-neutral. Requiring target-language script for
     # them creates an impossible QA loop even when the translation is exactly
     # correct.
     if not re.search(r"[A-Za-z]", source):
@@ -495,7 +499,7 @@ def local_language_issue(text, source, target_code):
         latin = len(re.findall(r"[A-Za-z]", text))
 
         # A standalone romanized proper name (for example "Qianxian") may
-        # legitimately stay in Latin script in Thai/Hindi/Tamil. Do not force
+        # legitimately stay in Latin script in any translated language. Do not force
         # the model to invent filler words just to satisfy a script counter.
         source_core = source.strip(" .,:;!?()[]{}")
         text_core = text.strip(" .,:;!?()[]{}")
