@@ -56,6 +56,7 @@ jobs:
           node --check studio/app-20260923-48.js
           cp bridge/apps-script/Code.gs /tmp/Code.js
           node --check /tmp/Code.js
+          node translation-system/tests/test_course_uid_uniqueness.js
 
       - name: MVP wiring assertions
         run: |
