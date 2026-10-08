@@ -246,6 +246,72 @@ def _generate_json(tokenizer, model, messages, max_new_tokens=2200):
     return tokenizer.decode(generated, skip_special_tokens=True).strip()
 
 
+
+def _batch_corrections_or_preserve(tokenizer, model, messages, prepared, max_attempts=2):
+    """Return complete, conservative corrections even when Qwen emits malformed JSON.
+
+    Never use broken JSON fragments as corrected text. Retry just the current
+    batch once. If still malformed, keep original transcription and mark EACH
+    item for human review, instead of losing an entire lesson's usable ASR.
+    """
+    expected = {int(item["id"]): item for item in prepared}
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            output = _generate_json(
+                tokenizer, model, messages,
+                max_new_tokens=2600 if attempt > 1 else 2200,
+            )
+            payload = _extract_json_object(output)
+            if not isinstance(payload, dict) or not isinstance(payload.get("segments"), list):
+                raise ValueError("Qwen JSON 必須有 segments array")
+            returned = {}
+            for item in payload["segments"]:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    sid = int(item.get("id"))
+                except (ValueError, TypeError):
+                    continue
+                if sid not in expected or sid in returned:
+                    continue
+                text = item.get("text")
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                returned[sid] = item
+            if not returned:
+                raise ValueError("Qwen JSON 沒有任何有效的 segment")
+            result = []
+            for sid, original in expected.items():
+                item = returned.get(sid)
+                if item is None:
+                    result.append({
+                        "id": sid,
+                        "text": str(original.get("text") or original.get("current") or "").strip(),
+                        "uncertain": ["AI校稿缺少此段，保留逐字稿，請人工核對"],
+                    })
+                else:
+                    result.append(item)
+            return {"segments": result}, False
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+            last_error = exc
+            print(
+                f"[POLISH] 本批 JSON 格式錯誤（{type(exc).__name__}），"
+                f"第 {attempt}/{max_attempts} 次；只重試本批。",
+                flush=True,
+            )
+    print(
+        f"[POLISH] 本批重試仍無法解析（{type(last_error).__name__}）；"
+        "保留各段原始 ASR，全部標記人工複核，避免整堂課歸零。",
+        flush=True,
+    )
+    return {"segments": [{
+        "id": sid,
+        "text": str(item.get("text") or item.get("current") or "").strip(),
+        "uncertain": ["Qwen 校稿 JSON 格式異常，保留逐字稿，請人工核對"],
+    } for sid, item in expected.items()]}, True
+
+
 def _format_srt_time(seconds: float):
     ms = int(round(float(seconds) * 1000))
     hours, rem = divmod(ms, 3_600_000)
@@ -308,6 +374,7 @@ def polish_segments(
     polished = []
     review_changes = []
     all_uncertain = []
+    fallback_batches = 0
 
     for chunk_start in range(0, len(raw_segments), chunk_size):
         target = raw_segments[chunk_start:chunk_start + chunk_size]
@@ -362,8 +429,10 @@ def polish_segments(
             f"/{len(raw_segments)}"
         )
 
-        response = _generate_json(tokenizer, model, messages)
-        parsed = _extract_json_object(response)
+        parsed, preserved = _batch_corrections_or_preserve(
+            tokenizer, model, messages, prepared
+        )
+        fallback_batches += int(preserved)
         returned = parsed.get("segments") or []
         by_id = {
             int(item["id"]): item
@@ -471,15 +540,15 @@ def polish_segments(
                 f"/{len(polished)}"
             )
 
-            response = _generate_json(
-                tokenizer,
-                model,
+            parsed, preserved = _batch_corrections_or_preserve(
+                tokenizer, model,
                 [
                     {"role": "system", "content": REVIEW_PROMPT},
                     {"role": "user", "content": review_user},
                 ],
+                review_items,
             )
-            parsed = _extract_json_object(response)
+            fallback_batches += int(preserved)
             returned = parsed.get("segments") or []
             by_id = {
                 int(item["id"]): item
@@ -566,6 +635,7 @@ def polish_segments(
         "segment_count": len(polished),
         "changed_segment_count": len(review_changes),
         "uncertain_count": len(all_uncertain),
+        "fallback_batches": fallback_batches,
         "changes": review_changes,
         "uncertain": all_uncertain,
         "segments": polished,
@@ -619,5 +689,6 @@ def polish_segments(
         "segment_count": len(polished),
         "changed_count": len(review_changes),
         "uncertain_count": len(all_uncertain),
+        "fallback_batches": fallback_batches,
     }
 
