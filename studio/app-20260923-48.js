@@ -4162,9 +4162,23 @@ window.addEventListener("message",event=>{
     if(!data.ok){
       if(data.kind==="zh"){
         zhReviewLoading=false;
+        setZhRefreshButtonState(false);
         setZhFinalizeEnabled(false);
-        setZhReviewLoadState("雲端同步失敗","error");
-        alert("讀取人工校正資料失敗："+(data.message || data.error || "未知錯誤"));
+        const isMissing=String(data.error||"")==="review_files_missing";
+        const reason=String(data.message || data.error || "未知錯誤");
+        setZhReviewLoadState(
+          isMissing ? "尚未產生中文逐字稿／AI 校稿" : "雲端讀取失敗",
+          "error"
+        );
+        const editor=document.getElementById("segment-list");
+        if(editor){
+          editor.innerHTML='<div class="empty">'+
+            (isMissing
+              ? "此課程尚未有可供人工定稿的中文逐字稿與校稿報告。請回到任務總覽執行「中文定稿」，等待 Kaggle 真正產生檔案後再開啟。"
+              : "人工定稿雲端讀取失敗："+escapeHtml(reason))+
+            '</div>';
+        }
+        if(!isMissing) alert("讀取人工校正資料失敗："+reason);
       }else if(data.kind==="en"){
         // Neither GitHub English-CC cache nor Drive en.json is available.
         // Present the intended fallback actions instead of a dead-end alert.
