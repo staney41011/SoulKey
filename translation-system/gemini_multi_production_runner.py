@@ -873,6 +873,11 @@ def main():
     requested = [x for x in LANGS if x in set(requested)]
     if not requested:
         raise RuntimeError("Gemini production multi 沒有指定任何目標語言")
+    if args.batch_size < 1:
+        raise RuntimeError("--batch-size 必須大於 0")
+    # Eight target languages yield substantially larger responses. Limit only
+    # those requests to eight source segments, preserving legacy batch speed.
+    effective_batch_size = min(args.batch_size, 8) if len(requested) > 6 else args.batch_size
 
     # Infer only selected languages; QA, repair, publishing, and completion
     # are scoped to Studio's requested
@@ -1116,8 +1121,8 @@ def main():
             requested,
         )
         batches = [
-            remaining[i:i + args.batch_size]
-            for i in range(0, len(remaining), args.batch_size)
+            remaining[i:i + effective_batch_size]
+            for i in range(0, len(remaining), effective_batch_size)
         ]
 
         for batch_no, batch in enumerate(batches, start=1):
