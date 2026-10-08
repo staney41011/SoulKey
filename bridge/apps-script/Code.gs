@@ -1597,7 +1597,7 @@ function publishEnglishReviewCachePayload_(taskId, payload) {
 
 function seedEnglishReviewCache_(taskId) {
   const normalizedTaskId = String(taskId || "").trim();
-  if (!/^P\\d+-L\\d+$/i.test(normalizedTaskId)) {
+  if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
     return {ok:false,error:"invalid_task_id"};
   }
   const folders = lessonFolders_(normalizedTaskId);
