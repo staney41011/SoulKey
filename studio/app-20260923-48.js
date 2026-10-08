@@ -149,6 +149,7 @@ function reviewElapsedMs(taskId,kind,chunkIndex=0){
 let tasks = load(STORE.tasks, []);
 let terms = load(STORE.terms, seedTerms);
 let languageSettings = [
+  {code:"en",name:"English",can_ai_translate:false,can_tts:true},
   {code:"th",name:"ภาษาไทย",can_ai_translate:true,can_tts:true},
   {code:"es",name:"Español",can_ai_translate:true,can_tts:true},
   {code:"id",name:"Bahasa Indonesia",can_ai_translate:true,can_tts:true},
@@ -1873,6 +1874,9 @@ function stageState(task,index){
 function normalizedLanguagePlan(task){
   const current=Array.isArray(task.languagePlan) ? task.languagePlan : [];
   const byCode=Object.fromEntries(current.map(x=>[x.language_code || x.code,x]));
+  // Brand-new lessons default to all nine languages. Existing lesson plans
+  // remain opt-in for newly added languages: never silently rerun old lessons.
+  const newLessonPlan=current.length===0;
 
   return languageSettings.map(lang=>{
     const saved=byCode[lang.code] || {};
@@ -1880,9 +1884,9 @@ function normalizedLanguagePlan(task){
     return {
       language_code:lang.code,
       language_name:lang.name,
-      transcript_enabled:english ? true : !!saved.transcript_enabled,
+      transcript_enabled:english ? true : (Object.prototype.hasOwnProperty.call(saved,"transcript_enabled") ? !!saved.transcript_enabled : newLessonPlan),
       transcript_source:english ? "human" : (saved.transcript_source || "ai"),
-      audio_enabled:!!saved.audio_enabled,
+      audio_enabled:Object.prototype.hasOwnProperty.call(saved,"audio_enabled") ? !!saved.audio_enabled : newLessonPlan,
       audio_source:saved.audio_source || "tts"
     };
   });
