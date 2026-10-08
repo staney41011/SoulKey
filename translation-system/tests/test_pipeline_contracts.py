@@ -38,6 +38,17 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("bridgeProtocolVersion<=0", quick)
         self.assertIn("Apps Script Bridge 版本過舊", worker)
 
+    def test_kaggle_bootstrap_empty_log_retries_before_false_asr_failure(self):
+        workflow = read(".github/workflows/kaggle_web_job.yml")
+        self.assertIn('ATTEMPT_STARTED_AT="$(date +%s)"', workflow)
+        self.assertIn('COMPACT_LOG=', workflow)
+        self.assertIn('"$COMPACT_LOG" = "[]"', workflow)
+        self.assertIn('"$ATTEMPT_ELAPSED" -lt 120', workflow)
+        self.assertIn('if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then', workflow)
+        self.assertIn('echo "[KAGGLE STARTUP] Retries exhausted', workflow)
+        self.assertIn('group: soulkey-kaggle-web-worker', workflow)
+        self.assertIn('cancel-in-progress: false', workflow)
+
     def test_asr_prefers_verified_drive_audio_over_expired_youtube_cookies(self):
         runner = read("translation-system/runner.py")
         self.assertIn('for extension in ("webm", "m4a", "mp3", "wav")', runner)
