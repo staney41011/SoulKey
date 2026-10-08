@@ -283,6 +283,14 @@ function doPost(e) {
       return postMessage_(result);
     }
 
+    if (action === "review_cache_seed_en") {
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      const result = seedEnglishReviewCache_(taskId);
+      result.source = "soulkey-bridge";
+      result.type = "english_cache_seeded";
+      return postMessage_(result);
+    }
+
     if (action === "tasks_upsert") {
       const raw = String((e && e.parameter && e.parameter.tasks_json) || "").trim();
       let items = [];
@@ -1045,7 +1053,8 @@ function reviewEnglishDraftSave_(taskId, payloadJson) {
     normalizedTaskId
   );
 
-  const published = publishReviewSharePayload_(
+  // English draft must not replace the Chinese sentence cache.
+  const published = publishEnglishReviewCachePayload_(
     normalizedTaskId,
     normalized.payload
   );
@@ -1170,7 +1179,8 @@ function reviewShareFinalizeEnglish_(taskId, segmentsJson, payloadJson) {
   }
 
   normalized.payload.en_finalized_at = new Date().toISOString();
-  publishReviewSharePayload_(normalizedTaskId, normalized.payload);
+  // saveReview_ has already published the authoritative en.final.json cache.
+  // Do not overwrite it with an in-flight draft.
 
   return {
     source: "soulkey-bridge",
@@ -1568,6 +1578,74 @@ function workerTranslationCheckpointPublish_(nonce, taskId, contentB64) {
     "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/" +
     REF + "/" + path;
   return result;
+}
+
+function publishEnglishReviewCachePayload_(taskId, payload) {
+  // English passages are grouped separately from the short Chinese segments.
+  // NEVER write these rows into /zh.json: doing so would overwrite the
+  // 400+ Chinese sentence editor with only ~40 English paragraphs.
+  const token = String(
+    PropertiesService.getScriptProperties().getProperty("GITHUB_TOKEN") || ""
+  ).trim();
+  return githubUpsertBase64_(
+    token,
+    "studio-review-cache/" + taskId + "/en.json",
+    Utilities.base64Encode(JSON.stringify(payload), Utilities.Charset.UTF_8),
+    "Update fast English review cache for " + taskId
+  );
+}
+
+function seedEnglishReviewCache_(taskId) {
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!/^P\\d+-L\\d+$/i.test(normalizedTaskId)) {
+    return {ok:false,error:"invalid_task_id"};
+  }
+  const folders = lessonFolders_(normalizedTaskId);
+  const chinese = readJsonFile_(folders.transcript, "zh-TW.final.json");
+  const englishFinal = readJsonFile_(folders.translation, "en.final.json");
+  const englishDraft = readJsonFile_(folders.translation, "en.review.draft.json");
+  if (!chinese || (!englishFinal && !englishDraft)) {
+    return {ok:false,error:"review_files_missing",message:"找不到可發佈的中英定稿"};
+  }
+  let segments;
+  if (englishFinal && Array.isArray(englishFinal.segments) && englishFinal.segments.length) {
+    segments = englishFinal.segments.map(function(item,index){
+      const id = Number(item.id !== undefined ? item.id : index);
+      const start = Number(item.start || 0);
+      const end = Number(item.end !== undefined ? item.end : start);
+      const en = String(item.text || "").trim();
+      return {
+        id:id,start:start,end:end,
+        time:formatPlainTime_(start),
+        text:chineseFinalForEnglishTimeRange_(chinese.segments || [],start,end,id),
+        source_en:en,en_text:en,en_confirmed:true
+      };
+    });
+  } else {
+    segments = (englishDraft.segments || []).map(function(item,index){
+      const id = Number(item.id !== undefined ? item.id : index);
+      const start = Number(item.start || 0);
+      const end = Number(item.end !== undefined ? item.end : start);
+      return {
+        id:id,start:start,end:end,
+        time:String(item.time || formatPlainTime_(start)),
+        text:String(item.text || "") ||
+          chineseFinalForEnglishTimeRange_(chinese.segments || [],start,end,id),
+        source_en:String(item.source_en || ""),
+        en_text:String(item.en_text || item.source_en || ""),
+        en_confirmed:item.en_confirmed===true
+      };
+    });
+  }
+  const payload = {
+    version:5,task_id:normalizedTaskId,
+    generated_at:new Date().toISOString(),
+    zh_finalized_at:String(chinese.finalized_at || ""),
+    en_finalized_at:englishFinal ? String(englishFinal.finalized_at || "") : "",
+    total_segments:segments.length,
+    segments:segments
+  };
+  return publishEnglishReviewCachePayload_(normalizedTaskId,payload);
 }
 
 function seedReviewCache_(taskId, githubToken) {
@@ -4288,6 +4366,17 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
   );
 
   invalidateDownstreamAfterHumanFinal_(taskId, kind);
+
+  if (kind === "en") {
+    // Formal Drive files and "done" status are already committed. Publishing
+    // GitHub is an optional acceleration, NEVER grounds for save failure.
+    try {
+      const cache = seedEnglishReviewCache_(taskId);
+      if (!cache.ok) Logger.log("English fast cache pending: " + cache.error);
+    } catch (err) {
+      Logger.log("English fast cache deferred: " + String(err));
+    }
+  }
 
   return {
     ok: true,
