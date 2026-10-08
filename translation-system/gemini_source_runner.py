@@ -15,7 +15,7 @@ from config import (
     TASK_SHEET_RANGE,
     TIMEZONE,
 )
-from gemini_engine import DEFAULT_VIDEO_MODEL, GeminiClient
+from gemini_engine import DEFAULT_VIDEO_MODEL, GeminiAPIError, GeminiClient
 from google_io import (
     build_google_services,
     get_secret,
@@ -130,7 +130,56 @@ def normalize_transcript(rows):
     return cleaned
 
 
-def save_outputs(workdir, task_id, youtube_url, segments):
+def video_model_candidates(primary, configured=None):
+    """The second model is a real video-capable Gemini model, not a text-only fallback."""
+    configured = configured if configured is not None else os.getenv(
+        "GEMINI_VIDEO_FALLBACK_MODELS", "gemini-3.1-flash-lite"
+    )
+    names = [str(primary).strip()]
+    names.extend(name.strip() for name in str(configured).split(","))
+    # Keep order, avoid duplicate requests, and allow disabling fallback via "".
+    return list(dict.fromkeys(name for name in names if name))
+
+
+def transient_video_error(exc):
+    """Only switch models for overload, rate limits, or unavailable models."""
+    reason = str(exc)
+    return bool(re.search(
+        r"HTTP\s+(?:408|409|429|500|502|503|504)\b|"
+        r"HTTP\s+404\b|"
+        r"timeout|temporarily unavailable|high demand",
+        reason, flags=re.IGNORECASE
+    ))
+
+
+def transcribe_youtube_with_model_fallback(client, url, prompt, schema,
+                                           primary=DEFAULT_VIDEO_MODEL,
+                                           fallback_models=None):
+    models = video_model_candidates(primary, fallback_models)
+    for index, model in enumerate(models):
+        try:
+            print(f"[GEMINI VIDEO] 嘗試影片模型 {model} ({index+1}/{len(models)})",
+                  flush=True)
+            payload, usage = client.structured_video(
+                url, prompt, schema, model=model, thinking_level="low"
+            )
+            if not payload.get("segments"):
+                raise GeminiAPIError("Gemini Video Structured Output 沒有 segments")
+            return payload, usage, model
+        except GeminiAPIError as exc:
+            if index + 1 >= len(models) or not transient_video_error(exc):
+                raise
+            print(
+                f"[GEMINI VIDEO] {model} 暫不可用；"
+                f"15 秒後改用備援 {models[index+1]}。",
+                flush=True
+            )
+            import time
+            time.sleep(15)
+    raise RuntimeError("Gemini 影片模型均無法使用")
+
+
+def save_outputs(workdir, task_id, youtube_url, segments, model=DEFAULT_VIDEO_MODEL):
     workdir.mkdir(parents=True, exist_ok=True)
 
     json_path = workdir / "segments.json"
@@ -143,7 +192,7 @@ def save_outputs(workdir, task_id, youtube_url, segments):
                 "task_id": task_id,
                 "language": "zh-TW",
                 "transcript_source": "gemini_youtube",
-                "model": DEFAULT_VIDEO_MODEL,
+                "model": model,
                 "youtube_url": youtube_url,
                 "segments": segments,
             },
@@ -236,12 +285,8 @@ def main():
             timeout=240,
         )
 
-        parsed, usage = client.structured_video(
-            task["youtube_url"],
-            prompt,
-            TRANSCRIPT_SCHEMA,
-            model=DEFAULT_VIDEO_MODEL,
-            thinking_level="low",
+        parsed, usage, selected_model = transcribe_youtube_with_model_fallback(
+            client, task["youtube_url"], prompt, TRANSCRIPT_SCHEMA
         )
 
         segments = normalize_transcript(parsed.get("segments") or [])
@@ -251,6 +296,7 @@ def main():
             args.task_id,
             task["youtube_url"],
             segments,
+            model=selected_model,
         )
 
         folders = resolve_lesson_folders(
@@ -273,7 +319,7 @@ def main():
 
         note = (
             f"Gemini YouTube逐字稿完成；{len(segments)}段；"
-            f"model={DEFAULT_VIDEO_MODEL}；"
+            f"model={selected_model}；"
             f"tokens={usage.total_tokens}"
         )
         update_task(
