@@ -1,0 +1,49 @@
+name: P256 L01 Hindi Tamil TTS Recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/p256_l01_tts_recovery_once.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-p256-l01-tts-recovery-once
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: contains(github.event.head_commit.message, 'Launch P256 L01 missing audio recovery')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        lang: [hi, ta]
+    steps:
+      - name: Checkout SoulKey
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Prepare CPU TTS
+        run: |
+          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.2.8"
+          ffmpeg -version | head -n 1
+      - name: Generate verified audio from latest translations
+        run: |
+          python -u translation-system/tts_public_drive_repair.py \
+            --lang "${{ matrix.lang }}" \
+            --english-id "1KadinrQXacNzbUgRWEgm5qD0B866blas" \
+            --output-dir "repair-output"
+      - name: Publish result for recovery
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: P256-L01-${{ matrix.lang }}-tts-recovery
+          path: repair-output/deliver/*
+          if-no-files-found: warn
+          retention-days: 30
