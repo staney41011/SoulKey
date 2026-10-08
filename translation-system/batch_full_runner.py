@@ -26,8 +26,8 @@ from lesson_paths import digits, resolve_lesson_folders
 from status_io import new_run_id, mark_done, mark_error, mark_running
 
 
-LANGS = ["en", "th", "es", "id", "vi", "hi", "ta"]
-TARGET_LANGS = ["th", "es", "id", "vi", "hi", "ta"]
+LANGS = ["en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"]
+TARGET_LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko"]
 
 
 def run(cmd, cwd=None):
@@ -784,7 +784,7 @@ def process_task(task_id, system_dir):
             message="English Final 已確認存在；批次來源/自動定稿，不代表人工審閱",
         )
 
-        # 5. Gemini 3.1 six-language translation + semantic QA + repair.
+        # 5. Gemini multilingual translation + semantic QA + repair.
         # Always enter the checkpoint-aware runner. Merely seeing th/es/... JSON
         # files is not proof they were produced from the current English Final.
         # The runner validates the English-source fingerprint and normally exits
@@ -796,7 +796,7 @@ def process_task(task_id, system_dir):
                 "--task-id", task_id,
                 "--langs", ",".join(TARGET_LANGS),
             ],
-            f"{task_id} six-language translation",
+            f"{task_id} multilingual translation",
         )
 
         # 6. Audio stage: SoulKey Natural TTS v2 from approved Final translations.
