@@ -2207,6 +2207,11 @@ function renderTaskDetail(task){
       '<span class="detail-stage-number">05</span>'+
       '<div><b>檔案總覽</b><small>查看這堂課目前已產生的 Drive 檔案與固定連結</small></div>'+
       '<em>檔案</em>'+
+    '</button>'+
+    '<button class="detail-stage" type="button" data-source-reverify>'+
+      '<span class="detail-stage-number">↻</span>'+
+      '<div><b>驗證更換影片</b><small>重新上傳同一堂課時，比對音訊內容；相同則沿用原 ASR，不同才重跑</small></div>'+
+      '<em>驗證</em>'+
     '</button>';
 
   renderCourseFiles(task);
@@ -2316,6 +2321,49 @@ function renderTaskDetail(task){
       block:"start"
     });
   });
+  document.querySelector("[data-source-reverify]")?.addEventListener("click",()=>{
+    verifyReuploadedCourse(task.id);
+  });
+}
+
+function verifyReuploadedCourse(taskId){
+  const task=tasks.find(x=>x.id===taskId);
+  if(!task) return;
+  if(!confirmedRemoteTaskIds.has(taskId)){
+    alert("課程尚未由中央控制表確認，無法驗證來源。");
+    return;
+  }
+  const remote=remoteStageStatus(task,"zh");
+  if(remote && ["queued","running"].includes(remote.status)){
+    alert("這堂課已有中文工作進行中，請勿重複執行。");
+    return;
+  }
+  if(!confirm(
+    task.id+"｜"+task.lesson+"\\n\\n"+
+    "確定要驗證目前的 YouTube 影片與既有中文逐字稿是否相同？\\n\\n"+
+    "內容、時間軸相同：沿用原 ASR，不重新辨識。\\n"+
+    "內容不同或無法比對：會重新執行 ASR。\\n\\n"+
+    "原有人工定稿檔案不會刪除，但來源變動後可能需要重新確認。"
+  )) return;
+
+  const sent=submitBridgePost({
+    action:"run_stage",
+    task_id:task.id,
+    stage:"zh",
+    lang:"",
+    langs:""
+  });
+  if(!sent){
+    alert("來源驗證未送出，請檢查控制中心連線。");
+    return;
+  }
+  task.completedStep=-1;
+  task.status="來源版本驗證已送出";
+  task.remoteStages=task.remoteStages||{};
+  task.remoteStages.zh={status:"queued",message:"比較 YouTube 來源與現有 ASR"};
+  save(STORE.tasks,tasks);
+  renderTasks();
+  renderTaskDetail(task);
 }
 
 function rollbackPreviousStage(taskId){
