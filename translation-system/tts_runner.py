@@ -391,7 +391,6 @@ def render_natural_language(
     preview_wav = output_dir / f"{lang}.preview.wav"
     preview_mp3 = output_dir / f"{lang}.preview.mp3"
     preview_info = assemble_preview(wav_parts, preview_wav)
-    wav_to_mp3(preview_wav, preview_mp3)
 
     source_duration = float(source_duration)
     timeline_wav = output_dir / f"{lang}.wav"
@@ -402,7 +401,12 @@ def render_natural_language(
         source_duration=source_duration,
         max_speedup=MAX_SPEEDUP_BY_LANGUAGE.get(lang, MAX_SPEEDUP),
     )
-    wav_to_mp3(timeline_wav, timeline_mp3)
+    # Only ONE MP3 encoding is needed: the approved time-fitted recording,
+    # or the full natural review recording when time fitting is not safe.
+    if timeline_info["needs_review"]:
+        wav_to_mp3(preview_wav, preview_mp3)
+    else:
+        wav_to_mp3(timeline_wav, timeline_mp3)
 
     alignment_path = output_dir / f"{lang}.alignment_report.json"
     write_alignment_report(

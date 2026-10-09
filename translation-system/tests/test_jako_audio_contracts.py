@@ -36,6 +36,8 @@ class JakoAudioWorkflowTests(unittest.TestCase):
         for language in ("ja", "ko"):
             self.assertEqual(NATURAL_TTS_PROFILES[language]["engine"], "edge")
         self.assertIn('else ("manifest", "alignment_report")', runner)
+        self.assertIn('if timeline_info["needs_review"]:', runner)
+        self.assertIn('wav_to_mp3(preview_wav, preview_mp3)\n    else:\n        wav_to_mp3(timeline_wav, timeline_mp3)', runner)
         self.assertNotIn('and find_file(drive, audio_folder, f"{lang}.preview.mp3")', runner)
 
 
