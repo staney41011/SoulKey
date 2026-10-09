@@ -604,7 +604,8 @@ def process_task(task_id, system_dir):
             )
         if reusable_asr:
             print(
-                f"[RESUME] {task_id} audio provenance verified; skip ASR.",
+                f"[RESUME] {task_id} segments.json already exists; "
+                "audio provenance verified, skip ASR.",
                 flush=True,
             )
         else:

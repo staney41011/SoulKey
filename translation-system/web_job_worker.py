@@ -504,6 +504,21 @@ def main():
                     flush=True,
                 )
 
+        # A human may have finalized a pre-reupload transcript before the
+        # new URL was checked. Guard every downstream consumer as well:
+        # no translations or TTS from unverified source timestamps.
+        if args.stage in {"polish", "vernacular", "en", "multi", "tts", "finish"} and not (
+            args.stage == "en" and args.lang == "cc-refresh"
+        ):
+            try:
+                verify_asr_source_revision()
+            except RuntimeError as exc:
+                raise RuntimeError(
+                    "目前影片來源與中文逐字稿尚未驗證為相同；"
+                    "請先重新執行中文定稿（zh）以比對音訊，"
+                    "必要時重做 ASR。原人工定稿不會刪除。"
+                ) from exc
+
         if args.stage == "cc" or (
             args.stage == "en" and args.lang == "cc-refresh"
         ):
