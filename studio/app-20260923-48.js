@@ -3231,7 +3231,11 @@ const demoEnglishReview = [
   }
 ];
 
-function englishReviewItemsFromGithub(payload){
+function englishReviewItemsFromGithub(payload,fromEnglishCache=false){
+  // An en.json is a persisted passage layout (AI Final or human draft),
+  // whereas zh.json is a sentence-level fallback that may need grouping.
+  const prealigned=fromEnglishCache ||
+    payload?.alignment_method==="english_sentence_chinese_time_v1";
   const segments=repairReviewTimings(
     Array.isArray(payload?.segments) ? payload.segments : []
   );
@@ -3253,6 +3257,8 @@ function englishReviewItemsFromGithub(payload){
       vernacular:"",
       en:editableEn,
       source_en:sourceEn,
+      pre_aligned:prealigned,
+      ids:Array.isArray(item.zh_ids) ? item.zh_ids.map(Number) : [Number(item.id??i)],
       en_confirmed:item.en_confirmed===true,
       terms:pairs
     };
@@ -3472,11 +3478,18 @@ async function openEnglishReview(taskId){
       if(!response.ok) continue;
       const payload=await response.json();
       if(payload.task_id && payload.task_id!==taskId) continue;
-      const items=englishReviewItemsFromGithub(payload);
+      const items=englishReviewItemsFromGithub(payload,kind==="en");
       if(items.length && items.some(x=>String(x.en||"").trim())){
         if(selectedTaskId!==taskId) return;
         renderEnglishReview(items);
-        if(shareState) shareState.textContent="GitHub 快取已載入；正式儲存仍寫入 Google Drive";
+        if(shareState){
+          const cachedVideo=String(payload.source_video_id||"").trim();
+          const currentVideo=youtubeVideoIdFromUrl(task.url);
+          const sourceDiffers=cachedVideo && currentVideo && cachedVideo!==currentVideo;
+          shareState.textContent=sourceDiffers
+            ? "提示：英文 CC 來自重新上傳前的影片；已依中文定稿整理成對照段落。若新片有剪輯變更，請先驗證影片來源。"
+            : "已按中文 Final 時間軸載入完整的中英對照段落；正式儲存仍寫入 Google Drive";
+        }
         return;
       }
     }catch(err){
@@ -3566,6 +3579,14 @@ function englishSentenceEnded(text){
 
 function groupEnglishReviewItems(items){
   const sourceRows=(Array.isArray(items)?items:[]).filter(Boolean);
+  // Sentence boundaries have already been reconciled against the Chinese
+  // Final timeline. Never regroup a verified 1:1 bilingual paragraph cache.
+  if(sourceRows.length && sourceRows.every(item=>item.pre_aligned===true)){
+    return sourceRows.map(item=>({
+      ...item,
+      ids:Array.isArray(item.ids)&&item.ids.length ? item.ids : [Number(item.id)]
+    }));
+  }
   const rows=dedupeEnglishRows(sourceRows,item=>item.en||"");
   const groups=[];
   let current=null;
@@ -3595,7 +3616,7 @@ function groupEnglishReviewItems(items){
         end,
         time:item.time||"",
         enParts:[en],
-        sourceParts:[en],
+        sourceParts:[String(item.source_en||en)],
         originalParts:[String(item.original||"")],
         terms:Array.isArray(item.terms)?item.terms.slice():[],
         en_confirmed:item.en_confirmed===true
@@ -3604,7 +3625,7 @@ function groupEnglishReviewItems(items){
       current.ids.push(Number(item.id??index));
       current.end=Math.max(current.end,end);
       current.enParts.push(en);
-      current.sourceParts.push(en);
+      current.sourceParts.push(String(item.source_en||en));
       current.originalParts.push(String(item.original||""));
       current.en_confirmed=current.en_confirmed && item.en_confirmed===true;
       (item.terms||[]).forEach(term=>{
