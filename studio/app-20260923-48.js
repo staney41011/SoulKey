@@ -3752,7 +3752,17 @@ function renderEnglishReview(items){
 
     if(item?.en_confirmed) row.classList.add("confirmed");
 
+    // Keep the complete English paragraph visible beside the matching
+    // Chinese text; fixed-height textareas hide the alignment while editing.
+    const fitEnglishHeight=()=>{
+      if(!textarea) return;
+      textarea.style.height="auto";
+      textarea.style.height=Math.max(112,textarea.scrollHeight+2)+"px";
+    };
+    fitEnglishHeight();
+
     textarea?.addEventListener("input",()=>{
+      fitEnglishHeight();
       if(!item) return;
       item.en=textarea.value;
       item.en_confirmed=false;
