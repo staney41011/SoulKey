@@ -401,6 +401,43 @@ def main():
                 ])
                 return "Qwen3-4B local"
 
+        def verify_asr_source_revision():
+            """Require audio provenance before reusing an existing transcript."""
+            from config import SPREADSHEET_ID, TASK_SHEET_RANGE
+            from google_io import build_google_services, read_values
+            from lesson_paths import resolve_lesson_folders
+            from source_revision import verify_existing_asr
+            from youtube_io import download_audio
+
+            drive, sheets = build_google_services()
+            rows = read_values(sheets, SPREADSHEET_ID, TASK_SHEET_RANGE)
+            matching = [row for row in rows if row and str(row[0]).strip() == args.task_id]
+            if not matching:
+                raise RuntimeError("Control sheet task missing: " + args.task_id)
+            row = matching[0]
+            url = str(row[4] if len(row) > 4 else "").strip()
+            if not url:
+                raise RuntimeError("Control sheet task has no YouTube URL")
+
+            folders = resolve_lesson_folders(drive, sheets, int(row[1]), str(row[2]))
+            prepared = [False]
+
+            def comparison_download(source_url, destination):
+                if not prepared[0]:
+                    prepare_youtube_runtime()
+                    prepared[0] = True
+                return download_audio(source_url, destination)
+
+            reusable, reason = verify_existing_asr(
+                drive, folders, url,
+                Path("/kaggle/working/soulkey-source-verify") / args.task_id,
+                comparison_download,
+            )
+            print("[SOURCE-REVISION] " + args.task_id +
+                  " reusable=" + str(reusable) + " reason=" + reason, flush=True)
+            if not reusable:
+                raise RuntimeError("Source changed or cannot be verified: " + reason)
+
         def verify_zh_review_outputs(require_polish=True):
             """Treat success as real only if Drive has nonempty ASR and polish JSON.
 
@@ -484,11 +521,11 @@ def main():
             ]
 
         elif args.stage == "zh":
-            # Re-running the Chinese stage after a polish-only failure must NOT
-            # overwrite 15+ minutes of previously completed Taiwan-Breeze ASR.
-            # Inspect the actual Drive file instead of trusting sheet status.
+            # URL updates keep the same task ID and Drive folder. Old ASR can
+            # only be reused after validating actual source provenance.
             try:
                 verify_zh_review_outputs(require_polish=False)
+                verify_asr_source_revision()
                 print(
                     "[ASR] Drive 既有 segments.json 驗收通過；"
                     "這次僅重新執行 AI 中文校稿，不重跑 ASR。",

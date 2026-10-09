@@ -31,6 +31,7 @@ from google_io import (
     upload_or_replace_file,
 )
 from youtube_io import download_audio, extract_metadata, save_metadata_json
+from source_revision import audio_signature
 from status_io import new_run_id, mark_running, mark_done, mark_error
 
 
@@ -246,7 +247,8 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         "lecturer_source": download_meta.get("lecturer_source") or "",
         "source": download_meta,
     })
-    upload_metadata(drive, folders["source"], metadata, task, workdir)
+    # Do not rewrite source provenance until ASR succeeded. An interrupted
+    # rerun must not make old transcripts appear current.
 
     auto_cc_paths = dict(download_meta.get("auto_cc_paths") or {})
     english_cc_path = str(download_meta.get("english_cc_path") or "").strip()
@@ -328,6 +330,9 @@ def process_asr(drive, sheets, task, sheet_row, metadata, glossary, workdir):
         "segments.json",
         display_name=formal_drive_name(task, "segments.json"),
     )
+
+    metadata["audio_signature"] = audio_signature(audio_path)
+    upload_metadata(drive, folders["source"], metadata, task, workdir)
 
     duration = result.get("duration")
     duration_text = f"{duration:.0f}s" if isinstance(duration, (int, float)) else "未知"

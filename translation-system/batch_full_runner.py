@@ -24,6 +24,7 @@ from google_io import (
 from github_review_cache import publish_review_cache
 from lesson_paths import digits, resolve_lesson_folders
 from status_io import new_run_id, mark_done, mark_error, mark_running
+from source_revision import verify_existing_asr
 
 
 LANGS = ["en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"]
@@ -327,6 +328,7 @@ def find_task(sheets, task_id):
             "task_id": task_id,
             "period": digits(row[COL["period"]]),
             "lesson": str(row[COL["lesson"]] or "").strip(),
+            "youtube_url": str(row[COL["youtube_url"]] or "").strip(),
             "title": str(row[COL["title"]] or "").strip(),
             "lecturer": str(row[COL["lecturer"]] or "").strip(),
         }
@@ -580,10 +582,29 @@ def process_task(task_id, system_dir):
         # fallbacks, continue with Gemini direct YouTube understanding rather
         # than aborting the entire lesson.
         transcript_source = "taiwan-breeze"
+        reusable_asr = False
         if drive_has_file(drive, folders["transcript"], "segments.json"):
+            from youtube_io import download_audio
+            youtube_prepared = [False]
+
+            def fetch_for_comparison(url, destination):
+                if not youtube_prepared[0]:
+                    prepare_youtube_runtime(system_dir)
+                    youtube_prepared[0] = True
+                return download_audio(url, destination)
+
+            reusable_asr, reason = verify_existing_asr(
+                drive, folders, task["youtube_url"],
+                workdir / "source-revision",
+                fetch_for_comparison,
+            )
             print(
-                f"[RESUME] {task_id} segments.json already exists; "
-                "skip ASR and continue from the next unfinished stage.",
+                f"[SOURCE-REVISION] {task_id} reusable={reusable_asr} "
+                f"reason={reason}", flush=True,
+            )
+        if reusable_asr:
+            print(
+                f"[RESUME] {task_id} audio provenance verified; skip ASR.",
                 flush=True,
             )
         else:
