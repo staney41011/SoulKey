@@ -1842,6 +1842,22 @@ function seedReviewCache_(taskId, githubToken) {
   }
 
   let items = zhReviewItems_(raw, polished);
+  // A re-seed must never roll back text that a human already finalized.
+  // Quick Review can request this action on every opening.
+  const chineseFinal = readJsonFile_(folders.transcript, "zh-TW.final.json");
+  if(chineseFinal && Array.isArray(chineseFinal.segments) &&
+     chineseFinal.segments.length){
+    const finalized={};
+    chineseFinal.segments.forEach(function(x,i){
+      finalized[Number(x.id!==undefined?x.id:i)]=String(x.text||"");
+    });
+    items=items.map(function(x,i){
+      const id=Number(x.id!==undefined?x.id:i);
+      return Object.prototype.hasOwnProperty.call(finalized,id)
+        ? Object.assign({},x,{text:finalized[id],confirmed:true})
+        : x;
+    });
+  }
   const youtubeCc = readJsonFile_(folders.source, "youtube.en.json");
   if (youtubeCc) {
     items = alignEnglishCcToReviewItems_(items, youtubeCc);
@@ -1850,6 +1866,7 @@ function seedReviewCache_(taskId, githubToken) {
     version: 5,
     task_id: normalizedTaskId,
     generated_at: new Date().toISOString(),
+    zh_finalized_at: chineseFinal ? String(chineseFinal.finalized_at || "") : "",
     english_cc_available: !!youtubeCc,
     english_cc_language: youtubeCc ? String(youtubeCc.language || "en") : "",
     english_cc_source: youtubeCc ? "youtube_caption" : "",

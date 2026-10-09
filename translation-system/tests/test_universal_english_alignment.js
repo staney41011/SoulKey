@@ -85,6 +85,36 @@ assert.equal(humanPublish.segments.length,1);
 assert.equal(humanPublish.segments[0].en_text,"Manually approved English paragraph.");
 console.log("PASS: existing English Final takes precedence over auto-caption alignment");
 
+// A fast-cache re-seed must always preserve the human Chinese Final, even
+// when the underlying AI polish report still has older draft wording.
+let republishedZh=null;
+const chineseCtx={
+  lessonFolders_:()=>({transcript:"zh",source:"src"}),
+  readJsonFile_:(folder,name)=>{
+    if(name==="segments.json") return {segments:[{id:0,start:0,end:10,text:"ASR raw"}]};
+    if(name==="polish_report.json") return {segments:[{id:0,start:0,end:10,text:"AI polish"}]};
+    if(name==="zh-TW.final.json") return {
+      finalized_at:"2026-10-09T03:03:36Z",
+      segments:[{id:0,start:0,end:10,text:"Human confirmed Chinese Final"}]
+    };
+    return null;
+  },
+  zhReviewItems_:()=>[{id:0,start:0,end:10,raw:"ASR raw",text:"AI polish",confirmed:false}],
+  Utilities:{base64Encode:s=>s,Charset:{UTF_8:"UTF8"}},
+  githubUpsertBase64_:(_token,_path,encoded)=>{
+    republishedZh=JSON.parse(encoded);
+    return {ok:true};
+  },
+  OWNER:"owner",REPO:"repo",REF:"main"
+};
+vm.createContext(chineseCtx);
+vm.runInContext(pick(script,"seedReviewCache_"),chineseCtx);
+assert.equal(chineseCtx.seedReviewCache_("P257-L04","test-token").ok,true);
+assert.equal(republishedZh.segments[0].text,"Human confirmed Chinese Final");
+assert.equal(republishedZh.segments[0].confirmed,true);
+assert.equal(republishedZh.zh_finalized_at,"2026-10-09T03:03:36Z");
+console.log("PASS: repeated Chinese cache seeding never restores stale AI polish");
+
 const quick=fs.readFileSync("studio/review-editor.js","utf8");
 const sandbox={
   englishAligned:[{
