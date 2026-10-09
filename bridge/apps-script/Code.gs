@@ -53,6 +53,7 @@ function doGet(e) {
     "language_plan_get",
     "tasks_get",
     "review_load",
+    "review_cache_status",
     "youtube_capture_files",
     "course_files"
   ];
@@ -519,6 +520,17 @@ function bridgeRequest(request) {
         tasks: taskIds.length ? readLatestStatuses_(taskIds) : {},
         server_time: new Date().toISOString()
       };
+    }
+
+    if (action === "review_cache_status") {
+      const taskId = String(request.task_id || "").trim();
+      const state = chineseReviewCacheRevisionState_(taskId);
+      return Object.assign({
+        source:"soulkey-bridge",
+        type:"review_cache_status",
+        ok:/^P\d+-L\d+$/i.test(taskId),
+        task_id:taskId
+      }, state);
     }
 
     if (action === "tasks_get") {
@@ -999,10 +1011,43 @@ function reviewShareDraftSave_(taskId, payloadJson) {
     return normalized;
   }
 
+  const official=readJsonFile_(
+    lessonFolders_(normalizedTaskId).transcript, "zh-TW.final.json"
+  );
+  if(official && Array.isArray(official.segments) && official.segments.length){
+    const authoritative=new Map();
+    official.segments.forEach(function(x,i){
+      authoritative.set(Number(x.id===undefined?i:x.id),String(x.text||""));
+    });
+    if(official.segments.length!==normalized.payload.segments.length){
+      return {source:"soulkey-bridge",type:"review_share_draft_saved",
+        ok:false,error:"final_segment_layout_mismatch",
+        message:"中文 Final 段數與草稿不一致，已阻止舊草稿覆蓋；請重新載入課程"};
+    }
+    normalized.payload.segments=normalized.payload.segments.map(function(x){
+      const id=Number(x.id);
+      return authoritative.has(id) ? Object.assign({},x,{
+        text:authoritative.get(id),confirmed:true
+      }):x;
+    });
+    normalized.payload.zh_finalized_at=String(official.finalized_at||"");
+  }
   const published = publishReviewSharePayload_(
     normalizedTaskId,
     normalized.payload
   );
+  if(published.ok){
+    PropertiesService.getScriptProperties().setProperty(
+      "SOULKEY_ZH_EDIT_STARTED_" + normalizedTaskId,
+      String(normalized.payload.draft_saved_at||new Date().toISOString())
+    );
+  }
+  if(official && published.ok){
+    noteChineseReviewCacheResult_(
+      normalizedTaskId,
+      String(official.finalized_at||""),published
+    );
+  }
   return {
     source: "soulkey-bridge",
     type: "review_share_draft_saved",
@@ -1119,17 +1164,17 @@ function reviewShareFinalize_(taskId, segmentsJson, payloadJson) {
     return saved;
   }
 
-  normalized.payload.zh_finalized_at = new Date().toISOString();
-  publishReviewSharePayload_(normalizedTaskId, normalized.payload);
-
   return {
     source: "soulkey-bridge",
     type: "review_share_finalized",
     ok: true,
     task_id: normalizedTaskId,
     segment_count: segments.length,
-    finalized_at: normalized.payload.zh_finalized_at,
-    message: "中文定稿完成。請進入中英對照，修正 English CC。"
+    finalized_at: saved.finalized_at,
+    cache_ready: saved.zh_cache_ready === true,
+    message: saved.zh_cache_ready
+      ? "中文定稿與 GitHub 快取完成。請進入中英對照。"
+      : "中文已安全定稿在 Google Drive；GitHub 快取正在排隊修復。"
   };
 }
 
@@ -1395,7 +1440,28 @@ function githubPathEncode_(path) {
   }).join("/");
 }
 
-function githubUpsertBase64_(githubToken, path, contentB64, message) {
+function githubUpsertBase64_(githubToken,path,contentB64,message){
+  let last={ok:false,error:"github_publish_unknown"};
+  for(let attempt=0;attempt<3;attempt++){
+    try{
+      last=githubUpsertBase64Once_(
+        githubToken,path,contentB64,message
+      );
+      if(last.ok) return last;
+      const status=Number(last.github_status||0);
+      if([408,409,422,429,500,502,503,504].indexOf(status)<0){
+        return last;
+      }
+    }catch(err){
+      last={ok:false,error:"github_publish_exception",
+        message:String(err)};
+    }
+    if(attempt<2) Utilities.sleep(350*(attempt+1));
+  }
+  return last;
+}
+
+function githubUpsertBase64Once_(githubToken, path, contentB64, message) {
   if (!githubToken) {
     return {
       ok: false,
@@ -1518,12 +1584,29 @@ function workerReviewPublish_(nonce, taskId, contentB64) {
   const githubToken = String(props.getProperty("GITHUB_TOKEN") || "").trim();
   const path = "studio-review-cache/" + normalizedTaskId + "/zh.json";
 
+  // Re-running AI polish can publish an obsolete snapshot after a human
+  // finished zh-TW.final.json. Never downgrade an approved Chinese Final.
+  const finalized=readJsonFile_(
+    lessonFolders_(normalizedTaskId).transcript, "zh-TW.final.json"
+  );
+  if(finalized && Array.isArray(finalized.segments) &&
+     finalized.segments.length){
+    return seedReviewCache_(normalizedTaskId,githubToken);
+  }
+  if(props.getProperty("SOULKEY_ZH_EDIT_STARTED_"+normalizedTaskId)){
+    return {ok:true,skipped:true,task_id:normalizedTaskId,
+      message:"保留較新的人工中文草稿；略過 AI 舊快取發布"};
+  }
+
   const result = githubUpsertBase64_(
     githubToken,
     path,
     contentB64,
     "Publish review cache for " + normalizedTaskId
   );
+  // Background AI polish uses the same durable retry mechanism. Its Drive
+  // files are never reprocessed just because a GitHub upload failed.
+  noteChineseReviewCacheResult_(normalizedTaskId,"",result);
 
   result.task_id = normalizedTaskId;
   result.raw_url =
@@ -1820,6 +1903,93 @@ function seedEnglishReviewCache_(taskId) {
   return publishEnglishReviewCachePayload_(normalizedTaskId,payload);
 }
 
+// Fast metadata comparison without downloading the 471+ Chinese segments.
+// One task = one independent pending slot; never store transcript data here.
+function chineseReviewCacheRevisionKey_(taskId,kind){
+  return "SOULKEY_ZH_CACHE_" + kind + "_" + String(taskId||"");
+}
+
+function chineseReviewCacheRevisionState_(taskId){
+  if(!/^P\d+-L\d+$/i.test(String(taskId||""))) {
+    return {expected:"",published:"",pending:false,stale:false};
+  }
+  const props=PropertiesService.getScriptProperties();
+  const expected=String(
+    props.getProperty(chineseReviewCacheRevisionKey_(taskId,"FINAL"))||""
+  );
+  const published=String(
+    props.getProperty(chineseReviewCacheRevisionKey_(taskId,"PUBLISHED"))||""
+  );
+  const pending=!!props.getProperty(
+    chineseReviewCacheRevisionKey_(taskId,"PENDING")
+  );
+  return {
+    expected:expected,published:published,pending:pending,
+    stale:!!expected && (expected!==published || pending)
+  };
+}
+
+function scheduleChineseCacheRepair_(){
+  // Trigger creation can require a separate OAuth consent for old Apps Script
+  // installations. If unavailable, the pending marker survives and the next
+  // editor/open or worker run repairs it.
+  try {
+    const exists=ScriptApp.getProjectTriggers().some(function(x){
+      return x.getHandlerFunction()==="repairPendingChineseReviewCaches_";
+    });
+    if(!exists){
+      ScriptApp.newTrigger("repairPendingChineseReviewCaches_")
+        .timeBased().everyMinutes(15).create();
+    }
+    return true;
+  }catch(err){
+    Logger.log("Review cache scheduled retry unavailable: "+String(err));
+    return false;
+  }
+}
+
+function noteChineseReviewCacheResult_(taskId,finalizedAt,result){
+  if(!/^P\d+-L\d+$/i.test(String(taskId||""))) return;
+  const props=PropertiesService.getScriptProperties();
+  if(finalizedAt){
+    props.setProperty(chineseReviewCacheRevisionKey_(taskId,"FINAL"),
+      String(finalizedAt));
+  }
+  if(result && result.ok){
+    // Race-safe: if a more recent Final arrived while publishing, this older
+    // attempt must not clear its pending marker or claim it is up to date.
+    const expected=String(props.getProperty(
+      chineseReviewCacheRevisionKey_(taskId,"FINAL")
+    )||"");
+    if(!expected || expected===String(finalizedAt||"")){
+      props.setProperty(chineseReviewCacheRevisionKey_(taskId,"PUBLISHED"),
+        String(finalizedAt||"pre-final"));
+      props.deleteProperty(chineseReviewCacheRevisionKey_(taskId,"PENDING"));
+    }
+  }else{
+    props.setProperty(chineseReviewCacheRevisionKey_(taskId,"PENDING"),
+      new Date().toISOString());
+    scheduleChineseCacheRepair_();
+  }
+}
+
+function repairPendingChineseReviewCaches_(){
+  const props=PropertiesService.getScriptProperties();
+  const keys=Object.keys(props.getProperties()).filter(function(key){
+    return /^SOULKEY_ZH_CACHE_PENDING_P\d+-L\d+$/i.test(key);
+  }).slice(0,5);
+  const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+  keys.forEach(function(key){
+    const taskId=key.slice("SOULKEY_ZH_CACHE_PENDING_".length);
+    try{
+      seedReviewCache_(taskId,token);
+    }catch(err){
+      Logger.log("Cache retry failed for "+taskId+": "+String(err));
+    }
+  });
+  return {ok:true,checked:keys.length};
+}
+
 function seedReviewCache_(taskId, githubToken) {
   const normalizedTaskId = String(taskId || "").trim();
   if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
@@ -1833,29 +2003,43 @@ function seedReviewCache_(taskId, githubToken) {
   const folders = lessonFolders_(normalizedTaskId);
   const raw = readJsonFile_(folders.transcript, "segments.json");
   const polished = readJsonFile_(folders.transcript, "polish_report.json");
-  if (!raw || !polished) {
-    return {
-      ok: false,
-      error: "review_files_missing",
-      message: "找不到既有中文校稿檔案"
-    };
+  // Final may exist on migrated lessons without all older AI intermediate
+  // reports. It is the canonical source and must remain publishable.
+  const chineseFinal = readJsonFile_(folders.transcript, "zh-TW.final.json");
+  if ((!raw || !polished) && !chineseFinal) {
+    const missing={ok:false,error:"review_files_missing",
+      message:"找不到中文校稿或人工定稿檔案"};
+    noteChineseReviewCacheResult_(normalizedTaskId,"",missing);
+    return missing;
   }
 
-  let items = zhReviewItems_(raw, polished);
+  let items=(raw && polished) ? zhReviewItems_(raw,polished)
+    : (chineseFinal.segments||[]).map(function(x,i){
+      const start=Number(x.start||0);
+      return {id:Number(x.id===undefined?i:x.id),
+        start:start,end:Number(x.end||start),
+        time:formatPlainTime_(start),raw:"",text:String(x.text||""),
+        flags:[],confirmed:true,source_en:"",en_text:"",
+        en_confirmed:false};
+    });
   // A re-seed must never roll back text that a human already finalized.
   // Quick Review can request this action on every opening.
-  const chineseFinal = readJsonFile_(folders.transcript, "zh-TW.final.json");
   if(chineseFinal && Array.isArray(chineseFinal.segments) &&
      chineseFinal.segments.length){
-    const finalized={};
-    chineseFinal.segments.forEach(function(x,i){
-      finalized[Number(x.id!==undefined?x.id:i)]=String(x.text||"");
-    });
-    items=items.map(function(x,i){
-      const id=Number(x.id!==undefined?x.id:i);
-      return Object.prototype.hasOwnProperty.call(finalized,id)
-        ? Object.assign({},x,{text:finalized[id],confirmed:true})
-        : x;
+    // Final dictates text AND segmentation, never polish-report row count.
+    // Human-resegmented lessons must retain every revised paragraph.
+    const earlier=new Map(items.map(function(x,i){
+      return [Number(x.id===undefined?i:x.id),x];
+    }));
+    items=chineseFinal.segments.map(function(x,i){
+      const id=Number(x.id===undefined?i:x.id);
+      const prior=earlier.get(id)||{};
+      const start=Number(x.start||0);
+      return Object.assign({},prior,{
+        id:id,start:start,end:Number(x.end===undefined?start:x.end),
+        time:formatPlainTime_(start),
+        text:String(x.text||""),confirmed:true
+      });
     });
   }
   const youtubeCc = readJsonFile_(folders.source, "youtube.en.json");
@@ -1876,16 +2060,24 @@ function seedReviewCache_(taskId, githubToken) {
   const contentB64 = Utilities.base64Encode(payload, Utilities.Charset.UTF_8);
   const path = "studio-review-cache/" + normalizedTaskId + "/zh.json";
 
-  const result = githubUpsertBase64_(
-    githubToken,
-    path,
-    contentB64,
-    "Seed review cache for " + normalizedTaskId
-  );
+  let result;
+  try{
+    result=githubUpsertBase64_(
+      githubToken,path,contentB64,
+      "Seed review cache for " + normalizedTaskId
+    );
+  }catch(err){
+    result={ok:false,error:"github_publish_exception",message:String(err)};
+  }
   result.task_id = normalizedTaskId;
   result.raw_url =
     "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/" +
     REF + "/" + path;
+  noteChineseReviewCacheResult_(
+    normalizedTaskId,
+    chineseFinal ? String(chineseFinal.finalized_at||"") : "",
+    result
+  );
   return result;
 }
 
@@ -4537,9 +4729,10 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
     });
   }
 
+  const finalizedAt=new Date().toISOString();
   const payload = JSON.stringify({
     language: language,
-    finalized_at: new Date().toISOString(),
+    finalized_at: finalizedAt,
     segments: normalized
   }, null, 2);
 
@@ -4580,7 +4773,25 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
 
   invalidateDownstreamAfterHumanFinal_(taskId, kind);
 
+  let zhCacheReady=false;
   if (kind === "zh") {
+    // Drive Final is already committed; now publish its exact latest revision.
+    // Never let an unavailable GitHub API invalidate a successful human save.
+    const props=PropertiesService.getScriptProperties();
+    props.setProperty(chineseReviewCacheRevisionKey_(taskId,"FINAL"),
+      finalizedAt);
+    props.deleteProperty("SOULKEY_ZH_EDIT_STARTED_" + taskId);
+    props.setProperty(chineseReviewCacheRevisionKey_(taskId,"PENDING"),
+      new Date().toISOString());
+    try{
+      const cache=seedReviewCache_(taskId,
+        String(props.getProperty("GITHUB_TOKEN")||"").trim());
+      zhCacheReady=cache.ok===true;
+    }catch(err){
+      noteChineseReviewCacheResult_(taskId,finalizedAt,
+        {ok:false,error:String(err)});
+      Logger.log("Chinese Final GitHub cache deferred: "+String(err));
+    }
     // Publish before the user first opens English review; no Kaggle startup.
     // Human English drafts/finals take precedence and are never overwritten.
     try {
@@ -4606,7 +4817,9 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
     ok: true,
     task_id: taskId,
     kind: kind,
-    segment_count: normalized.length
+    segment_count: normalized.length,
+    finalized_at: finalizedAt,
+    zh_cache_ready: kind==="zh" ? zhCacheReady : undefined
   };
 }
 

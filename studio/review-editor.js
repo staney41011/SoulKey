@@ -891,6 +891,23 @@ window.addEventListener("message",event=>{
     }
   }
 
+  if(data.type==="review_cache_status" && data.ok &&
+     String(data.task_id||"")===taskId && data.stale){
+    setStatus("中文 Final 比 GitHub 快取更新・正在自動修復","working");
+    submit({action:"review_cache_seed",task_id:taskId});
+  }
+  if(data.type==="review_cache_seeded" &&
+     String(data.task_id||"")===taskId){
+    if(data.ok){
+      // The server has committed GitHub; raw-content propagation may lag.
+      if(!dirty && currentStep===1){
+        window.setTimeout(()=>loadReview(),950);
+      }
+    }else{
+      setStatus("Google Drive 中文 Final 安全保留；GitHub 快取待修復","working");
+    }
+  }
+
   if(data.type==="review_data"){
     if(!data.ok){
       if(data.kind==="en"){
@@ -1157,6 +1174,9 @@ async function loadReview(){
     }
     throw new Error("GitHub 快取內容為空");
   }catch(err){
+    // Repair genuinely missing GitHub cache, but do not re-publish on every
+    // open. The status check separately repairs mismatched Final revisions.
+    submit({action:"review_cache_seed",task_id:taskId});
     if(requestDriveReview("zh",0)){
       setStatus("GitHub 讀取失敗・改由 Google Drive 載入…","working");
       return;
@@ -1222,3 +1242,4 @@ updateOutputSummary();
 mountPlayer();
 jsonpBridgeRequest({action:"status_health"});
 loadReview();
+jsonpBridgeRequest({action:"review_cache_status",task_id:taskId});

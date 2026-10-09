@@ -89,6 +89,8 @@ console.log("PASS: existing English Final takes precedence over auto-caption ali
 // when the underlying AI polish report still has older draft wording.
 let republishedZh=null;
 const chineseCtx={
+  formatPlainTime_:seconds=>String(seconds),
+  noteChineseReviewCacheResult_:()=>{},
   lessonFolders_:()=>({transcript:"zh",source:"src"}),
   readJsonFile_:(folder,name)=>{
     if(name==="segments.json") return {segments:[{id:0,start:0,end:10,text:"ASR raw"}]};

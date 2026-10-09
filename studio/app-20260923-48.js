@@ -1002,17 +1002,9 @@ function openQuickReview(taskId){
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
 
-  // Quick Review prefers the deterministic GitHub cache, but it must never
-  // depend on a previous polish run having published that cache successfully.
-  // Seed/rebuild in the background whenever the control center is connected;
-  // review-editor.js also has a Drive fallback if GitHub is still propagating.
-  if(bridgeKeyValue()){
-    submitBridgePost({
-      action:"review_cache_seed",
-      task_id:String(taskId||"")
-    });
-  }
-
+  // Never re-seed on every open: the human editor may have an unsaved or
+  // recently saved GitHub draft. Quick Review repairs only a proven missing
+  // snapshot or an out-of-date published Final revision.
   const popup=window.open(quickReviewUrl(task),"_blank");
   if(popup){
     try{
@@ -2503,6 +2495,10 @@ function openTaskReview(taskId){
   mountReviewYouTubePlayer(task);
   window.setTimeout(updateZhReviewVideoFloat,0);
   loadZhReviewFromGithub(task.id);
+  // Metadata-only check: never wait for Drive before rendering GitHub.
+  if(bridgeAuthenticated){
+    jsonpBridgeRequest({action:"review_cache_status",task_id:task.id});
+  }
 }
 
 function confirmNextStage(taskId){
@@ -4503,6 +4499,33 @@ window.addEventListener("message",event=>{
     }else if(badge){
       badge.textContent="雲端檔案讀取失敗";
       badge.className="badge";
+    }
+  }
+
+  if(data.type==="review_cache_status" && data.ok){
+    const id=String(data.task_id||"");
+    if(data.stale && selectedTaskId===id &&
+       !reviewCacheSeedRequested.has(id)){
+      reviewCacheSeedRequested.add(id);
+      setZhReviewLoadState(
+        "偵測到 GitHub 中文快取版本較舊・正在同步 Drive Final…",
+        "working"
+      );
+      submitBridgePost({action:"review_cache_seed",task_id:id});
+    }
+  }
+
+  if(data.type==="review_cache_seeded"){
+    const id=String(data.task_id||"");
+    if(data.ok){
+      invalidateReviewFetch(id,"zh");
+      if(selectedTaskId===id && currentView==="review"){
+        loadZhReviewFromGithub(id);
+      }
+    }else if(selectedTaskId===id && currentView==="review"){
+      setZhReviewLoadState(
+        "Drive 資料已保留・GitHub 快取等待自動修復","working"
+      );
     }
   }
 
