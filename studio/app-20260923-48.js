@@ -2118,10 +2118,11 @@ function renderCourseFiles(task){
       const updated=file.updated_at ? new Date(file.updated_at).toLocaleString() : "";
       const size=formatCaptureFileSize(file.size);
       const url=String(file.url||"");
+      const timingNote=file.needs_timing_review ? "尚未完成影片對時" : "";
       return '<div class="course-file-row">'+
         '<div class="course-file-main">'+
           '<b>'+escapeHtml(file.display_name||file.name||"未命名檔案")+'</b>'+
-          '<span>'+escapeHtml([size,updated].filter(Boolean).join("・"))+'</span>'+
+          '<span>'+escapeHtml([size,updated,timingNote].filter(Boolean).join("・"))+'</span>'+
         '</div>'+
         '<div class="course-file-actions">'+
           '<a href="'+escapeHtml(url||"#")+'" target="_blank" rel="noopener">開啟</a>'+

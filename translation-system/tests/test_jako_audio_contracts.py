@@ -22,7 +22,14 @@ class JakoAudioWorkflowTests(unittest.TestCase):
         self.assertIn('"ja", "ko"', review)
         self.assertIn("formalLangs[audioBaseLang_(name)] = true", review)
         self.assertIn('return !formalLangs[lang]', review)
-        self.assertIn("尚未完成影片對時", review)
+        self.assertIn('display_name: formalDriveName_(', review)
+        self.assertIn('normalizedTaskId, lang + ".preview.mp3"', review)
+        self.assertNotIn('"自然語音完整版（尚未完成影片對時）.mp3"', review)
+        self.assertIn("needs_timing_review: true", review)
+        self.assertIn('自然試聽版.mp3', script)
+        studio = (ROOT / "studio/app-20260923-48.js").read_text(encoding="utf-8")
+        self.assertIn('const timingNote=file.needs_timing_review', studio)
+        self.assertIn('[size,updated,timingNote]', studio)
 
     def test_natural_voice_is_only_tts_engine_and_has_jako_caps(self):
         runner = (ROOT / "translation-system/tts_runner.py").read_text(encoding="utf-8")

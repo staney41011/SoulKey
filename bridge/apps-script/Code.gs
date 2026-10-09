@@ -3601,9 +3601,12 @@ function courseFilesOverview_(taskId) {
         return canonicalName_(file) === lang + ".preview.mp3";
       });
       if (!item) return null;
-      return Object.assign({},item,{
-        display_name: formalLangLabel_(lang) +
-          "自然語音完整版（尚未完成影片對時）.mp3",
+      return Object.assign({}, item, {
+        // Preserve the same period/lesson/course/lecturer naming used by
+        // the actual Drive file instead of replacing it with a short label.
+        display_name: formalDriveName_(
+          normalizedTaskId, lang + ".preview.mp3"
+        ),
         needs_timing_review: true
       });
     })
@@ -3890,6 +3893,9 @@ function formalOutputLabel_(canonicalName) {
     };
     return formalLangLabel_(m[1]) + labels[m[2]];
   }
+
+  m = /^([A-Za-z-]+)\.preview\.mp3$/.exec(name);
+  if (m) return formalLangLabel_(m[1]) + "自然試聽版.mp3";
 
   m = /^([A-Za-z-]+)\.(mp3|wav)$/.exec(name);
   if (m) return formalLangLabel_(m[1]) + "TTS音檔." + m[2];
