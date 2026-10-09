@@ -1955,7 +1955,7 @@ function renderLanguagePlan(task){
       '<div class="language-output-cell">'+
         '<label class="output-toggle"><input type="checkbox" data-plan-audio '+(item.audio_enabled?"checked":"")+'> 需要音檔</label>'+
         '<select data-plan-audio-source '+(!item.audio_enabled?"disabled":"")+'>'+
-          '<option value="tts" '+(item.audio_source==="tts"?"selected":"")+' '+(ttsDisabled?"disabled":"")+'>AI TTS</option>'+
+          '<option value="tts" '+(item.audio_source==="tts"?"selected":"")+' '+(ttsDisabled?"disabled":"")+'>自然 AI 配音（TTS）</option>'+
           '<option value="human" '+(item.audio_source==="human"?"selected":"")+'>真人錄音</option>'+
         '</select>'+
       '</div>'+

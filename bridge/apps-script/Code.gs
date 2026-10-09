@@ -3529,7 +3529,7 @@ function courseFilesOverview_(taskId) {
     .concat(collectFolder_(resolved.transcript, "transcript", "逐字稿"))
     .concat(collectFolder_(resolved.translation, "transcript", "逐字稿"));
 
-  const transcriptLanguages = ["zh-TW", "en", "th", "es", "id", "vi", "hi", "ta"];
+  const transcriptLanguages = ["zh-TW", "en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"];
   const transcriptFiles = transcriptLanguages
     .map(function(lang) { return transcriptChoice_(transcriptPool, lang); })
     .filter(Boolean);
@@ -3578,16 +3578,34 @@ function courseFilesOverview_(taskId) {
     return candidates.length ? candidates[0].item : null;
   }
 
-  const audioLanguages = ["en", "th", "es", "id", "vi", "hi", "ta"];
+  const audioLanguages = ["en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"];
   const canonicalAudioFiles = audioLanguages
     .map(function(lang) { return audioChoice_(audioPool, lang); })
     .filter(Boolean);
 
+  // Show one preferred MP3 per language. If a natural narration did not
+  // fit the source video, expose its FULL preview rather than showing no file.
+  // When canonical audio exists, hide the redundant preview from the overview
+  // (never delete it from Drive or silently claim the preview is time-aligned).
+  const formalLangs = {};
+  canonicalAudioFiles.forEach(function(file) {
+    const name = canonicalName_(file);
+    if (/^[A-Za-z-]+\.mp3$/i.test(name)) {
+      formalLangs[audioBaseLang_(name)] = true;
+    }
+  });
   const previewAudioFiles = audioLanguages
+    .filter(function(lang) { return !formalLangs[lang]; })
     .map(function(lang) {
-      return audioPool.find(function(item) {
-        return canonicalName_(item) === lang + ".preview.mp3";
-      }) || null;
+      const item=audioPool.find(function(file) {
+        return canonicalName_(file) === lang + ".preview.mp3";
+      });
+      if (!item) return null;
+      return Object.assign({},item,{
+        display_name: formalLangLabel_(lang) +
+          "自然語音完整版（尚未完成影片對時）.mp3",
+        needs_timing_review: true
+      });
     })
     .filter(Boolean);
 

@@ -53,7 +53,13 @@ class UpstreamTranslationNotReady(RuntimeError):
 
 
 from tts_engine import segments_fingerprint
-from natural_tts_config import EDGE_TTS_VERSION, NATURAL_TTS_PROFILES, NATURAL_TTS_PROFILE_REVISION
+from natural_tts_config import (
+    EDGE_TTS_VERSION,
+    NATURAL_TTS_PROFILES,
+    NATURAL_TTS_PROFILE_REVISION,
+    MAX_SPEEDUP,
+    MAX_SPEEDUP_BY_LANGUAGE,
+)
 from natural_tts_planner import build_speech_blocks
 from natural_tts_edge import render_blocks
 from natural_tts_assemble import assemble_preview, assemble_continuous_with_limit, wav_to_mp3, write_alignment_report
@@ -355,7 +361,6 @@ def existing_natural_output(
     return bool(
         find_file(drive, audio_folder, f"{lang}.wav")
         and find_file(drive, audio_folder, f"{lang}.mp3")
-        and find_file(drive, audio_folder, f"{lang}.preview.mp3")
     )
 
 
@@ -395,6 +400,7 @@ def render_natural_language(
         preview_wav,
         timeline_wav,
         source_duration=source_duration,
+        max_speedup=MAX_SPEEDUP_BY_LANGUAGE.get(lang, MAX_SPEEDUP),
     )
     wav_to_mp3(timeline_wav, timeline_mp3)
 
@@ -421,6 +427,7 @@ def render_natural_language(
         "source_segment_count": len(segments),
         "block_count": len(blocks),
         "assembly_policy": "continuous_total_duration",
+        "max_speedup": MAX_SPEEDUP_BY_LANGUAGE.get(lang, MAX_SPEEDUP),
         "duration_limit_basis": duration_limit_basis,
         "duration_limit_seconds": round(source_duration, 3),
         "overlap_cleanup": overlap_report,
@@ -455,9 +462,14 @@ def upload_natural_outputs(
     result,
     task,
 ):
-    # Preview / manifest / alignment can always be updated because they are
-    # diagnostic artifacts. Canonical mp3/wav are replaced only after QA pass.
-    always = ("preview_mp3", "manifest", "alignment_report")
+    # One formal deliverable per language. Upload an uncompressed natural
+    # preview only if timing QA blocks the canonical voice. Never delete older
+    # previews: Drive history remains available for a human comparison.
+    always = (
+        ("preview_mp3", "manifest", "alignment_report")
+        if result["status"] == "needs_review"
+        else ("manifest", "alignment_report")
+    )
     for key in always:
         path = Path(result[key])
         canonical_name = path.name

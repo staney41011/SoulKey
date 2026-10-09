@@ -106,3 +106,10 @@ DEFAULT_TIMELINE_PAUSE_SECONDS = 0.08
 MAX_DRIFT_SECONDS = 5.0
 MAX_OVER_SOURCE_SECONDS = 3.0
 MAX_SPEEDUP = 1.08
+# Japanese/Korean neural voices require slightly faster delivery to fit a
+# fixed-length lecture. Caps remain language-specific to avoid unnecessary
+# acceleration of the other seven languages.
+MAX_SPEEDUP_BY_LANGUAGE = {
+    "ja": 1.12,
+    "ko": 1.16,
+}
