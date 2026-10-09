@@ -97,6 +97,12 @@ function doPost(e) {
       return json_(workerReviewPublish_(nonce, taskId, contentB64));
     }
 
+    if (action === "worker_english_cache_seed") {
+      const nonce = String((e && e.parameter && e.parameter.nonce) || "").trim();
+      const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
+      return json_(workerEnglishCacheSeed_(nonce, taskId));
+    }
+
     if (action === "worker_translation_checkpoint_publish") {
       const nonce = String((e && e.parameter && e.parameter.nonce) || "").trim();
       const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
@@ -1595,6 +1601,150 @@ function publishEnglishReviewCachePayload_(taskId, payload) {
   );
 }
 
+/**
+ * Automatic bilingual paragraph pairing for every completed Chinese Final.
+ * Keep English sentence boundaries while assigning each Chinese Final segment
+ * exactly once. This is deterministic and does not invoke any AI/GPU service.
+ */
+function alignEnglishReviewParagraphs_(chinese, englishCues, metadata) {
+  const zh = (chinese || []).filter(function(x) {
+    return String(x.text || "").trim() && Number.isFinite(Number(x.start));
+  }).slice().sort(function(a,b){ return Number(a.start)-Number(b.start); });
+  const cues = (englishCues || []).filter(function(x){
+    return String(x.text || "").trim() && Number.isFinite(Number(x.start));
+  }).slice().sort(function(a,b){ return Number(a.start)-Number(b.start); });
+  if (!zh.length || !cues.length) return null;
+
+  const sentences = [];
+  let pending = [];
+  function flushSentence() {
+    if (!pending.length) return;
+    sentences.push({
+      start:pending[0].start,
+      end:pending[pending.length-1].end,
+      text:pending.map(function(x){return x.text;}).join(" ").replace(/\s+/g," ").trim()
+    });
+    pending=[];
+  }
+  cues.forEach(function(cue) {
+    const text=String(cue.text||"").replace(/\s+/g," ").trim();
+    const start=Number(cue.start||0);
+    const end=Math.max(start,Number(cue.end||start));
+    let from=0;
+    // One CC line may contain the end of one English sentence AND the start
+    // of the next. Keep both rather than cutting at the subtitle boundary.
+    const endings=/[.!?](?=\s|["'”]|$)/g;
+    let match;
+    while ((match=endings.exec(text))!==null) {
+      const to=match.index+1;
+      const part=text.slice(from,to).trim();
+      if (part) {
+        pending.push({
+          start:start+(end-start)*(from/text.length),
+          end:start+(end-start)*(to/text.length),
+          text:part
+        });
+        flushSentence();
+      }
+      from=to;
+    }
+    const rest=text.slice(from).trim();
+    if(rest) pending.push({
+      start:start+(end-start)*(from/text.length),
+      end:end,
+      text:rest
+    });
+  });
+  flushSentence();
+  if (!sentences.length) return null;
+
+  const paragraphs=[];
+  for(let i=0;i<sentences.length;){
+    let last=i;
+    while (
+      last+1<sentences.length &&
+      sentences[last].end-sentences[i].start<22 &&
+      sentences[last+1].end-sentences[i].start<=35
+    ) last++;
+    paragraphs.push({
+      start:sentences[i].start,
+      end:sentences[last].end,
+      text:sentences.slice(i,last+1).map(function(x){return x.text;}).join(" ")
+    });
+    i=last+1;
+  }
+
+  if(paragraphs.length>zh.length) return null;
+  const rows=[];
+  let previous=-1;
+  paragraphs.forEach(function(en,g) {
+    let boundary=zh.length-1;
+    if(g<paragraphs.length-1){
+      const remaining=paragraphs.length-g-1;
+      let score=Infinity;
+      for(let j=previous+1;j<zh.length-remaining;j++){
+        const stop=Number(zh[j].end||zh[j].start||0);
+        const gap=Math.min(3,Math.max(0,Number(zh[j+1].start||0)-stop));
+        const complete=/[。？！.!?]$/.test(String(zh[j].text||"").trim());
+        const candidate=Math.abs(stop-en.end)-0.18*gap-(complete?0.5:0);
+        if(candidate<score){score=candidate;boundary=j;}
+      }
+    }
+    const chunk=zh.slice(previous+1,boundary+1);
+    if(!chunk.length) throw new Error("Chinese alignment group is empty");
+    const start=Number(chunk[0].start||0);
+    rows.push({
+      id:Number(chunk[0].id===undefined?previous+1:chunk[0].id),
+      start:start,
+      end:Number(chunk[chunk.length-1].end||start),
+      time:formatPlainTime_(start),
+      text:chunk.map(function(x){return String(x.text||"").trim();}).join(""),
+      source_en:en.text,
+      en_text:en.text,
+      en_confirmed:false,
+      pre_aligned:true,
+      zh_ids:chunk.map(function(x,j){return Number(x.id===undefined?previous+j+1:x.id);}),
+      cc_start:Math.round(en.start*1000)/1000,
+      cc_end:Math.round(en.end*1000)/1000
+    });
+    previous=boundary;
+  });
+
+  // A failed alignment must never be published or overwrite human edits.
+  const joinedZh=zh.map(function(x){return String(x.text||"").trim();}).join("");
+  const outZh=rows.map(function(x){return x.text;}).join("");
+  const joinedEn=sentences.map(function(x){return x.text;}).join(" ");
+  const outEn=rows.map(function(x){return x.en_text;}).join(" ");
+  if(joinedZh!==outZh || joinedEn!==outEn) {
+    throw new Error("English alignment content integrity failed");
+  }
+  return {
+    version:6,
+    task_id:String(metadata.task_id||""),
+    generated_at:new Date().toISOString(),
+    alignment_method:"english_sentence_chinese_time_v1",
+    source_video_id:String(metadata.video_id||""),
+    zh_finalized_at:String(metadata.zh_finalized_at||""),
+    english_cc_available:metadata.is_cc===true,
+    english_cc_language:"en",
+    english_cc_source:metadata.is_cc===true?"youtube_caption":"ai_translation",
+    total_segments:rows.length,
+    original_zh_segments:zh.length,
+    original_en_cc_cues:cues.length,
+    segments:rows
+  };
+}
+
+function workerEnglishCacheSeed_(nonce, taskId) {
+  const runtime=getRuntimeJob_(nonce);
+  const normalized=String(taskId||"").trim();
+  if(!runtime || !/^P\d+-L\d+$/i.test(normalized) ||
+     String(runtime.task_id||"")!==normalized) {
+    return {ok:false,error:"worker_english_cache_unauthorized"};
+  }
+  return seedEnglishReviewCache_(normalized);
+}
+
 function seedEnglishReviewCache_(taskId) {
   const normalizedTaskId = String(taskId || "").trim();
   if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
@@ -1604,8 +1754,30 @@ function seedEnglishReviewCache_(taskId) {
   const chinese = readJsonFile_(folders.transcript, "zh-TW.final.json");
   const englishFinal = readJsonFile_(folders.translation, "en.final.json");
   const englishDraft = readJsonFile_(folders.translation, "en.review.draft.json");
-  if (!chinese || (!englishFinal && !englishDraft)) {
-    return {ok:false,error:"review_files_missing",message:"找不到可發佈的中英定稿"};
+  if (!chinese || !Array.isArray(chinese.segments) || !chinese.segments.length) {
+    return {ok:false,error:"review_files_missing",message:"找不到中文人工定稿"};
+  }
+  if (!englishFinal && !englishDraft) {
+    // The Chinese Final button automatically makes an English/Chinese 1:1
+    // review cache, using YouTube CC first or Gemini English as fallback.
+    const cc=readJsonFile_(folders.source,"youtube.en.json");
+    const ai=readJsonFile_(folders.translation,"en.json");
+    const source=(cc && Array.isArray(cc.segments) && cc.segments.length) ? cc
+      : (ai && Array.isArray(ai.segments) && ai.segments.length ? ai : null);
+    if(!source) return {
+      ok:false,error:"english_source_not_ready",
+      message:"尚無 English CC／AI 英譯；待英文來源完成後建立快取"
+    };
+    const aligned=alignEnglishReviewParagraphs_(
+      chinese.segments,source.segments,{
+        task_id:normalizedTaskId,
+        zh_finalized_at:String(chinese.finalized_at||""),
+        video_id:String(cc && source===cc ? cc.video_id||"" : ""),
+        is_cc:source===cc
+      }
+    );
+    if(!aligned) return {ok:false,error:"english_align_empty"};
+    return publishEnglishReviewCachePayload_(normalizedTaskId,aligned);
   }
   let segments;
   if (englishFinal && Array.isArray(englishFinal.segments) && englishFinal.segments.length) {
@@ -4366,6 +4538,17 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
   );
 
   invalidateDownstreamAfterHumanFinal_(taskId, kind);
+
+  if (kind === "zh") {
+    // Publish before the user first opens English review; no Kaggle startup.
+    // Human English drafts/finals take precedence and are never overwritten.
+    try {
+      const cache=seedEnglishReviewCache_(taskId);
+      if (!cache.ok) Logger.log("Automatic English align pending: "+cache.error);
+    } catch (err) {
+      Logger.log("Automatic English align deferred: "+String(err));
+    }
+  }
 
   if (kind === "en") {
     // Formal Drive files and "done" status are already committed. Publishing

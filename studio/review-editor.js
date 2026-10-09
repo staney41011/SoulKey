@@ -39,6 +39,7 @@ let currentStep=1;
 let finishQueued=false;
 let driveFallbackZh=[];
 let driveFallbackTotal=0;
+let englishAligned=null; // separate English sentence-paired draft
 
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??"")
@@ -282,6 +283,13 @@ function englishSentenceEnded(text){
 }
 
 function englishGroups(){
+  if(Array.isArray(englishAligned) && englishAligned.length){
+    return englishAligned.map((row,index)=>({
+      ...row,
+      ids:Array.isArray(row.zh_ids)&&row.zh_ids.length
+        ? row.zh_ids.map(Number) : [Number(row.id??index)]
+    }));
+  }
   const baseRows=segments||[];
   const sourceCleaned=dedupeEnglishRows(baseRows,item=>item.source_en||"");
   const editedCleaned=dedupeEnglishRows(baseRows,item=>item.en_text||item.source_en||"");
@@ -351,6 +359,11 @@ function englishGroups(){
 }
 
 function writeEnglishGroup(group,text){
+  if(Array.isArray(englishAligned)&&englishAligned.length){
+    const row=englishAligned.find(x=>Number(x.id)===Number(group?.id));
+    if(row){row.en_text=String(text||"").trim();row.en_confirmed=false;}
+    return;
+  }
   const ids=Array.isArray(group?.ids)?group.ids:[group?.id];
   const normalized=String(text||"").trim();
   ids.forEach(id=>{
@@ -464,7 +477,8 @@ function persistLocalDraft(){
     revision,
     zh_finalized_at:String(payload?.zh_finalized_at||""),
     en_finalized_at:String(payload?.en_finalized_at||""),
-    segments
+    segments,
+    english_aligned:englishAligned
   }));
 }
 
@@ -724,10 +738,29 @@ function requestDraftSave(reason="manual"){
   );
   $("save-draft").disabled=true;
 
+  const englishMode=currentStep===2 &&
+    Array.isArray(englishAligned)&&englishAligned.length &&
+    !!payload?.zh_finalized_at;
+  const editPayload=englishMode ? {
+    version:6,task_id:taskId,
+    zh_finalized_at:String(payload.zh_finalized_at||""),
+    english_cc_available:true,
+    english_cc_language:"en",
+    english_cc_source:"youtube_or_ai_review",
+    segments:englishAligned.map(x=>({
+      id:Number(x.id),
+      start:Number(x.start||0),end:Number(x.end||0),
+      time:String(x.time||clock(x.start)),
+      raw:"",text:String(x.text||""),confirmed:true,
+      source_en:String(x.source_en||""),
+      en_text:String(x.en_text||x.source_en||""),
+      en_confirmed:x.en_confirmed===true
+    }))
+  }:currentPayload();
   const sent=submit({
-    action:"review_share_draft_save",
+    action:englishMode?"review_en_draft_save":"review_share_draft_save",
     task_id:taskId,
-    payload_json:JSON.stringify(currentPayload())
+    payload_json:JSON.stringify(editPayload)
   });
 
   if(!sent){
@@ -898,6 +931,7 @@ window.addEventListener("message",event=>{
         segments:driveFallbackZh
       };
       applyReviewPayload(fallbackPayload);
+      loadAlignedEnglish();
 
       // If an AI English draft already exists in Drive, merge it immediately
       // so Step 2 remains usable even though the GitHub cache was absent.
@@ -927,7 +961,7 @@ window.addEventListener("message",event=>{
         payload.zh_finalized_at="drive-final";
       }
 
-      renderEn();
+      if(!englishAligned) renderEn();
       $("finalize-en").disabled=!!payload.en_finalized_at;
       if(requestedStepNumber===2) setStep(2);
       setStatus("GitHub 快取缺少・已由 Google Drive 恢復中英文稿","ok");
@@ -935,7 +969,8 @@ window.addEventListener("message",event=>{
     }
   }
 
-  if(data.type==="review_share_draft_saved"){
+  if(data.type==="review_share_draft_saved" ||
+     data.type==="english_review_draft_saved"){
     saveInFlight=false;
     $("save-draft").disabled=false;
     if(data.ok){
@@ -966,8 +1001,9 @@ window.addEventListener("message",event=>{
       renderZh();
       renderEn();
       setStep(2);
-      // Once Chinese Final exists, Drive can authoritatively provide either
-      // en.json or the saved YouTube English CC alignment.
+      // The server publishes the source-aligned /en.json after saving
+      // Chinese Final. Retry once after its separate GitHub update.
+      window.setTimeout(()=>loadAlignedEnglish(true),1100);
       requestDriveReview("en",0);
     }else{
       $("finalize-zh").disabled=false;
@@ -1025,6 +1061,9 @@ function restoreLocalIfNewer(){
       Array.isArray(local.segments) &&
       local.segments.length===segments.length
     ){
+      if(Array.isArray(local.english_aligned) && local.english_aligned.length){
+        englishAligned=local.english_aligned;
+      }
       const byId=new Map(local.segments.map(x=>[Number(x.id),x]));
       segments=segments.map(x=>{
         const d=byId.get(Number(x.id));
@@ -1047,6 +1086,53 @@ function restoreLocalIfNewer(){
   }catch(_){}
 }
 
+async function fastReviewJson(kind){
+  const file=kind==="en"?"en.json":"zh.json";
+  const path="/"+encodeURIComponent(taskId)+"/"+file+"?_="+Date.now();
+  const sameOrigin=new URL("../studio-review-cache"+path,location.href).toString();
+  const raw=REVIEW_CACHE_BASE+path;
+  return Promise.any([sameOrigin,raw].map(async url=>{
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),5000);
+    try{
+      const response=await fetch(url,{
+        cache:"no-store",signal:controller.signal,
+        headers:{"Accept":"application/json"}
+      });
+      if(!response.ok) throw new Error("HTTP "+response.status);
+      const data=await response.json();
+      if(data.task_id && data.task_id!==taskId) throw Error("Task mismatch");
+      if(!Array.isArray(data.segments)) throw Error("Missing segments");
+      return data;
+    }finally{clearTimeout(timer);}
+  }));
+}
+
+async function loadAlignedEnglish(force=false){
+  if(!payload?.zh_finalized_at || (englishAligned && !force)) return;
+  try{
+    const aligned=await fastReviewJson("en");
+    if(!aligned.segments?.length) return;
+    // Do not overwrite a newer unsaved English edit from this device.
+    if(dirty && Array.isArray(englishAligned) && englishAligned.length) return;
+    englishAligned=aligned.segments.map(x=>({
+      ...x,id:Number(x.id),text:String(x.text||""),
+      source_en:String(x.source_en||""),
+      en_text:String(x.en_text||x.source_en||"")
+    }));
+    if(aligned.en_finalized_at){
+      payload.en_finalized_at=String(aligned.en_finalized_at);
+      $("finalize-en").disabled=true;
+      $("finish-workflow").disabled=false;
+    }
+    renderEn();
+    if(requestedStepNumber===2) setStep(2);
+    setStatus("中英段落已按中文 Final 時間軸對齊","ok");
+  }catch(_){
+    // Legacy lessons without an English cache retain the Drive fallback.
+  }
+}
+
 async function loadReview(){
   $("task-id").textContent=taskId||"無效課程";
   if(!/^P\d+-L\d+$/i.test(taskId)){
@@ -1055,11 +1141,10 @@ async function loadReview(){
   }
 
   try{
-    const url=REVIEW_CACHE_BASE+"/"+encodeURIComponent(taskId)+"/zh.json?_="+Date.now();
-    const response=await fetch(url,{cache:"no-store",headers:{"Accept":"application/json"}});
-    if(response.ok){
-      const loaded=await response.json();
+    const loaded=await fastReviewJson("zh");
+    if(loaded?.segments?.length){
       applyReviewPayload(loaded);
+      loadAlignedEnglish();
       const hasEnglish=(loaded.segments||[]).some(
         x=>String(x.en_text||x.source_en||"").trim()
       );
@@ -1068,13 +1153,7 @@ async function loadReview(){
       }
       return;
     }
-
-    if(response.status===404 && requestDriveReview("zh",0)){
-      setStatus("GitHub 快取缺少・改由 Google Drive 載入…","working");
-      return;
-    }
-
-    throw new Error("逐字稿讀取失敗 HTTP "+response.status);
+    throw new Error("GitHub 快取內容為空");
   }catch(err){
     if(requestDriveReview("zh",0)){
       setStatus("GitHub 讀取失敗・改由 Google Drive 載入…","working");

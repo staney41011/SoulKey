@@ -90,6 +90,32 @@ def fetch_runtime(bridge_url: str, nonce: str):
     )
 
 
+def seed_english_review_cache(bridge_url: str, nonce: str, task_id: str):
+    """Fast-publish English/Chinese layout after a CC or AI English stage.
+
+    A cache failure must never mark the successfully uploaded Drive transcript
+    as failed. It can be seeded again on the next review opening.
+    """
+    data = urllib.parse.urlencode({
+        "action": "worker_english_cache_seed",
+        "nonce": nonce,
+        "task_id": task_id,
+    }).encode("utf-8")
+    try:
+        request = urllib.request.Request(bridge_url, data=data, method="POST")
+        with urllib.request.urlopen(request, timeout=90) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        if result.get("ok"):
+            print("[EN-ALIGN] 1:1 Chinese Final / English review cache published", flush=True)
+        else:
+            print("[EN-ALIGN] cache deferred: " +
+                  str(result.get("error") or result.get("message") or "unknown"),
+                  flush=True)
+    except Exception as exc:
+        print("[EN-ALIGN] cache deferred: " +
+              f"{type(exc).__name__}: {exc}", flush=True)
+
+
 def report(bridge_url: str, nonce: str, status: str, message: str):
     data = urllib.parse.urlencode({
         "action": "worker_report",
@@ -788,6 +814,10 @@ def main():
 
         if cmd:
             run(cmd)
+        if args.stage in {"en", "cc"}:
+            seed_english_review_cache(
+                args.bridge_url, args.runtime_nonce, args.task_id
+            )
         print("[WEB-WORKER] 正式 Stage 執行完成。")
 
     except Exception as exc:

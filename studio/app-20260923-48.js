@@ -635,6 +635,61 @@ function githubReviewUrl(taskId,kind="zh"){
   return REVIEW_CACHE_BASE+"/"+encodeURIComponent(String(taskId||""))+"/"+file+"?_="+Date.now();
 }
 
+// Same-origin GitHub Pages static JSON normally beats a cross-domain raw
+// GitHub handshake. Race both sources, because Pages can deploy a few seconds
+// after the GitHub branch update. No Drive/Apps Script round trip is needed.
+const fastReviewRequests=new Map();
+function fastReviewUrl(taskId,kind="zh"){
+  const file=kind==="en"?"en.json":"zh.json";
+  return new URL(
+    "../studio-review-cache/"+encodeURIComponent(String(taskId||""))+"/"+file+
+    "?_="+Date.now(),window.location.href
+  ).toString();
+}
+function invalidateReviewFetch(taskId,kind){
+  fastReviewRequests.delete(String(taskId)+"|"+String(kind));
+}
+function fetchReviewPayload(taskId,kind="zh",options={}){
+  const key=String(taskId)+"|"+String(kind);
+  const cached=fastReviewRequests.get(key);
+  if(!options.force && cached && Date.now()-cached.created<12000){
+    return cached.promise;
+  }
+  const paths=[fastReviewUrl(taskId,kind),githubReviewUrl(taskId,kind)];
+  const promises=paths.map(async url=>{
+    const controller=new AbortController();
+    const timer=window.setTimeout(()=>controller.abort(),5000);
+    try{
+      const response=await fetch(url,{
+        cache:"no-store",signal:controller.signal,
+        headers:{"Accept":"application/json"}
+      });
+      if(!response.ok) throw new Error("HTTP "+response.status);
+      const payload=await response.json();
+      if(!Array.isArray(payload?.segments) ||
+         (payload.task_id && String(payload.task_id)!==String(taskId))){
+        throw new Error("課程快取不完整");
+      }
+      return payload;
+    }finally{window.clearTimeout(timer);}
+  });
+  const promise=Promise.any(promises);
+  fastReviewRequests.set(key,{created:Date.now(),promise});
+  promise.catch(()=>{
+    // A missing cache may be published after Chinese Final; a second
+    // attempt must not be stuck on a cached 404.
+    if(fastReviewRequests.get(key)?.promise===promise){
+      fastReviewRequests.delete(key);
+    }
+  });
+  return promise;
+}
+function prefetchReviewPayloads(taskId){
+  if(!taskId) return;
+  fetchReviewPayload(taskId,"zh").catch(()=>{});
+  fetchReviewPayload(taskId,"en").catch(()=>{});
+}
+
 
 function youtubeVideoIdFromUrl(url){
   try{
@@ -814,58 +869,19 @@ async function loadZhReviewFromGithub(taskId,options={}){
   );
 
   try{
-    const controller=new AbortController();
-    const timeout=window.setTimeout(()=>controller.abort(),6000);
-    let response;
+    let data;
     try{
-      response=await fetch(githubReviewUrl(taskId),{
-        method:"GET",
-        cache:"no-store",
-        signal:controller.signal,
-        headers:{
-          "Accept":"application/json"
-        }
-      });
-    }finally{
-      window.clearTimeout(timeout);
-    }
-
-    if(response.status===404){
-      // GitHub is only a speed/cache layer. The source of truth remains Drive.
-      // If the deterministic cache is missing, seed it in the background but
-      // immediately restore the older reliable Drive-backed review_load path.
+      data=await fetchReviewPayload(taskId,"zh");
+    }catch(cacheError){
       if(!reviewCacheSeedRequested.has(String(taskId))){
         const seeded=submitBridgePost({
-          action:"review_cache_seed",
-          task_id:String(taskId||"")
+          action:"review_cache_seed",task_id:String(taskId||"")
         });
         if(seeded) reviewCacheSeedRequested.add(String(taskId));
       }
-
-      setZhReviewLoadState("GitHub 快取缺少・改由 Google Drive 直接載入…","working");
-      const fallback=requestReviewData(taskId,"zh",0);
-      if(fallback) return;
-
-      if(retry<maxRetries){
-        window.setTimeout(
-          ()=>loadZhReviewFromGithub(taskId,{retry:retry+1}),
-          retry<4 ? 500 : 1000
-        );
-        return;
-      }
-      throw new Error("GitHub 快取缺少，且 Google Drive 備援目前未連線。");
-    }
-
-    if(!response.ok){
-      throw new Error("GitHub HTTP "+response.status);
-    }
-
-    const data=await response.json();
-    if(!data || !Array.isArray(data.segments)){
-      throw new Error("GitHub 快取格式不正確");
-    }
-    if(data.task_id && String(data.task_id)!==String(taskId)){
-      throw new Error("GitHub 快取 task_id 不一致");
+      setZhReviewLoadState("快取尚未就緒・改由 Google Drive 載入…","working");
+      if(requestReviewData(taskId,"zh",0)) return;
+      throw cacheError;
     }
 
     const currentById=new Map(
@@ -2176,6 +2192,9 @@ function requestCourseFiles(taskId,force=false){
 
 function renderTaskDetail(task){
   normalizeTask(task);
+  // Prefetch as soon as the task detail appears, before the user taps either
+  // review editor. Concurrent source reads do not use GPU or Google Drive.
+  prefetchReviewPayloads(task.id);
   renderLanguagePlan(task);
   const next=nextStageFor(task);
   const nextIndex=task.completedStep+1;
@@ -3458,30 +3477,35 @@ async function openEnglishReview(taskId){
     '<small>'+escapeHtml(task.url)+'</small>';
 
   const list=document.getElementById("en-review-list");
-  list.innerHTML='<div class="empty">正在從 GitHub 讀取英文定稿快取…</div>';
+  list.innerHTML='<div class="empty">正在讀取英文定稿快取…</div>';
   showView("en-review");
 
-  // GitHub is the fast published snapshot; Drive remains the durable
-  // authoritative source. An unavailable/incomplete snapshot falls back to
-  // Drive instead of waiting for nine sequential Apps Script chunk requests.
+  // Instant repeat openings on this device: preview the last known English
+  // passage layout, then independently reconcile the live GitHub snapshot.
+  const preview=readReviewCache(taskId,"en");
+  if(preview?.segments?.length){
+    renderEnglishReview(englishReviewItemsFromGithub(preview,true));
+    if(shareState) shareState.textContent="先顯示本機英文快取・正在檢查雲端最新版";
+  }
+
+  // The English cache is the preferred authoritative layout. A missing cache
+  // falls back to the Chinese review cache, then Drive, without two 7s waits.
   for(const kind of ["en","zh"]){
     try{
-      const controller=new AbortController();
-      const timer=window.setTimeout(()=>controller.abort(),7000);
-      let response;
-      try{
-        response=await fetch(githubReviewUrl(task.id,kind),{
-          cache:"no-store",signal:controller.signal,
-          headers:{"Accept":"application/json"}
-        });
-      }finally{window.clearTimeout(timer);}
-      if(!response.ok) continue;
-      const payload=await response.json();
+      const payload=await fetchReviewPayload(task.id,kind);
       if(payload.task_id && payload.task_id!==taskId) continue;
       const items=englishReviewItemsFromGithub(payload,kind==="en");
       if(items.length && items.some(x=>String(x.en||"").trim())){
         if(selectedTaskId!==taskId) return;
         renderEnglishReview(items);
+        writeReviewCache({
+          ...payload,task_id:taskId,kind:"en",
+          segments:items.map(x=>({
+            id:x.id,start:x.start,end:x.end,time:x.time,
+            text:x.original,en_text:x.en,source_en:x.source_en,
+            en_confirmed:x.en_confirmed,zh_ids:x.ids,pre_aligned:x.pre_aligned
+          }))
+        });
         if(shareState){
           const cachedVideo=String(payload.source_video_id||"").trim();
           const currentVideo=youtubeVideoIdFromUrl(task.url);
