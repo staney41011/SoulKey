@@ -65,7 +65,7 @@
     })();
   </script>
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20261004-4">
+  <link rel="stylesheet" href="./styles.css?v=20261011-unified-language-v5">
 </head>
 <body>
   <div class="shell">
@@ -268,10 +268,11 @@
             <button class="ghost" id="refresh-language-settings" type="button">更新語言清單</button>
           </div>
           <p class="muted block-copy">
-            每堂課可獨立決定哪些語言需要翻譯文稿、哪些需要音檔。若已有真人翻譯或真人錄音，就不啟動對應 AI 工作。
+            只要勾選需要的語言，系統就會為該語言同時製作翻譯文稿與自然語音 MP3，不必分別選擇。
+            英文人工定稿會一直保留；勾選英文代表另外製作英文音檔。
           </p>
           <div class="language-plan-head">
-            <span>語言</span><span>翻譯文稿</span><span>音檔</span>
+            <span>選擇語言（中文／當地語）</span><span>自動產生：文稿＋音檔</span>
           </div>
           <div id="language-plan-list" class="language-plan-list">
             <div class="empty">正在等待語言設定。</div>
@@ -782,6 +783,6 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20261011-khmer-10lang-v45"></script>
+  <script src="./app-20260923-48.js?v=20261011-unified-language-v46"></script>
 </body>
 </html>

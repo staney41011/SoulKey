@@ -1924,80 +1924,61 @@ function normalizedLanguagePlan(task){
   });
 }
 
+const LANGUAGE_ZH_NAMES={
+  en:"英文",th:"泰文",es:"西班牙文",id:"印尼文",vi:"越南文",
+  hi:"印地語",ta:"泰米爾文",ja:"日文",ko:"韓文",km:"高棉文"
+};
+
 function renderLanguagePlan(task){
   const list=document.getElementById("language-plan-list");
   const status=document.getElementById("language-plan-status");
   if(!list || !task) return;
 
   const plan=normalizedLanguagePlan(task);
-
   list.innerHTML=plan.map(item=>{
-    const lang=languageSettings.find(x=>x.code===item.language_code) || {};
-    const aiDisabled=!lang.can_ai_translate;
-    const ttsDisabled=!lang.can_tts;
-    const english=item.language_code==="en";
-    return '<article class="language-plan-row" data-lang-plan="'+escapeHtml(item.language_code)+'">'+
-      '<div class="language-name"><b>'+escapeHtml(item.language_name)+'</b><small>'+escapeHtml(item.language_code)+'</small></div>'+
-      '<div class="language-output-cell">'+
-        '<label class="output-toggle"><input type="checkbox" data-plan-transcript '+(item.transcript_enabled?"checked":"")+' '+(english?"disabled":"")+'> '+(english?"英文定稿":"需要文稿")+'</label>'+
-        '<select data-plan-transcript-source '+((!item.transcript_enabled||english)?"disabled":"")+'>'+
-          '<option value="ai" '+(item.transcript_source==="ai"?"selected":"")+' '+(aiDisabled?"disabled":"")+'>AI 翻譯</option>'+
-          '<option value="human" '+(item.transcript_source==="human"?"selected":"")+'>'+(english?"English CC 定稿":"真人翻譯／人工提供")+'</option>'+
-        '</select>'+
-      '</div>'+
-      '<div class="language-output-cell">'+
-        '<label class="output-toggle"><input type="checkbox" data-plan-audio '+(item.audio_enabled?"checked":"")+'> 需要音檔</label>'+
-        '<select data-plan-audio-source '+(!item.audio_enabled?"disabled":"")+'>'+
-          '<option value="tts" '+(item.audio_source==="tts"?"selected":"")+' '+(ttsDisabled?"disabled":"")+'>自然 AI 配音（TTS）</option>'+
-          '<option value="human" '+(item.audio_source==="human"?"selected":"")+'>真人錄音</option>'+
-        '</select>'+
-      '</div>'+
-    '</article>';
+    const code=item.language_code;
+    const english=code==="en";
+    // Legacy plans may have chosen manuscript only. The unified UI migrates
+    // such a selection to BOTH outputs only when the user saves the new plan.
+    const selected=english ? item.audio_enabled :
+      (item.transcript_enabled || item.audio_enabled);
+    const zh=LANGUAGE_ZH_NAMES[code]||code;
+    const local=item.language_name||code;
+    return '<label class="language-plan-row" data-lang-plan="'+escapeHtml(code)+'">'+
+      '<input type="checkbox" data-plan-enabled aria-label="選擇'+escapeHtml(zh)+'，產生文稿與音檔" '+(selected?"checked":"")+'>'+
+      '<span class="language-name"><b>'+escapeHtml(zh)+'</b><small>'+escapeHtml(local)+' · '+escapeHtml(code)+'</small></span>'+
+      '<span class="language-deliverables">'+
+        (english ? '英文定稿已保留 · 勾選製作音檔' : '翻譯文稿 ＋ 自然語音 MP3')+
+      '</span>'+
+    '</label>';
   }).join("");
 
-  if(status){
-    const selected=plan.filter(x=>x.transcript_enabled || x.audio_enabled).length;
+  const refreshSelectionCount=()=>{
+    if(!status) return;
+    const selected=list.querySelectorAll("[data-plan-enabled]:checked").length;
     status.textContent=selected
-      ? "目前已選 "+selected+" 種語言；尚未變更前可直接調整。"
-      : "尚未選擇任何目標語言；不會自動把全部語言送去 Kaggle。";
-  }
-
-  document.querySelectorAll(".language-plan-row").forEach(row=>{
-    const transcript=row.querySelector("[data-plan-transcript]");
-    const transcriptSource=row.querySelector("[data-plan-transcript-source]");
-    const audio=row.querySelector("[data-plan-audio]");
-    const audioSource=row.querySelector("[data-plan-audio-source]");
-
-    transcript?.addEventListener("change",()=>{
-      transcriptSource.disabled=!transcript.checked;
-    });
-    audio?.addEventListener("change",()=>{
-      audioSource.disabled=!audio.checked;
-      if(audio.checked && audioSource.value==="tts" && !transcript.checked){
-        transcript.checked=true;
-        transcriptSource.disabled=false;
-      }
-    });
-    audioSource?.addEventListener("change",()=>{
-      if(audio.checked && audioSource.value==="tts" && !transcript.checked){
-        transcript.checked=true;
-        transcriptSource.disabled=false;
-      }
-    });
+      ? "已勾選 "+selected+" 種語言；每種均製作文稿＋音檔，請記得儲存。"
+      : "未選擇額外輸出；英文人工 Final 仍會保留。";
+  };
+  list.querySelectorAll("[data-plan-enabled]").forEach(toggle=>{
+    toggle.addEventListener("change",refreshSelectionCount);
   });
+  refreshSelectionCount();
 }
 
 function collectLanguagePlan(){
   return [...document.querySelectorAll(".language-plan-row")].map(row=>{
     const code=row.dataset.langPlan;
     const lang=languageSettings.find(x=>x.code===code) || {name:code};
+    const selected=!!row.querySelector("[data-plan-enabled]")?.checked;
+    const english=code==="en";
     return {
       language_code:code,
       language_name:lang.name || code,
-      transcript_enabled:!!row.querySelector("[data-plan-transcript]")?.checked,
-      transcript_source:row.querySelector("[data-plan-transcript-source]")?.value || "ai",
-      audio_enabled:!!row.querySelector("[data-plan-audio]")?.checked,
-      audio_source:row.querySelector("[data-plan-audio-source]")?.value || "tts"
+      transcript_enabled:english || selected,
+      transcript_source:english ? "human" : "ai",
+      audio_enabled:selected,
+      audio_source:"tts"
     };
   });
 }
@@ -2010,13 +1991,13 @@ function saveLanguagePlanForSelectedTask(){
   task.languagePlan=plan;
   save(STORE.tasks,tasks);
 
-  const selected=plan.filter(x=>x.transcript_enabled || x.audio_enabled);
+  const selected=plan.filter(x=>x.audio_enabled);
   const status=document.getElementById("language-plan-status");
 
   if(!selected.length){
-    if(status) status.textContent="已儲存：本堂課目前不需要任何其他語言輸出。";
+    if(status) status.textContent="已儲存：未選額外輸出；英文人工定稿仍保留。";
   }else{
-    if(status) status.textContent="已儲存 "+selected.length+" 種語言設定，正在同步控制中心…";
+    if(status) status.textContent="已儲存 "+selected.length+" 種語言（每種皆含文稿＋自然語音），正在同步控制中心…";
   }
 
   const sent=submitBridgePost({

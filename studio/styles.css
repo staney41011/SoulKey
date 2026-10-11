@@ -200,3 +200,13 @@ dialog{border:0;border-radius:17px;padding:0;width:min(540px,92vw);box-shadow:0 
   .youtube-cloud-file{align-items:flex-start;flex-direction:column}
   .youtube-language-grid{grid-template-columns:1fr}
 }
+
+/* SoulKey unified language selector: one check means text + natural voice. */
+.language-plan-head{grid-template-columns:minmax(0,1fr) auto}
+.language-plan-row{grid-template-columns:24px minmax(0,1fr) auto;gap:14px;cursor:pointer;transition:border-color .15s,background .15s}
+.language-plan-row:has([data-plan-enabled]:checked){border-color:#95aad4;background:#f2f6ff}
+.language-plan-row input[data-plan-enabled]{width:20px;height:20px;margin:0;accent-color:#3e65a7}
+.language-plan-row .language-name b{font-size:15px}
+.language-plan-row .language-name small{font-size:12px}
+.language-plan-row .language-deliverables{font-size:12px;font-weight:700;color:var(--muted)}
+@media(max-width:900px){.language-plan-row{grid-template-columns:24px minmax(0,1fr)}.language-plan-row .language-deliverables{grid-column:2}.language-plan-head{display:none}}

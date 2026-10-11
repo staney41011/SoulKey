@@ -113,8 +113,8 @@ function setStep(step,force=false){
   const guides={
     1:["STEP 1｜中文逐字稿","聽 YouTube 原音，核對 Taiwan Breeze 中文逐字稿與輕量 AI 校稿。按「確認此段」會立即同步 GitHub。"],
     2:["STEP 2｜中英對照","左側是中文 Final；右側直接使用 YouTube English auto-generated CC。只修英文即可，修改會自動同步 GitHub。"],
-    3:["STEP 3｜選擇輸出","勾選需要的逐字稿與音檔。其他語言會從人工確認過的 English Final 直接翻譯。"],
-    4:["STEP 4｜完成","工作已送到 Kaggle。翻譯完成後只替有勾音檔的語言執行 TTS。"]
+    3:["STEP 3｜選擇語言","勾選需要的語言，每種語言都會同時生成文稿與自然語音音檔。"],
+    4:["STEP 4｜完成","工作已送到 Kaggle，會為所選語言產生文稿與音檔。"]
   };
   $("guide-title").textContent=guides[target][0];
   $("guide-text").textContent=guides[target][1];
@@ -826,28 +826,33 @@ const LANG_NAMES={
   km:"ភាសាខ្មែរ"
 };
 
+const LANG_NAMES_ZH={
+  en:"英文",th:"泰文",es:"西班牙文",id:"印尼文",vi:"越南文",
+  hi:"印地語",ta:"泰米爾文",ja:"日文",ko:"韓文",km:"高棉文"
+};
+
 function collectOutputPlan(){
   return [...document.querySelectorAll(".output-row")].map(row=>{
     const code=row.dataset.outputLang;
-    const transcript=!!row.querySelector("[data-output-transcript]")?.checked;
-    const audio=!!row.querySelector("[data-output-audio]")?.checked;
+    const selected=!!row.querySelector("[data-output-enabled]")?.checked;
     return {
       language_code:code,
       language_name:LANG_NAMES[code]||code,
-      transcript_enabled:code==="en"?true:(transcript||audio),
+      transcript_enabled:code==="en"||selected,
       transcript_source:code==="en"?"human":"ai",
-      audio_enabled:audio,
+      audio_enabled:selected,
       audio_source:"tts"
     };
   });
 }
 
 function updateOutputSummary(){
-  const plan=collectOutputPlan();
-  const transcript=plan.filter(x=>x.transcript_enabled).map(x=>x.language_code);
-  const audio=plan.filter(x=>x.audio_enabled).map(x=>x.language_code);
-  $("output-summary").textContent=
-    "逐字稿："+transcript.join(", ")+"；音檔："+(audio.join(", ")||"無");
+  const selected=collectOutputPlan()
+    .filter(x=>x.audio_enabled)
+    .map(x=>LANG_NAMES_ZH[x.language_code]||x.language_code);
+  $("output-summary").textContent=selected.length
+    ? "已選 "+selected.length+" 種："+selected.join("、")+"。每種都會產生文稿＋自然語音音檔。"
+    : "目前保留英文人工 Final；尚未選擇額外輸出。";
 }
 
 function finishWorkflow(){
@@ -856,13 +861,13 @@ function finishWorkflow(){
     return;
   }
   const plan=collectOutputPlan();
-  const extra=plan.filter(x=>x.language_code!=="en"&&(x.transcript_enabled||x.audio_enabled));
+  const extra=plan.filter(x=>x.language_code!=="en"&&x.audio_enabled);
   const audio=plan.filter(x=>x.audio_enabled);
 
   const msg=
     "確定開始最終輸出？\n\n"+
-    "額外翻譯："+(extra.map(x=>x.language_code).join(", ")||"無")+"\n"+
-    "音檔："+(audio.map(x=>x.language_code).join(", ")||"無");
+    "選擇語言："+(audio.map(x=>LANG_NAMES_ZH[x.language_code]||x.language_code).join("、")||"無")+"\n"+
+    "所選語言都會生成文稿及自然語音 MP3，英文 Final 保留。";
   if(!confirm(msg)) return;
 
   $("finish-workflow").disabled=true;
@@ -1200,16 +1205,8 @@ document.querySelectorAll("[data-go-step]").forEach(btn=>{
   btn.addEventListener("click",()=>setStep(Number(btn.dataset.goStep||1)));
 });
 
-document.querySelectorAll(".output-row").forEach(row=>{
-  const transcript=row.querySelector("[data-output-transcript]");
-  const audio=row.querySelector("[data-output-audio]");
-  audio?.addEventListener("change",()=>{
-    if(audio.checked&&transcript&&!transcript.checked){
-      transcript.checked=true;
-    }
-    updateOutputSummary();
-  });
-  transcript?.addEventListener("change",updateOutputSummary);
+document.querySelectorAll(".output-row [data-output-enabled]").forEach(toggle=>{
+  toggle.addEventListener("change",updateOutputSummary);
 });
 
 $("load-more-zh").addEventListener("click",()=>{

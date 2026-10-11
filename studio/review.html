@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>SoulKey｜單堂課快速翻譯流程</title>
-  <link rel="stylesheet" href="./review-editor.css?v=20260923-5">
+  <link rel="stylesheet" href="./review-editor.css?v=20261011-unified-language-v6">
 </head>
 <body>
   <header class="share-header">
@@ -31,7 +31,7 @@
       <span>2</span><b>中英對照</b><small>修改 English CC</small>
     </button>
     <button class="workflow-step" data-go-step="3" type="button">
-      <span>3</span><b>選擇輸出</b><small>逐字稿 / 音檔</small>
+      <span>3</span><b>選擇輸出</b><small>選語言，兩種都產生</small>
     </button>
     <button class="workflow-step" data-go-step="4" type="button">
       <span>4</span><b>完成</b><small>翻譯 + TTS</small>
@@ -118,63 +118,62 @@
           <div>
             <p class="eyebrow">STEP 3</p>
             <h2>選擇要生成的語言</h2>
-            <p>英文已是人工 Final；其他語言會直接從 English Final 翻譯。勾選音檔時會自動包含該語言逐字稿。</p>
+            <p>只需勾選需要的語言：每種語言都會同時產生完整翻譯文稿與自然語音 MP3。英文 Final 已保存，勾選英文代表另外製作英文音檔。</p>
           </div>
         </div>
 
         <div class="output-grid" id="output-grid">
-          <article class="card output-row" data-output-lang="en">
-            <div><b>English</b><small>en・人工 Final</small></div>
-            <label><input type="checkbox" data-output-transcript checked disabled> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
-          <article class="card output-row" data-output-lang="th">
-            <div><b>ภาษาไทย</b><small>th</small></div>
-            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
-          <article class="card output-row" data-output-lang="es">
-            <div><b>Español</b><small>es</small></div>
-            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
-          <article class="card output-row" data-output-lang="id">
-            <div><b>Bahasa Indonesia</b><small>id</small></div>
-            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
-          <article class="card output-row" data-output-lang="vi">
-            <div><b>Tiếng Việt</b><small>vi</small></div>
-            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
-          <article class="card output-row" data-output-lang="hi">
-            <div><b>हिन्दी</b><small>hi・Hindi</small></div>
-            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
-          <article class="card output-row" data-output-lang="ta">
-            <div><b>தமிழ்</b><small>ta・Tamil</small></div>
-            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
-          <article class="card output-row" data-output-lang="ja">
-            <div><b>日本語</b><small>ja・Japanese</small></div>
-            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
-          <article class="card output-row" data-output-lang="ko">
-            <div><b>한국어</b><small>ko・Korean</small></div>
-            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
-          <article class="card output-row" data-output-lang="km">
-            <div><b>ភាសាខ្មែរ</b><small>km・Khmer 高棉文</small></div>
-            <label><input type="checkbox" data-output-transcript> 逐字稿</label>
-            <label><input type="checkbox" data-output-audio> 音檔</label>
-          </article>
+          <label class="card output-row" data-output-lang="en">
+            <input type="checkbox" data-output-enabled aria-label="選擇英文，產生文稿與音檔">
+            <span class="output-language"><b>英文</b><small>English · en</small></span>
+            <span class="output-pair">英文 Final 已完成 · 選取後製作音檔</span>
+          </label>
+          <label class="card output-row" data-output-lang="th">
+            <input type="checkbox" data-output-enabled aria-label="選擇泰文，產生文稿與音檔">
+            <span class="output-language"><b>泰文</b><small>ภาษาไทย · th</small></span>
+            <span class="output-pair">翻譯文稿 ＋ 自然語音 MP3</span>
+          </label>
+          <label class="card output-row" data-output-lang="es">
+            <input type="checkbox" data-output-enabled aria-label="選擇西班牙文，產生文稿與音檔">
+            <span class="output-language"><b>西班牙文</b><small>Español · es</small></span>
+            <span class="output-pair">翻譯文稿 ＋ 自然語音 MP3</span>
+          </label>
+          <label class="card output-row" data-output-lang="id">
+            <input type="checkbox" data-output-enabled aria-label="選擇印尼文，產生文稿與音檔">
+            <span class="output-language"><b>印尼文</b><small>Bahasa Indonesia · id</small></span>
+            <span class="output-pair">翻譯文稿 ＋ 自然語音 MP3</span>
+          </label>
+          <label class="card output-row" data-output-lang="vi">
+            <input type="checkbox" data-output-enabled aria-label="選擇越南文，產生文稿與音檔">
+            <span class="output-language"><b>越南文</b><small>Tiếng Việt · vi</small></span>
+            <span class="output-pair">翻譯文稿 ＋ 自然語音 MP3</span>
+          </label>
+          <label class="card output-row" data-output-lang="hi">
+            <input type="checkbox" data-output-enabled aria-label="選擇印地語，產生文稿與音檔">
+            <span class="output-language"><b>印地語</b><small>हिन्दी · hi</small></span>
+            <span class="output-pair">翻譯文稿 ＋ 自然語音 MP3</span>
+          </label>
+          <label class="card output-row" data-output-lang="ta">
+            <input type="checkbox" data-output-enabled aria-label="選擇泰米爾文，產生文稿與音檔">
+            <span class="output-language"><b>泰米爾文</b><small>தமிழ் · ta</small></span>
+            <span class="output-pair">翻譯文稿 ＋ 自然語音 MP3</span>
+          </label>
+          <label class="card output-row" data-output-lang="ja">
+            <input type="checkbox" data-output-enabled aria-label="選擇日文，產生文稿與音檔">
+            <span class="output-language"><b>日文</b><small>日本語 · ja</small></span>
+            <span class="output-pair">翻譯文稿 ＋ 自然語音 MP3</span>
+          </label>
+          <label class="card output-row" data-output-lang="ko">
+            <input type="checkbox" data-output-enabled aria-label="選擇韓文，產生文稿與音檔">
+            <span class="output-language"><b>韓文</b><small>한국어 · ko</small></span>
+            <span class="output-pair">翻譯文稿 ＋ 自然語音 MP3</span>
+          </label>
+          <label class="card output-row" data-output-lang="km">
+            <input type="checkbox" data-output-enabled aria-label="選擇高棉文，產生文稿與音檔">
+            <span class="output-language"><b>高棉文</b><small>ភាសាខ្មែរ · km</small></span>
+            <span class="output-pair">翻譯文稿 ＋ 自然語音 MP3</span>
+          </label>
         </div>
-
         <div class="finish-card card">
           <div>
             <b>確認後直接完成後續流程</b>
@@ -199,6 +198,6 @@
 
   <iframe name="soulkey-share-target" id="soulkey-share-target" hidden></iframe>
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./review-editor.js?v=20261011-khmer-10lang-v6"></script>
+  <script src="./review-editor.js?v=20261011-unified-language-v7"></script>
 </body>
 </html>
