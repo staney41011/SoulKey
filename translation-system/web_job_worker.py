@@ -142,6 +142,71 @@ def run(cmd, cwd=None):
     subprocess.run(cmd, cwd=cwd, env=env, check=True)
 
 
+def run_verified_tts_job(cmd, retry_waits=(10,30),
+                         refresh_credentials=None):
+    """Fail closed: selected-language Drive MP3 verification is mandatory.
+
+    tts_runner.py --strict-delivery:
+      0: every selected language has a verified approved MP3;
+      2: at least one language missing (resume just the missing languages);
+      3: every language has audio, but >=1 is preview-only pending timing QA.
+    Completed voices are skipped from their Drive manifests on subsequent runs.
+    """
+    for attempt in range(len(retry_waits)+1):
+        try:
+            if refresh_credentials is not None:
+                refresh_credentials()
+            run(cmd)
+            print("[FINISH:AUDIO-VERIFIED] all selected Drive MP3 files present",
+                  flush=True)
+            return "done"
+        except subprocess.CalledProcessError as exc:
+            if exc.returncode==3:
+                print("[FINISH:AUDIO-REVIEW] full natural MP3 available; "
+                      "one or more languages need timing review",flush=True)
+                return "needs_review"
+            if attempt==len(retry_waits):
+                raise RuntimeError(
+                    "One or more selected MP3 files are still missing after "
+                    f"{attempt+1} delivery attempts; check per-language "
+                    "tts:<lang> status and Drive files"
+                ) from exc
+            wait_seconds=retry_waits[attempt]
+            print("[FINISH:AUDIO-RETRY] incomplete audio delivery, "
+                  f"attempt {attempt+2}/{len(retry_waits)+1}; "
+                  f"resuming only missing files after {wait_seconds}s",
+                  flush=True)
+            time.sleep(wait_seconds)
+    raise AssertionError("unreachable")
+
+
+def refresh_worker_drive_credentials(bridge_url,nonce):
+    # Google access tokens can expire during translation or 10-language TTS.
+    # Each attempt gets a fresh Drive credential; never persist the token.
+    fresh=fetch_runtime(bridge_url,nonce)
+    token=str(fresh.get("google_access_token") or "").strip()
+    if not token:
+        raise RuntimeError("Bridge runtime failed to refresh Drive access token")
+    os.environ["GOOGLE_ACCESS_TOKEN"]=token
+    print("[FINISH:DRIVE] refreshed short-lived Google token",flush=True)
+
+
+def run_checkpointed_multi(cmd, retry_waits=(15,40)):
+    """Resume checkpointed translation before starting TTS."""
+    for attempt in range(len(retry_waits)+1):
+        try:
+            run(cmd)
+            return
+        except subprocess.CalledProcessError:
+            if attempt==len(retry_waits):
+                raise
+            delay=retry_waits[attempt]
+            print(f"[FINISH:MULTI-RETRY] pass {attempt+2}/"
+                  f"{len(retry_waits)+1} after {delay}s; "
+                  "resume source-matched Gemini checkpoint",flush=True)
+            time.sleep(delay)
+
+
 def require_gpu_runtime(stage: str):
     """Formal Kaggle jobs must use a real CUDA GPU; never silently fall back to CPU."""
     os.environ["SOULKEY_REQUIRE_GPU"] = "1"
@@ -704,6 +769,7 @@ def main():
                 "--task-id", args.task_id,
                 "--langs", langs,
                 "--max-tasks", "1",
+                "--strict-delivery",
             ]
 
         elif args.stage == "batch":
@@ -778,25 +844,30 @@ def main():
             )
 
             if translate_langs:
-                run([
+                run_checkpointed_multi([
                     sys.executable,
                     str(system_dir / "gemini_multi_production_runner.py"),
                     "--task-id", args.task_id,
                     "--langs", translate_langs,
                 ])
 
+            audio_result="done"
             if audio_langs:
                 print(
-                    "[FINISH:TTS] Natural TTS v2 使用 CPU + Internet。",
+                    "[FINISH:TTS] Natural TTS v2 使用 CPU + Internet；"
+                    "逐語言驗證 Drive MP3；若失敗自動補跑。",
                     flush=True,
                 )
-                run([
+                audio_result=run_verified_tts_job([
                     sys.executable,
                     str(system_dir / "tts_runner.py"),
                     "--task-id", args.task_id,
                     "--langs", audio_langs,
                     "--max-tasks", "1",
-                ])
+                    "--strict-delivery",
+                ],refresh_credentials=lambda:refresh_worker_drive_credentials(
+                    args.bridge_url,args.runtime_nonce
+                ))
 
             if not translate_langs and not audio_langs:
                 print("[FINISH] 沒有額外翻譯或音檔；中英 Final 已完成。", flush=True)
@@ -804,14 +875,30 @@ def main():
             report(
                 args.bridge_url,
                 args.runtime_nonce,
-                "done",
-                "完成快速上線流程；Gemini翻譯="
-                + (translate_langs or "無")
-                + "；音檔="
-                + (audio_langs or "無"),
+                "needs_review" if audio_result=="needs_review" else "done",
+                ("所有勾選語言都有自然朗讀 MP3；部分超出安全調速，"
+                 "只有完整自然試聽版，待人工對時"
+                 if audio_result=="needs_review"
+                 else "所有勾選語言正式 MP3 已通過 Drive 驗證")
+                + "；Gemini翻譯=" + (translate_langs or "無")
+                + "；音檔=" + (audio_langs or "無"),
             )
             cmd = None
 
+        if cmd and args.stage=="tts":
+            audio_result=run_verified_tts_job(
+                cmd,refresh_credentials=lambda:refresh_worker_drive_credentials(
+                    args.bridge_url,args.runtime_nonce
+                )
+            )
+            report(
+                args.bridge_url,args.runtime_nonce,
+                "needs_review" if audio_result=="needs_review" else "done",
+                "所有勾選語言已建立自然試聽 MP3，部分尚待對時"
+                if audio_result=="needs_review"
+                else "所有指定語言正式 MP3 已完成 Drive 實檔驗證",
+            )
+            cmd=None
         if cmd:
             run(cmd)
         if args.stage in {"en", "cc"}:

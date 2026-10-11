@@ -321,6 +321,54 @@ def _load_tts_manifest(drive, audio_folder, lang, workdir):
         return None
 
 
+def _verified_drive_audio(drive, audio_folder, filename):
+    """A Drive listing is not proof of a playable delivery; reject zero-byte files."""
+    item=find_file(drive,audio_folder,filename)
+    if not item or not item.get("id"):
+        return False
+    meta=drive.files().get(
+        fileId=item["id"],fields="id,size,mimeType",
+        supportsAllDrives=True
+    ).execute()
+    return int(meta.get("size") or 0)>1024 and str(
+        meta.get("mimeType") or ""
+    ) in {"audio/mpeg","audio/mp3","audio/x-wav","audio/wav","application/octet-stream"}
+
+
+def verify_uploaded_natural_output(
+    drive,audio_folder,lang,source_sha256,duration_limit,workdir
+):
+    """Re-read committed Drive manifest + MP3; report approved/review/missing."""
+    manifest=_load_tts_manifest(drive,audio_folder,lang,workdir)
+    profile=NATURAL_TTS_PROFILES[lang]
+    if not isinstance(manifest,dict):
+        return "missing"
+    expected={
+        "engine":"edge-natural-v2",
+        "profile_revision":NATURAL_TTS_PROFILE_REVISION,
+        "source_sha256":str(source_sha256),
+        "voice":str(profile["voice"]),
+        "rate":str(profile["rate"]),
+        "pitch":str(profile["pitch"]),
+        "assembly_policy":"continuous_total_duration",
+    }
+    if any(str(manifest.get(k) or "")!=value for k,value in expected.items()):
+        return "missing"
+    if abs(float(manifest.get("duration_limit_seconds") or 0)
+           -float(duration_limit or 0))>0.5:
+        return "missing"
+    status=str(manifest.get("status") or "")
+    if status=="done":
+        return ("done" if
+            _verified_drive_audio(drive,audio_folder,f"{lang}.mp3") and
+            _verified_drive_audio(drive,audio_folder,f"{lang}.wav")
+            else "missing")
+    if status=="needs_review":
+        return ("needs_review" if _verified_drive_audio(
+            drive,audio_folder,f"{lang}.preview.mp3") else "missing")
+    return "missing"
+
+
 def existing_natural_output(
     drive,
     audio_folder,
@@ -359,10 +407,9 @@ def existing_natural_output(
     if abs(old_limit - float(duration_limit or 0)) > 0.5:
         return False
 
-    return bool(
-        find_file(drive, audio_folder, f"{lang}.wav")
-        and find_file(drive, audio_folder, f"{lang}.mp3")
-    )
+    return (verify_uploaded_natural_output(
+        drive,audio_folder,lang,source_sha256,duration_limit,workdir
+    )=="done")
 
 
 def render_natural_language(
@@ -511,6 +558,10 @@ def main():
     parser.add_argument("--all-langs", action="store_true")
     parser.add_argument("--max-tasks", type=int, default=1)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--strict-delivery", action="store_true",
+        help="Return nonzero unless every requested language has a verified Drive MP3."
+    )
     args = parser.parse_args()
 
     if sum(bool(x) for x in [args.lang, args.langs, args.all_langs]) != 1:
@@ -553,6 +604,8 @@ def main():
 
     processed = 0
     any_failed = False
+    strict_missing = []
+    strict_review = []
     for task in tasks:
         if processed >= args.max_tasks:
             break
@@ -690,6 +743,39 @@ def main():
                         )
                         continue
 
+                    if not args.force and verify_uploaded_natural_output(
+                        drive,folders["audio"],lang,source_sha256,
+                        duration_limit,workdir
+                    )=="needs_review":
+                        # A complete natural preview is valid listening output.
+                        # Do not synthesize it repeatedly when another
+                        # language is being retried: keep its QA status clear.
+                        manifest=_load_tts_manifest(
+                            drive,folders["audio"],lang,workdir
+                        ) or {}
+                        timeline=manifest.get("timeline") or {}
+                        over_duration.append({
+                            "lang":lang,
+                            "over":float(timeline.get("over_source") or 0),
+                            "required_speedup":float(
+                                timeline.get("required_speedup") or 1
+                            ),
+                        })
+                        completed.append(lang)
+                        tts_completed.append(lang)
+                        mark_needs_review(
+                            task["task_id"],lang_stage,
+                            sheets=sheets,run_id=lang_run_id,
+                            message=f"{LANGUAGE_NAMES[lang]} full natural "
+                                "preview MP3 already verified on Drive; "
+                                "video timing review still needed"
+                        )
+                        print(
+                            f"[TTS-DRIVE-VERIFIED] {lang}=needs_review "
+                            "(reused previous full natural preview)",flush=True
+                        )
+                        continue
+
                     print(
                         f"[TTS] {LANGUAGE_NAMES[lang]} ({lang}) / "
                         f"{NATURAL_TTS_PROFILES[lang]['voice']}",
@@ -708,6 +794,18 @@ def main():
                         result,
                         task,
                     )
+                    # An API upload call returning is not enough. Re-fetch
+                    # the Drive manifest + nonempty MP3 before marking done.
+                    delivered=verify_uploaded_natural_output(
+                        drive,folders["audio"],lang,source_sha256,
+                        duration_limit,workdir
+                    )
+                    if delivered != result["status"]:
+                        raise RuntimeError(
+                            f"Drive audio delivery mismatch for {lang}: "
+                            f"expected={result['status']} actual={delivered}"
+                        )
+                    print(f"[TTS-DRIVE-VERIFIED] {lang}={delivered}",flush=True)
                     completed.append(lang)
                     tts_completed.append(lang)
 
@@ -850,6 +948,23 @@ def main():
                 note,
             )
 
+            if args.strict_delivery:
+                strict_missing.extend(
+                    f"{task['task_id']}:{x['lang']}"
+                    for x in (failed + blocked)
+                )
+                strict_review.extend(
+                    f"{task['task_id']}:{x['lang']}"
+                    for x in over_duration
+                )
+                # An unaccounted-for selection must never be reported done.
+                accounted={x for x in completed}
+                accounted.update(x["lang"] for x in failed + blocked)
+                strict_missing.extend(
+                    f"{task['task_id']}:{lang}" for lang in langs
+                    if lang not in accounted
+                )
+
             if failed:
                 # A single language can fail while the other requested
                 # languages remain valid deliverables. Keep the aggregate
@@ -904,6 +1019,20 @@ def main():
 
     print("")
     print("TTS 本次處理完成。")
+    if args.strict_delivery and strict_missing:
+        print(
+            "[TTS-DELIVERY-MISSING] " + ",".join(dict.fromkeys(strict_missing)),
+            file=sys.stderr,flush=True
+        )
+        return 2
+    if args.strict_delivery and strict_review:
+        print(
+            "[TTS-DELIVERY-NEEDS-REVIEW] "
+            + ",".join(dict.fromkeys(strict_review)),
+            flush=True
+        )
+        return 3
+
     if any_failed:
         print(
             "[TTS ERROR] 發生工作層級錯誤；請查看狀態與 log。",
