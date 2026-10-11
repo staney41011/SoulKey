@@ -36,7 +36,7 @@ from nvidia_translate import NvidiaTranslateClient, SUPPORTED_TARGETS
 from status_io import new_run_id, mark_done, mark_error, mark_running
 
 
-LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko"]
+LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"]
 LANGUAGE_NAMES = {
     "th": "Thai",
     "es": "Spanish",
@@ -46,6 +46,7 @@ LANGUAGE_NAMES = {
     "ta": "Tamil",
     "ja": "Japanese",
     "ko": "Korean",
+    "km": "Khmer",
 }
 LEGACY_COLS = {"th": "K", "es": "L", "id": "M", "vi": "N"}
 REPAIR_MODEL = os.getenv("GEMINI_REPAIR_MODEL", "gemini-3.8-flash")
@@ -68,8 +69,9 @@ MULTI_SCHEMA = {
                     "ta": {"type": "string"},
                     "ja": {"type": "string"},
                     "ko": {"type": "string"},
+                    "km": {"type": "string"},
                 },
-                "required": ["segment_id", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"],
+                "required": ["segment_id", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"],
             },
         }
     },
@@ -199,14 +201,14 @@ def write_language_set(
 def glossary_text(rows):
     lines = []
     for raw in rows or []:
-        row = list(raw) + [""] * max(0, 14 - len(raw))
+        row = list(raw) + [""] * max(0, 15 - len(raw))
         zh = str(row[0] or "").strip()
         en = str(row[3] or "").strip()
         if not (zh or en):
             continue
         parts = [f"source={en or zh}"]
         for code, idx in [("th", 4), ("es", 5), ("id", 6), ("vi", 7),
-                          ("hi", 10), ("ta", 11), ("ja", 12), ("ko", 13)]:
+                          ("hi", 10), ("ta", 11), ("ja", 12), ("ko", 13), ("km", 14)]:
             value = str(row[idx] or "").strip()
             if value:
                 parts.append(f"{code}={value}")
@@ -220,8 +222,8 @@ def glossary_text(rows):
 def translation_prompt(batch, glossary):
     payload = [{"segment_id": int(x["id"]), "english": x["text"]} for x in batch]
     return f"""
-Translate every approved English segment into all eight target languages:
-th Thai, es Spanish, id Indonesian, vi Vietnamese, hi Hindi, ta Tamil, ja Japanese, ko Korean.
+Translate every approved English segment into all nine target languages:
+th Thai, es Spanish, id Indonesian, vi Vietnamese, hi Hindi, ta Tamil, ja Japanese, ko Korean, km Khmer.
 
 Rules:
 - segment_id is the source segment number; id is Indonesian.
@@ -540,7 +542,7 @@ Repair only the listed failed translations.
 Preserve all English meaning, names, numbers, examples, and doctrine.
 Fix EVERY stated QA issue visibly and completely. Do not explain.
 Keep segment_id and lang unchanged.
-Use natural Thai script for th, Hindi Devanagari for hi, Tamil script for ta, Japanese kana/kanji for ja, and Korean Hangul for ko. Proper names
+Use natural Thai script for th, Hindi Devanagari for hi, Tamil script for ta, Japanese kana/kanji for ja, Korean Hangul for ko, and Khmer script for km. Proper names
 or LOCKED glossary forms such as Qianxian may remain romanized when appropriate.
 Do not add filler merely to satisfy a script check.
 Return only the requested repaired target-language text.
@@ -861,7 +863,7 @@ def merge_translation_rows(translations, generated_rows, generated_langs):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-id", required=True)
-    parser.add_argument("--langs", default="th,es,id,vi,hi,ta,ja,ko")
+    parser.add_argument("--langs", default="th,es,id,vi,hi,ta,ja,ko,km")
     parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--wait-seconds", type=int, default=15)
     parser.add_argument("--reset-checkpoint", action="store_true")
@@ -876,7 +878,7 @@ def main():
         raise RuntimeError("Gemini production multi 沒有指定任何目標語言")
     if args.batch_size < 1:
         raise RuntimeError("--batch-size 必須大於 0")
-    # Eight target languages yield substantially larger responses. Limit only
+    # Nine target languages yield substantially larger responses. Limit only
     # those requests to eight source segments, preserving legacy batch speed.
     effective_batch_size = min(args.batch_size, 8) if len(requested) > 6 else args.batch_size
 

@@ -72,7 +72,7 @@ const workflow = [
   {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
 
-const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko"];
+const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km"];
 
 function load(key, fallback){
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
@@ -161,7 +161,8 @@ let languageSettings = [
   {code:"hi",name:"हिन्दी",can_ai_translate:true,can_tts:true},
   {code:"ta",name:"தமிழ்",can_ai_translate:true,can_tts:true},
   {code:"ja",name:"日本語",can_ai_translate:true,can_tts:true},
-  {code:"ko",name:"한국어",can_ai_translate:true,can_tts:true}
+  {code:"ko",name:"한국어",can_ai_translate:true,can_tts:true},
+  {code:"km",name:"ភាសាខ្មែរ",can_ai_translate:true,can_tts:true}
 ];
 let selectedTaskId = null;
 let selectedPeriod = null;
@@ -1511,7 +1512,7 @@ function captureStateInfo(task,kind,files){
       label:partial ? "部分完成" : "已抓取完成",
       detail:message || (
         kind==="cc"
-          ? (ccDone===ccTotal ? "9/9 語純逐字稿已齊全。" : ccDetail)
+          ? (ccDone===ccTotal ? ccTotal+"/"+ccTotal+" 語純逐字稿已齊全。" : ccDetail)
           : list.length
             ? "雲端目前有 "+list.length+" 個音檔。"
             : "工作已完成，正在同步雲端檔案。"
@@ -1547,7 +1548,7 @@ function captureStateInfo(task,kind,files){
   }
   if(kind==="cc"){
     if(ccDone===ccTotal){
-      return {key:"complete",label:"已抓取完成",detail:"9/9 語純逐字稿已齊全。"};
+      return {key:"complete",label:"已抓取完成",detail:ccTotal+"/"+ccTotal+" 語純逐字稿已齊全。"};
     }
     if(ccDone>0){
       return {key:"partial",label:"部分完成",detail:ccDetail};
@@ -1905,7 +1906,7 @@ function stageState(task,index){
 function normalizedLanguagePlan(task){
   const current=Array.isArray(task.languagePlan) ? task.languagePlan : [];
   const byCode=Object.fromEntries(current.map(x=>[x.language_code || x.code,x]));
-  // Brand-new lessons default to all nine languages. Existing lesson plans
+  // Brand-new lessons default to all currently enabled languages. Existing lesson plans
   // remain opt-in for newly added languages: never silently rerun old lessons.
   const newLessonPlan=current.length===0;
 

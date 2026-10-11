@@ -8,18 +8,18 @@ from natural_tts_config import MAX_SPEEDUP, MAX_SPEEDUP_BY_LANGUAGE, NATURAL_TTS
 
 
 class JakoAudioWorkflowTests(unittest.TestCase):
-    def test_quick_review_exposes_all_nine_audio_languages(self):
+    def test_quick_review_exposes_all_ten_audio_languages(self):
         ui = (ROOT / "studio/review.html").read_text(encoding="utf-8")
         js = (ROOT / "studio/review-editor.js").read_text(encoding="utf-8")
-        for lang in ("en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"):
+        for lang in ("en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"):
             self.assertIn('data-output-lang="' + lang + '"', ui)
             self.assertIn(lang + ':', js)
-        self.assertEqual(ui.count('data-output-lang="'), 9)
+        self.assertEqual(ui.count('data-output-lang="'), 10)
 
     def test_course_overview_exposes_japanese_and_korean_previews_without_duplicates(self):
         script = (ROOT / "bridge/apps-script/Code.gs").read_text(encoding="utf-8")
         review = script.split("function courseFilesOverview_(taskId)", 1)[1].split("function formalizableCanonicalName_", 1)[0]
-        self.assertIn('"ja", "ko"', review)
+        self.assertIn('"ja", "ko", "km"', review)
         self.assertIn("formalLangs[audioBaseLang_(name)] = true", review)
         self.assertIn('return !formalLangs[lang]', review)
         self.assertIn('display_name: formalDriveName_(', review)

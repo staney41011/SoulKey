@@ -13,6 +13,7 @@ LANGUAGE_NAMES = {
     "ta": "Tamil",
     "ja": "Japanese",
     "ko": "Korean",
+    "km": "Khmer",
 }
 
 NATURAL_TTS_PROFILES = {
@@ -87,6 +88,14 @@ NATURAL_TTS_PROFILES = {
         "pitch": "-1Hz",
         "max_chars": 300,
         "min_chars": 100,
+    },
+    "km": {
+        "engine": "edge",
+        "voice": "km-KH-PisethNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 340,
+        "min_chars": 110,
     },
 }
 

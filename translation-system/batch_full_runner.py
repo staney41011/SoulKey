@@ -27,8 +27,8 @@ from status_io import new_run_id, mark_done, mark_error, mark_running
 from source_revision import verify_existing_asr
 
 
-LANGS = ["en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"]
-TARGET_LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko"]
+LANGS = ["en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"]
+TARGET_LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"]
 
 
 def run(cmd, cwd=None):

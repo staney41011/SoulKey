@@ -25,6 +25,7 @@ LANGUAGE_NAMES = {
     "ta": "Tamil",
     "ja": "Japanese",
     "ko": "Korean",
+    "km": "Khmer",
 }
 
 TARGET_SCRIPT_PATTERNS = {
@@ -33,6 +34,7 @@ TARGET_SCRIPT_PATTERNS = {
     "ta": re.compile(r"[\u0B80-\u0BFF]"),
     "ja": re.compile(r"[\u3040-\u30FF]"),
     "ko": re.compile(r"[\uAC00-\uD7AF\u1100-\u11FF]"),
+    "km": re.compile(r"[\u1780-\u17FF\u19E0-\u19FF]"),
 }
 
 TRANSLATION_SCHEMA = {
@@ -406,7 +408,7 @@ def normalize_segments(payload):
 def parse_glossary_rows(rows):
     result = []
     for raw in rows or []:
-        row = list(raw) + [""] * max(0, 10 - len(raw))
+        row = list(raw) + [""] * max(0, 15 - len(raw))
         zh = str(row[0] or "").strip()
         if not zh:
             continue
@@ -419,6 +421,11 @@ def parse_glossary_rows(rows):
             "es": str(row[5] or "").strip(),
             "id": str(row[6] or "").strip(),
             "vi": str(row[7] or "").strip(),
+            "hi": str(row[10] or "").strip(),
+            "ta": str(row[11] or "").strip(),
+            "ja": str(row[12] or "").strip(),
+            "ko": str(row[13] or "").strip(),
+            "km": str(row[14] or "").strip(),
             "locked": str(row[8] or "").strip().lower()
                 in {"true", "1", "yes", "y", "是"},
             "note": str(row[9] or "").strip(),

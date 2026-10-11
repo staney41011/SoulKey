@@ -16,6 +16,7 @@ LANGUAGE_NAMES = {
     "ta": "Tamil",
     "ja": "Japanese",
     "ko": "Korean",
+    "km": "Khmer",
 }
 
 GLOSSARY_TARGET_COLUMN = {
@@ -316,6 +317,7 @@ TARGET_SCRIPT_PATTERNS = {
     "ta": re.compile(r"[\u0B80-\u0BFF]"),
     "ja": re.compile(r"[\u3040-\u30FF]"),
     "ko": re.compile(r"[\uAC00-\uD7AF\u1100-\u11FF]"),
+    "km": re.compile(r"[\u1780-\u17FF\u19E0-\u19FF]"),
 }
 
 

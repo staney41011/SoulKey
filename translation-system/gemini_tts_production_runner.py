@@ -38,6 +38,7 @@ LANGUAGE_NAMES = {
     "ta": "Tamil",
     "ja": "Japanese",
     "ko": "Korean",
+    "km": "Khmer",
 }
 VOICE = os.getenv("GEMINI_TTS_VOICE", "Kore")
 MAX_CHARS = int(os.getenv("GEMINI_TTS_MAX_CHARS", "3500"))

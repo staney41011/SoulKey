@@ -3554,7 +3554,7 @@ function youtubeCaptureFiles_(taskId) {
         /^youtube\.[^.]+\.(json|txt|srt|transcript\.txt)$/i.test(name) &&
         !/^youtube\.zh(?:-|\.)/i.test(name)
       ) ||
-      /_(英文|泰文|西班牙文|印尼文|越南文|信德文|泰米爾文|日文|韓文)CC(資料\.json|時間軸\.txt|純逐字稿\.txt|字幕\.srt)$/i.test(name)
+      /_(英文|泰文|西班牙文|印尼文|越南文|信德文|泰米爾文|日文|韓文|高棉文)CC(資料\.json|時間軸\.txt|純逐字稿\.txt|字幕\.srt)$/i.test(name)
     ) {
       ccFiles.push(fileInfo_(file, "cc"));
     }
@@ -3587,7 +3587,7 @@ function youtubeCaptureFiles_(taskId) {
     if (
       /^youtube\..+\.mp3$/i.test(name) ||
       name === "youtube-audio-manifest.json" ||
-      /_(中文|英文|泰文|西班牙文|印尼文|越南文|信德文|泰米爾文|日文|韓文)YouTube音軌\.mp3$/i.test(name) ||
+      /_(中文|英文|泰文|西班牙文|印尼文|越南文|信德文|泰米爾文|日文|韓文|高棉文)YouTube音軌\.mp3$/i.test(name) ||
       /_YouTube音軌清單\.json$/i.test(name)
     ) {
       audioFiles.push(fileInfo_(file, "audio"));
@@ -3721,7 +3721,7 @@ function courseFilesOverview_(taskId) {
     .concat(collectFolder_(resolved.transcript, "transcript", "逐字稿"))
     .concat(collectFolder_(resolved.translation, "transcript", "逐字稿"));
 
-  const transcriptLanguages = ["zh-TW", "en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"];
+  const transcriptLanguages = ["zh-TW", "en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"];
   const transcriptFiles = transcriptLanguages
     .map(function(lang) { return transcriptChoice_(transcriptPool, lang); })
     .filter(Boolean);
@@ -3770,7 +3770,7 @@ function courseFilesOverview_(taskId) {
     return candidates.length ? candidates[0].item : null;
   }
 
-  const audioLanguages = ["en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko"];
+  const audioLanguages = ["en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"];
   const canonicalAudioFiles = audioLanguages
     .map(function(lang) { return audioChoice_(audioPool, lang); })
     .filter(Boolean);
@@ -4018,7 +4018,7 @@ function formalLangLabel_(code) {
     "en": "英文", "en-US": "英文", "en-GB": "英文",
     "th": "泰文", "es": "西班牙文", "es-419": "西班牙文",
     "id": "印尼文", "vi": "越南文", "hi": "印地語", "ta": "泰米爾文",
-    "ja": "日文", "ko": "韓文"
+    "ja": "日文", "ko": "韓文", "km": "高棉文"
   };
   const raw = String(code || "");
   return labels[raw] || labels[raw.split("-")[0]] || raw || "未知語言";

@@ -39,7 +39,7 @@ from lesson_paths import digits, resolve_lesson_folders
 
 
 MODEL = os.getenv("GEMINI_SHADOW_MODEL", "gemini-3.1-flash-lite")
-LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko"]
+LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"]
 LANGUAGE_NAMES = {
     "th": "Thai",
     "es": "Spanish",
@@ -49,6 +49,7 @@ LANGUAGE_NAMES = {
     "ta": "Tamil",
     "ja": "Japanese",
     "ko": "Korean",
+    "km": "Khmer",
 }
 BATCH_SIZE = 12
 WAIT_SECONDS = 15
@@ -72,6 +73,7 @@ TRANSLATION_SCHEMA = {
                     "ta": {"type": "string"},
                     "ja": {"type": "string"},
                     "ko": {"type": "string"},
+                    "km": {"type": "string"},
                 },
                 "required": [
                     "segment_id",
@@ -83,6 +85,7 @@ TRANSLATION_SCHEMA = {
                     "ta",
                     "ja",
                     "ko",
+                    "km",
                 ],
             },
         }
@@ -160,7 +163,7 @@ def _glossary_text(rows):
         if not source:
             continue
         parts = [f"source={source}"]
-        for lang in ("th", "es", "id", "vi"):
+        for lang in ("th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"):
             value = str(item.get(lang) or "").strip()
             if value:
                 parts.append(f"{lang}={value}")
@@ -236,7 +239,7 @@ def _translation_prompt(batch, glossary_text):
     return f"""
 You are the multilingual translation engine for the SoulKey religious education course.
 
-Translate every approved English segment directly into ALL eight target languages:
+Translate every approved English segment directly into ALL nine target languages:
 th = Thai
 es = Spanish
 id = Indonesian
@@ -245,6 +248,7 @@ hi = Hindi
 ta = Tamil
 ja = Japanese
 ko = Korean
+km = Khmer
 
 IMPORTANT:
 - segment_id is the source segment number.
@@ -257,7 +261,7 @@ Rules:
 4. Do not add explanations or doctrine.
 5. Do not merge, split or reorder segments.
 6. Keep segment_id unchanged.
-7. Produce all eight target languages.
+7. Produce all nine target languages.
 8. Translate every language directly from English.
 9. Use natural spoken language suitable for TTS.
 10. Follow LOCKED glossary mappings when a target mapping exists.
@@ -287,6 +291,7 @@ def _qa_prompt(batch, rows):
             "ta": row["ta"],
             "ja": row["ja"],
             "ko": row["ko"],
+            "km": row["km"],
         })
 
     return f"""
@@ -301,6 +306,7 @@ hi Hindi
 ta Tamil
 ja Japanese
 ko Korean
+km Khmer
 
 Only report genuine translation failures:
 - important meaning missing
@@ -378,7 +384,7 @@ def _checkpoint_payload(
     return {
         "version": 1,
         "task_id": task_id,
-        "engine": "gemini-eight-target-language-shadow",
+        "engine": "gemini-nine-target-language-shadow",
         "model": MODEL,
         "source_fingerprint": source_hash,
         "source_segments": source_count,

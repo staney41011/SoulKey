@@ -67,7 +67,7 @@ class PipelineContracts(unittest.TestCase):
         runner = read("translation-system/runner.py")
 
         self.assertIn(
-            'AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko")',
+            'AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km")',
             youtube_io,
         )
         self.assertNotIn(
@@ -88,10 +88,10 @@ class PipelineContracts(unittest.TestCase):
 
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
-        self.assertIn('const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko"]', app)
+        self.assertIn('const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km"]', app)
         self.assertIn('if(kind==="asr")', app)
         self.assertIn('zh-TW\\.transcript\\.txt', app)
-        self.assertIn("9/9 語純逐字稿已齊全", app)
+        self.assertIn('ccTotal+"/"+ccTotal+" 語純逐字稿已齊全', app)
         self.assertIn("一般使用者只顯示無時間軸純逐字稿", index)
         self.assertIn("429 會逐語言退避重試", index)
         self.assertNotIn("JSON / 時間軸 TXT / SRT / 純逐字稿", index)

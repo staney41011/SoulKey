@@ -822,7 +822,8 @@ const LANG_NAMES={
   hi:"हिन्दी",
   ta:"தமிழ்",
   ja:"日本語",
-  ko:"한국어"
+  ko:"한국어",
+  km:"ភាសាខ្មែរ"
 };
 
 function collectOutputPlan(){
