@@ -258,6 +258,11 @@ Audit only these requested-language translations against the approved English so
 Only report real failures: missing important meaning, materially wrong meaning,
 invented content, wrong target language, changed/missing important number,
 or serious glossary violation.
+Compare numeric QUANTITIES rather than literal numeral glyphs:
+English 2.5 billion = Japanese 25億 = Korean 25억, and English
+8 billion = Japanese 80億 = Korean 80억. In contrast 2.5億/2.5억
+is 250 million, not 2.5 billion. Accept correct localized units;
+reject changes in the actual mathematical value.
 Judge each item only against the English source shown in DATA. Do not invent
 gender, speaker identity, or facts from outside the supplied source. Do not fail
 natural non-literal wording, harmless style differences, or a romanized proper
@@ -480,23 +485,78 @@ def normalize_unicode_digits(text):
     return "".join(out)
 
 
+_ENGLISH_SCALED_NUMBER = re.compile(
+    r"(?<![\w.])(\d[\d,]*(?:\.\d+)?)\s+"
+    r"(billion|million|trillion|thousand)\b",
+    flags=re.IGNORECASE,
+)
+_CJK_SCALED_NUMBER = re.compile(
+    r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*"
+    r"(億|亿|억|萬|万|만|兆|조)"
+)
+_ENGLISH_UNITS = {"thousand":1e3,"million":1e6,"billion":1e9,"trillion":1e12}
+_CJK_UNITS = {
+    "萬":1e4,"万":1e4,"만":1e4,
+    "億":1e8,"亿":1e8,"억":1e8,
+    "兆":1e12,"조":1e12,
+}
+
+
+def translated_number_issues(english,target,lang):
+    """Preserve ACTUAL values, including correct localized magnitudes.
+
+    English 2.5 billion means 25億 / 25억 (2,500,000,000), not
+    2.5億 / 2.5억 (250,000,000). A glyph-only check wrongly rejects
+    correct 25億 because the literal text "2.5" disappears.
+    """
+    normalized=normalize_unicode_digits(target)
+    numbers=re.findall(r"\d+(?:\.\d+)?",english)
+    if lang not in {"ja","ko"}:
+        return [f"missing_number:{v}" for v in numbers if v not in normalized]
+
+    localized=[
+        (float(digits.replace(",",""))*_CJK_UNITS[unit],digits,unit)
+        for digits,unit in _CJK_SCALED_NUMBER.findall(normalized)
+    ]
+    scaled=list(_ENGLISH_SCALED_NUMBER.finditer(english))
+    covered=set()
+    issues=[]
+    for item in scaled:
+        digits=item.group(1).replace(",","")
+        number=item.group(1)
+        unit=item.group(2).lower()
+        expected=float(digits)*_ENGLISH_UNITS[unit]
+        covered.add(item.start(1))
+        if localized:
+            correct=any(abs(amount-expected)<=max(1.0,expected*1e-8)
+                        for amount,_,_ in localized)
+            if not correct:
+                issues.append(f"incorrect_number_scale:{number} {unit}")
+        elif number not in normalized:
+            issues.append(f"missing_number:{number}")
+    # Validate every other literal number, but exempt numbers whose value has
+    # already been checked after conversion to local units.
+    plain=[x for x in re.finditer(r"\d+(?:\.\d+)?",english)
+           if x.start() not in covered]
+    for item in plain:
+        if item.group() not in normalized:
+            issues.append(f"missing_number:{item.group()}")
+    return issues
+
+
 def local_failures(batch, rows, langs):
     by_id = {int(x["segment_id"]): x for x in rows}
     failures = []
     for src in batch:
         sid = int(src["id"])
         english = str(src["text"])
-        numbers = re.findall(r"\d+(?:\.\d+)?", english)
         for lang in langs:
             target = str(by_id[sid].get(lang) or "").strip()
-            target_for_numbers = normalize_unicode_digits(target)
             issues = []
             issue = local_language_issue(target, english, lang)
             if issue:
                 issues.append(issue)
-            for number in numbers:
-                if number not in target_for_numbers:
-                    issues.append(f"missing_number:{number}")
+            issues.extend(translated_number_issues(english,target,lang))
             if issues:
                 failures.append({"segment_id": sid, "lang": lang, "issues": issues})
     return failures
@@ -541,6 +601,10 @@ def repair_failed_pairs(client, source_map, translations, failures, glossary):
 Repair only the listed failed translations.
 Preserve all English meaning, names, numbers, examples, and doctrine.
 Fix EVERY stated QA issue visibly and completely. Do not explain.
+Numbers MUST preserve their mathematical magnitude when translating unit words.
+For example: English "2.5 billion" = Japanese "25億" / Korean "25억",
+NOT Japanese "2.5億" / Korean "2.5억"; English "8 billion" =
+Japanese "80億" / Korean "80억". Preserve all values and labels accurately.
 Keep segment_id and lang unchanged.
 Use natural Thai script for th, Hindi Devanagari for hi, Tamil script for ta, Japanese kana/kanji for ja, Korean Hangul for ko, and Khmer script for km. Proper names
 or LOCKED glossary forms such as Qianxian may remain romanized when appropriate.
@@ -663,10 +727,9 @@ def nvidia_repair_failed_pairs(
         if issue:
             local_issues.append(issue)
 
-        normalized = normalize_unicode_digits(candidate)
-        for number in re.findall(r"\d+(?:\.\d+)?", english):
-            if number not in normalized:
-                local_issues.append(f"missing_number:{number}")
+        local_issues.extend(translated_number_issues(
+            english,candidate,lang
+        ))
 
         if local_issues:
             print(

@@ -3,3 +3,8 @@
 google-api-python-client
 google-auth
 google-auth-httplib2
+# The lightweight Gemini worker still validates ASR source provenance.
+# verify_asr_source_revision imports youtube_io even when no download is
+# necessary. Both modules are required on fresh Kaggle CPU kernels.
+yt-dlp[default]
+youtube-transcript-api
