@@ -3620,6 +3620,26 @@ function youtubeCaptureFiles_(taskId) {
 }
 
 
+// Recover the canonical language key from a formally named Drive MP3 that was
+// uploaded outside our uploader (no SOULKEY_CANONICAL_NAME marker).
+// In particular, manual P257-L02 Khmer MP3 must be visible in Course Files.
+// Never treat a short voice teaser as the full lesson or label a full natural
+// preview as time-aligned.
+function recoverFormalAudioCanonicalName_(name) {
+  const raw = String(name || "").trim();
+  const labels = {
+    "英文": "en", "泰文": "th", "西班牙文": "es", "印尼文": "id",
+    "越南文": "vi", "印地語": "hi", "印地文": "hi", "信德文": "hi",
+    "泰米爾文": "ta", "日文": "ja", "韓文": "ko", "高棉文": "km"
+  };
+  const match = /_(英文|泰文|西班牙文|印尼文|越南文|印地語|印地文|信德文|泰米爾文|日文|韓文|高棉文)(TTS音檔|自然試聽版)\.mp3$/i.exec(raw);
+  if (!match) return "";
+  const code = labels[match[1]];
+  if (!code) return "";
+  return code + (match[2] === "自然試聽版" ? ".preview.mp3" : ".mp3");
+}
+
+
 function courseFilesOverview_(taskId) {
   const normalizedTaskId = String(taskId || "").trim();
   if (!normalizedTaskId) {
@@ -3674,7 +3694,10 @@ function courseFilesOverview_(taskId) {
   }
 
   function canonicalName_(item) {
-    return String(item.canonical_name || item.name || "").trim();
+    const canonical = String(item.canonical_name || "").trim();
+    if (canonical) return canonical;
+    const actualName = String(item.name || "").trim();
+    return recoverFormalAudioCanonicalName_(actualName) || actualName;
   }
 
   function transcriptChoice_(items, language) {
