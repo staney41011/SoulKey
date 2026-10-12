@@ -1,0 +1,134 @@
+name: SoulKey 16-Voice Health Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-16-voice-health-audit
+  cancel-in-progress: true
+
+jobs:
+  github-environment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install voice runtime
+        run: python -m pip install -q edge-tts==7.2.8
+      - name: Probe all 16 voices on GitHub runner
+        run: python -u translation-system/tts_health_audit.py --output-dir "$RUNNER_TEMP/soulkey-voice-health"
+      - name: Upload full diagnostic JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-health-github
+          path: ${{ runner.temp }}/soulkey-voice-health/voice-health.json
+          if-no-files-found: warn
+      - name: Evaluate all voices
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ["RUNNER_TEMP"])/"soulkey-voice-health/voice-health.json").read_text())
+          print("VOICE_HEALTH_RESULT:",data["success_count"],"/",data["languages"])
+          if data["success_count"]!=data["languages"]:raise SystemExit(1)
+          PY
+
+  kaggle-environment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 48
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-edge-natural-health
+    steps:
+      - name: Install Kaggle CLI
+        run: python -m pip install -q kaggle
+      - name: Create clean Kaggle CPU+Internet health check
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/soulkey-voice-kaggle"
+          mkdir -p "$DIR"
+          cat > "$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-edge-natural-health",
+            "title": "SoulKey Edge Natural Voice Health",
+            "code_file": "soulkey-voice-kaggle.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          JSON
+          cat > "$DIR/soulkey-voice-kaggle.py" <<'PY'
+          import subprocess
+          import sys
+          from pathlib import Path
+          repo=Path("/kaggle/working/SoulKey")
+          subprocess.run([
+              "git","clone","--depth","1",
+              "https://github.com/staney41011/SoulKey.git",str(repo)
+          ],check=True)
+          subprocess.run([
+              sys.executable,"-m","pip","install","-q","edge-tts==7.2.8"
+          ],check=True)
+          subprocess.run([
+              sys.executable,"-u",str(repo/"translation-system/tts_health_audit.py"),
+              "--output-dir","/kaggle/working/soulkey-voice-health",
+          ],check=True)
+          PY
+      - name: Execute Kaggle and get diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/soulkey-voice-kaggle"
+          kaggle kernels push -p "$DIR" -t 1800
+          STATE=UNKNOWN
+          for i in $(seq 1 180); do
+            LOG="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+            echo "KAGGLE_STATUS $i $LOG"
+            if echo "$LOG" | grep -Eqi 'complete|completed'; then
+              STATE=COMPLETE
+              break
+            fi
+            if echo "$LOG" | grep -Eqi 'error|failed|failure|cancel'; then
+              STATE=ERROR
+              break
+            fi
+            sleep 10
+          done
+          echo "FINAL_KAGGLE_STATUS=$STATE"
+          kaggle kernels logs "$KAGGLE_KERNEL" || true
+          OUT="$RUNNER_TEMP/soulkey-voice-kaggle-output"
+          mkdir -p "$OUT"
+          kaggle kernels output "$KAGGLE_KERNEL" -p "$OUT" || true
+          find "$OUT" -maxdepth 3 -type f -printf '%p %s bytes\n'
+          test "$STATE" = "COMPLETE"
+      - name: Upload Kaggle diagnostic JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-health-kaggle
+          path: ${{ runner.temp }}/soulkey-voice-kaggle-output/**/voice-health.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Evaluate Kaggle audio health
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          candidates=list((Path(os.environ["RUNNER_TEMP"])/"soulkey-voice-kaggle-output").rglob("voice-health.json"))
+          if not candidates:raise SystemExit("Kaggle output missing")
+          result=json.loads(candidates[0].read_text())
+          print("KAGGLE_VOICE_HEALTH_RESULT:",result["success_count"],"/",result["languages"])
+          if result["success_count"]!=result["languages"]:raise SystemExit(1)
+          PY
