@@ -36,7 +36,7 @@ from nvidia_translate import NvidiaTranslateClient, SUPPORTED_TARGETS
 from status_io import new_run_id, mark_done, mark_error, mark_running
 
 
-LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"]
+LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km", "bn", "ne", "lo", "my", "it", "pt"]
 LANGUAGE_NAMES = {
     "th": "Thai",
     "es": "Spanish",
@@ -47,6 +47,12 @@ LANGUAGE_NAMES = {
     "ja": "Japanese",
     "ko": "Korean",
     "km": "Khmer",
+    "bn": "Bengali",
+    "ne": "Nepali",
+    "lo": "Lao",
+    "my": "Burmese",
+    "it": "Italian",
+    "pt": "Portuguese (Brazil)",
 }
 LEGACY_COLS = {"th": "K", "es": "L", "id": "M", "vi": "N"}
 REPAIR_MODEL = os.getenv("GEMINI_REPAIR_MODEL", "gemini-3.8-flash")
@@ -70,8 +76,14 @@ MULTI_SCHEMA = {
                     "ja": {"type": "string"},
                     "ko": {"type": "string"},
                     "km": {"type": "string"},
+                    "bn": {"type": "string"},
+                    "ne": {"type": "string"},
+                    "lo": {"type": "string"},
+                    "my": {"type": "string"},
+                    "it": {"type": "string"},
+                    "pt": {"type": "string"},
                 },
-                "required": ["segment_id", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"],
+                "required": ["segment_id", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km", "bn", "ne", "lo", "my", "it", "pt"],
             },
         }
     },
@@ -201,14 +213,15 @@ def write_language_set(
 def glossary_text(rows):
     lines = []
     for raw in rows or []:
-        row = list(raw) + [""] * max(0, 15 - len(raw))
+        row = list(raw) + [""] * max(0, 21 - len(raw))
         zh = str(row[0] or "").strip()
         en = str(row[3] or "").strip()
         if not (zh or en):
             continue
         parts = [f"source={en or zh}"]
         for code, idx in [("th", 4), ("es", 5), ("id", 6), ("vi", 7),
-                          ("hi", 10), ("ta", 11), ("ja", 12), ("ko", 13), ("km", 14)]:
+                          ("hi", 10), ("ta", 11), ("ja", 12), ("ko", 13), ("km", 14),
+                          ("bn", 15), ("ne", 16), ("lo", 17), ("my", 18), ("it", 19), ("pt", 20)]:
             value = str(row[idx] or "").strip()
             if value:
                 parts.append(f"{code}={value}")
@@ -222,8 +235,9 @@ def glossary_text(rows):
 def translation_prompt(batch, glossary):
     payload = [{"segment_id": int(x["id"]), "english": x["text"]} for x in batch]
     return f"""
-Translate every approved English segment into all nine target languages:
-th Thai, es Spanish, id Indonesian, vi Vietnamese, hi Hindi, ta Tamil, ja Japanese, ko Korean, km Khmer.
+Translate every approved English segment into all fifteen target languages:
+th Thai, es Spanish, id Indonesian, vi Vietnamese, hi Hindi, ta Tamil, ja Japanese, ko Korean, km Khmer,
+bn Bengali, ne Nepali, lo Lao, my Burmese, it Italian, pt Portuguese (Brazil).
 
 Rules:
 - segment_id is the source segment number; id is Indonesian.
@@ -606,7 +620,7 @@ For example: English "2.5 billion" = Japanese "25億" / Korean "25억",
 NOT Japanese "2.5億" / Korean "2.5억"; English "8 billion" =
 Japanese "80億" / Korean "80억". Preserve all values and labels accurately.
 Keep segment_id and lang unchanged.
-Use natural Thai script for th, Hindi Devanagari for hi, Tamil script for ta, Japanese kana/kanji for ja, Korean Hangul for ko, and Khmer script for km. Proper names
+Use natural Thai script for th, Hindi or Nepali Devanagari for hi/ne, Bengali script for bn, Tamil script for ta, Japanese kana/kanji for ja, Korean Hangul for ko, Khmer script for km, Lao script for lo, Myanmar script for my, and fluent Italian/Portuguese for it/pt. Proper names
 or LOCKED glossary forms such as Qianxian may remain romanized when appropriate.
 Do not add filler merely to satisfy a script check.
 Return only the requested repaired target-language text.
@@ -926,7 +940,7 @@ def merge_translation_rows(translations, generated_rows, generated_langs):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-id", required=True)
-    parser.add_argument("--langs", default="th,es,id,vi,hi,ta,ja,ko,km")
+    parser.add_argument("--langs", default="th,es,id,vi,hi,ta,ja,ko,km,bn,ne,lo,my,it,pt")
     parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--wait-seconds", type=int, default=15)
     parser.add_argument("--reset-checkpoint", action="store_true")
@@ -943,7 +957,9 @@ def main():
         raise RuntimeError("--batch-size 必須大於 0")
     # Nine target languages yield substantially larger responses. Limit only
     # those requests to eight source segments, preserving legacy batch speed.
-    effective_batch_size = min(args.batch_size, 8) if len(requested) > 6 else args.batch_size
+    effective_batch_size = min(args.batch_size, 4) if len(requested)>10 else (
+        min(args.batch_size,8) if len(requested)>6 else args.batch_size
+    )
 
     # Infer only selected languages; QA, repair, publishing, and completion
     # are scoped to Studio's requested

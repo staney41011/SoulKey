@@ -14,6 +14,12 @@ LANGUAGE_NAMES = {
     "ja": "Japanese",
     "ko": "Korean",
     "km": "Khmer",
+    "bn": "Bengali",
+    "ne": "Nepali",
+    "lo": "Lao",
+    "my": "Burmese",
+    "it": "Italian",
+    "pt": "Portuguese (Brazil)",
 }
 
 NATURAL_TTS_PROFILES = {
@@ -96,6 +102,54 @@ NATURAL_TTS_PROFILES = {
         "pitch": "-1Hz",
         "max_chars": 340,
         "min_chars": 110,
+    },
+    "bn": {
+        "engine": "edge",
+        "voice": "bn-BD-PradeepNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 380,
+        "min_chars": 120,
+    },
+    "ne": {
+        "engine": "edge",
+        "voice": "ne-NP-SagarNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 390,
+        "min_chars": 125,
+    },
+    "lo": {
+        "engine": "edge",
+        "voice": "lo-LA-ChanthavongNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 350,
+        "min_chars": 110,
+    },
+    "my": {
+        "engine": "edge",
+        "voice": "my-MM-ThihaNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 370,
+        "min_chars": 120,
+    },
+    "it": {
+        "engine": "edge",
+        "voice": "it-IT-DiegoNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 450,
+        "min_chars": 145,
+    },
+    "pt": {
+        "engine": "edge",
+        "voice": "pt-BR-AntonioNeural",
+        "rate": "-3%",
+        "pitch": "-1Hz",
+        "max_chars": 450,
+        "min_chars": 145,
     },
 }
 

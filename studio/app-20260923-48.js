@@ -72,7 +72,7 @@ const workflow = [
   {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
 
-const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km"];
+const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km","bn","ne","lo","my","it","pt"];
 
 function load(key, fallback){
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
@@ -162,7 +162,13 @@ let languageSettings = [
   {code:"ta",name:"தமிழ்",can_ai_translate:true,can_tts:true},
   {code:"ja",name:"日本語",can_ai_translate:true,can_tts:true},
   {code:"ko",name:"한국어",can_ai_translate:true,can_tts:true},
-  {code:"km",name:"ភាសាខ្មែរ",can_ai_translate:true,can_tts:true}
+  {code:"km",name:"ភាសាខ្មែរ",can_ai_translate:true,can_tts:true},
+  {code:"bn",name:"বাংলা",can_ai_translate:true,can_tts:true},
+  {code:"ne",name:"नेपाली",can_ai_translate:true,can_tts:true},
+  {code:"lo",name:"ພາສາລາວ",can_ai_translate:true,can_tts:true},
+  {code:"my",name:"မြန်မာဘာသာ",can_ai_translate:true,can_tts:true},
+  {code:"it",name:"Italiano",can_ai_translate:true,can_tts:true},
+  {code:"pt",name:"Português (Brasil)",can_ai_translate:true,can_tts:true}
 ];
 let selectedTaskId = null;
 let selectedPeriod = null;
@@ -1926,7 +1932,8 @@ function normalizedLanguagePlan(task){
 
 const LANGUAGE_ZH_NAMES={
   en:"英文",th:"泰文",es:"西班牙文",id:"印尼文",vi:"越南文",
-  hi:"印地語",ta:"泰米爾文",ja:"日文",ko:"韓文",km:"高棉文"
+  hi:"印地語",ta:"泰米爾文",ja:"日文",ko:"韓文",km:"高棉文",
+  bn:"孟加拉文",ne:"尼泊爾文",lo:"寮文",my:"緬甸文",it:"義大利文",pt:"葡萄牙文"
 };
 
 function renderLanguagePlan(task){

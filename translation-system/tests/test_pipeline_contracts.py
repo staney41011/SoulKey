@@ -67,7 +67,7 @@ class PipelineContracts(unittest.TestCase):
         runner = read("translation-system/runner.py")
 
         self.assertIn(
-            'AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km")',
+            'AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km", "bn", "ne", "lo", "my", "it", "pt")',
             youtube_io,
         )
         self.assertNotIn(
@@ -88,7 +88,7 @@ class PipelineContracts(unittest.TestCase):
 
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
-        self.assertIn('const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km"]', app)
+        self.assertIn('const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km","bn","ne","lo","my","it","pt"]', app)
         self.assertIn('if(kind==="asr")', app)
         self.assertIn('zh-TW\\.transcript\\.txt', app)
         self.assertIn('ccTotal+"/"+ccTotal+" 語純逐字稿已齊全', app)

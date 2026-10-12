@@ -823,12 +823,19 @@ const LANG_NAMES={
   ta:"தமிழ்",
   ja:"日本語",
   ko:"한국어",
-  km:"ភាសាខ្មែរ"
+  km:"ភាសាខ្មែរ",
+  bn:"বাংলা",
+  ne:"नेपाली",
+  lo:"ພາສາລາວ",
+  my:"မြန်မာဘာသာ",
+  it:"Italiano",
+  pt:"Português (Brasil)",
 };
 
 const LANG_NAMES_ZH={
   en:"英文",th:"泰文",es:"西班牙文",id:"印尼文",vi:"越南文",
-  hi:"印地語",ta:"泰米爾文",ja:"日文",ko:"韓文",km:"高棉文"
+  hi:"印地語",ta:"泰米爾文",ja:"日文",ko:"韓文",km:"高棉文",
+  bn:"孟加拉文",ne:"尼泊爾文",lo:"寮文",my:"緬甸文",it:"義大利文",pt:"葡萄牙文"
 };
 
 function collectOutputPlan(){

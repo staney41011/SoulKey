@@ -12,15 +12,16 @@ const html=read("studio/review.html");
 const style=read("studio/styles.css");
 const reviewStyle=read("studio/review-editor.css");
 
-const codes=["en","th","es","id","vi","hi","ta","ja","ko","km"];
+const codes=["en","th","es","id","vi","hi","ta","ja","ko","km","bn","ne","lo","my","it","pt"];
 for (const [name,source] of [["Studio",app],["Quick Review",quick]]){
   for (const zh of ["英文","泰文","西班牙文","印尼文","越南文",
-      "印地語","泰米爾文","日文","韓文","高棉文"]){
+      "印地語","泰米爾文","日文","韓文","高棉文",
+      "孟加拉文","尼泊爾文","寮文","緬甸文","義大利文","葡萄牙文"]){
     assert.ok(source.includes(zh),name+" missing "+zh);
   }
 }
-assert.equal((html.match(/data-output-lang="/g)||[]).length,10);
-assert.equal((html.match(/data-output-enabled/g)||[]).length,10);
+assert.equal((html.match(/data-output-lang="/g)||[]).length,16);
+assert.equal((html.match(/data-output-enabled/g)||[]).length,16);
 assert.equal((html.match(/data-output-transcript/g)||[]).length,0);
 assert.equal((html.match(/data-output-audio/g)||[]).length,0);
 assert.ok(index.includes("各國語言輸出設定"));
@@ -56,7 +57,7 @@ const studioCtx={
 vm.createContext(studioCtx);
 vm.runInContext(studioCollector,studioCtx);
 const studioPlan=studioCtx.collectLanguagePlan();
-assert.equal(studioPlan.length,10);
+assert.equal(studioPlan.length,16);
 for(const x of studioPlan){
  const chosen=selections.has(x.language_code);
  assert.equal(x.audio_enabled,chosen);
@@ -77,7 +78,7 @@ const quickCtx={
 vm.createContext(quickCtx);
 vm.runInContext(quickCollector,quickCtx);
 const quickPlan=quickCtx.collectOutputPlan();
-assert.equal(quickPlan.length,10);
+assert.equal(quickPlan.length,16);
 assert.equal(JSON.stringify(quickPlan),JSON.stringify(studioPlan));
 console.log("PASS: Quick Review sends exactly the same unified payload");
 

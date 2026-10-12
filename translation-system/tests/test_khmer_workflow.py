@@ -26,7 +26,7 @@ class KhmerWorkflowTests(unittest.TestCase):
         self.assertEqual(local_language_issue(
             "This translation is only English without native Khmer characters.",
             "We should practice kindness to every person.","km"),"missing_target_script")
-        self.assertEqual(GLOSSARY_FULL_RANGE,"專有名詞庫!A2:O500")
+        self.assertEqual(GLOSSARY_FULL_RANGE,"專有名詞庫!A2:U500")
         row=["修道","","Practice Dao","cultivating the Dao",
              "","","","","TRUE","","","","","","ការអនុវត្តធម៌"]
         glossary=parse_glossary_rows([row])
@@ -55,16 +55,16 @@ class KhmerWorkflowTests(unittest.TestCase):
         self.assertIn('("km", 14)',prod)
         self.assertIn('"km": {"type": "string"}',prod)
         self.assertIn('"km": row["km"]',shadow)
-        self.assertIn("ALL nine target languages",shadow)
+        self.assertIn("ALL fifteen target languages",shadow)
         self.assertIn('"km": "Khmer"',prod)
-        self.assertIn('default="th,es,id,vi,hi,ta,ja,ko,km"',prod)
+        self.assertIn('default="th,es,id,vi,hi,ta,ja,ko,km,bn,ne,lo,my,it,pt"',prod)
         self.assertIn('km Khmer',prod)
 
         module=ast.parse(prod)
         lang_list=next(n for n in module.body if isinstance(n,ast.Assign)
             and any(isinstance(t,ast.Name) and t.id=="LANGS" for t in n.targets))
         langs=ast.literal_eval(lang_list.value)
-        self.assertEqual(langs,["th","es","id","vi","hi","ta","ja","ko","km"])
+        self.assertEqual(langs,["th","es","id","vi","hi","ta","ja","ko","km","bn","ne","lo","my","it","pt"])
         selected=next(n for n in module.body if isinstance(n,ast.FunctionDef)
             and n.name=="selected_translation_schema")
         ns={}
@@ -80,7 +80,7 @@ class KhmerWorkflowTests(unittest.TestCase):
         app=src("studio/app-20260923-48.js")
         editor=src("studio/review-editor.js")
         bridge=src("bridge/apps-script/Code.gs")
-        self.assertEqual(quick.count('data-output-lang="'),10)
+        self.assertEqual(quick.count('data-output-lang="'),16)
         self.assertIn('data-output-lang="km"',quick)
         self.assertIn('km:"ភាសាខ្មែរ"',editor)
         self.assertIn('code:"km"',app)

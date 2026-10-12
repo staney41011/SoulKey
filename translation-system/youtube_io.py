@@ -453,7 +453,7 @@ def _select_english_auto_caption(info: dict):
 
 
 
-AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km")
+AUTO_CC_TARGETS = ("en", "th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km", "bn", "ne", "lo", "my", "it", "pt")
 
 
 def _caption_language_candidates(target: str):
@@ -470,6 +470,12 @@ def _caption_language_candidates(target: str):
         "ja": ["ja", "ja-JP"],
         "ko": ["ko", "ko-KR"],
         "km": ["km", "km-KH"],
+        "bn": ["bn", "bn-BD"],
+        "ne": ["ne", "ne-NP"],
+        "lo": ["lo", "lo-LA"],
+        "my": ["my", "my-MM"],
+        "it": ["it", "it-IT"],
+        "pt": ["pt", "pt-BR", "pt-PT"],
     }
     return mapping.get(target, [target])
 

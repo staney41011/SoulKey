@@ -46,6 +46,12 @@ LANGUAGE_NAMES = {
     "ja": "Japanese",
     "ko": "Korean",
     "km": "Khmer",
+    "bn": "Bengali",
+    "ne": "Nepali",
+    "lo": "Lao",
+    "my": "Burmese",
+    "it": "Italian",
+    "pt": "Portuguese (Brazil)",
 }
 
 

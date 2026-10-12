@@ -39,7 +39,7 @@ from lesson_paths import digits, resolve_lesson_folders
 
 
 MODEL = os.getenv("GEMINI_SHADOW_MODEL", "gemini-3.1-flash-lite")
-LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"]
+LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km", "bn", "ne", "lo", "my", "it", "pt"]
 LANGUAGE_NAMES = {
     "th": "Thai",
     "es": "Spanish",
@@ -50,6 +50,12 @@ LANGUAGE_NAMES = {
     "ja": "Japanese",
     "ko": "Korean",
     "km": "Khmer",
+    "bn": "Bengali",
+    "ne": "Nepali",
+    "lo": "Lao",
+    "my": "Burmese",
+    "it": "Italian",
+    "pt": "Portuguese (Brazil)",
 }
 BATCH_SIZE = 12
 WAIT_SECONDS = 15
@@ -74,6 +80,12 @@ TRANSLATION_SCHEMA = {
                     "ja": {"type": "string"},
                     "ko": {"type": "string"},
                     "km": {"type": "string"},
+                    "bn": {"type": "string"},
+                    "ne": {"type": "string"},
+                    "lo": {"type": "string"},
+                    "my": {"type": "string"},
+                    "it": {"type": "string"},
+                    "pt": {"type": "string"},
                 },
                 "required": [
                     "segment_id",
@@ -86,6 +98,12 @@ TRANSLATION_SCHEMA = {
                     "ja",
                     "ko",
                     "km",
+                    "bn",
+                    "ne",
+                    "lo",
+                    "my",
+                    "it",
+                    "pt",
                 ],
             },
         }
@@ -163,7 +181,7 @@ def _glossary_text(rows):
         if not source:
             continue
         parts = [f"source={source}"]
-        for lang in ("th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km"):
+        for lang in ("th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km", "bn", "ne", "lo", "my", "it", "pt"):
             value = str(item.get(lang) or "").strip()
             if value:
                 parts.append(f"{lang}={value}")
@@ -239,7 +257,7 @@ def _translation_prompt(batch, glossary_text):
     return f"""
 You are the multilingual translation engine for the SoulKey religious education course.
 
-Translate every approved English segment directly into ALL nine target languages:
+Translate every approved English segment directly into ALL fifteen target languages:
 th = Thai
 es = Spanish
 id = Indonesian
@@ -249,6 +267,12 @@ ta = Tamil
 ja = Japanese
 ko = Korean
 km = Khmer
+bn = Bengali
+ne = Nepali
+lo = Lao
+my = Burmese
+it = Italian
+pt = Portuguese (Brazil)
 
 IMPORTANT:
 - segment_id is the source segment number.
@@ -261,7 +285,7 @@ Rules:
 4. Do not add explanations or doctrine.
 5. Do not merge, split or reorder segments.
 6. Keep segment_id unchanged.
-7. Produce all nine target languages.
+7. Produce all fifteen target languages.
 8. Translate every language directly from English.
 9. Use natural spoken language suitable for TTS.
 10. Follow LOCKED glossary mappings when a target mapping exists.
@@ -292,6 +316,12 @@ def _qa_prompt(batch, rows):
             "ja": row["ja"],
             "ko": row["ko"],
             "km": row["km"],
+            "bn": row["bn"],
+            "ne": row["ne"],
+            "lo": row["lo"],
+            "my": row["my"],
+            "it": row["it"],
+            "pt": row["pt"],
         })
 
     return f"""
@@ -307,6 +337,12 @@ ta Tamil
 ja Japanese
 ko Korean
 km Khmer
+bn Bengali
+ne Nepali
+lo Lao
+my Burmese
+it Italian
+pt Portuguese (Brazil)
 
 Only report genuine translation failures:
 - important meaning missing
