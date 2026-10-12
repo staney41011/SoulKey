@@ -4013,6 +4013,23 @@ function bridgeClientRequest(fields){
   return true;
 }
 
+function bridgeSyncRequestFailed(action,reason){
+  if(action==="status_health" || action==="tasks_get"){
+    bridgeAuthenticated=false;
+    const humanReason=String(reason||"無法取得控制中心回應");
+    setDashboardBridgeState(
+      "無法同步控制中心："+humanReason+
+      "。請稍後按「連線控制中心」重試；原本 Google Sheet 的資料不會消失。",
+      "error"
+    );
+    const apiState=document.getElementById("api-state");
+    if(apiState){
+      apiState.textContent="控制中心無法連線";
+      apiState.className="warn";
+    }
+  }
+}
+
 function jsonpBridgeRequest(fields){
   const endpoint=bridgeEndpointValue();
   const key=bridgeKeyValue();
@@ -4028,18 +4045,27 @@ function jsonpBridgeRequest(fields){
     _t:String(Date.now())
   });
 
+  const action=String(fields.action||"");
+  const timeoutMs=action==="status_health"?20000:
+    action==="tasks_get"?45000:90000;
+  let settled=false;
+  let watchdog=0;
   const cleanup=()=>{
+    if(settled) return false;
+    settled=true;
+    if(watchdog) window.clearTimeout(watchdog);
     try{delete window[callbackName];}catch(_){}
     script.remove();
+    return true;
   };
 
   window[callbackName]=(data)=>{
-    cleanup();
+    if(!cleanup()) return;
     window.dispatchEvent(new MessageEvent("message",{data}));
   };
 
-  script.onerror=()=>{
-    cleanup();
+  const fail=(reason)=>{
+    if(!cleanup()) return;
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
     if(syncState){
@@ -4047,9 +4073,15 @@ function jsonpBridgeRequest(fields){
       syncState.className="warn";
     }
     if(syncText){
-      syncText.textContent="無法讀取 Apps Script 狀態 API。";
+      syncText.textContent="Apps Script 連線失敗："+reason;
     }
+    bridgeSyncRequestFailed(action,reason);
   };
+  script.onerror=()=>fail("控制中心可能拒絕存取或暫時無法連線");
+  watchdog=window.setTimeout(
+    ()=>fail("逾時 "+Math.round(timeoutMs/1000)+" 秒，請檢查控制中心部署權限"),
+    timeoutMs
+  );
 
   const sep=endpoint.includes("?") ? "&" : "?";
   script.src=endpoint+sep+params.toString();
@@ -4247,6 +4279,7 @@ window.addEventListener("message",event=>{
       );
       window.setTimeout(()=>requestTaskStatuses(),150);
     }else{
+      bridgeSyncRequestFailed("tasks_get",String(data.message||data.error||"任務讀取失敗"));
       if(apiState){
         apiState.textContent="任務同步失敗";
         apiState.className="warn";
@@ -4728,6 +4761,7 @@ window.addEventListener("message",event=>{
       }
     }else if(syncState){
       const reason=data.message || data.error || "未知錯誤";
+      bridgeSyncRequestFailed("status_health",reason);
       syncState.textContent="狀態表連線失敗";
       syncState.className="warn";
       if(syncText) syncText.textContent="狀態表連線失敗："+reason;
