@@ -1,0 +1,84 @@
+name: SoulKey Edge New Endpoint Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  new-endpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install synthesis and audio validation tools
+        run: |
+          python -m pip install -q edge-tts==7.2.8
+          ffprobe -version | head -1
+      - name: Test new Edge endpoint without editing production code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u - <<'PY'
+          import asyncio, json, subprocess, sys, time, os
+          from pathlib import Path
+          import edge_tts
+          import edge_tts.communicate as communicate
+          from edge_tts.constants import TRUSTED_CLIENT_TOKEN
+          sys.path.insert(0,"translation-system")
+          from natural_tts_config import NATURAL_TTS_PROFILES
+          from tts_health_audit import SAMPLES
+          communicate.WSS_URL = (
+              "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+              "?Ocp-Apim-Subscription-Key=" + TRUSTED_CLIENT_TOKEN
+          )
+          base=Path(os.environ["RUNNER_TEMP"])/"new-endpoint-audit"
+          base.mkdir(exist_ok=True)
+          async def test(lang,profile):
+              path=base/(lang+".mp3")
+              bounds=base/(lang+".boundaries.jsonl")
+              for attempt in range(3):
+                  try:
+                      if attempt:await asyncio.sleep(10*attempt)
+                      await asyncio.wait_for(edge_tts.Communicate(
+                          text=SAMPLES[lang],voice=profile["voice"],
+                          rate=profile["rate"],pitch=profile["pitch"],
+                          boundary="SentenceBoundary"
+                      ).save(str(path),str(bounds)),timeout=30)
+                      ff=subprocess.run(["ffprobe","-v","error",
+                         "-show_entries","format=duration",
+                         "-of","default=noprint_wrappers=1:nokey=1",
+                         str(path)],capture_output=True,text=True,timeout=10,check=True)
+                      seconds=float(ff.stdout.strip())
+                      assert path.stat().st_size>1024 and seconds>0.5
+                      result={"lang":lang,"ok":True,"bytes":path.stat().st_size,
+                              "seconds":round(seconds,2),"boundaries":bounds.stat().st_size,
+                              "attempt":attempt+1}
+                      break
+                  except Exception as e:
+                      result={"lang":lang,"ok":False,"error":type(e).__name__+
+                              ": "+str(e).split("url=")[0][:85],
+                              "attempt":attempt+1}
+                      if "429" not in str(e): break
+              print("PROBE",json.dumps(result,ensure_ascii=False),flush=True)
+              return result
+          async def run():
+              results=[]
+              for lang,profile in NATURAL_TTS_PROFILES.items():
+                  results.append(await test(lang,profile))
+                  await asyncio.sleep(2)
+              (base/"result.json").write_text(json.dumps(
+                  results,indent=2,ensure_ascii=False),encoding="utf8")
+              success=sum(x["ok"] for x in results)
+              print("FINAL_NEW_ENDPOINT_RESULT",success,"/",len(results))
+              if success!=len(results):raise SystemExit(1)
+          asyncio.run(run())
+          PY
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-new-endpoint-16-voices
+          path: ${{ runner.temp }}/new-endpoint-audit/result.json
+          if-no-files-found: warn
