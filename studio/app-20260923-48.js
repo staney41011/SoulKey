@@ -4759,11 +4759,13 @@ window.addEventListener("message",event=>{
         requestTasksFromControlCenter();
         requestLanguageSettings();
       }
-    }else if(syncState){
+    }else{
       const reason=data.message || data.error || "未知錯誤";
       bridgeSyncRequestFailed("status_health",reason);
-      syncState.textContent="狀態表連線失敗";
-      syncState.className="warn";
+      if(syncState){
+        syncState.textContent="狀態表連線失敗";
+        syncState.className="warn";
+      }
       if(syncText) syncText.textContent="狀態表連線失敗："+reason;
     }
   }
