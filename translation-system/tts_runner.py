@@ -1,4 +1,5 @@
 import argparse
+import os
 import asyncio
 import importlib.util
 import hashlib
@@ -673,7 +674,7 @@ def main():
                 task["period"],
                 task["lesson"],
             )
-            workdir = Path("/kaggle/working/translate-system-tts") / task["task_id"]
+            workdir = Path(os.environ.get("SOULKEY_TTS_WORKDIR", "/kaggle/working/translate-system-tts")) / task["task_id"]
             workdir.mkdir(parents=True, exist_ok=True)
 
             video_duration, duration_limit_basis = load_source_duration_limit(

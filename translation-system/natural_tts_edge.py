@@ -70,9 +70,22 @@ async def synthesize_block(
     pitch: str,
     output_mp3: Path,
     boundary_path: Path,
-    attempts: int = 3,
+    attempts: int = 4,
 ):
     import edge_tts
+    import edge_tts.communicate as edge_communicate
+    import os
+
+    # The legacy speech.platform.bing.com WebSocket began returning 403 in
+    # October 2026. The newer Edge Read Aloud synthesis endpoint has been
+    # verified with the full SoulKey 16-voice smoke test on GitHub Actions.
+    # Keep a selectable legacy setting if the provider changes again.
+    if os.getenv("SOULKEY_EDGE_ENDPOINT", "msedgeservices") == "msedgeservices":
+        from edge_tts.constants import TRUSTED_CLIENT_TOKEN
+        edge_communicate.WSS_URL = (
+            "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+            "?Ocp-Apim-Subscription-Key=" + TRUSTED_CLIENT_TOKEN
+        )
 
     output_mp3.parent.mkdir(parents=True, exist_ok=True)
     last_error = None
@@ -114,7 +127,12 @@ async def synthesize_block(
                 ) from exc
             if attempt == attempts:
                 break
-            await asyncio.sleep(min(8, 2 ** attempt))
+            # HTTP 429 is a quota/rate-limit signal; retry with a much longer
+            # wait than transient socket/network failures.
+            if ("429" in str(exc) and "Handshake" in type(exc).__name__):
+                await asyncio.sleep(15 * attempt)
+            else:
+                await asyncio.sleep(min(8, 2 ** attempt))
 
     raise RuntimeError(
         f"Edge TTS block {block.index} failed after {attempts} attempts: {last_error}"
