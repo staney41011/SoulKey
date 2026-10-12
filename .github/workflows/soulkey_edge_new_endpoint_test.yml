@@ -14,14 +14,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install synthesis and audio validation tools
         run: |
-          python -m pip install -q edge-tts==7.2.8
-          ffprobe -version | head -1
+          python -m pip install -q edge-tts==7.2.8 mutagen==1.47.0
+          python -c "from mutagen.mp3 import MP3; print('MP3 validator ready')"
       - name: Test new Edge endpoint without editing production code
         shell: bash
         run: |
           set -euo pipefail
           python -u - <<'PY'
-          import asyncio, json, subprocess, sys, time, os
+          import asyncio, json, sys, os
+          from mutagen.mp3 import MP3
           from pathlib import Path
           import edge_tts
           import edge_tts.communicate as communicate
@@ -46,11 +47,7 @@ jobs:
                           rate=profile["rate"],pitch=profile["pitch"],
                           boundary="SentenceBoundary"
                       ).save(str(path),str(bounds)),timeout=30)
-                      ff=subprocess.run(["ffprobe","-v","error",
-                         "-show_entries","format=duration",
-                         "-of","default=noprint_wrappers=1:nokey=1",
-                         str(path)],capture_output=True,text=True,timeout=10,check=True)
-                      seconds=float(ff.stdout.strip())
+                      seconds=float(MP3(str(path)).info.length)
                       assert path.stat().st_size>1024 and seconds>0.5
                       result={"lang":lang,"ok":True,"bytes":path.stat().st_size,
                               "seconds":round(seconds,2),"boundaries":bounds.stat().st_size,
