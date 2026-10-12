@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import importlib.util
+import hashlib
 import json
 import subprocess
 import sys
@@ -327,18 +328,47 @@ def _load_tts_manifest(drive, audio_folder, lang, workdir):
         return None
 
 
-def _verified_drive_audio(drive, audio_folder, filename):
-    """A Drive listing is not proof of a playable delivery; reject zero-byte files."""
+def _verified_drive_audio(drive, audio_folder, filename, expected_receipt=None):
+    """Confirm nonempty audio and, for new manifests, EXACT uploaded bytes.
+
+    Old manifests lacked checksums. Keep them readable and reusable, so
+    introducing stronger verification never destroys an existing approved MP3
+    when an upstream voice service is temporarily unavailable.
+    """
     item=find_file(drive,audio_folder,filename)
     if not item or not item.get("id"):
         return False
     meta=drive.files().get(
-        fileId=item["id"],fields="id,size,mimeType",
+        fileId=item["id"],fields="id,size,mimeType,md5Checksum",
         supportsAllDrives=True
     ).execute()
-    return int(meta.get("size") or 0)>1024 and str(
-        meta.get("mimeType") or ""
-    ) in {"audio/mpeg","audio/mp3","audio/x-wav","audio/wav","application/octet-stream"}
+    actual_size=int(meta.get("size") or 0)
+    if actual_size<=1024 or str(meta.get("mimeType") or "") not in {
+        "audio/mpeg","audio/mp3","audio/x-wav","audio/wav","application/octet-stream"
+    }:
+        return False
+    if expected_receipt is not None:
+        if not isinstance(expected_receipt,dict):
+            return False
+        # Missing hash fields are not a successful verified upload.
+        expected_md5=str(expected_receipt.get("md5") or "").strip().lower()
+        expected_size=int(expected_receipt.get("size") or 0)
+        if not expected_md5 or actual_size!=expected_size:
+            return False
+        if str(meta.get("md5Checksum") or "").strip().lower()!=expected_md5:
+            return False
+    return True
+
+
+def local_audio_receipt(path):
+    """Drive exposes MD5 for uploaded binary files; compare with local output."""
+    path=Path(path)
+    digest=hashlib.md5()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda:handle.read(1024*1024),b""):
+            digest.update(chunk)
+    return {"size":path.stat().st_size,"md5":digest.hexdigest()}
+
 
 
 def verify_uploaded_natural_output(
@@ -364,14 +394,24 @@ def verify_uploaded_natural_output(
            -float(duration_limit or 0))>0.5:
         return "missing"
     status=str(manifest.get("status") or "")
+    receipts=manifest.get("audio_receipts")
+    if receipts is not None and not isinstance(receipts,dict):
+        return "missing"
     if status=="done":
         return ("done" if
-            _verified_drive_audio(drive,audio_folder,f"{lang}.mp3") and
-            _verified_drive_audio(drive,audio_folder,f"{lang}.wav")
-            else "missing")
+            _verified_drive_audio(
+                drive,audio_folder,f"{lang}.mp3",
+                (receipts or {}).get("mp3") if receipts is not None else None
+            ) and _verified_drive_audio(
+                drive,audio_folder,f"{lang}.wav",
+                (receipts or {}).get("wav") if receipts is not None else None
+            ) else "missing")
     if status=="needs_review":
         return ("needs_review" if _verified_drive_audio(
-            drive,audio_folder,f"{lang}.preview.mp3") else "missing")
+            drive,audio_folder,f"{lang}.preview.mp3",
+            (receipts or {}).get("preview_mp3")
+                if receipts is not None else None
+        ) else "missing")
     return "missing"
 
 
@@ -493,6 +533,14 @@ def render_natural_language(
         "preview": preview_info,
         "timeline": timeline_info,
         "status": status,
+        "audio_receipts": (
+            {"preview_mp3": local_audio_receipt(preview_mp3)}
+            if status == "needs_review"
+            else {
+                "mp3": local_audio_receipt(timeline_mp3),
+                "wav": local_audio_receipt(timeline_wav),
+            }
+        ),
     }
     manifest_path = output_dir / f"{lang}.tts_manifest.json"
     manifest_path.write_text(
@@ -520,36 +568,23 @@ def upload_natural_outputs(
     result,
     task,
 ):
-    # One formal deliverable per language. Upload an uncompressed natural
-    # preview only if timing QA blocks the canonical voice. Never delete older
-    # previews: Drive history remains available for a human comparison.
-    always = (
-        ("preview_mp3", "manifest", "alignment_report")
-        if result["status"] == "needs_review"
-        else ("manifest", "alignment_report")
+    # Publish AUDIO first, manifest last. Never commit a new manifest
+    # pointing at a missing / stale MP3 if Drive errors partway through.
+    # The manifest's audio_receipts let post-upload checks compare full
+    # binary MD5 and file length against Google's Drive metadata.
+    order = (
+        ("preview_mp3", "alignment_report", "manifest")
+        if result["status"]=="needs_review"
+        else ("mp3", "wav", "alignment_report", "manifest")
     )
-    for key in always:
-        path = Path(result[key])
-        canonical_name = path.name
+    for key in order:
+        path=Path(result[key])
+        canonical_name=path.name
         upload_or_replace_file(
-            drive,
-            audio_folder,
-            path,
-            canonical_name,
-            display_name=formal_drive_name(task, canonical_name),
+            drive,audio_folder,path,canonical_name,
+            display_name=formal_drive_name(task,canonical_name)
         )
 
-    if result["status"] == "done":
-        for key in ("mp3", "wav"):
-            path = Path(result[key])
-            canonical_name = path.name
-            upload_or_replace_file(
-                drive,
-                audio_folder,
-                path,
-                canonical_name,
-                display_name=formal_drive_name(task, canonical_name),
-            )
 
 def main():
     parser = argparse.ArgumentParser()
@@ -672,6 +707,7 @@ def main():
             blocked = []
             over_duration = []
             tts_completed = []
+            voice_access_denials = 0
 
             for lang in langs:
                 lang_stage = f"tts:{lang}"
@@ -782,6 +818,12 @@ def main():
                         )
                         continue
 
+                    if voice_access_denials >= 2:
+                        raise RuntimeError(
+                            "Microsoft Edge TTS WebSocket HTTP 403: "
+                            "兩種不同語言連續遭語音服務拒絕，"
+                            "已停止其他聲線的無效重試；請待服務恢復。"
+                        )
                     print(
                         f"[TTS] {LANGUAGE_NAMES[lang]} ({lang}) / "
                         f"{NATURAL_TTS_PROFILES[lang]['voice']}",
@@ -875,6 +917,16 @@ def main():
 
                 except Exception as lang_exc:
                     lang_message = f"{type(lang_exc).__name__}: {lang_exc}"
+                    if "Microsoft Edge TTS WebSocket HTTP 403" in lang_message:
+                        voice_access_denials += 1
+                        if voice_access_denials == 2:
+                            print(
+                                "[TTS-OUTAGE] Two voice profiles returned "
+                                "provider HTTP 403. Keep completed files "
+                                "unchanged; mark remaining new voices as "
+                                "blocked instead of opening more connections.",
+                                file=sys.stderr,flush=True
+                            )
                     failed.append({"lang": lang, "error": lang_message})
                     print(
                         f"[ERROR] Natural TTS:{lang} 失敗，但其他語言繼續："

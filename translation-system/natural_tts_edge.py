@@ -104,6 +104,14 @@ async def synthesize_block(
             }
         except Exception as exc:
             last_error = exc
+            # HTTP 403 is an explicit service denial, not a temporary
+            # synthesis hiccup; three rapid attempts cannot fix it.
+            if ("WSServerHandshakeError" in type(exc).__name__
+                    and "403" in str(exc)):
+                raise RuntimeError(
+                    "Microsoft Edge TTS WebSocket HTTP 403: "
+                    "語音服務拒絕連線；尚未產生新的 MP3。"
+                ) from exc
             if attempt == attempts:
                 break
             await asyncio.sleep(min(8, 2 ** attempt))

@@ -1,5 +1,7 @@
 """No-cloud contract tests for complete selected-language MP3 delivery."""
 import ast
+import hashlib
+import tempfile
 import pathlib
 import subprocess
 import types
@@ -23,7 +25,9 @@ class DriveFiles:
         self.fileid=fileId
         return self
     def execute(self):
-        return {"id":self.fileid,"size":23422,"mimeType":
+        return {"id":self.fileid,"size":23422,
+                "md5Checksum":getattr(self,"checksums",{}).get(self.fileid),
+                "mimeType":
                 "audio/x-wav" if self.fileid.endswith(".wav") else "audio/mpeg"}
 
 class DeliveryVerification(unittest.TestCase):
@@ -72,6 +76,55 @@ class DeliveryVerification(unittest.TestCase):
         self.assertEqual(self.status(),"needs_review")
         self.files.names.clear()
         self.assertEqual(self.status(),"missing")
+
+    def test_new_manifest_requires_exact_mp3_and_wav_md5(self):
+        self.manifest["audio_receipts"]={
+            "mp3":{"size":23422,"md5":"abc123"},
+            "wav":{"size":23422,"md5":"wav456"}
+        }
+        self.files.checksums={"km.mp3":"abc123","km.wav":"wav456"}
+        self.assertEqual(self.status(),"done")
+        self.files.checksums["km.mp3"]="old-stale-mp3"
+        self.assertEqual(self.status(),"missing")
+        self.files.checksums["km.mp3"]="abc123"
+        self.files.checksums["km.wav"]=None
+        self.assertEqual(self.status(),"missing")
+        self.files.checksums["km.wav"]="wav456"
+        self.manifest["audio_receipts"]["mp3"]["size"]=23423
+        self.assertEqual(self.status(),"missing")
+
+    def test_preview_checksum_requires_actual_uploaded_bytes(self):
+        self.manifest["status"]="needs_review"
+        self.manifest["audio_receipts"]={"preview_mp3":{
+            "size":23422,"md5":"expected-preview"
+        }}
+        self.files.names={"km.preview.mp3"}
+        self.files.checksums={"km.preview.mp3":"expected-preview"}
+        self.assertEqual(self.status(),"needs_review")
+        self.files.checksums["km.preview.mp3"]="old-preview"
+        self.assertEqual(self.status(),"missing")
+
+    def test_manifest_uploaded_last_after_both_audio_formats(self):
+        uploaded=[]
+        ctx={
+            "Path":pathlib.Path,
+            "upload_or_replace_file":lambda d,f,path,name,display_name:
+                uploaded.append(name),
+            "formal_drive_name":lambda task,name:name,
+        }
+        isolated_functions("translation-system/tts_runner.py",
+                           ("upload_natural_outputs",),ctx)
+        paths={name:name+".file" for name in
+               ("mp3","wav","preview_mp3","manifest","alignment_report")}
+        result={**paths,"status":"done"}
+        ctx["upload_natural_outputs"](None,"audio",result,{})
+        self.assertEqual(uploaded,["mp3.file","wav.file",
+                                   "alignment_report.file","manifest.file"])
+        uploaded.clear()
+        result["status"]="needs_review"
+        ctx["upload_natural_outputs"](None,"audio",result,{})
+        self.assertEqual(uploaded,["preview_mp3.file","alignment_report.file",
+                                   "manifest.file"])
 
 class WorkerCompletion(unittest.TestCase):
     def setUp(self):
@@ -144,6 +197,11 @@ class WiringContracts(unittest.TestCase):
         self.assertIn('if args.strict_delivery and strict_review:',runner)
         self.assertIn('delivered=verify_uploaded_natural_output(',runner)
         self.assertIn('strict_missing.extend(',runner)
+        self.assertIn('audio_receipts',runner)
+        self.assertIn('md5Checksum',runner)
+        self.assertIn('voice_access_denials >= 2',runner)
+        edge=read('translation-system/natural_tts_edge.py')
+        self.assertIn('Microsoft Edge TTS WebSocket HTTP 403',edge)
 
 if __name__=="__main__":
     unittest.main()
