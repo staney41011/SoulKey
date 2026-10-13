@@ -33,12 +33,16 @@ on:
 permissions:
   contents: write
 
+# Keep API/TTS CPU work independent from Kaggle ASR/GPU work.
+# queue: max prevents newer runs silently canceling older pending lessons.
 concurrency:
-  group: soulkey-kaggle-web-worker
+  group: ${{ (inputs.stage == 'multi' || inputs.stage == 'tts') && 'soulkey-github-cpu' || 'soulkey-kaggle-web-worker' }}
+  queue: max
   cancel-in-progress: false
 
 jobs:
   launch:
+    if: ${{ inputs.stage != 'multi' && inputs.stage != 'tts' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
@@ -373,3 +377,82 @@ jobs:
             exit 1
           fi
           echo "SoulKey Kaggle Web Job completed."
+
+  cpu:
+    # Only API translation and TTS: they do not need Kaggle or CUDA.
+    if: ${{ inputs.stage == 'multi' || inputs.stage == 'tts' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    steps:
+      - name: Mask short-lived Bridge authentication inputs before any other step
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          fields = data.get("inputs") or {}
+          for key in ("runtime_nonce", "bridge_url"):
+              value = str(fields.get(key) or "")
+              if value:
+                  print("::add-mask::" + value, flush=True)
+          PY
+
+      - name: Checkout SoulKey source
+        uses: actions/checkout@v4
+
+      - name: Install lightweight Google/API and speech runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -q \
+            -r translation-system/requirements-gemini.txt
+          if [[ "${{ inputs.stage }}" == "tts" ]]; then
+            python -m pip install --disable-pip-version-check -q edge-tts==7.2.8
+          fi
+          ffprobe -version | head -n 1
+
+      - name: Execute CPU translation or safe 2-way parallel TTS
+        shell: bash
+        env:
+          JOB_TASK_ID: ${{ inputs.task_id }}
+          JOB_STAGE: ${{ inputs.stage }}
+          JOB_LANGS: ${{ inputs.langs }}
+          JOB_LANG: ${{ inputs.lang }}
+          JOB_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
+          JOB_BRIDGE_URL: ${{ inputs.bridge_url }}
+          SOULKEY_REPO_DIR: ${{ github.workspace }}
+          SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/soulkey-tts-workdir
+          SOULKEY_EDGE_ENDPOINT: msedgeservices
+          SOULKEY_TTS_PARALLEL_BLOCKS: '2'
+        run: |
+          set -euo pipefail
+          python -u translation-system/web_job_worker.py \
+            --task-id "$JOB_TASK_ID" \
+            --stage "$JOB_STAGE" \
+            --lang "$JOB_LANG" \
+            --langs "$JOB_LANGS" \
+            --bridge-url "$JOB_BRIDGE_URL" \
+            --runtime-nonce "$JOB_RUNTIME_NONCE"
+
+      - name: Report infrastructure error to Bridge
+        if: ${{ failure() }}
+        shell: bash
+        env:
+          JOB_BRIDGE_URL: ${{ inputs.bridge_url }}
+          JOB_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
+        run: |
+          # The worker itself reports runtime failures; this is for failures
+          # during checkout/install, when the worker could not start.
+          if [[ -n "$JOB_BRIDGE_URL" && -n "$JOB_RUNTIME_NONCE" ]]; then
+            curl --max-time 15 --fail --silent --show-error -X POST "$JOB_BRIDGE_URL" \
+              --data-urlencode "action=worker_report" \
+              --data-urlencode "nonce=$JOB_RUNTIME_NONCE" \
+              --data-urlencode "status=error" \
+              --data-urlencode "message=GitHub CPU worker failed; inspect GitHub Actions log" \
+              >/dev/null || true
+          fi
