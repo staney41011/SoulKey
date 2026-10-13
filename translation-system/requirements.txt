@@ -6,6 +6,9 @@ google-api-python-client
 google-auth
 google-auth-httplib2
 faster-whisper
+# faster-whisper 1.2.1 passes metadata_errors to PyAV; removed in PyAV 19.
+# Kaggle Python 3.13 resolves incompatible av 19 unless constrained.
+av>=11,<19
 huggingface-hub
 tqdm
 transformers>=4.52.4

@@ -269,6 +269,11 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("model.transcribe(\n        audio_samples,", asr)
         self.assertNotIn("model.transcribe(\n        str(audio_path),", asr)
 
+    def test_asr_faster_whisper_pin_prevents_pyav19_crash(self):
+        requirements = read("translation-system/requirements.txt")
+        self.assertIn("faster-whisper", requirements)
+        self.assertIn("av>=11,<19", requirements)
+
     def test_tts_token_length_accepts_transformers_batch_encoding(self):
         engine = read("translation-system/tts_engine.py")
         block = engine.split("def _input_length(inputs):", 1)[1].split(
