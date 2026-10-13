@@ -142,7 +142,10 @@ async def render_blocks_parallel(*, lang, blocks, output_dir, concurrency, check
         meta.update({
             "block_index": index, "segment_ids": block.segment_ids,
             "source_start": block.source_start, "source_end": block.source_end,
+            "text": block.text,
             "text_sha256": block.text_sha256,
+            "audio_file": mp3.name,
+            "boundary_file": bounds.name,
         })
         return meta, wav
 
