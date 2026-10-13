@@ -46,8 +46,13 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('"$ATTEMPT_ELAPSED" -lt 120', workflow)
         self.assertIn('if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then', workflow)
         self.assertIn('echo "[KAGGLE STARTUP] Retries exhausted', workflow)
-        self.assertIn('group: soulkey-kaggle-web-worker', workflow)
+        # Hybrid deployment routes TTS/multi to CPU and ASR to Kaggle.
+        # Verify both groups exist instead of requiring a single legacy group.
+        self.assertIn('soulkey-kaggle-web-worker', workflow)
+        self.assertIn('soulkey-github-cpu', workflow)
+        self.assertIn('queue: max', workflow)
         self.assertIn('cancel-in-progress: false', workflow)
+        self.assertIn('SOULKEY_CPU_WORKER_ENABLED', workflow)
 
     def test_asr_prefers_verified_drive_audio_over_expired_youtube_cookies(self):
         runner = read("translation-system/runner.py")
