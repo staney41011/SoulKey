@@ -560,10 +560,13 @@ def _locale_number_issues(english, target):
             observed.add(parsed)
         # The untranslated English decimal spelling is also unambiguous.
         if "." in token and "," not in token:
-            try:
-                observed.add(Decimal(token))
-            except InvalidOperation:
-                pass
+            parts = token.split(".")
+            grouping = len(parts) > 1 and all(len(part) == 3 for part in parts[1:])
+            if not grouping:
+                try:
+                    observed.add(Decimal(token))
+                except InvalidOperation:
+                    pass
     return [
         f"missing_number:{original}"
         for original, value in expected
