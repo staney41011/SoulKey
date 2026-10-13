@@ -85,7 +85,7 @@ jobs:
           import subprocess
           import sys
           from pathlib import Path
-          repo = Path("/kaggle/working/SoulKey")
+          repo = Path("/tmp/soulkey-embeddinggemma2-source")
           subprocess.run([
               "git", "clone", "--depth", "1",
               "--branch", "experiment/embeddinggemma2-kaggle-t4",
@@ -96,7 +96,7 @@ jobs:
           subprocess.run([
               sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
               "-q", "--upgrade", "sentence-transformers", "transformers",
-              "torchcodec", "soundfile", "edge-tts==7.2.8",
+              "soundfile", "edge-tts==7.2.8",
           ], check=True)
           # Main notebook output: JSON only, no production assets.
           subprocess.run([
