@@ -1,0 +1,91 @@
+name: SoulKey Parallel TTS Safe Pilot
+
+on:
+  push:
+    branches:
+      - experiment/tts-parallel-safe-pilot
+    paths:
+      - translation-system/natural_tts_edge.py
+      - translation-system/natural_tts_parallel.py
+      - translation-system/tests/test_natural_tts_parallel.py
+      - translation-system/tests/test_natural_tts_drive_cache.py
+      - translation-system/natural_tts_drive_cache.py
+      - translation-system/tts_runner.py
+      - translation-system/web_job_worker.py
+      - translation-system/gemini_multi_production_runner.py
+      - .github/workflows/kaggle_web_job.yml
+      - .github/workflows/soulkey_parallel_tts_pilot.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - translation-system/natural_tts_edge.py
+      - translation-system/natural_tts_parallel.py
+      - translation-system/tests/test_natural_tts_parallel.py
+      - translation-system/tests/test_natural_tts_drive_cache.py
+      - translation-system/natural_tts_drive_cache.py
+      - translation-system/tts_runner.py
+      - translation-system/web_job_worker.py
+      - translation-system/gemini_multi_production_runner.py
+      - .github/workflows/kaggle_web_job.yml
+      - .github/workflows/soulkey_parallel_tts_pilot.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-parallel-tts-pilot
+  cancel-in-progress: false
+
+jobs:
+  isolated-unit-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile parallel TTS pilot
+        run: |
+          python -m py_compile \
+            translation-system/natural_tts_edge.py \
+            translation-system/natural_tts_parallel.py \
+            translation-system/web_job_worker.py \
+            translation-system/gemini_multi_production_runner.py \
+            translation-system/natural_tts_drive_cache.py \
+            translation-system/tts_runner.py \
+            translation-system/tests/test_natural_tts_drive_cache.py \
+            translation-system/tests/test_natural_tts_parallel.py
+      - name: Run offline concurrency and Drive-cache recovery tests
+        run: |
+          python -m pip install -q \
+            google-api-python-client google-auth google-auth-httplib2
+          python -m unittest discover -s translation-system/tests -p 'test_natural_tts_parallel.py' -v
+          python -m unittest discover -s translation-system/tests -p 'test_natural_tts_drive_cache.py' -v
+      - name: Validate Github CPU split routing and FIFO wait queue
+        shell: bash
+        run: |
+          python -m pip install -q pyyaml
+          python - <<'PY'
+          import yaml
+          from pathlib import Path
+          workflow = yaml.safe_load(Path(".github/workflows/kaggle_web_job.yml").read_text())
+          assert workflow["concurrency"]["queue"] == "max"
+          assert workflow["concurrency"]["cancel-in-progress"] is False
+          jobs = workflow["jobs"]
+          assert "cpu" in jobs and "launch" in jobs
+          assert "tts" in jobs["cpu"]["if"] and "multi" in jobs["cpu"]["if"]
+          assert "tts" in jobs["launch"]["if"] and "multi" in jobs["launch"]["if"]
+          steps = jobs["cpu"]["steps"]
+          text = "\n".join(str(step) for step in steps)
+          assert "SOULKEY_TTS_PARALLEL_BLOCKS" in text
+          assert "SOULKEY_TTS_WORKDIR" in text
+          assert "SOULKEY_GEMINI_MULTI_WORKDIR" in text
+          assert "add-mask" in text
+          print("CPU_WORKER_ROUTING_AND_FIFO_OK")
+          PY
+      - name: Verify production is disabled by default
+        run: |
+          python - <<'PY'
+          import os
+          assert os.getenv("SOULKEY_TTS_PARALLEL_BLOCKS", "1") == "1"
+          print("SAFE_DEFAULT: parallel mode is disabled")
+          PY

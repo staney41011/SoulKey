@@ -466,6 +466,7 @@ def render_natural_language(
     *,
     source_duration,
     duration_limit_basis,
+    checkpoint_store=None,
 ):
     _ensure_edge_tts_runtime()
     output_dir = Path(output_dir)
@@ -475,11 +476,23 @@ def render_natural_language(
     if not blocks:
         raise RuntimeError(f"{lang} 沒有可朗讀的 speech blocks")
 
+    if checkpoint_store is not None:
+        try:
+            checkpoint_store.restore(output_dir)
+        except Exception as cache_exc:
+            print(
+                f"[TTS-CACHE] Restore unavailable for {lang}: "
+                f"{type(cache_exc).__name__}; continuing without remote cache",
+                flush=True,
+            )
+            checkpoint_store = None
+
     block_results, wav_parts = asyncio.run(
         render_blocks(
             lang=lang,
             blocks=blocks,
             output_dir=output_dir,
+            checkpoint_store=checkpoint_store,
         )
     )
 
@@ -830,12 +843,23 @@ def main():
                         f"{NATURAL_TTS_PROFILES[lang]['voice']}",
                         flush=True,
                     )
+                    cloud_cache = None
+                    if os.environ.get("SOULKEY_TTS_PARALLEL_BLOCKS", "1") in {
+                        "2", "3", "4"
+                    }:
+                        from natural_tts_drive_cache import DriveTTSBlockCache
+                        language_blocks, _ = build_speech_blocks(segments, lang)
+                        cloud_cache = DriveTTSBlockCache(
+                            drive, folders["audio"], lang, source_sha256,
+                            language_blocks, workdir / f"tts-cache-{lang}",
+                        )
                     result = render_natural_language(
                         segments,
                         lang,
                         workdir / f"natural-tts-{lang}",
                         source_duration=duration_limit,
                         duration_limit_basis=effective_duration_basis,
+                        checkpoint_store=cloud_cache,
                     )
                     upload_natural_outputs(
                         drive,
