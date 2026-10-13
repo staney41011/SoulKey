@@ -145,6 +145,16 @@ async def render_blocks(
     blocks: list[SpeechBlock],
     output_dir: Path,
 ):
+    # Feature-gated pilot. The production default remains serial (one block).
+    # No external job may enable this implicitly.
+    import os
+    concurrency = int(os.getenv("SOULKEY_TTS_PARALLEL_BLOCKS", "1"))
+    if concurrency != 1:
+        from natural_tts_parallel import render_blocks_parallel
+        return await render_blocks_parallel(
+            lang=lang, blocks=blocks, output_dir=output_dir,
+            concurrency=concurrency,
+        )
     profile = NATURAL_TTS_PROFILES[lang]
     if profile["engine"] != "edge":
         raise ValueError(f"{lang} is not an Edge language")
