@@ -8,6 +8,8 @@ on:
       - translation-system/natural_tts_edge.py
       - translation-system/natural_tts_parallel.py
       - translation-system/tests/test_natural_tts_parallel.py
+      - translation-system/web_job_worker.py
+      - .github/workflows/kaggle_web_job.yml
       - .github/workflows/soulkey_parallel_tts_pilot.yml
   pull_request:
     branches: [main]
@@ -15,6 +17,8 @@ on:
       - translation-system/natural_tts_edge.py
       - translation-system/natural_tts_parallel.py
       - translation-system/tests/test_natural_tts_parallel.py
+      - translation-system/web_job_worker.py
+      - .github/workflows/kaggle_web_job.yml
       - .github/workflows/soulkey_parallel_tts_pilot.yml
   workflow_dispatch:
 
@@ -36,9 +40,31 @@ jobs:
           python -m py_compile \
             translation-system/natural_tts_edge.py \
             translation-system/natural_tts_parallel.py \
+            translation-system/web_job_worker.py \
             translation-system/tests/test_natural_tts_parallel.py
       - name: Run all offline concurrency and recovery tests
         run: python -m unittest discover -s translation-system/tests -p 'test_natural_tts_parallel.py' -v
+      - name: Validate Github CPU split routing and FIFO wait queue
+        shell: bash
+        run: |
+          python -m pip install -q pyyaml
+          python - <<'PY'
+          import yaml
+          from pathlib import Path
+          workflow = yaml.safe_load(Path(".github/workflows/kaggle_web_job.yml").read_text())
+          assert workflow["concurrency"]["queue"] == "max"
+          assert workflow["concurrency"]["cancel-in-progress"] is False
+          jobs = workflow["jobs"]
+          assert "cpu" in jobs and "launch" in jobs
+          assert "tts" in jobs["cpu"]["if"] and "multi" in jobs["cpu"]["if"]
+          assert "tts" in jobs["launch"]["if"] and "multi" in jobs["launch"]["if"]
+          steps = jobs["cpu"]["steps"]
+          text = "\n".join(str(step) for step in steps)
+          assert "SOULKEY_TTS_PARALLEL_BLOCKS" in text
+          assert "SOULKEY_TTS_WORKDIR" in text
+          assert "add-mask" in text
+          print("CPU_WORKER_ROUTING_AND_FIFO_OK")
+          PY
       - name: Verify production is disabled by default
         run: |
           python - <<'PY'
