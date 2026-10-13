@@ -322,7 +322,8 @@ def main():
     parser.add_argument("--runtime-nonce", required=True)
     args = parser.parse_args()
 
-    repo = Path("/kaggle/working/SoulKey")
+    # Kaggle loads the repo at /kaggle/working; GitHub Actions checks it out locally.
+    repo = Path(os.environ.get("SOULKEY_REPO_DIR") or "/kaggle/working/SoulKey")
     system_dir = repo / "translation-system"
 
     try:
@@ -387,7 +388,7 @@ def main():
             args.bridge_url,
             args.runtime_nonce,
             "running",
-            f"Kaggle Web Worker 開始執行 {args.stage}",
+            f"SoulKey Worker 開始執行 {args.stage}",
         )
 
         if not repo.exists():
@@ -409,7 +410,7 @@ def main():
         requirements_file = (
             system_dir / "requirements-gemini.txt"
             if (
-                args.stage in gemini_only_stages
+                (args.stage in gemini_only_stages or args.stage == "tts")
                 and not (args.stage == "en" and args.lang == "cc-refresh")
             )
             or (
