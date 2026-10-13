@@ -33,6 +33,19 @@ jobs:
         run: |
           python -u translation-system/tests/tts_parallel_benchmark.py \
             --out "$RUNNER_TEMP/p257-l01-parallel-report" --endpoint alternate
+      - name: Run synthetic live integration against feature-gated renderer
+        shell: bash
+        run: |
+          python -u translation-system/tests/tts_parallel_live_smoke.py \
+            --output-dir "$RUNNER_TEMP/soulkey-parallel-live" --count 12
+      - name: Upload isolated integration report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soulkey-feature-parallel-live-report
+          path: ${{ runner.temp }}/soulkey-parallel-live/report.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload diagnostic JSON, including failures
         if: always()
         uses: actions/upload-artifact@v4
