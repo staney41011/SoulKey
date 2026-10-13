@@ -5,6 +5,14 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      phase:
+        description: Experimental test type (isolated from production)
+        type: choice
+        required: true
+        default: retrieval
+        options:
+          - retrieval
+          - asr
       accelerator:
         description: GPU shape
         type: choice
@@ -31,7 +39,7 @@ jobs:
       - name: Compile benchmark and check source isolation
         shell: bash
         run: |
-          python -m py_compile translation-system/experiments/embeddinggemma2_kaggle_poc.py
+          python -m py_compile translation-system/experiments/embeddinggemma2_kaggle_poc.py translation-system/experiments/mandarin_asr_comparison.py
           python - <<'PY'
           from pathlib import Path
           script=Path("translation-system/experiments/embeddinggemma2_kaggle_poc.py").read_text()
@@ -93,15 +101,25 @@ jobs:
           ], check=True)
           subprocess.run(["apt-get","update","-qq"],check=True)
           subprocess.run(["apt-get","install","-y","-qq","ffmpeg"],check=True)
+          mode = "${{ inputs.phase }}"
+          if mode == "asr":
+              requirements = ["faster-whisper", "opencc-python-reimplemented",
+                              "edge-tts==7.2.8"]
+              runner = "mandarin_asr_comparison.py"
+          elif mode == "retrieval":
+              requirements = ["sentence-transformers", "transformers",
+                              "soundfile", "edge-tts==7.2.8"]
+              runner = "embeddinggemma2_kaggle_poc.py"
+          else:
+              raise ValueError("invalid experimental phase")
           subprocess.run([
               sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
-              "-q", "--upgrade", "sentence-transformers", "transformers",
-              "soundfile", "edge-tts==7.2.8",
+              "-q", "--upgrade", *requirements,
           ], check=True)
-          # Main notebook output: JSON only, no production assets.
+          # Only synthetic data and JSON report; all work is isolated.
           subprocess.run([
               sys.executable, "-u",
-              str(repo/"translation-system/experiments/embeddinggemma2_kaggle_poc.py"),
+              str(repo/"translation-system/experiments"/runner),
               "--out", "/kaggle/working/soulkey-embeddinggemma2-report",
           ], check=True)
           PY
@@ -153,16 +171,21 @@ jobs:
               print("EG2_REPORT_MISSING")
               raise SystemExit(1)
           result=json.loads(reports[0].read_text(encoding="utf-8"))
-          print("EG2_REPORT_SUMMARY",json.dumps({
-              "passed":result.get("passed"),
-              "stage":result.get("stage"),
-              "failure":result.get("failure"),
-              "hardware":result.get("hardware"),
+          phase="${{ inputs.phase }}"
+          success=(result.get("all_models_passed") if phase=="asr" else result.get("passed"))
+          details=({
+              k:{field:value.get(field) for field in ("passed","cer","realtime_factor","error_type")}
+              for k,value in result.get("asr_models",{}).items()
+          } if phase=="asr" else {
               "audio_realtime_factor":result.get("audio_realtime_factor"),
               "retrieval_exact_synthetic":{k:v for k,v in result.get("retrieval_exact_synthetic",{}).items() if k!="examples"},
               "retrieval_chinese_paraphrase":{k:v for k,v in result.get("retrieval_chinese_paraphrase",{}).items() if k!="examples"},
+          })
+          print("EG2_REPORT_SUMMARY",json.dumps({
+              "phase":phase,"passed":success,"hardware":result.get("hardware"),
+              "failure":result.get("failure"),"details":details,
           },ensure_ascii=False), flush=True)
-          if not result.get("passed"):
+          if not success:
               raise SystemExit("Benchmark failed; do not present as successful")
           PY
 
