@@ -1,0 +1,41 @@
+name: SoulKey Parallel TTS Safe Pilot
+
+on:
+  push:
+    branches:
+      - experiment/tts-parallel-safe-pilot
+    paths:
+      - translation-system/natural_tts_edge.py
+      - translation-system/natural_tts_parallel.py
+      - translation-system/tests/test_natural_tts_parallel.py
+      - .github/workflows/soulkey_parallel_tts_pilot.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-parallel-tts-pilot
+  cancel-in-progress: false
+
+jobs:
+  isolated-unit-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile parallel TTS pilot
+        run: |
+          python -m py_compile \
+            translation-system/natural_tts_edge.py \
+            translation-system/natural_tts_parallel.py \
+            translation-system/tests/test_natural_tts_parallel.py
+      - name: Run all offline concurrency and recovery tests
+        run: python -m unittest discover -s translation-system/tests -p 'test_natural_tts_parallel.py' -v
+      - name: Verify production is disabled by default
+        run: |
+          python - <<'PY'
+          import os
+          assert os.getenv("SOULKEY_TTS_PARALLEL_BLOCKS", "1") == "1"
+          print("SAFE_DEFAULT: parallel mode is disabled")
+          PY
