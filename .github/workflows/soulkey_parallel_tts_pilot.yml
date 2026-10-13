@@ -8,6 +8,9 @@ on:
       - translation-system/natural_tts_edge.py
       - translation-system/natural_tts_parallel.py
       - translation-system/tests/test_natural_tts_parallel.py
+      - translation-system/tests/test_natural_tts_drive_cache.py
+      - translation-system/natural_tts_drive_cache.py
+      - translation-system/tts_runner.py
       - translation-system/web_job_worker.py
       - translation-system/gemini_multi_production_runner.py
       - .github/workflows/kaggle_web_job.yml
@@ -18,6 +21,9 @@ on:
       - translation-system/natural_tts_edge.py
       - translation-system/natural_tts_parallel.py
       - translation-system/tests/test_natural_tts_parallel.py
+      - translation-system/tests/test_natural_tts_drive_cache.py
+      - translation-system/natural_tts_drive_cache.py
+      - translation-system/tts_runner.py
       - translation-system/web_job_worker.py
       - translation-system/gemini_multi_production_runner.py
       - .github/workflows/kaggle_web_job.yml
@@ -44,9 +50,16 @@ jobs:
             translation-system/natural_tts_parallel.py \
             translation-system/web_job_worker.py \
             translation-system/gemini_multi_production_runner.py \
+            translation-system/natural_tts_drive_cache.py \
+            translation-system/tts_runner.py \
+            translation-system/tests/test_natural_tts_drive_cache.py \
             translation-system/tests/test_natural_tts_parallel.py
-      - name: Run all offline concurrency and recovery tests
-        run: python -m unittest discover -s translation-system/tests -p 'test_natural_tts_parallel.py' -v
+      - name: Run offline concurrency and Drive-cache recovery tests
+        run: |
+          python -m pip install -q \
+            google-api-python-client google-auth google-auth-httplib2
+          python -m unittest discover -s translation-system/tests -p 'test_natural_tts_parallel.py' -v
+          python -m unittest discover -s translation-system/tests -p 'test_natural_tts_drive_cache.py' -v
       - name: Validate Github CPU split routing and FIFO wait queue
         shell: bash
         run: |
