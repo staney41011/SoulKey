@@ -9,6 +9,13 @@ on:
       - translation-system/natural_tts_parallel.py
       - translation-system/tests/test_natural_tts_parallel.py
       - .github/workflows/soulkey_parallel_tts_pilot.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - translation-system/natural_tts_edge.py
+      - translation-system/natural_tts_parallel.py
+      - translation-system/tests/test_natural_tts_parallel.py
+      - .github/workflows/soulkey_parallel_tts_pilot.yml
   workflow_dispatch:
 
 permissions:
