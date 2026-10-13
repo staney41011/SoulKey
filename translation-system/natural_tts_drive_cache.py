@@ -29,6 +29,7 @@ class DriveTTSBlockCache:
         self.scratch = Path(scratch)
         self.scratch.mkdir(parents=True, exist_ok=True)
         self.profile = NATURAL_TTS_PROFILES[lang]
+        self.restored_groups = set()
         self.context = {
             "lang": lang,
             "source_sha256": self.source,
@@ -91,6 +92,7 @@ class DriveTTSBlockCache:
                         tmp = dest.with_suffix(".restore.tmp")
                         tmp.write_bytes(blob)
                         os.replace(tmp, dest)
+                    self.restored_groups.add(group)
                     recovered.update({
                         int(row["block_index"]): {
                             "block_index": int(row["block_index"]),
