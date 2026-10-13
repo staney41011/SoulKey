@@ -88,6 +88,21 @@ async def create_synthetic_audio(folder):
     return paths, durations
 
 
+def load_pcm16_wav(path):
+    """Decode known-good 16 kHz mono PCM with stdlib, not torchcodec.
+
+    Kaggle's Python 3.13 environment can have a torchcodec shared-library
+    ABI mismatch. EmbeddingGemma 2 officially supports ndarray audio input.
+    """
+    import wave
+    import numpy as np
+    with wave.open(str(path), "rb") as wf:
+        if (wf.getnchannels(), wf.getsampwidth(), wf.getframerate()) != (1, 2, 16000):
+            raise ValueError("Expected 16 kHz mono 16-bit PCM WAV")
+        samples = np.frombuffer(wf.readframes(wf.getnframes()), dtype="<i2")
+        return np.array(samples, dtype=np.float32) / np.float32(32768.0)
+
+
 def norm_matrix(matrix):
     import numpy as np
     result = np.asarray(matrix, dtype=np.float32)
@@ -173,7 +188,8 @@ def main():
             for index, path in enumerate(paths, 1):
                 torch.cuda.synchronize()
                 tick = time.monotonic()
-                emb = model.encode({"audio": str(path)}, convert_to_numpy=True, show_progress_bar=False)
+                waveform = load_pcm16_wav(path)
+                emb = model.encode({"audio": waveform}, convert_to_numpy=True, show_progress_bar=False)
                 torch.cuda.synchronize()
                 elapsed = time.monotonic() - tick
                 inference_times.append(elapsed)
