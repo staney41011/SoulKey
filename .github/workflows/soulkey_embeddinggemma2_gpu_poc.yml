@@ -103,8 +103,8 @@ jobs:
           subprocess.run(["apt-get","install","-y","-qq","ffmpeg"],check=True)
           mode = "${{ inputs.phase }}"
           if mode == "asr":
-              requirements = ["faster-whisper", "opencc-python-reimplemented",
-                              "edge-tts==7.2.8"]
+              requirements = ["faster-whisper", "av>=11,<19",
+                              "opencc-python-reimplemented", "edge-tts==7.2.8"]
               runner = "mandarin_asr_comparison.py"
           elif mode == "retrieval":
               requirements = ["sentence-transformers", "transformers",
