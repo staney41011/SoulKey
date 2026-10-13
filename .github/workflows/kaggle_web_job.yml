@@ -427,6 +427,7 @@ jobs:
           JOB_BRIDGE_URL: ${{ inputs.bridge_url }}
           SOULKEY_REPO_DIR: ${{ github.workspace }}
           SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/soulkey-tts-workdir
+          SOULKEY_GEMINI_MULTI_WORKDIR: ${{ runner.temp }}/soulkey-multi-workdir
           SOULKEY_EDGE_ENDPOINT: msedgeservices
           SOULKEY_TTS_PARALLEL_BLOCKS: '2'
         run: |
