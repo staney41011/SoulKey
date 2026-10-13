@@ -932,7 +932,13 @@ function normalizedReviewSharePayload_(taskId, payloadJson) {
       confirmed: x.confirmed === true,
       source_en: String(x.source_en || ""),
       en_text: String(x.en_text || x.source_en || ""),
-      en_confirmed: x.en_confirmed === true
+      en_confirmed: x.en_confirmed === true,
+      // English passages have their own boundaries. Preserve the original
+      // Chinese-to-English pairing across saves and reloads.
+      pre_aligned: x.pre_aligned === true,
+      zh_ids: Array.isArray(x.zh_ids)
+        ? x.zh_ids.map(Number).filter(Number.isFinite)
+        : [Number(x.id !== undefined ? x.id : i)]
     };
   });
 
@@ -947,6 +953,8 @@ function normalizedReviewSharePayload_(taskId, payloadJson) {
       english_cc_available: payload.english_cc_available === true,
       english_cc_language: String(payload.english_cc_language || ""),
       english_cc_source: String(payload.english_cc_source || ""),
+      source_video_id: String(payload.source_video_id || ""),
+      alignment_method: String(payload.alignment_method || ""),
       total_segments: segments.length,
       segments: segments
     }
@@ -1095,31 +1103,54 @@ function reviewEnglishDraftSave_(taskId, payloadJson) {
     return normalized;
   }
 
-  const folders = lessonFolders_(normalizedTaskId);
-  writeTextFile_(
-    folders.translation,
-    "en.review.draft.json",
-    JSON.stringify(normalized.payload, null, 2),
-    "application/json",
-    normalizedTaskId
-  );
+  // Drive is the durable primary store; GitHub is a convenience cache.
+  // Previously a failed GitHub update made the UI revert a genuinely saved
+  // confirmation to "確認此句", even though Drive already held the edit.
+  try {
+    const folders = lessonFolders_(normalizedTaskId);
+    writeTextFile_(
+      folders.translation,
+      "en.review.draft.json",
+      JSON.stringify(normalized.payload, null, 2),
+      "application/json",
+      normalizedTaskId
+    );
+  } catch (err) {
+    return {
+      source:"soulkey-bridge",type:"english_review_draft_saved",
+      ok:false,task_id:normalizedTaskId,error:"drive_save_failed",
+      message:"Google Drive 草稿儲存失敗："+String(err && err.message || err)
+    };
+  }
 
-  // English draft must not replace the Chinese sentence cache.
-  const published = publishEnglishReviewCachePayload_(
-    normalizedTaskId,
-    normalized.payload
-  );
+  let published;
+  try {
+    published = publishEnglishReviewCachePayload_(
+      normalizedTaskId, normalized.payload
+    );
+  } catch (err) {
+    published = {ok:false,error:"github_cache_exception",
+      message:String(err && err.message || err)};
+  }
 
+  const props=PropertiesService.getScriptProperties();
+  const pendingKey="SOULKEY_EN_CACHE_PENDING_"+normalizedTaskId;
+  if(published && published.ok){
+    props.deleteProperty(pendingKey);
+  }else{
+    props.setProperty(pendingKey,new Date().toISOString());
+    // Existing cache repair trigger can service English too.
+    scheduleChineseCacheRepair_();
+  }
   return {
-    source: "soulkey-bridge",
-    type: "english_review_draft_saved",
-    ok: !!published.ok,
-    task_id: normalizedTaskId,
-    saved_at: normalized.payload.draft_saved_at,
-    error: published.error || "",
-    message: published.ok
-      ? "英文確認進度已儲存"
-      : (published.message || "英文確認進度儲存失敗")
+    source:"soulkey-bridge",type:"english_review_draft_saved",
+    ok:true,
+    github_synced:!!(published && published.ok),
+    task_id:normalizedTaskId,
+    saved_at:normalized.payload.draft_saved_at,
+    message:(published && published.ok)
+      ? "英文確認已保存到 Drive 與 GitHub"
+      : "英文確認已保存到 Google Drive，GitHub 快取稍後自動補同步"
   };
 }
 
@@ -1862,6 +1893,13 @@ function seedEnglishReviewCache_(taskId) {
     if(!aligned) return {ok:false,error:"english_align_empty"};
     return publishEnglishReviewCachePayload_(normalizedTaskId,aligned);
   }
+  // Preserve the exact human-edited paragraph layout and confirmation flags.
+  // Rebuilding the draft from plain segment fields loses zh_ids/pre_aligned
+  // and can make a fresh GitHub reseed undo what the user just confirmed.
+  if(!englishFinal && englishDraft &&
+     Array.isArray(englishDraft.segments) && englishDraft.segments.length){
+    return publishEnglishReviewCachePayload_(normalizedTaskId,englishDraft);
+  }
   let segments;
   if (englishFinal && Array.isArray(englishFinal.segments) && englishFinal.segments.length) {
     segments = englishFinal.segments.map(function(item,index){
@@ -1973,7 +2011,33 @@ function noteChineseReviewCacheResult_(taskId,finalizedAt,result){
   }
 }
 
+function repairPendingEnglishReviewCaches_(){
+  const props=PropertiesService.getScriptProperties();
+  const keys=Object.keys(props.getProperties()).filter(function(key){
+    return /^SOULKEY_EN_CACHE_PENDING_P\d+-L\d+$/i.test(key);
+  }).slice(0,5);
+  keys.forEach(function(key){
+    const taskId=key.slice("SOULKEY_EN_CACHE_PENDING_".length);
+    try{
+      const payload=readJsonFile_(
+        lessonFolders_(taskId).translation,"en.review.draft.json"
+      );
+      if(!payload || !Array.isArray(payload.segments) || !payload.segments.length){
+        Logger.log("English draft repair skipped missing Drive draft: "+taskId);
+        return;
+      }
+      const result=publishEnglishReviewCachePayload_(taskId,payload);
+      if(result && result.ok) props.deleteProperty(key);
+    }catch(err){
+      Logger.log("English draft cache repair failed for "+taskId+": "+String(err));
+    }
+  });
+  return {checked:keys.length};
+}
+
 function repairPendingChineseReviewCaches_(){
+  // This existing 15-minute trigger services English pending drafts as well.
+  repairPendingEnglishReviewCaches_();
   const props=PropertiesService.getScriptProperties();
   const keys=Object.keys(props.getProperties()).filter(function(key){
     return /^SOULKEY_ZH_CACHE_PENDING_P\d+-L\d+$/i.test(key);
@@ -4617,6 +4681,9 @@ function loadReview_(taskId, kind, chunkIndex) {
             en: String(x.en_text || x.source_en || ""),
             source_en: String(x.source_en || ""),
             en_confirmed: x.en_confirmed === true,
+            pre_aligned:x.pre_aligned===true,
+            ids:Array.isArray(x.zh_ids)&&x.zh_ids.length
+              ? x.zh_ids.map(Number):[id],
             terms: termsFor(zhText)
           };
         })
