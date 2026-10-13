@@ -973,7 +973,7 @@ def main():
         raise RuntimeError("任務缺少期數或堂次")
 
     folders = resolve_lesson_folders(drive, sheets, int(task["period"]), task["lesson"])
-    workdir = Path("/kaggle/working/gemini-multi") / args.task_id
+    workdir = Path(os.environ.get("SOULKEY_GEMINI_MULTI_WORKDIR", "/kaggle/working/gemini-multi")) / args.task_id
     workdir.mkdir(parents=True, exist_ok=True)
 
     source_item = find_file(drive, folders["translation"], "en.final.json")
