@@ -62,7 +62,7 @@ async def parallel_map_ordered(items, worker, on_completed, *, concurrency: int)
     return [results[i] for i in range(len(things))]
 
 
-async def render_blocks_parallel(*, lang, blocks, output_dir, concurrency):
+async def render_blocks_parallel(*, lang, blocks, output_dir, concurrency, checkpoint_store=None):
     """Resume only matching voice/text blocks and atomically commit successes.
 
     The checkpoint is local. Persist the output directory outside the ephemeral
@@ -95,6 +95,9 @@ async def render_blocks_parallel(*, lang, blocks, output_dir, concurrency):
         except (ValueError, KeyError, TypeError):
             previous = {}
     completed = {}
+    cache_tasks = []
+    cache_groups_scheduled = set()
+    cache_upload_lock = asyncio.Lock()
 
     async def worker(block):
         index = block.index
@@ -102,10 +105,13 @@ async def render_blocks_parallel(*, lang, blocks, output_dir, concurrency):
         bounds = block_dir / f"{index:04d}.boundaries.jsonl"
         wav = wav_dir / f"{index:04d}.wav"
         before = previous.get(index) or {}
-        reusable = before.get("text_sha256") == block.text_sha256 and mp3.exists() and wav.exists()
+        reusable = before.get("text_sha256") == block.text_sha256 and mp3.exists()
         if reusable:
             try:
                 reusable = await asyncio.to_thread(_ffprobe_duration, mp3) > 0
+                if reusable and not wav.exists():
+                    # Remote checkpoints save only compact MP3. Rebuild WAV here.
+                    await asyncio.to_thread(mp3_to_pcm_wav, mp3, wav)
             except (OSError, RuntimeError, ValueError):
                 reusable = False
         if reusable:
@@ -140,14 +146,47 @@ async def render_blocks_parallel(*, lang, blocks, output_dir, concurrency):
         })
         return meta, wav
 
+    async def upload_group(group, snapshot):
+        async with cache_upload_lock:
+            try:
+                await asyncio.to_thread(
+                    checkpoint_store.save_group, group, snapshot, output_dir
+                )
+            except Exception as exc:
+                # Cloud checkpoint is best-effort; final MP3 delivery remains
+                # separately verified and must not be mistaken for success.
+                print(
+                    f"[TTS-CACHE] {lang} group {group} upload failed: "
+                    f"{type(exc).__name__}", flush=True
+                )
+
     async def on_completed(_, value):
         meta, _ = value
-        completed[int(meta["block_index"])] = meta
+        index = int(meta["block_index"])
+        completed[index] = meta
         _atomic_json(checkpoint_path, {
             **context, "blocks": [completed[k] for k in sorted(completed)]
         })
+        if checkpoint_store is not None:
+            group = (index - 1) // 8
+            if (
+                group not in cache_groups_scheduled
+                and group not in getattr(checkpoint_store, "restored_groups", set())
+                and all(k in completed for k in checkpoint_store.group_members(group))
+            ):
+                cache_groups_scheduled.add(group)
+                snapshot = {
+                    k: completed[k] for k in checkpoint_store.group_members(group)
+                }
+                cache_tasks.append(asyncio.create_task(upload_group(group, snapshot)))
 
-    done = await parallel_map_ordered(blocks, worker, on_completed, concurrency=concurrency)
+    try:
+        done = await parallel_map_ordered(
+            blocks, worker, on_completed, concurrency=concurrency
+        )
+    finally:
+        if cache_tasks:
+            await asyncio.gather(*cache_tasks, return_exceptions=True)
     metas = [x[0] for x in done]
     wavs = [x[1] for x in done]
     _atomic_json(output_dir / f"{lang}.edge_blocks.json", {
