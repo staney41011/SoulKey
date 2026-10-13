@@ -11,6 +11,8 @@ on:
       - translation-system/tests/test_natural_tts_drive_cache.py
       - translation-system/natural_tts_drive_cache.py
       - translation-system/tts_runner.py
+      - translation-system/tts_fingerprint.py
+      - translation-system/tests/test_cpu_tts_imports.py
       - translation-system/web_job_worker.py
       - translation-system/gemini_multi_production_runner.py
       - .github/workflows/kaggle_web_job.yml
@@ -24,6 +26,8 @@ on:
       - translation-system/tests/test_natural_tts_drive_cache.py
       - translation-system/natural_tts_drive_cache.py
       - translation-system/tts_runner.py
+      - translation-system/tts_fingerprint.py
+      - translation-system/tests/test_cpu_tts_imports.py
       - translation-system/web_job_worker.py
       - translation-system/gemini_multi_production_runner.py
       - .github/workflows/kaggle_web_job.yml
@@ -52,6 +56,8 @@ jobs:
             translation-system/gemini_multi_production_runner.py \
             translation-system/natural_tts_drive_cache.py \
             translation-system/tts_runner.py \
+            translation-system/tts_fingerprint.py \
+            translation-system/tests/test_cpu_tts_imports.py \
             translation-system/tests/test_natural_tts_drive_cache.py \
             translation-system/tests/test_natural_tts_parallel.py
       - name: Run offline concurrency and Drive-cache recovery tests
@@ -60,6 +66,7 @@ jobs:
             google-api-python-client google-auth google-auth-httplib2
           python -m unittest discover -s translation-system/tests -p 'test_natural_tts_parallel.py' -v
           python -m unittest discover -s translation-system/tests -p 'test_natural_tts_drive_cache.py' -v
+          python -m unittest discover -s translation-system/tests -p 'test_cpu_tts_imports.py' -v
       - name: Validate Github CPU split routing and FIFO wait queue
         shell: bash
         run: |
