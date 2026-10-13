@@ -45,6 +45,19 @@ jobs:
         run: |
           python -u translation-system/tests/tts_parallel_live_smoke.py \
             --output-dir "$RUNNER_TEMP/soulkey-parallel-live" --count 12
+      - name: Probe all sixteen Edge TTS voices with safe parallel blocks
+        shell: bash
+        run: |
+          python -u translation-system/tests/tts_16_voice_parallel_smoke.py \
+            --out "$RUNNER_TEMP/soulkey-16-voice-parallel"
+      - name: Upload 16-voice success and cache report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soulkey-16-voice-parallel-report
+          path: ${{ runner.temp }}/soulkey-16-voice-parallel/voice-report.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload isolated integration report
         if: always()
         uses: actions/upload-artifact@v4
