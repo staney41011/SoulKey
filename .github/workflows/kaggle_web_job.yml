@@ -36,13 +36,13 @@ permissions:
 # Keep API/TTS CPU work independent from Kaggle ASR/GPU work.
 # queue: max prevents newer runs silently canceling older pending lessons.
 concurrency:
-  group: ${{ (inputs.stage == 'multi' || inputs.stage == 'tts') && 'soulkey-github-cpu' || 'soulkey-kaggle-web-worker' }}
+  group: ${{ ((inputs.stage == 'multi' || inputs.stage == 'tts') && vars.SOULKEY_CPU_WORKER_ENABLED != 'false') && 'soulkey-github-cpu' || 'soulkey-kaggle-web-worker' }}
   queue: max
   cancel-in-progress: false
 
 jobs:
   launch:
-    if: ${{ inputs.stage != 'multi' && inputs.stage != 'tts' }}
+    if: ${{ (inputs.stage != 'multi' && inputs.stage != 'tts') || vars.SOULKEY_CPU_WORKER_ENABLED == 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
@@ -380,7 +380,7 @@ jobs:
 
   cpu:
     # Only API translation and TTS: they do not need Kaggle or CUDA.
-    if: ${{ inputs.stage == 'multi' || inputs.stage == 'tts' }}
+    if: ${{ (inputs.stage == 'multi' || inputs.stage == 'tts') && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     permissions:
@@ -429,7 +429,7 @@ jobs:
           SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/soulkey-tts-workdir
           SOULKEY_GEMINI_MULTI_WORKDIR: ${{ runner.temp }}/soulkey-multi-workdir
           SOULKEY_EDGE_ENDPOINT: msedgeservices
-          SOULKEY_TTS_PARALLEL_BLOCKS: '2'
+          SOULKEY_TTS_PARALLEL_BLOCKS: ${{ vars.SOULKEY_TTS_PARALLEL_BLOCKS || '2' }}
         run: |
           set -euo pipefail
           python -u translation-system/web_job_worker.py \
