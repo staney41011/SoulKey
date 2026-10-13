@@ -1,0 +1,145 @@
+name: SoulKey P257 L01 Parallel TTS Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Isolated CPU test host (no production changes)"
+        required: true
+        default: github
+        type: choice
+        options:
+          - github
+          - kaggle
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-p257-l01-benchmark-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  github-probe:
+    if: inputs.target == 'github'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated Edge TTS dependencies
+        run: python -m pip install -q edge-tts==7.2.8 mutagen==1.47.0
+      - name: Compare 1, 2, 4 TTS workers using P257-L01 English examples
+        shell: bash
+        run: |
+          python -u translation-system/tests/tts_parallel_benchmark.py \
+            --out "$RUNNER_TEMP/p257-l01-parallel-report" --endpoint alternate
+      - name: Upload diagnostic JSON, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p257-l01-parallel-tts-github
+          path: ${{ runner.temp }}/p257-l01-parallel-report/report.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Reject invalid speed comparisons
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP'])/'p257-l01-parallel-report/report.json'
+          r=json.loads(p.read_text())
+          if len(r.get('trials',[])) != 3 or 'speedup_vs_1' not in r:
+              raise SystemExit('Provider blocked or incomplete; speedup not verified')
+          print('VERIFIED_SPEEDUP',r['speedup_vs_1'])
+          PY
+
+  kaggle-probe:
+    if: inputs.target == 'kaggle'
+    runs-on: ubuntu-latest
+    timeout-minutes: 48
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-p257-l01-parallel-bench
+    steps:
+      - name: Install Kaggle CLI
+        run: python -m pip install -q kaggle
+      - name: Build private isolated Kaggle CPU benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/p257-l01-kaggle-bench"
+          mkdir -p "$DIR"
+          cat > "$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id":"cwlmrcsir/soulkey-p257-l01-parallel-bench",
+            "title":"SoulKey P257 L01 Parallel TTS Benchmark",
+            "code_file":"benchmark.py",
+            "language":"python",
+            "kernel_type":"script",
+            "is_private":true,
+            "enable_gpu":false,
+            "enable_tpu":false,
+            "enable_internet":true,
+            "dataset_sources":[],
+            "competition_sources":[],
+            "kernel_sources":[],
+            "model_sources":[]
+          }
+          JSON
+          cat > "$DIR/benchmark.py" <<'PY'
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+          repo=Path("/kaggle/working/SoulKey")
+          subprocess.run([
+              "git","clone","--depth","1",
+              "https://github.com/staney41011/SoulKey.git",str(repo)
+          ],check=True)
+          subprocess.run([
+              sys.executable,"-m","pip","install","-q",
+              "edge-tts==7.2.8","mutagen==1.47.0"
+          ],check=True)
+          output=Path("/kaggle/working/p257-l01-parallel-report")
+          subprocess.run([
+              sys.executable,"-u",str(repo/"translation-system/tests/tts_parallel_benchmark.py"),
+              "--out",str(output),"--endpoint","alternate"
+          ],check=True)
+          report=json.loads((output/"report.json").read_text())
+          if len(report.get("trials",[]))!=3 or "speedup_vs_1" not in report:
+              raise SystemExit("TTS endpoint unavailable; valid benchmark not possible")
+          print("KAGGLE_VERIFIED_SPEEDUP",report["speedup_vs_1"])
+          PY
+      - name: Run dedicated CPU notebook and poll safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/p257-l01-kaggle-bench" -t 1800
+          FINAL="UNKNOWN"
+          for i in $(seq 1 170); do
+            STATUS="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+            echo "CHECK $i $STATUS"
+            if echo "$STATUS" | grep -Eqi 'complete|completed'; then
+              FINAL="COMPLETE"
+              break
+            fi
+            if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
+              FINAL="ERROR"
+              break
+            fi
+            sleep 10
+          done
+          echo "KAGGLE_BENCHMARK_STATUS=$FINAL"
+          timeout 60s kaggle kernels logs "$KAGGLE_KERNEL" | tail -n 100 || true
+          OUT="$RUNNER_TEMP/p257-l01-kaggle-results"
+          mkdir -p "$OUT"
+          timeout 120s kaggle kernels output "$KAGGLE_KERNEL" -p "$OUT" || true
+          test "$FINAL" = "COMPLETE"
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p257-l01-parallel-tts-kaggle
+          path: ${{ runner.temp }}/p257-l01-kaggle-results/**/report.json
+          if-no-files-found: warn
+          retention-days: 7
