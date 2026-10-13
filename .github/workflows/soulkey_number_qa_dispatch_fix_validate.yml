@@ -1,0 +1,29 @@
+name: SoulKey Locale Number QA and Dispatch Dedup
+
+on:
+  push:
+    branches:
+      - fix/p257-l02-number-qa-and-dispatch-dedup
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Python and Apps Script syntax
+        run: |
+          python -m py_compile translation-system/gemini_multi_production_runner.py translation-system/tests/test_decimal_number_qa.py
+          node -e "new Function(require('fs').readFileSync('bridge/apps-script/Code.gs','utf8')); console.log('APPS_SCRIPT_SYNTAX_OK')"
+      - name: Run strict localized-number correctness tests
+        run: python translation-system/tests/test_decimal_number_qa.py -v
+      - name: Run real Bridge duplicate-dispatch mock tests
+        run: node translation-system/tests/test_bridge_dispatch_dedup.js
+      - name: Run full pipeline static contract suite
+        run: python translation-system/tests/test_pipeline_contracts.py
