@@ -197,6 +197,8 @@ const ENGLISH_DRIVE_ACK_PREFIX="soulkey_en_drive_ack:";
 let englishFinalizePendingTaskId = "";
 let englishFinalizePriorFinishedAt = "";
 let englishFinalizeWatchdog = null;
+// A confirmed Drive acknowledgement applies to its own task only.
+const englishFinalizedThisSession = new Set();
 let currentView = "dashboard";
 const viewHistory = [];
 const youtubeCaptureFilesCache = {};
@@ -3449,6 +3451,19 @@ function showNoEnglishCcFallback(taskId){
   });
 }
 
+function syncEnglishFinalizeButton(task){
+  const button=document.getElementById("finalize-en");
+  if(!button || !task) return;
+  const finalized=englishFinalizedThisSession.has(task.id) ||
+    remoteStageStatus(task,"en-review")?.status==="done";
+  const pending=englishFinalizePendingTaskId===task.id;
+  button.dataset.finalized=finalized?"1":"0";
+  button.disabled=pending;
+  button.textContent=pending
+    ?"正在儲存…"
+    :finalized?"✓ 已定稿・查看後續流程 →":"英文定稿";
+}
+
 async function openEnglishReview(taskId){
   if(!bridgeAuthenticated){
     setDashboardBridgeState("請先連線控制中心，才能編輯英文定稿。","error");
@@ -3465,6 +3480,12 @@ async function openEnglishReview(taskId){
 
   const shareState=document.getElementById("en-review-share-state");
   if(shareState) shareState.textContent="";
+  // Reset the shared action on EVERY lesson switch. A previously finalized
+  // lesson must never leave the next lesson with a disabled "已定稿" button.
+  syncEnglishFinalizeButton(task);
+  if(shareState && document.getElementById("finalize-en")?.dataset.finalized==="1"){
+    shareState.textContent="此堂英文已定稿；可按右上角查看後續流程，不會重新覆蓋定稿。";
+  }
   const context=document.getElementById("en-review-task-context");
   context.innerHTML=
     '<b>'+escapeHtml(task.id)+'</b>'+
@@ -3937,6 +3958,12 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
 
   const task=tasks.find(x=>x.id===selectedTaskId);
   if(!task) return;
+  // A confirmed final is a navigation action, not a second Drive write.
+  if(document.getElementById("finalize-en")?.dataset.finalized==="1" ||
+     remoteStageStatus(task,"en-review")?.status==="done"){
+    openTaskDetail(task.id);
+    return;
+  }
 
   document.querySelectorAll("#en-review-list .en-review-row").forEach(row=>{
     const item=currentEnglishReview.find(
@@ -4186,16 +4213,14 @@ function completeEnglishFinalizeUi(taskId,confirmationSource){
   if(!taskId || englishFinalizePendingTaskId!==taskId) return;
   englishFinalizePendingTaskId="";
   englishFinalizePriorFinishedAt="";
+  englishFinalizedThisSession.add(taskId);
   window.clearTimeout(englishFinalizeWatchdog);
   const state=document.getElementById("en-review-share-state");
-  const button=document.getElementById("finalize-en");
+  const task=tasks.find(x=>x.id===taskId);
   if(state) state.textContent=
     "英文定稿已寫入 Google Drive"+
     (confirmationSource==="status"?"（中央狀態已確認）":"");
-  if(button){
-    button.disabled=true;
-    button.textContent="已定稿";
-  }
+  syncEnglishFinalizeButton(task);
   // Refresh only after the server confirms completion. Never submit again.
   if(currentView==="en-review" && selectedTaskId===taskId){
     window.setTimeout(()=>openEnglishReview(taskId),500);
@@ -4235,6 +4260,10 @@ function applyRemoteStatuses(payload){
     if(currentView==="youtube-audio"){
       renderYoutubeAudioTasks();
     }
+  }
+
+  if(currentView==="en-review" && selectedTaskId){
+    syncEnglishFinalizeButton(tasks.find(x=>x.id===selectedTaskId));
   }
 
   const syncState=document.getElementById("status-sync-state");
