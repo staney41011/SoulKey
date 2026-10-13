@@ -13,6 +13,7 @@ on:
       - translation-system/tts_runner.py
       - translation-system/tts_fingerprint.py
       - translation-system/tests/test_cpu_tts_imports.py
+      - translation-system/tests/tts_full_cpu_live_smoke.py
       - translation-system/web_job_worker.py
       - translation-system/gemini_multi_production_runner.py
       - .github/workflows/kaggle_web_job.yml
@@ -28,6 +29,7 @@ on:
       - translation-system/tts_runner.py
       - translation-system/tts_fingerprint.py
       - translation-system/tests/test_cpu_tts_imports.py
+      - translation-system/tests/tts_full_cpu_live_smoke.py
       - translation-system/web_job_worker.py
       - translation-system/gemini_multi_production_runner.py
       - .github/workflows/kaggle_web_job.yml
@@ -67,6 +69,14 @@ jobs:
           python -m unittest discover -s translation-system/tests -p 'test_natural_tts_parallel.py' -v
           python -m unittest discover -s translation-system/tests -p 'test_natural_tts_drive_cache.py' -v
           python -m unittest discover -s translation-system/tests -p 'test_cpu_tts_imports.py' -v
+      - name: Run real Edge CPU full audio assembly (no numpy/torch/scipy)
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -q edge-tts==7.2.8
+          python -u translation-system/tests/tts_full_cpu_live_smoke.py \
+            --output-dir "$RUNNER_TEMP/soulkey-edge-cpu-full"
       - name: Validate Github CPU split routing and FIFO wait queue
         shell: bash
         run: |
