@@ -228,23 +228,17 @@ function doPost(e) {
         });
       }
 
-      const nonce = createRuntimeJob_(taskId, stage, lang, langs);
-      const bridgeUrl = ScriptApp.getService().getUrl();
-      const dispatch = dispatchWorkflow_(
-        githubToken,
-        WORKFLOW_WEB_JOB,
-        {
-          task_id: taskId,
-          stage: stage,
-          lang: lang,
-          langs: langs,
-          runtime_nonce: nonce,
-          bridge_url: bridgeUrl
-        }
+      const dispatch = dispatchWorkflowIdempotently_(
+        githubToken, taskId, stage, lang, langs
       );
-
+      if (dispatch.duplicate) {
+        return postMessage_({
+          source: "soulkey-bridge", type: "run_stage", ok: true,
+          duplicate: true, task_id: taskId, stage: stage,
+          message: "相同課程、階段與語言已送出，略過重複派工"
+        });
+      }
       if (!dispatch.ok) {
-        PropertiesService.getScriptProperties().deleteProperty("JOB_" + nonce);
         return postMessage_({
           source: "soulkey-bridge",
           type: "run_stage",
@@ -259,9 +253,9 @@ function doPost(e) {
         taskId,
         stage,
         "queued",
-        String(dispatch.workflow_run_id || nonce.slice(0, 12)),
+        String(dispatch.workflow_run_id || dispatch.nonce.slice(0, 12)),
         0,
-        "已送出 GitHub Actions，等待 Kaggle",
+        "已送出 GitHub Actions，等待 Worker",
         "",
         "",
         "",
@@ -782,6 +776,10 @@ function workerReport_(nonce, status, message) {
     "",
     ""
   );
+
+  if (["done", "error", "needs_review"].indexOf(normalized) >= 0) {
+    releaseDispatchLease_(job, nonce);
+  }
 
   return {
     ok: true,
@@ -1406,28 +1404,23 @@ function reviewFinish_(taskId, planJson) {
     };
   }
 
-  const nonce = createRuntimeJob_(
-    normalizedTaskId,
-    "finish",
-    audioLangs.join(","),
-    translateLangs.join(",")
+  const dispatch = dispatchWorkflowIdempotently_(
+    githubToken, normalizedTaskId, "finish",
+    audioLangs.join(","), translateLangs.join(",")
   );
-  const bridgeUrl = ScriptApp.getService().getUrl();
-  const dispatch = dispatchWorkflow_(
-    githubToken,
-    WORKFLOW_WEB_JOB,
-    {
+  if (dispatch.duplicate) {
+    return {
+      source: "soulkey-bridge",
+      type: "review_finish_queued",
+      ok: true,
+      duplicate: true,
       task_id: normalizedTaskId,
-      stage: "finish",
-      lang: audioLangs.join(","),
-      langs: translateLangs.join(","),
-      runtime_nonce: nonce,
-      bridge_url: bridgeUrl
-    }
-  );
-
+      translate_langs: translateLangs,
+      audio_langs: audioLangs,
+      message: "相同課程輸出工作已送出，略過重複派工"
+    };
+  }
   if (!dispatch.ok) {
-    props.deleteProperty("JOB_" + nonce);
     return {
       source: "soulkey-bridge",
       type: "review_finish_queued",
@@ -1441,7 +1434,7 @@ function reviewFinish_(taskId, planJson) {
     normalizedTaskId,
     "finish",
     "queued",
-    String(dispatch.workflow_run_id || nonce.slice(0, 12)),
+    String(dispatch.workflow_run_id || dispatch.nonce.slice(0, 12)),
     0,
     "已送出最終輸出工作",
     "",
@@ -2201,6 +2194,85 @@ function workflowDispatchResponse_(githubToken, workflow, inputs, type) {
   result.source = "soulkey-bridge";
   result.type = type;
   return result;
+}
+
+const DISPATCH_DEDUP_TTL_MS = 45 * 60 * 1000;
+
+function dispatchLeaseKey_(taskId, stage, lang, langs) {
+  function normalizeCodes(value) {
+    return Array.from(new Set(
+      String(value || "").split(",").map(function(x) { return x.trim(); }).filter(Boolean)
+    )).sort().join(",");
+  }
+  const payload = [
+    String(taskId || "").trim(),
+    String(stage || "").trim(),
+    normalizeCodes(lang),
+    normalizeCodes(langs)
+  ].join("|");
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256, payload
+  );
+  return "JOB_DISPATCH_" + Utilities.base64EncodeWebSafe(digest)
+    .replace(/=+$/g, "");
+}
+
+function dispatchWorkflowIdempotently_(githubToken, taskId, stage, lang, langs) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const key = dispatchLeaseKey_(taskId, stage, lang, langs);
+    const prior = properties.getProperty(key);
+    if (prior) {
+      try {
+        const lease = JSON.parse(prior);
+        if (Number(lease.expires_at_ms || 0) > Date.now()) {
+          return {ok: true, duplicate: true};
+        }
+      } catch (_) {}
+      properties.deleteProperty(key);
+    }
+
+    const nonce = createRuntimeJob_(taskId, stage, lang, langs);
+    const dispatch = dispatchWorkflow_(
+      githubToken, WORKFLOW_WEB_JOB,
+      {
+        task_id: taskId, stage: stage,
+        lang: lang || "", langs: langs || "",
+        runtime_nonce: nonce,
+        bridge_url: ScriptApp.getService().getUrl()
+      }
+    );
+    if (!dispatch.ok) {
+      properties.deleteProperty("JOB_" + nonce);
+      return dispatch;
+    }
+    const expiresAtMs = Date.now() + DISPATCH_DEDUP_TTL_MS;
+    properties.setProperty(key, JSON.stringify({
+      nonce: nonce,
+      expires_at_ms: expiresAtMs,
+      expires_at: new Date(expiresAtMs).toISOString()
+    }));
+    dispatch.nonce = nonce;
+    return dispatch;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function releaseDispatchLease_(job, nonce) {
+  const properties = PropertiesService.getScriptProperties();
+  const key = dispatchLeaseKey_(
+    job.task_id, job.stage, job.lang || "", job.langs || ""
+  );
+  const raw = properties.getProperty(key);
+  if (!raw) return;
+  try {
+    if (JSON.parse(raw).nonce === nonce) properties.deleteProperty(key);
+  } catch (_) {
+    properties.deleteProperty(key);
+  }
 }
 
 function dispatchWorkflow_(githubToken, workflowFile, inputs) {

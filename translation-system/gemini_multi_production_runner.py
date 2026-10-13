@@ -8,6 +8,7 @@ import time
 import traceback
 import unicodedata
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 # Windows production runners may inherit a CP950 console. Force UTF-8 so
@@ -516,6 +517,63 @@ _CJK_UNITS = {
 }
 
 
+# Italian and Portuguese use a comma as a decimal separator and a dot as
+# the thousands separator. Numeric QA must compare values, not substrings:
+# 2.5 == 2,5, but 2.5 != 12,5 or 25.
+_LOCALE_SOURCE_NUMBER = re.compile(
+    r"(?<![\\w])(?:\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)(?![\\w])"
+)
+_LOCALE_TARGET_NUMBER = re.compile(r"(?<![\\w])\\d+(?:[.,]\\d+)*(?![\\w])")
+
+
+def _decimal_localized_number(token):
+    """Parse pt/it number tokens conservatively; 2.500 is 2500."""
+    value = str(token)
+    if "," in value and "." in value:
+        if value.rfind(",") > value.rfind("."):
+            value = value.replace(".", "").replace(",", ".")
+        else:
+            value = value.replace(",", "")
+    elif "," in value:
+        value = value.replace(",", ".")
+    elif "." in value:
+        parts = value.split(".")
+        if len(parts) > 1 and all(len(part) == 3 for part in parts[1:]):
+            value = "".join(parts)
+    try:
+        return Decimal(value)
+    except InvalidOperation:
+        return None
+
+
+def _locale_number_issues(english, target):
+    normalized_target = normalize_unicode_digits(target)
+    expected = [
+        (match.group(), Decimal(match.group().replace(",", "")))
+        for match in _LOCALE_SOURCE_NUMBER.finditer(normalize_unicode_digits(english))
+    ]
+    observed = set()
+    for match in _LOCALE_TARGET_NUMBER.finditer(normalized_target):
+        token = match.group()
+        parsed = _decimal_localized_number(token)
+        if parsed is not None:
+            observed.add(parsed)
+        # The untranslated English decimal spelling is also unambiguous.
+        if "." in token and "," not in token:
+            parts = token.split(".")
+            grouping = len(parts) > 1 and all(len(part) == 3 for part in parts[1:])
+            if not grouping:
+                try:
+                    observed.add(Decimal(token))
+                except InvalidOperation:
+                    pass
+    return [
+        f"missing_number:{original}"
+        for original, value in expected
+        if value not in observed
+    ]
+
+
 def translated_number_issues(english,target,lang):
     """Preserve ACTUAL values, including correct localized magnitudes.
 
@@ -523,6 +581,8 @@ def translated_number_issues(english,target,lang):
     2.5億 / 2.5억 (250,000,000). A glyph-only check wrongly rejects
     correct 25億 because the literal text "2.5" disappears.
     """
+    if lang in {"it", "pt"}:
+        return _locale_number_issues(english, target)
     normalized=normalize_unicode_digits(target)
     numbers=re.findall(r"\d+(?:\.\d+)?",english)
     if lang not in {"ja","ko"}:
