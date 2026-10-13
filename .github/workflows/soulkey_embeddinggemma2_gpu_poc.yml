@@ -1,6 +1,8 @@
 name: SoulKey EmbeddingGemma2 Kaggle GPU PoC
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       accelerator:
@@ -21,7 +23,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  syntax-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile benchmark and check source isolation
+        shell: bash
+        run: |
+          python -m py_compile translation-system/experiments/embeddinggemma2_kaggle_poc.py
+          python - <<'PY'
+          from pathlib import Path
+          script=Path("translation-system/experiments/embeddinggemma2_kaggle_poc.py").read_text()
+          assert "SAMPLE_PAIRS" in script and "google/embeddinggemma-2" in script
+          assert "source_audio." not in script
+          assert "build_google_services" not in script
+          print("ISOLATED_GPU_POC_SYNTAX_OK")
+          PY
+
   kaggle-gpu-benchmark:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: syntax-validation
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
