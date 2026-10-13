@@ -1,0 +1,178 @@
+name: SoulKey EmbeddingGemma2 Kaggle GPU PoC
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      accelerator:
+        description: GPU shape
+        type: choice
+        required: true
+        default: NvidiaTeslaT4
+        options:
+          - NvidiaTeslaT4
+
+permissions:
+  contents: read
+
+# Never touch the production cwlmrcsir/soulkey-gpu-worker kernel.
+concurrency:
+  group: soulkey-embeddinggemma2-gpu-poc
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  syntax-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile benchmark and check source isolation
+        shell: bash
+        run: |
+          python -m py_compile translation-system/experiments/embeddinggemma2_kaggle_poc.py
+          python - <<'PY'
+          from pathlib import Path
+          script=Path("translation-system/experiments/embeddinggemma2_kaggle_poc.py").read_text()
+          assert "SAMPLE_PAIRS" in script and "google/embeddinggemma-2" in script
+          assert "source_audio." not in script
+          assert "build_google_services" not in script
+          print("ISOLATED_GPU_POC_SYNTAX_OK")
+          PY
+
+  kaggle-gpu-benchmark:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: syntax-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-embeddinggemma2-gpu-poc
+      ACCELERATOR: ${{ inputs.accelerator }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify isolated benchmark syntax and dependencies
+        run: |
+          python -m py_compile translation-system/experiments/embeddinggemma2_kaggle_poc.py
+          python -m pip install -q kaggle
+
+      - name: Build private GPU notebook from experimental branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/soulkey-embeddinggemma2-gpu-poc"
+          mkdir -p "$DIR"
+          cat > "$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id":"cwlmrcsir/soulkey-embeddinggemma2-gpu-poc",
+            "title":"SoulKey EmbeddingGemma2 GPU POC",
+            "code_file":"embeddinggemma2_gpu_poc.py",
+            "language":"python",
+            "kernel_type":"script",
+            "is_private":true,
+            "enable_gpu":true,
+            "enable_tpu":false,
+            "enable_internet":true,
+            "machine_shape":"NvidiaTeslaT4",
+            "dataset_sources":[],
+            "kernel_sources":[],
+            "model_sources":[]
+          }
+          JSON
+          cat > "$DIR/embeddinggemma2_gpu_poc.py" <<'PY'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          repo = Path("/kaggle/working/SoulKey")
+          subprocess.run([
+              "git", "clone", "--depth", "1",
+              "--branch", "experiment/embeddinggemma2-kaggle-t4",
+              "https://github.com/staney41011/SoulKey.git", str(repo),
+          ], check=True)
+          subprocess.run(["apt-get","update","-qq"],check=True)
+          subprocess.run(["apt-get","install","-y","-qq","ffmpeg"],check=True)
+          subprocess.run([
+              sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
+              "-q", "--upgrade", "sentence-transformers", "transformers",
+              "torchcodec", "soundfile", "edge-tts==7.2.8",
+          ], check=True)
+          # Main notebook output: JSON only, no production assets.
+          subprocess.run([
+              sys.executable, "-u",
+              str(repo/"translation-system/experiments/embeddinggemma2_kaggle_poc.py"),
+              "--out", "/kaggle/working/soulkey-embeddinggemma2-report",
+          ], check=True)
+          PY
+
+      - name: Run isolated Kaggle GPU notebook
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/soulkey-embeddinggemma2-gpu-poc"
+          if [[ -z "${KAGGLE_API_TOKEN:-}" ]]; then
+            echo "::error::KAGGLE_API_TOKEN GitHub secret missing"
+            exit 1
+          fi
+          kaggle kernels push -p "$DIR" --accelerator "$ACCELERATOR" -t 7200
+          FINAL="TIMED_OUT"
+          for attempt in $(seq 1 660); do
+            status="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+            echo "Kaggle poll $attempt: $status"
+            if echo "$status" | grep -Eqi 'permission.*denied|cannot access kernel|not found'; then
+              FINAL="INACCESSIBLE"; break
+            fi
+            if echo "$status" | grep -Eqi 'error|failed|failure|cancelled'; then
+              FINAL="FAILED"; break
+            fi
+            if echo "$status" | grep -Eqi 'complete|completed'; then
+              FINAL="COMPLETE"; break
+            fi
+            sleep 10
+          done
+          echo "EG2_NOTEBOOK_STATUS=$FINAL" | tee "$RUNNER_TEMP/eg2-status.txt"
+          if [[ "$FINAL" != "COMPLETE" ]]; then
+            kaggle kernels logs "$KAGGLE_KERNEL" 2>&1 | tail -n 60 || true
+            exit 1
+          fi
+
+      - name: Retrieve Kaggle JSON report (no lecture data)
+        if: always()
+        shell: bash
+        run: |
+          OUT="$RUNNER_TEMP/soulkey-embeddinggemma2-output"
+          mkdir -p "$OUT"
+          timeout 180s kaggle kernels output "$KAGGLE_KERNEL" -p "$OUT" || true
+          find "$OUT" -type f -name 'report.json' -print
+          python - "$OUT" <<'PY'
+          import json,sys
+          from pathlib import Path
+          reports=list(Path(sys.argv[1]).rglob('report.json'))
+          if not reports:
+              print("EG2_REPORT_MISSING")
+              raise SystemExit(1)
+          result=json.loads(reports[0].read_text(encoding="utf-8"))
+          print("EG2_REPORT_SUMMARY",json.dumps({
+              "passed":result.get("passed"),
+              "stage":result.get("stage"),
+              "failure":result.get("failure"),
+              "hardware":result.get("hardware"),
+              "audio_realtime_factor":result.get("audio_realtime_factor"),
+              "retrieval_exact_synthetic":{k:v for k,v in result.get("retrieval_exact_synthetic",{}).items() if k!="examples"},
+              "retrieval_chinese_paraphrase":{k:v for k,v in result.get("retrieval_chinese_paraphrase",{}).items() if k!="examples"},
+          },ensure_ascii=False), flush=True)
+          if not result.get("passed"):
+              raise SystemExit("Benchmark failed; do not present as successful")
+          PY
+
+      - name: Upload reproducible JSON-only results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soulkey-embeddinggemma2-gpu-poc
+          path: |
+            ${{ runner.temp }}/soulkey-embeddinggemma2-output/**/report.json
+            ${{ runner.temp }}/eg2-status.txt
+          if-no-files-found: warn
+          retention-days: 14
