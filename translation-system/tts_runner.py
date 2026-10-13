@@ -61,7 +61,7 @@ class UpstreamTranslationNotReady(RuntimeError):
     """Target translation does not match the current English Final revision."""
 
 
-from tts_engine import segments_fingerprint
+from tts_fingerprint import segments_fingerprint
 from natural_tts_config import (
     EDGE_TTS_VERSION,
     NATURAL_TTS_PROFILES,
