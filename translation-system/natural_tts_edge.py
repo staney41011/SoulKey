@@ -144,6 +144,7 @@ async def render_blocks(
     lang: str,
     blocks: list[SpeechBlock],
     output_dir: Path,
+    checkpoint_store=None,
 ):
     # Feature-gated pilot. The production default remains serial (one block).
     # No external job may enable this implicitly.
@@ -153,7 +154,7 @@ async def render_blocks(
         from natural_tts_parallel import render_blocks_parallel
         return await render_blocks_parallel(
             lang=lang, blocks=blocks, output_dir=output_dir,
-            concurrency=concurrency,
+            concurrency=concurrency, checkpoint_store=checkpoint_store,
         )
     profile = NATURAL_TTS_PROFILES[lang]
     if profile["engine"] != "edge":
