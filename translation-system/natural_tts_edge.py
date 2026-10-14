@@ -72,6 +72,41 @@ async def synthesize_block(
     boundary_path: Path,
     attempts: int = 4,
 ):
+    # An upstream translation segment can contain only punctuation (e.g. ".").
+    # Edge returns "No audio was received" for this non-spoken input.
+    # Keep a tiny natural pause instead of treating it as a failed narration.
+    # Crucially preserve the block index and SHA so existing Drive checkpoints
+    # for all subsequent blocks are reused without re-synthesizing the lesson.
+    if not any(char.isalnum() for char in str(block.text or "")):
+        output_mp3.parent.mkdir(parents=True, exist_ok=True)
+        boundary_path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                _ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+                "-t", "0.18", "-c:a", "libmp3lame", "-q:a", "5",
+                str(output_mp3),
+            ],
+            check=True,
+        )
+        duration = _ffprobe_duration(output_mp3)
+        if not (duration > 0 and output_mp3.stat().st_size > 0):
+            raise RuntimeError("Invalid punctuation-only pause audio")
+        boundary_path.write_text("", encoding="utf-8")
+        return {
+            "block_index": block.index,
+            "segment_ids": block.segment_ids,
+            "source_start": block.source_start,
+            "source_end": block.source_end,
+            "text": block.text,
+            "text_sha256": block.text_sha256,
+            "duration": duration,
+            "attempt": 0,
+            "audio_kind": "punctuation_pause",
+            "audio_file": output_mp3.name,
+            "boundary_file": boundary_path.name,
+        }
+
     import edge_tts
     import edge_tts.communicate as edge_communicate
     import os
