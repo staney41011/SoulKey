@@ -12,6 +12,8 @@ from natural_tts_config import (
     MAX_DRIFT_SECONDS,
     MAX_OVER_SOURCE_SECONDS,
     MAX_SPEEDUP,
+    MIN_NARRATION_TO_SOURCE_RATIO,
+    MAX_SLOWDOWN_FACTOR,
 )
 
 
@@ -96,8 +98,14 @@ def assemble_continuous_with_limit(
     *,
     source_duration: float,
     max_speedup: float = MAX_SPEEDUP,
+    min_duration_ratio: float = MIN_NARRATION_TO_SOURCE_RATIO,
+    max_slowdown: float = MAX_SLOWDOWN_FACTOR,
 ):
-    """Keep target-language narration continuous; only enforce total duration."""
+    """Adjust complete narration toward video duration, within safe tempo limits.
+
+    This controls overall runtime only; it is not per-sentence video alignment.
+    Do not add a long artificial silence at the end of a short lecture.
+    """
     source_duration = float(source_duration)
     if source_duration <= 0:
         raise RuntimeError("invalid source duration limit")
@@ -110,10 +118,29 @@ def assemble_continuous_with_limit(
     )
 
     applied_speedup = 1.0
+    applied_slowdown = 1.0
     needs_review = required_speedup > float(max_speedup) + 1e-9
 
     if natural_duration <= source_duration:
-        shutil.copy2(natural_wav, output_wav)
+        target_floor = source_duration * min(max(float(min_duration_ratio),0.0),1.0)
+        # atempo lower than 1.0 slows the voice while preserving pitch.
+        # Hard cap prevents an unnatural 23-to-30-minute forced stretch.
+        target_duration = min(target_floor, natural_duration * max(float(max_slowdown),1.0))
+        if natural_duration > 0 and target_duration > natural_duration * 1.01:
+            atempo = natural_duration / target_duration
+            applied_slowdown = 1.0 / atempo
+            sample_rate, _ = _read_pcm(natural_wav)
+            subprocess.run(
+                [
+                    _ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
+                    "-i", str(natural_wav),
+                    "-filter:a", f"atempo={atempo:.6f}",
+                    "-ac", "1", "-ar", str(sample_rate),
+                    "-c:a", "pcm_s16le", str(output_wav),
+                ], check=True,
+            )
+        else:
+            shutil.copy2(natural_wav, output_wav)
     elif not needs_review:
         # Add a tiny safety margin so container/rounding differences do not
         # leave the rendered narration a few milliseconds over the video.
@@ -150,6 +177,9 @@ def assemble_continuous_with_limit(
         "natural_duration": round(natural_duration, 3),
         "required_speedup": round(required_speedup, 6),
         "applied_speedup": round(applied_speedup, 6),
+        "applied_slowdown": round(applied_slowdown, 6),
+        "target_min_ratio": round(float(min_duration_ratio), 4),
+        "duration_gap_seconds": round(max(0.0,source_duration-final_duration),3),
         "final_duration": round(final_duration, 3),
         "speech_end": round(final_duration, 3),
         "over_source": round(over_source, 3),

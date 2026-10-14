@@ -48,7 +48,10 @@
     // Do not infer authenticity from a localized display_name.
     const name=canonical || String(file?.name || "").trim();
     const match=/^([a-z]{2})\.mp3$/i.exec(name);
-    if(match) return match[1].toLowerCase();
+    if(match && !file?.needs_timing_review) return match[1].toLowerCase();
+    const preview=/^([a-z]{2})\.preview\.mp3$/i.exec(name);
+    if(preview && file?.needs_timing_review &&
+        file?.audio_kind==="standalone_preview") return preview[1].toLowerCase();
     // Historical Drive uploads use the fully localized official filename.
     // Only accept the exact full-length "TTS音檔.mp3" suffix; previews,
     // Youtube source recordings, WAVs and generic MP3s are excluded.
@@ -69,8 +72,11 @@
     const size=Number(file?.size || 0);
     // Only a nonempty, real Drive file returned by the course_files API is
     // eligible. Never expose previews or youtube-captured source audio.
-    if (!/^[A-Za-z0-9_-]{12,}$/.test(id) || !(size > 0) ||
-        file?.needs_timing_review) return "";
+    if (!/^[A-Za-z0-9_-]{12,}$/.test(id) || !(size > 0)) return "";
+    if(file?.needs_timing_review &&
+      !(file?.audio_kind==="standalone_preview" &&
+        /^[a-z]{2}\.preview\.mp3$/i.test(String(file?.canonical_name||""))))
+      return "";
     try {
       const parsed=new URL(url);
       if (parsed.protocol!=="https:" ||
@@ -95,7 +101,14 @@
       const code=canonicalMp3Code(file);
       if(!LOOKUP[code]) return;
       const link=canonicalDriveUrl(file);
-      if(link) { fileMap[code]=link; present.push(code); }
+      if(link){
+        const preview=Boolean(file.needs_timing_review);
+        // Never replace a verified canonical MP3 with an optional preview.
+        if(!fileMap[code] || (fileMap[code].preview && !preview)){
+          fileMap[code]={link,preview};
+        }
+        if(!present.includes(code)) present.push(code);
+      }
     });
     const languages=expectedLanguages(task,stages,present);
     const ttsStatus=String(stages.tts?.status || "").toLowerCase();
@@ -115,6 +128,7 @@
     if(title.lecturer) lines.push("","🎤 講師："+title.lecturer);
     lines.push("","🎧 多國語言配音 / Multilingual Audio");
     let readyCount=0;
+    let reviewCount=0;
     let pendingCount=0;
     for(const lang of languages){
       lines.push("",lang.label);
@@ -124,11 +138,22 @@
       // A partial lesson failure must not hide independently completed files.
       // A stale aggregate still blocks release unless this language has a
       // fresh, explicitly finished stage and a real Drive-backed MP3.
-      const invalidated=(ttsStatus==="stale" && status!=="done") ||
-        ["stale","error","queued","running","delayed","needs_review"].includes(status) ||
-        (ttsStatus==="error" && status!=="done");
-      if(fileMap[lang.code] && !invalidated){
-        lines.push(fileMap[lang.code]);
+      const candidate=fileMap[lang.code];
+      const explicitReview=Boolean(candidate?.preview);
+      const validLanguageStatus=explicitReview
+        ? ["done","needs_review",""].includes(status)
+        : !["stale","error","queued","running","delayed","needs_review"].includes(status);
+      const invalidated=(!validLanguageStatus) ||
+        (ttsStatus==="stale" && status!=="done" &&
+          !(explicitReview && status==="needs_review")) ||
+        (ttsStatus==="error" && status!=="done" &&
+          !(explicitReview && status==="needs_review"));
+      if(candidate && !invalidated){
+        if(explicitReview){
+          lines.push("⚠️ 未對時自然朗讀版（可單獨收聽，尚未與原影片同步）");
+          reviewCount++;
+        }
+        lines.push(candidate.link);
         readyCount++;
       } else {
         lines.push(status==="needs_review"
@@ -140,8 +165,8 @@
     lines.push("","━━━━━━━━━━━━");
     return {
       eligible, message:lines.join("\n"),
-      readyCount,pendingCount,expectedCount:languages.length,
-      allReady:languages.length>0 && pendingCount===0,
+      readyCount,pendingCount,reviewCount,expectedCount:languages.length,
+      allReady:languages.length>0 && pendingCount===0 && reviewCount===0,
       hasLinks:readyCount>0,
       languages:languages.map(l=>l.code)
     };

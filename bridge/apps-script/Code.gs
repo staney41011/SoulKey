@@ -3798,13 +3798,25 @@ function ttsShareLinks_(taskId) {
   const files = [];
   codes.forEach(function(code) {
     const canonical = code + ".mp3";
-    const names = [formalDriveName_(id, canonical), canonical];
+    // Full narration is preferred. If the timing-constrained deliverable
+    // does not exist, allow the complete natural preview as a separately
+    // marked standalone listening file (never claim video synchronization).
+    const candidates = [
+      {canonical:canonical,preview:false},
+      {canonical:code + ".preview.mp3",preview:true}
+    ];
+    let selected = null;
     let file = null;
-    for (let i = 0; i < names.length; i++) {
-      const matches = audioFolder.getFilesByName(names[i]);
-      if (matches.hasNext()) {
-        file = matches.next();
-        break;
+    for (let j=0; j<candidates.length && !file; j++){
+      const entry=candidates[j];
+      const names=[formalDriveName_(id,entry.canonical),entry.canonical];
+      for (let i=0; i<names.length; i++){
+        const matches=audioFolder.getFilesByName(names[i]);
+        if(matches.hasNext()){
+          selected=entry;
+          file=matches.next();
+          break;
+        }
       }
     }
     if (!file) return;
@@ -3813,7 +3825,9 @@ function ttsShareLinks_(taskId) {
     files.push({
       id:file.getId(),
       name:file.getName(),
-      canonical_name:canonical,
+      canonical_name:selected.canonical,
+      needs_timing_review:selected.preview,
+      audio_kind:selected.preview?"standalone_preview":"formal_aligned",
       url:file.getUrl(),
       size:size,
       group_key:"audio",

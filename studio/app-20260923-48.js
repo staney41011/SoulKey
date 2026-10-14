@@ -2190,6 +2190,10 @@ function renderTtsShare(task){
         ? "已取得 "+result.readyCount+" 個正式音檔連結；其餘語言以「待確認／待驗收」標示。分享前請確認未驗收項目。"
         : "TTS 階段已更新，但尚未取得正式 MP3 連結。按「更新音檔連結」重新核對 Drive。";
   }
+  if(note && result.reviewCount && !result.allReady){
+    note.textContent="已取得 "+result.readyCount+" 個可分享音檔連結，其中 "+
+      result.reviewCount+" 個為未對時自然朗讀版（可以單獨收聽，不代表影片同步）。";
+  }
   if(note && ttsShareLinkErrors[task.id]){
     note.textContent="音檔查詢未完成："+ttsShareLinkErrors[task.id]+
       "。請按「更新音檔連結」重新查詢；既有已驗證連結仍可使用。";

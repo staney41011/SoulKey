@@ -63,6 +63,36 @@ assert.equal(partial.pendingCount,5);
 assert.ok(!partial.message.includes(uid(32)));
 stage.remoteStages["tts:en"]={status:"running"};
 assert.equal(build(stage,payload([make("en",31)])).readyCount,0);
+// Lesson 3 Spanish long natural narration is shareable as a clearly
+// non-synchronized listening file, never presented as aligned audio.
+const spanishPreview=make("es",41,{
+  canonical_name:"es.preview.mp3",name:"es.preview.mp3",
+  needs_timing_review:true,audio_kind:"standalone_preview"
+});
+const lesson3=task();
+lesson3.id="P257-L03";
+lesson3.lesson="第3堂";
+lesson3.remoteStages.tts={status:"needs_review"};
+lesson3.remoteStages["tts:es"]={status:"needs_review"};
+const availablePreview=build(lesson3,payload([spanishPreview]));
+assert.equal(availablePreview.readyCount,1);
+assert.equal(availablePreview.reviewCount,1);
+assert.equal(availablePreview.pendingCount,5);
+assert.equal(availablePreview.hasLinks,true);
+assert.equal(availablePreview.allReady,false);
+assert.ok(availablePreview.message.includes(spanishPreview.id));
+assert.match(availablePreview.message,/未對時自然朗讀版/);
+assert.match(availablePreview.message,/尚未與原影片同步/);
+const fakePreview=make("es",42,{
+  canonical_name:"es.preview.mp3",name:"es.preview.mp3",
+  needs_timing_review:true
+});
+assert.equal(build(lesson3,payload([fakePreview])).readyCount,0,
+  "previews are allowed only when backend explicitly validates audio kind");
+assert.equal(build(lesson3,payload([make("es",43,{
+  canonical_name:"es.preview.mp3",name:"es.preview.mp3"
+})])).readyCount,0);
+assert.equal(build(task(),payload([make("en",0)])).reviewCount,0);
 const app=fs.readFileSync(path.join(__dirname,"..","app-20260923-48.js"),"utf8");
 assert.ok(app.includes("function requestTtsShareLinks(taskId,force=false)"));
 assert.ok(app.includes('action:"tts_share_links"'));

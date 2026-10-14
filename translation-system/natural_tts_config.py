@@ -169,6 +169,11 @@ DEFAULT_TIMELINE_PAUSE_SECONDS = 0.08
 MAX_DRIFT_SECONDS = 5.0
 MAX_OVER_SOURCE_SECONDS = 3.0
 MAX_SPEEDUP = 1.08
+# Keep the spoken narration near the original video's total runtime.
+# Never stretch speech beyond 18%: a 23-minute take cannot become a natural
+# 30-minute narration simply by slowing playback.
+MIN_NARRATION_TO_SOURCE_RATIO = 0.96
+MAX_SLOWDOWN_FACTOR = 1.18
 # Japanese/Korean neural voices require slightly faster delivery to fit a
 # fixed-length lecture. Caps remain language-specific to avoid unnecessary
 # acceleration of the other seven languages.
