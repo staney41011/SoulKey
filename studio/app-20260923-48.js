@@ -4290,9 +4290,19 @@ function applyRemoteStatuses(payload){
   const remoteTasks=payload && payload.tasks ? payload.tasks : {};
   let changed=false;
 
+  let shouldRefreshTtsFiles=false;
   for(const task of tasks){
     const remote=remoteTasks[task.id];
     if(!remote || !remote.stages) continue;
+    if(currentView==="task-detail" && selectedTaskId===task.id){
+      const prior=task.remoteStages || {};
+      const changes=Object.keys(remote.stages).some(key=>
+        /^tts(?::[a-z]{2})?$/i.test(key) &&
+        ["done","needs_review"].includes(String(remote.stages[key]?.status||"")) &&
+        String(prior[key]?.status||"")!==String(remote.stages[key]?.status||"")
+      );
+      if(changes) shouldRefreshTtsFiles=true;
+    }
     task.remoteStages=remote.stages;
     task.remoteUpdatedAt=payload.server_time || new Date().toISOString();
     syncCompletedFromRemote(task);
@@ -4319,6 +4329,11 @@ function applyRemoteStatuses(payload){
     if(currentView==="youtube-audio"){
       renderYoutubeAudioTasks();
     }
+  }
+  // Polling may finish a language while the detail page is open: refresh
+  // Drive links once on transition without re-running TTS or duplicating jobs.
+  if(shouldRefreshTtsFiles && selectedTaskId){
+    requestCourseFiles(selectedTaskId,true);
   }
 
   if(currentView==="en-review" && selectedTaskId){
