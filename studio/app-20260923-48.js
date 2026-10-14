@@ -4283,13 +4283,22 @@ function requestTaskStatuses(){
   const endpoint=bridgeEndpointValue();
   if(!key || !endpoint || !tasks.length) return false;
 
-  const ids=tasks.map(t=>t.id).filter(Boolean).slice(0,20);
-  if(!ids.length) return false;
-
-  return jsonpBridgeRequest({
-    action:"status_batch",
-    task_ids:ids.join(",")
-  });
+  // The Bridge accepts at most 20 task IDs per status_batch. Do not drop
+  // P258+ lessons when earlier periods already occupy the first 20 rows.
+  // Send the currently selected period first so the visible cards refresh
+  // promptly; then refresh every remaining task in bounded batches.
+  const selected=tasksForSelectedPeriod();
+  const prioritized=[...selected,...tasks.filter(t=>!selected.includes(t))];
+  const ids=[...new Set(prioritized.map(t=>String(t.id||"").trim()).filter(Boolean))];
+  let sent=false;
+  for(let i=0;i<ids.length;i+=20){
+    const ok=jsonpBridgeRequest({
+      action:"status_batch",
+      task_ids:ids.slice(i,i+20).join(",")
+    });
+    sent=ok || sent;
+  }
+  return sent;
 }
 
 function requestStatusHealth(){
