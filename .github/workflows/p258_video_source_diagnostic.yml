@@ -3,6 +3,8 @@ name: P258 L02 L04 YouTube Public Source Diagnostic
 on:
   push:
     branches: [diagnostic/p258-l02-l04-source-check]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
