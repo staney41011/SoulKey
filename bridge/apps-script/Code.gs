@@ -55,7 +55,8 @@ function doGet(e) {
     "review_load",
     "review_cache_status",
     "youtube_capture_files",
-    "course_files"
+    "course_files",
+    "tts_share_links"
   ];
 
   if (callback && jsonpActions.indexOf(action) >= 0) {
@@ -563,6 +564,14 @@ function bridgeRequest(request) {
       const payload = youtubeCaptureFiles_(taskId);
       payload.source = "soulkey-bridge";
       payload.type = "youtube_capture_files";
+      return payload;
+    }
+
+    if (action === "tts_share_links") {
+      const taskId = String(request.task_id || "").trim();
+      const payload = ttsShareLinks_(taskId);
+      payload.source = "soulkey-bridge";
+      payload.type = "tts_share_links";
       return payload;
     }
 
@@ -3776,6 +3785,46 @@ function recoverFormalAudioCanonicalName_(name) {
   return code + (match[2] === "自然試聽版" ? ".preview.mp3" : ".mp3");
 }
 
+
+// Dedicated lightweight lookup: do not scan transcript/ZIP/TTS segment caches.
+function ttsShareLinks_(taskId) {
+  const id = String(taskId || "").trim();
+  if (!/^P\d+-L\d+$/i.test(id)) {
+    return {ok:false,task_id:id,error:"invalid_task_id"};
+  }
+  const folders = lessonFolders_(id);
+  const audioFolder = cachedChildFolder_(folders.lesson, "04_音檔");
+  const codes = ["en","es","th","id","km","vi"];
+  const files = [];
+  codes.forEach(function(code) {
+    const canonical = code + ".mp3";
+    const names = [formalDriveName_(id, canonical), canonical];
+    let file = null;
+    for (let i = 0; i < names.length; i++) {
+      const matches = audioFolder.getFilesByName(names[i]);
+      if (matches.hasNext()) {
+        file = matches.next();
+        break;
+      }
+    }
+    if (!file) return;
+    const size = Number(file.getSize() || 0);
+    if (!(size > 0)) return;
+    files.push({
+      id:file.getId(),
+      name:file.getName(),
+      canonical_name:canonical,
+      url:file.getUrl(),
+      size:size,
+      group_key:"audio",
+      group_label:"音檔"
+    });
+  });
+  return {
+    ok:true,task_id:id,groups:[{key:"audio",label:"音檔",files:files}],
+    total_files:files.length,server_time:new Date().toISOString()
+  };
+}
 
 function courseFilesOverview_(taskId) {
   const normalizedTaskId = String(taskId || "").trim();

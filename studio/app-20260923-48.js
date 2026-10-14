@@ -207,6 +207,10 @@ let youtubeCaptureFilesLoadingTask = "";
 const courseFilesCache = {};
 const courseFilesFetchedAt = {};
 let courseFilesLoadingTask = "";
+const ttsShareLinksCache = {};
+const ttsShareLinksFetchedAt = {};
+const ttsShareLinkErrors = {};
+let ttsShareLoadingTask = "";
 let scheduleDraftPeriod = null;
 let scheduleDraftOrder = [];
 
@@ -2159,7 +2163,9 @@ function renderTtsShare(task){
   const state=document.getElementById("tts-share-copy-state");
   if(!panel || !textarea || !button || !task || !window.SoulKeyTTSShare) return;
 
-  const result=window.SoulKeyTTSShare.build(task,courseFilesCache[task.id]);
+  const result=window.SoulKeyTTSShare.build(
+    task,ttsShareLinksCache[task.id] || courseFilesCache[task.id]
+  );
   panel.hidden=!result.eligible;
   if(!result.eligible) return;
 
@@ -2184,6 +2190,12 @@ function renderTtsShare(task){
         ? "已取得 "+result.readyCount+" 個正式音檔連結；其餘語言以「待確認／待驗收」標示。分享前請確認未驗收項目。"
         : "TTS 階段已更新，但尚未取得正式 MP3 連結。按「更新音檔連結」重新核對 Drive。";
   }
+  if(note && ttsShareLinkErrors[task.id]){
+    note.textContent="音檔查詢未完成："+ttsShareLinkErrors[task.id]+
+      "。請按「更新音檔連結」重新查詢；既有已驗證連結仍可使用。";
+  } else if(note && ttsShareLoadingTask===task.id) {
+    note.textContent="正在核對六種語言的正式音檔（最多等待20秒）…";
+  }
   button.disabled=!result.hasLinks;
   button.onclick=()=>{
     const text=textarea.value;
@@ -2200,12 +2212,35 @@ function renderTtsShare(task){
   const refresh=document.getElementById("tts-share-refresh");
   if(refresh) refresh.onclick=()=>{
     if(state) state.textContent="正在從 Google Drive 核對音檔連結…";
-    requestCourseFiles(task.id,true);
-    requestTaskStatuses();
+    requestTtsShareLinks(task.id,true);
   };
   if(changedLesson && state) state.textContent="";
 }
 
+function ttsShareLinksFailed(taskId,reason) {
+  const id=String(taskId||"");
+  if(!id || ttsShareLoadingTask!==id) return;
+  ttsShareLoadingTask="";
+  ttsShareLinkErrors[id]=String(reason||"讀取逾時");
+  const task=tasks.find(x=>String(x.id)===id);
+  if(task && currentView==="task-detail" && selectedTaskId===id) {
+    renderTtsShare(task);
+  }
+}
+function requestTtsShareLinks(taskId,force=false){
+  const id=String(taskId||"").trim();
+  if(!id) return false;
+  if(!force && ttsShareLinksCache[id] &&
+    Date.now() - Number(ttsShareLinksFetchedAt[id]||0)<60000) return true;
+  if(ttsShareLoadingTask===id && !force) return true;
+  ttsShareLoadingTask=id;
+  delete ttsShareLinkErrors[id];
+  const task=tasks.find(x=>String(x.id)===id);
+  if(task && currentView==="task-detail") renderTtsShare(task);
+  const sent=jsonpBridgeRequest({action:"tts_share_links",task_id:id});
+  if(!sent) ttsShareLinksFailed(id,"控制中心未連線");
+  return sent;
+}
 function courseFilesLoadFailed(taskId,reason){
   const id=String(taskId||"").trim();
   if(!id || courseFilesLoadingTask!==id) return;
@@ -2487,10 +2522,12 @@ function openTaskDetail(taskId){
   if(!task) return;
   renderTaskDetail(task);
   requestLanguagePlan(task.id);
-  const ttsStatus=remoteStageStatus(task,"tts")?.status;
-  if(!courseFilesCollapsed() || ["done","needs_review"].includes(ttsStatus) ||
-     /完成/.test(String(task.audio||""))) requestCourseFiles(task.id);
+  // Audio sharing has its own targeted six-language lookup.
+  // Full file-overview Drive scan is only needed when that panel is open.
+  // Do NOT auto-start the huge course_files scan on opening a lesson.
+  // The file overview has its own explicit refresh / expand control.
   showView("task-detail");
+  requestTtsShareLinks(task.id);
 }
 
 let zhVideoFloatFrame=0;
@@ -4246,7 +4283,9 @@ function jsonpBridgeRequest(fields){
 
   const action=String(fields.action||"");
   const timeoutMs=action==="status_health"?20000:
-    action==="tasks_get"?45000:action==="course_files"?45000:90000;
+    action==="tasks_get"?45000:
+      action==="tts_share_links"?20000:
+      action==="course_files"?45000:90000;
   let settled=false;
   let watchdog=0;
   const cleanup=()=>{
@@ -4276,6 +4315,7 @@ function jsonpBridgeRequest(fields){
     }
     bridgeSyncRequestFailed(action,reason);
     if(action==="course_files") courseFilesLoadFailed(String(fields.task_id||""),reason);
+    if(action==="tts_share_links") ttsShareLinksFailed(String(fields.task_id||""),reason);
   };
   script.onerror=()=>fail("控制中心可能拒絕存取或暫時無法連線");
   watchdog=window.setTimeout(
@@ -4795,6 +4835,21 @@ window.addEventListener("message",event=>{
         "Drive 資料已保留・GitHub 快取等待自動修復","working"
       );
     }
+  }
+
+  if(data.type==="tts_share_links"){
+    const id=String(data.task_id||"");
+    if(id && ttsShareLoadingTask===id) ttsShareLoadingTask="";
+    if(data.ok && id){
+      ttsShareLinksCache[id]=data;
+      ttsShareLinksFetchedAt[id]=Date.now();
+      delete ttsShareLinkErrors[id];
+    }else if(id){
+      ttsShareLinkErrors[id]=data.message||data.error||"伺服器未傳回音檔資料";
+    }
+    const selected=tasks.find(x=>String(x.id)===id);
+    if(selected && currentView==="task-detail" && selectedTaskId===id)
+      renderTtsShare(selected);
   }
 
   if(data.type==="course_files"){

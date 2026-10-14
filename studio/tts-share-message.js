@@ -9,23 +9,15 @@
   if (root) root.SoulKeyTTSShare = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
+  // Public sharing is intentionally limited to the six requested languages.
+  // Other languages remain available in the translation/TTS pipeline.
   const LANGUAGES = Object.freeze([
-    {code:"en", label:"🇬🇧 English 英文"},
-    {code:"th", label:"🇹🇭 ภาษาไทย 泰文"},
-    {code:"es", label:"🇪🇸 Español 西班牙文"},
-    {code:"id", label:"🇮🇩 Bahasa Indonesia 印尼文"},
-    {code:"vi", label:"🇻🇳 Tiếng Việt 越南文"},
-    {code:"hi", label:"🇮🇳 हिन्दी 印地文"},
-    {code:"ta", label:"🇮🇳 தமிழ் 泰米爾文"},
-    {code:"ja", label:"🇯🇵 日本語 日文"},
-    {code:"ko", label:"🇰🇷 한국어 韓文"},
-    {code:"km", label:"🇰🇭 ភាសាខ្មែរ 高棉文"},
-    {code:"bn", label:"🇧🇩 বাংলা 孟加拉文"},
-    {code:"ne", label:"🇳🇵 नेपाली 尼泊爾文"},
-    {code:"lo", label:"🇱🇦 ພາສາລາວ 寮文"},
-    {code:"my", label:"🇲🇲 မြန်မာဘာသာ 緬甸文"},
-    {code:"it", label:"🇮🇹 Italiano 義大利文"},
-    {code:"pt", label:"🇧🇷 Português 葡萄牙文"}
+    {code:"en",label:"🇬🇧 English 英語"},
+    {code:"es",label:"🇪🇸 Español 西班牙語"},
+    {code:"th",label:"🇹🇭 ภาษาไทย 泰語"},
+    {code:"id",label:"🇮🇩 Bahasa Indonesia 印尼語"},
+    {code:"km",label:"🇰🇭 ភាសាខ្មែរ 高棉語"},
+    {code:"vi",label:"🇻🇳 Tiếng Việt 越南語"}
   ]);
   const LOOKUP = Object.fromEntries(LANGUAGES.map(l => [l.code,l]));
 
@@ -87,22 +79,10 @@
     } catch (_) { return ""; }
     return "https://drive.google.com/file/d/"+id+"/view";
   }
-  function expectedLanguages(task, stages, available) {
-    // A populated, saved per-lesson language plan is authoritative. Do not
-    // show "pending" for languages that the lesson intentionally disabled.
-    const plan=Array.isArray(task?.languagePlan) ? task.languagePlan : [];
-    const selected=plan.filter(x=>x && x.audio_enabled && String(x.audio_source || "tts")==="tts")
-      .map(x=>String(x.code || "").toLowerCase()).filter(code=>LOOKUP[code]);
-    if (plan.length) return LANGUAGES.filter(l=>selected.includes(l.code));
-
-    // Before language_plan_get arrives, only mention languages known from
-    // persisted TTS stage results or actual deliverable files.
-    const keys=new Set(available);
-    Object.keys(stages || {}).forEach(k=>{
-      const match=/^tts:([a-z]{2})$/i.exec(k);
-      if(match) keys.add(match[1].toLowerCase());
-    });
-    return LANGUAGES.filter(l=>keys.has(l.code));
+  function expectedLanguages() {
+    // A shared lesson message always lists this six-language shortlist.
+    // Languages without a verified full-length Drive file show pending.
+    return LANGUAGES;
   }
   function build(task, courseFilesPayload) {
     const stages=task?.remoteStages || {};
