@@ -1,0 +1,38 @@
+name: SoulKey Studio All-Periods Status Test
+
+on:
+  pull_request:
+    paths:
+      - studio/app-20260923-48.js
+      - studio/index.html
+      - studio/tests/test_status_batch_all_periods.cjs
+      - .github/workflows/studio_status_batch_test.yml
+  push:
+    branches: [main]
+    paths:
+      - studio/app-20260923-48.js
+      - studio/index.html
+      - studio/tests/test_status_batch_all_periods.cjs
+      - .github/workflows/studio_status_batch_test.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate-studio-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production browser JS syntax
+        run: node --check studio/app-20260923-48.js
+      - name: Verify all lessons receive status refresh
+        run: node studio/tests/test_status_batch_all_periods.cjs
+      - name: Confirm HTML cache-bust deploys corrected script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html=Path("studio/index.html").read_text(encoding="utf-8")
+          assert "app-20260923-48.js?v=20261014-status-all-periods-v51" in html
+          print("STUDIO_SCRIPT_CACHE_VERSION_OK")
+          PY
