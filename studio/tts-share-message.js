@@ -125,11 +125,15 @@
     let pendingCount=0;
     for(const lang of languages){
       lines.push("",lang.label);
-      if(fileMap[lang.code]){
+      const status=String(stages["tts:"+lang.code]?.status || "").toLowerCase();
+      // Existing Drive files can predate an upstream edit or a new TTS run.
+      // A stale/error/queued/running stage must never be advertised as final.
+      const invalidated=["stale","error"].includes(ttsStatus) ||
+        ["stale","error","queued","running","delayed","needs_review"].includes(status);
+      if(fileMap[lang.code] && !invalidated){
         lines.push(fileMap[lang.code]);
         readyCount++;
       } else {
-        const status=String(stages["tts:"+lang.code]?.status || "");
         lines.push(status==="needs_review"
           ? "音檔待驗收 / Audio pending review"
           : "音檔待確認 / Audio pending verification");
