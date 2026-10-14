@@ -66,6 +66,8 @@ from natural_tts_config import (
     EDGE_TTS_VERSION,
     NATURAL_TTS_PROFILES,
     NATURAL_TTS_PROFILE_REVISION,
+    DURATION_FIT_REVISION,
+    MIN_NARRATION_TO_SOURCE_RATIO,
     MAX_SPEEDUP,
     MAX_SPEEDUP_BY_LANGUAGE,
 )
@@ -423,6 +425,8 @@ def existing_natural_output(
     source_sha256,
     duration_limit,
     workdir,
+    *,
+    request_duration_fit=False,
 ):
     manifest = _load_tts_manifest(
         drive,
@@ -450,6 +454,14 @@ def existing_natural_output(
         return False
     if str(manifest.get("assembly_policy") or "") != "continuous_total_duration":
         return False
+    # Only the explicitly requested P257-L04 short narrations should refit
+    # existing audio. Once reprocessed, the manifest revision prevents loops.
+    # Unrelated completed lessons are never silently rebuilt.
+    if request_duration_fit and str(manifest.get("duration_fit_revision") or "") != DURATION_FIT_REVISION:
+        timeline=manifest.get("timeline") or {}
+        old_duration=float(timeline.get("final_duration") or 0)
+        if 0 < old_duration < float(duration_limit) * MIN_NARRATION_TO_SOURCE_RATIO:
+            return False
     old_limit = float(manifest.get("duration_limit_seconds") or 0)
     if abs(old_limit - float(duration_limit or 0)) > 0.5:
         return False
@@ -539,6 +551,7 @@ def render_natural_language(
         "source_segment_count": len(segments),
         "block_count": len(blocks),
         "assembly_policy": "continuous_total_duration",
+        "duration_fit_revision": DURATION_FIT_REVISION,
         "max_speedup": MAX_SPEEDUP_BY_LANGUAGE.get(lang, MAX_SPEEDUP),
         "duration_limit_basis": duration_limit_basis,
         "duration_limit_seconds": round(source_duration, 3),
@@ -779,6 +792,10 @@ def main():
                             source_sha256,
                             duration_limit,
                             workdir,
+                            request_duration_fit=(
+                                task["task_id"]=="P257-L04" and
+                                lang in {"en","es","th","id","km","vi"}
+                            ),
                         )
                     ):
                         print(

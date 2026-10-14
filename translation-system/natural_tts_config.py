@@ -174,6 +174,7 @@ MAX_SPEEDUP = 1.08
 # 30-minute narration simply by slowing playback.
 MIN_NARRATION_TO_SOURCE_RATIO = 0.96
 MAX_SLOWDOWN_FACTOR = 1.18
+DURATION_FIT_REVISION = "2026-10-14-safe-slow-v1"
 # Japanese/Korean neural voices require slightly faster delivery to fit a
 # fixed-length lecture. Caps remain language-specific to avoid unnecessary
 # acceleration of the other seven languages.
