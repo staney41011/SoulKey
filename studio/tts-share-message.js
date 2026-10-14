@@ -56,7 +56,20 @@
     // Do not infer authenticity from a localized display_name.
     const name=canonical || String(file?.name || "").trim();
     const match=/^([a-z]{2})\.mp3$/i.exec(name);
-    return match ? match[1].toLowerCase() : "";
+    if(match) return match[1].toLowerCase();
+    // Historical Drive uploads use the fully localized official filename.
+    // Only accept the exact full-length "TTS音檔.mp3" suffix; previews,
+    // Youtube source recordings, WAVs and generic MP3s are excluded.
+    if(canonical) return "";
+    const labels={
+      "英文":"en","泰文":"th","西班牙文":"es","印尼文":"id",
+      "越南文":"vi","印地語":"hi","信德文":"hi",
+      "泰米爾文":"ta","日文":"ja","韓文":"ko","高棉文":"km",
+      "孟加拉文":"bn","尼泊爾文":"ne","寮文":"lo",
+      "緬甸文":"my","義大利文":"it","葡萄牙文":"pt"
+    };
+    const formal=/_([^_]+)TTS音檔\.mp3$/u.exec(name);
+    return formal ? (labels[formal[1]] || "") : "";
   }
   function canonicalDriveUrl(file) {
     const id=String(file?.id || "").trim();
@@ -128,8 +141,12 @@
       const status=String(stages["tts:"+lang.code]?.status || "").toLowerCase();
       // Existing Drive files can predate an upstream edit or a new TTS run.
       // A stale/error/queued/running stage must never be advertised as final.
-      const invalidated=["stale","error"].includes(ttsStatus) ||
-        ["stale","error","queued","running","delayed","needs_review"].includes(status);
+      // A partial lesson failure must not hide independently completed files.
+      // A stale aggregate still blocks release unless this language has a
+      // fresh, explicitly finished stage and a real Drive-backed MP3.
+      const invalidated=(ttsStatus==="stale" && status!=="done") ||
+        ["stale","error","queued","running","delayed","needs_review"].includes(status) ||
+        (ttsStatus==="error" && status!=="done");
       if(fileMap[lang.code] && !invalidated){
         lines.push(fileMap[lang.code]);
         readyCount++;

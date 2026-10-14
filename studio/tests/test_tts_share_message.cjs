@@ -58,6 +58,17 @@ for(const bad of [wrongUrl,wrongId,video,preview]){
   assert.equal(build(task(["en"]),data([bad])).readyCount,0);
 }
 
+const formalAudio=audio("en",pathId,{
+  canonical_name:"",
+  name:"第257期_第1堂課_心念的力量229_中和老師_英文TTS音檔.mp3"
+});
+assert.equal(canonicalMp3Code(formalAudio),"en");
+assert.equal(build(task(["en"]),data([formalAudio])).readyCount,1,
+  "legacy formal official audio filename must be shareable");
+for(const suffix of ["英文自然試聽版.mp3","英文YouTube原聲.mp3"]){
+  assert.equal(canonicalMp3Code({...formalAudio,name:"第257期_第1堂課_"+suffix}),"",
+    "preview / source audio must never be offered as full TTS");
+}
 const statusTask=task(["en","th"]);
 statusTask.remoteStages["tts:en"]={status:"done"};
 statusTask.remoteStages["tts:th"]={status:"needs_review"};
@@ -71,9 +82,12 @@ for(const status of ["stale","error","queued","running","delayed"]){
     "cannot share stale/failed/in-progress audio "+status);
 }
 statusTask.remoteStages["tts:en"]={status:"done"};
+statusTask.remoteStages.tts={status:"error"};
+assert.equal(build(statusTask,data([en,th])).readyCount,1,
+  "partial aggregate failure must preserve independently completed en");
 statusTask.remoteStages.tts={status:"stale"};
-assert.equal(build(statusTask,data([en,th])).readyCount,0,
-  "invalidated aggregate TTS blocks old Drive files");
+assert.equal(build(statusTask,data([en,th])).readyCount,1,
+  "independently finished language with real Drive MP3 survives aggregate stale");
 
 const notReady=task([]);
 notReady.remoteStages={};

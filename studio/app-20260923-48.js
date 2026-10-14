@@ -2206,6 +2206,24 @@ function renderTtsShare(task){
   if(changedLesson && state) state.textContent="";
 }
 
+function courseFilesLoadFailed(taskId,reason){
+  const id=String(taskId||"").trim();
+  if(!id || courseFilesLoadingTask!==id) return;
+  courseFilesLoadingTask="";
+  const task=tasks.find(x=>String(x.id)===id);
+  if(!task || currentView!=="task-detail" || String(selectedTaskId)!==id) return;
+  const badge=document.getElementById("course-files-state");
+  if(badge){badge.textContent="讀取失敗・可重試";badge.className="badge";}
+  const note=document.getElementById("tts-share-note");
+  if(note){
+    note.textContent=(courseFilesCache[id]
+      ? "Drive 更新失敗，保留上次查到的正式音檔；"
+      : "未能取得 Google Drive 的正式音檔清單；")+
+      "請按「更新音檔連結」重試。原因："+String(reason||"連線逾時");
+  }
+  const state=document.getElementById("tts-share-copy-state");
+  if(state) state.textContent="查詢失敗，並非音檔已消失；可稍後重試。";
+}
 function requestCourseFiles(taskId,force=false){
   const id=String(taskId||"").trim();
   if(!id) return false;
@@ -2223,9 +2241,11 @@ function requestCourseFiles(taskId,force=false){
   if(task) renderCourseFiles(task);
 
   const fields={action:"course_files",task_id:id};
-  const sent=bridgeClientRequest(fields) || jsonpBridgeRequest(fields);
+  // A successful postMessage only proves the iframe received a request;
+  // JSONP gives us a bounded response deadline and explicit error callback.
+  const sent=jsonpBridgeRequest(fields);
   if(!sent){
-    courseFilesLoadingTask="";
+    courseFilesLoadFailed(id,"控制中心未連線");
     const badge=document.getElementById("course-files-state");
     if(badge){
       badge.textContent="尚未連線控制中心";
@@ -4226,7 +4246,7 @@ function jsonpBridgeRequest(fields){
 
   const action=String(fields.action||"");
   const timeoutMs=action==="status_health"?20000:
-    action==="tasks_get"?45000:90000;
+    action==="tasks_get"?45000:action==="course_files"?45000:90000;
   let settled=false;
   let watchdog=0;
   const cleanup=()=>{
@@ -4255,6 +4275,7 @@ function jsonpBridgeRequest(fields){
       syncText.textContent="Apps Script 連線失敗："+reason;
     }
     bridgeSyncRequestFailed(action,reason);
+    if(action==="course_files") courseFilesLoadFailed(String(fields.task_id||""),reason);
   };
   script.onerror=()=>fail("控制中心可能拒絕存取或暫時無法連線");
   watchdog=window.setTimeout(
@@ -4431,6 +4452,7 @@ window.addEventListener("message",event=>{
       renderTasks();
     }
     const reason=data.message || data.error || "未知錯誤";
+    if(courseFilesLoadingTask) courseFilesLoadFailed(courseFilesLoadingTask,reason);
     if(currentView==="youtube-audio" && youtubeCaptureFilesLoadingTask){
       const badge=document.getElementById("youtube-capture-files-state");
       if(badge){
@@ -4776,7 +4798,8 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="course_files"){
-    courseFilesLoadingTask="";
+    if(!data.ok) courseFilesLoadFailed(data.task_id||courseFilesLoadingTask,data.message||data.error||"後端讀取失敗");
+    else courseFilesLoadingTask="";
     const badge=document.getElementById("course-files-state");
 
     if(data.ok && data.task_id){

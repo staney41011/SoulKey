@@ -3800,7 +3800,8 @@ function courseFilesOverview_(taskId) {
     const actualName = String(file.getName() || "");
     const canonical =
       canonicalFromDescription_(file.getDescription()) ||
-      (formalizableCanonicalName_(actualName) ? actualName : "");
+      (formalizableCanonicalName_(actualName) ? actualName : "") ||
+      (groupKey === "audio" ? recoverFormalAudioCanonicalName_(actualName) : "");
     const displayName =
       canonical && String(task.title || "").trim()
         ? formalDriveName_(normalizedTaskId, canonical)
@@ -3825,7 +3826,15 @@ function courseFilesOverview_(taskId) {
     const out = [];
     const iter = folder.getFiles();
     while (iter.hasNext()) {
-      out.push(fileInfo_(iter.next(), groupKey, groupLabel));
+      const file = iter.next();
+      const name = String(file.getName() || "");
+      // ZIP segment caches can number in the hundreds per language.
+      // Skip them BEFORE requesting description, size and modified time
+      // for each file: none is a user-facing deliverable.
+      if (groupKey === "transcript" && !/\.txt$/i.test(name)) continue;
+      if (groupKey === "audio" && !/\.mp3$/i.test(name)) continue;
+      if (groupKey === "video" && !/\.(mp4|mkv|webm)$/i.test(name)) continue;
+      out.push(fileInfo_(file, groupKey, groupLabel));
     }
     return out;
   }
