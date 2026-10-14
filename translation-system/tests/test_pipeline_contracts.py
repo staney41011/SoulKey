@@ -684,10 +684,11 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("function courseFilesCollapsed()", app)
         self.assertIn("function setCourseFilesCollapsed(collapsed,persist=true)", app)
         self.assertIn("setCourseFilesCollapsed(false,true)", app)
-        # Collapsed overview still avoids ordinary Drive reads. A completed
-        # TTS stage is the exception: its share card needs verified MP3 links.
-        self.assertIn("if(!courseFilesCollapsed() ||", app)
-        self.assertIn('["done","needs_review"].includes(ttsStatus)', app)
+        # Course file overview remains lazy. The six-language audio share uses
+        # a standalone lightweight lookup and must not auto-trigger folder scans.
+        self.assertIn("requestTtsShareLinks(task.id);", app)
+        self.assertIn('action:"tts_share_links"', app)
+        self.assertNotIn('if(!courseFilesCollapsed() ||', app)
         self.assertIn("requestCourseFiles(task.id)", app)
         self.assertIn(".course-files-panel.collapsed", styles)
         self.assertIn(".course-files-body[hidden]", styles)
