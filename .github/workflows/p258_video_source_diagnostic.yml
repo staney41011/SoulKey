@@ -1,0 +1,56 @@
+name: P258 L02 L04 YouTube Public Source Diagnostic
+
+on:
+  push:
+    branches: [diagnostic/p258-l02-l04-source-check]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-video-metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install open metadata reader
+        run: python -m pip install --disable-pip-version-check -q --upgrade yt-dlp
+      - name: Test YouTube metadata only (never download lecture media)
+        shell: bash
+        run: |
+          python - <<'PY'
+          import concurrent.futures, json, yt_dlp
+          videos = {
+            "P258-L02": "https://www.youtube.com/watch?v=5h-G-6LHtFU",
+            "P258-L04": "https://www.youtube.com/watch?v=vt8k0whmeEo",
+          }
+          def check(item):
+            task, url = item
+            try:
+              with yt_dlp.YoutubeDL({
+                "quiet": True, "skip_download": True, "noplaylist": True,
+                "ignoreerrors": False, "socket_timeout": 12, "retries": 1,
+                "extractor_retries": 1,
+              }) as ydl:
+                info = ydl.extract_info(url, download=False)
+              return {
+                "task": task, "metadata_ok": True,
+                "duration_seconds": info.get("duration"),
+                "availability": info.get("availability"),
+                "live_status": info.get("live_status"),
+                "release_timestamp": info.get("release_timestamp"),
+                "title": str(info.get("title") or "")[:90],
+              }
+            except Exception as e:
+              msg = str(e)
+              return {
+                "task": task, "metadata_ok": False,
+                "error_type": type(e).__name__,
+                "error": msg[:320],
+                "caveat": "Anonymous GitHub IP access failures do not prove video private or unavailable",
+              }
+          with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(check, videos.items()))
+          for result in results:
+            print("SOURCE_PROBE", json.dumps(result, ensure_ascii=False), flush=True)
+          PY
