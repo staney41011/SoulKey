@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from translation_text_safety import has_spoken_content
+
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 DEFAULT_TEXT_MODEL = os.getenv("GEMINI_TEXT_MODEL", "gemini-3.1-flash-lite")
@@ -506,6 +508,11 @@ def local_language_issue(text, source, target_code):
     source = str(source or "").strip()
     if not text:
         return "empty_translation"
+    # A real English sentence must never turn into only "." or punctuation.
+    # Genuine source punctuation-only fragments may remain structurally
+    # neutral in Gemini checkpoints, and are omitted on final publication.
+    if has_spoken_content(source) and not has_spoken_content(text):
+        return "translation_has_no_spoken_content"
     if text == source and len(source) >= 20:
         return "source_text_copied"
 

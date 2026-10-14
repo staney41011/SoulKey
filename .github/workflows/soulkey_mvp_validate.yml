@@ -50,6 +50,12 @@ jobs:
           python translation-system/tests/test_polish_json_resilience.py
           python translation-system/tests/test_review_cache_bridge_resilience.py
 
+      - name: Multilingual manuscript preflight regression
+        working-directory: translation-system
+        run: |
+          python -m unittest -v tests/test_multilingual_manuscript_speech_safety.py
+          python -m unittest -v tests/test_gemini_engine.py
+
       - name: JavaScript syntax
         run: |
           node --check studio/review-editor.js

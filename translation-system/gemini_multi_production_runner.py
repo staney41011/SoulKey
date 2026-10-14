@@ -33,6 +33,7 @@ from google_io import (
     upload_or_replace_file,
 )
 from lesson_paths import digits, resolve_lesson_folders
+from translation_text_safety import filter_nonspoken_segments
 from nvidia_translate import NvidiaTranslateClient, SUPPORTED_TARGETS
 from status_io import new_run_id, mark_done, mark_error, mark_running
 
@@ -178,6 +179,27 @@ def write_language_set(
             "text": str(by_id[sid][lang]).strip(),
         })
 
+    # Final manuscript hygiene: keep speech-bearing translations, omit
+    # punctuation-only/empty subtitles before exporting JSON, TXT and SRT.
+    # Do not renumber other segments or change their original timestamps.
+    segments, nonspoken = filter_nonspoken_segments(segments)
+    if not segments:
+        raise RuntimeError(f"{lang} has no pronounceable translated text")
+    if nonspoken:
+        print(
+            f"[MULTI:SPEECH-SAFETY] {lang}: omitted {len(nonspoken)} "
+            "punctuation-only subtitle segment(s) from manuscript and TTS",
+            flush=True,
+        )
+        long_gaps = [str(x["id"]) for x in nonspoken
+                     if x.get("source_review_recommended")]
+        if long_gaps:
+            print(
+                f"[MULTI:SOURCE-REVIEW] {lang}: nonspoken source windows "
+                f">=3s at segments {','.join(long_gaps)}; source audio may "
+                "need transcription QA; no lecture content invented",
+                flush=True,
+            )
     json_path = output_dir / f"{lang}.json"
     txt_path = output_dir / f"{lang}.txt"
     srt_path = output_dir / f"{lang}.srt"
@@ -192,6 +214,7 @@ def write_language_set(
                 "source": "en.final.json",
                 "source_sha256": str(source_sha256 or ""),
                 "segments": segments,
+                "filtered_nonspoken_segments": nonspoken,
             },
             ensure_ascii=False,
             indent=2,
