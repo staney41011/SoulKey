@@ -2192,7 +2192,7 @@ function renderTtsShare(task){
   }
   if(note && result.reviewCount && !result.allReady){
     note.textContent="已取得 "+result.readyCount+" 個可分享音檔連結，其中 "+
-      result.reviewCount+" 個為未對時自然朗讀版（可以單獨收聽，不代表影片同步）。";
+      result.reviewCount+" 個（尚未與原影片時長同步）。";
   }
   if(note && ttsShareLinkErrors[task.id]){
     note.textContent="音檔查詢未完成："+ttsShareLinkErrors[task.id]+

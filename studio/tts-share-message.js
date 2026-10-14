@@ -150,7 +150,7 @@
           !(explicitReview && status==="needs_review"));
       if(candidate && !invalidated){
         if(explicitReview){
-          lines.push("⚠️ 未對時自然朗讀版（可單獨收聽，尚未與原影片同步）");
+          lines.push("（尚未與原影片時長同步）");
           reviewCount++;
         }
         lines.push(candidate.link);

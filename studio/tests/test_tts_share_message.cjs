@@ -81,8 +81,8 @@ assert.equal(availablePreview.pendingCount,5);
 assert.equal(availablePreview.hasLinks,true);
 assert.equal(availablePreview.allReady,false);
 assert.ok(availablePreview.message.includes(spanishPreview.id));
-assert.match(availablePreview.message,/未對時自然朗讀版/);
-assert.match(availablePreview.message,/尚未與原影片同步/);
+assert.match(availablePreview.message,/（尚未與原影片時長同步）/);
+assert.ok(!availablePreview.message.includes("未對時自然朗讀版"));
 const fakePreview=make("es",42,{
   canonical_name:"es.preview.mp3",name:"es.preview.mp3",
   needs_timing_review:true

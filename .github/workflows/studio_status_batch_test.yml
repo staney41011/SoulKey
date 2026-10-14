@@ -43,8 +43,8 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261014-preview-share-v55" in html
-          assert "tts-share-message.js?v=20261014-preview-share-v4" in html
+          assert "app-20260923-48.js?v=20261014-share-label-v56" in html
+          assert "tts-share-message.js?v=20261014-share-label-v5" in html
           assert "id=\"tts-share-copy\"" in html
           assert html.index("tts-share-message.js?v=") < html.index("app-20260923-48.js?v=")
           print("STUDIO_SCRIPT_CACHE_VERSION_OK")
