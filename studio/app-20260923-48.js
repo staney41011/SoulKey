@@ -2150,6 +2150,62 @@ function renderCourseFiles(task){
   });
 }
 
+function renderTtsShare(task){
+  const panel=document.getElementById("tts-share-panel");
+  const textarea=document.getElementById("tts-share-text");
+  const button=document.getElementById("tts-share-copy");
+  const badge=document.getElementById("tts-share-count");
+  const note=document.getElementById("tts-share-note");
+  const state=document.getElementById("tts-share-copy-state");
+  if(!panel || !textarea || !button || !task || !window.SoulKeyTTSShare) return;
+
+  const result=window.SoulKeyTTSShare.build(task,courseFilesCache[task.id]);
+  panel.hidden=!result.eligible;
+  if(!result.eligible) return;
+
+  const changedLesson=textarea.dataset.taskId!==String(task.id);
+  // Preserve edits when the same lesson receives a new Drive snapshot.
+  const previous=String(textarea.dataset.generatedMessage||"");
+  if(changedLesson || !previous || textarea.value===previous){
+    textarea.value=result.message;
+  }
+  textarea.dataset.taskId=String(task.id);
+  textarea.dataset.generatedMessage=result.message;
+  if(badge){
+    badge.textContent=result.expectedCount
+      ? result.readyCount+" / "+result.expectedCount+" 正式音檔"
+      : "正在核對正式音檔";
+    badge.className="badge"+(result.allReady?" complete":"");
+  }
+  if(note){
+    note.textContent=result.allReady
+      ? "所有已勾選的 TTS 語言都有 Google Drive 正式 MP3 連結。可直接複製分享。"
+      : result.readyCount
+        ? "已取得 "+result.readyCount+" 個正式音檔連結；其餘語言以「待確認／待驗收」標示。分享前請確認未驗收項目。"
+        : "TTS 階段已更新，但尚未取得正式 MP3 連結。按「更新音檔連結」重新核對 Drive。";
+  }
+  button.disabled=!result.hasLinks;
+  button.onclick=()=>{
+    const text=textarea.value;
+    if(!result.hasLinks || !text.trim()) return;
+    const mark=message=>{if(state) state.textContent=message;};
+    if(navigator.clipboard && window.isSecureContext){
+      navigator.clipboard.writeText(text).then(()=>mark("整則音檔訊息已複製，可貼到 LINE／WhatsApp。"))
+        .catch(()=>{window.prompt("請複製整則課程音檔訊息：",text);mark("請在彈出的視窗複製訊息。");});
+    }else{
+      window.prompt("請複製整則課程音檔訊息：",text);
+      mark("請在彈出的視窗複製訊息。");
+    }
+  };
+  const refresh=document.getElementById("tts-share-refresh");
+  if(refresh) refresh.onclick=()=>{
+    if(state) state.textContent="正在從 Google Drive 核對音檔連結…";
+    requestCourseFiles(task.id,true);
+    requestTaskStatuses();
+  };
+  if(changedLesson && state) state.textContent="";
+}
+
 function requestCourseFiles(taskId,force=false){
   const id=String(taskId||"").trim();
   if(!id) return false;
@@ -2223,6 +2279,7 @@ function renderTaskDetail(task){
     '</button>';
 
   renderCourseFiles(task);
+  renderTtsShare(task);
   setCourseFilesCollapsed(courseFilesCollapsed(),false);
 
   const filesRefresh=document.getElementById("course-files-refresh");
@@ -2410,7 +2467,9 @@ function openTaskDetail(taskId){
   if(!task) return;
   renderTaskDetail(task);
   requestLanguagePlan(task.id);
-  if(!courseFilesCollapsed()) requestCourseFiles(task.id);
+  const ttsStatus=remoteStageStatus(task,"tts")?.status;
+  if(!courseFilesCollapsed() || ["done","needs_review"].includes(ttsStatus) ||
+     /完成/.test(String(task.audio||""))) requestCourseFiles(task.id);
   showView("task-detail");
 }
 
@@ -4231,9 +4290,19 @@ function applyRemoteStatuses(payload){
   const remoteTasks=payload && payload.tasks ? payload.tasks : {};
   let changed=false;
 
+  let shouldRefreshTtsFiles=false;
   for(const task of tasks){
     const remote=remoteTasks[task.id];
     if(!remote || !remote.stages) continue;
+    if(currentView==="task-detail" && selectedTaskId===task.id){
+      const prior=task.remoteStages || {};
+      const changes=Object.keys(remote.stages).some(key=>
+        /^tts(?::[a-z]{2})?$/i.test(key) &&
+        ["done","needs_review"].includes(String(remote.stages[key]?.status||"")) &&
+        String(prior[key]?.status||"")!==String(remote.stages[key]?.status||"")
+      );
+      if(changes) shouldRefreshTtsFiles=true;
+    }
     task.remoteStages=remote.stages;
     task.remoteUpdatedAt=payload.server_time || new Date().toISOString();
     syncCompletedFromRemote(task);
@@ -4260,6 +4329,11 @@ function applyRemoteStatuses(payload){
     if(currentView==="youtube-audio"){
       renderYoutubeAudioTasks();
     }
+  }
+  // Polling may finish a language while the detail page is open: refresh
+  // Drive links once on transition without re-running TTS or duplicating jobs.
+  if(shouldRefreshTtsFiles && selectedTaskId){
+    requestCourseFiles(selectedTaskId,true);
   }
 
   if(currentView==="en-review" && selectedTaskId){
@@ -4715,6 +4789,7 @@ window.addEventListener("message",event=>{
         String(selectedTaskId)===String(data.task_id)
       ){
         renderCourseFiles(selected);
+        renderTtsShare(selected);
       }
     }else if(badge){
       badge.textContent="檔案讀取失敗";
@@ -4845,7 +4920,10 @@ window.addEventListener("message",event=>{
     if(task){
       task.languagePlan=Array.isArray(data.plan) ? data.plan : [];
       save(STORE.tasks,tasks);
-      if(selectedTaskId===task.id) renderLanguagePlan(task);
+      if(selectedTaskId===task.id){
+        renderLanguagePlan(task);
+        if(currentView==="task-detail") renderTtsShare(task);
+      }
     }
   }
 

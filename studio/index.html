@@ -65,7 +65,7 @@
     })();
   </script>
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20261011-unified-language-v5">
+  <link rel="stylesheet" href="./styles.css?v=20261014-tts-share-v1">
 </head>
 <body>
   <div class="shell">
@@ -251,6 +251,26 @@
             </div>
           </div>
         </div>
+
+        <section class="panel tts-share-panel" id="tts-share-panel" hidden>
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">MULTILINGUAL AUDIO MESSAGE</p>
+              <h3>06・各國音檔分享訊息</h3>
+            </div>
+            <div class="toolbar-actions">
+              <span class="badge" id="tts-share-count">等待音檔</span>
+              <button class="ghost" id="tts-share-refresh" type="button">更新音檔連結</button>
+              <button class="primary" id="tts-share-copy" type="button" disabled>複製整則訊息</button>
+            </div>
+          </div>
+          <p class="muted block-copy" id="tts-share-note" aria-live="polite">
+            自動帶入期數、堂數、課名、講師與 Google Drive 正式 TTS MP3；試聽版不會被誤當成完成音檔。
+          </p>
+          <label for="tts-share-text">可編輯後直接複製，適合貼到各國聯絡群組</label>
+          <textarea id="tts-share-text" rows="16" spellcheck="false" aria-label="各國語言課程音檔分享訊息"></textarea>
+          <span id="tts-share-copy-state" class="muted" role="status"></span>
+        </section>
 
         <div class="panel" id="detail-current-panel">
           <div class="panel-head">
@@ -783,6 +803,7 @@
   </dialog>
 
   <script src="./config.js?v=20260922-34"></script>
-  <script src="./app-20260923-48.js?v=20261014-status-all-periods-v51"></script>
+  <script src="./tts-share-message.js?v=20261014-tts-share-v1"></script>
+  <script src="./app-20260923-48.js?v=20261014-tts-share-v52"></script>
 </body>
 </html>

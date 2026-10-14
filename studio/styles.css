@@ -210,3 +210,18 @@ dialog{border:0;border-radius:17px;padding:0;width:min(540px,92vw);box-shadow:0 
 .language-plan-row .language-name small{font-size:12px}
 .language-plan-row .language-deliverables{font-size:12px;font-weight:700;color:var(--muted)}
 @media(max-width:900px){.language-plan-row{grid-template-columns:24px minmax(0,1fr)}.language-plan-row .language-deliverables{grid-column:2}.language-plan-head{display:none}}
+
+
+/* Verified per-lesson multilingual audio sharing. */
+.tts-share-panel[hidden]{display:none!important}
+.tts-share-panel{border-color:#cbd2ee}
+.tts-share-panel .toolbar-actions{align-items:center;flex-wrap:wrap}
+.tts-share-panel label{display:block;margin:14px 0 9px;color:var(--muted);font-size:12px}
+#tts-share-text{display:block;min-height:270px;max-height:68vh;resize:vertical;line-height:1.7;letter-spacing:0;white-space:pre-wrap;font:13px/1.7 ui-monospace,"Noto Sans TC",sans-serif;background:#fbfcff;overflow-wrap:anywhere}
+#tts-share-copy-state{display:block;margin-top:10px}
+@media(max-width:650px){
+  .tts-share-panel .panel-head{align-items:flex-start;flex-direction:column}
+  .tts-share-panel .toolbar-actions{width:100%;margin:0}
+  #tts-share-copy{flex:1}
+  #tts-share-text{font-size:12px;max-height:60vh}
+}

@@ -1,9 +1,12 @@
-name: SoulKey Studio All-Periods Status Test
+name: SoulKey Studio Status and TTS Share Tests
 
 on:
   pull_request:
     paths:
       - studio/app-20260923-48.js
+      - studio/tts-share-message.js
+      - studio/tests/test_tts_share_message.cjs
+      - studio/styles.css
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - .github/workflows/studio_status_batch_test.yml
@@ -11,6 +14,9 @@ on:
     branches: [main]
     paths:
       - studio/app-20260923-48.js
+      - studio/tts-share-message.js
+      - studio/tests/test_tts_share_message.cjs
+      - studio/styles.css
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - .github/workflows/studio_status_batch_test.yml
@@ -25,7 +31,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate production browser JS syntax
-        run: node --check studio/app-20260923-48.js
+        run: |
+          node --check studio/app-20260923-48.js
+          node --check studio/tts-share-message.js
+      - name: Verify TTS share message includes only valid Drive audio
+        run: node studio/tests/test_tts_share_message.cjs
       - name: Verify all lessons receive status refresh
         run: node studio/tests/test_status_batch_all_periods.cjs
       - name: Confirm HTML cache-bust deploys corrected script
@@ -33,6 +43,9 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261014-status-all-periods-v51" in html
+          assert "app-20260923-48.js?v=20261014-tts-share-v52" in html
+          assert "tts-share-message.js?v=20261014-tts-share-v1" in html
+          assert "id=\"tts-share-copy\"" in html
+          assert html.index("tts-share-message.js?v=") < html.index("app-20260923-48.js?v=")
           print("STUDIO_SCRIPT_CACHE_VERSION_OK")
           PY
