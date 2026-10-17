@@ -31,6 +31,7 @@ from google_io import (
     build_google_services,
     download_drive_file,
     find_file,
+    get_secret,
     read_values,
     update_cells,
     upload_or_replace_file,
@@ -72,7 +73,8 @@ from natural_tts_config import (
     MAX_SPEEDUP_BY_LANGUAGE,
 )
 from natural_tts_planner import build_speech_blocks
-from natural_tts_edge import render_blocks
+from natural_tts_edge import render_blocks, _ffprobe_duration
+from smart_tts_fit import prepare_smart_narration
 from natural_tts_assemble import assemble_preview, assemble_continuous_with_limit, wav_to_mp3, write_alignment_report
 from status_io import new_run_id, mark_running, mark_done, mark_needs_review, mark_error
 
@@ -479,6 +481,7 @@ def render_natural_language(
     source_duration,
     duration_limit_basis,
     checkpoint_store=None,
+    smart_fit_pilot=False,
 ):
     _ensure_edge_tts_runtime()
     output_dir = Path(output_dir)
@@ -510,7 +513,35 @@ def render_natural_language(
 
     preview_wav = output_dir / f"{lang}.preview.wav"
     preview_mp3 = output_dir / f"{lang}.preview.mp3"
-    preview_info = assemble_preview(wav_parts, preview_wav)
+    smart = None
+    if smart_fit_pilot:
+        def _smart_gemini_client():
+            from gemini_engine import GeminiClient, DEFAULT_TEXT_MODEL
+            key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
+            if not key:
+                key = get_secret("GEMINI_API_KEY", required=False)
+            if not key:
+                raise RuntimeError("Gemini key unavailable for smart TTS rewriting")
+            return GeminiClient(api_key=key, text_model=DEFAULT_TEXT_MODEL)
+        smart = prepare_smart_narration(
+            language=lang, blocks=blocks, block_results=block_results,
+            wav_parts=wav_parts, source_duration=source_duration,
+            output_dir=output_dir, client_factory=_smart_gemini_client,
+        )
+        blocks = smart["blocks"]
+        block_results = smart["block_results"]
+        wav_parts = smart["wav_parts"]
+        preview_wav = smart["preview_wav"]
+        preview_info = smart["preview"]
+        print(
+            f"[SMART-FIT:{lang}] rounds={len(smart['report']['passes'])}; "
+            f"rewritten={smart['report']['modified_blocks']}; "
+            f"preview={preview_info['duration']:.2f}s; "
+            f"limit={float(source_duration):.2f}s",
+            flush=True,
+        )
+    else:
+        preview_info = assemble_preview(wav_parts, preview_wav)
 
     source_duration = float(source_duration)
     timeline_wav = output_dir / f"{lang}.wav"
@@ -519,14 +550,38 @@ def render_natural_language(
         preview_wav,
         timeline_wav,
         source_duration=source_duration,
-        max_speedup=MAX_SPEEDUP_BY_LANGUAGE.get(lang, MAX_SPEEDUP),
+        max_speedup=(1.0 if smart_fit_pilot else MAX_SPEEDUP_BY_LANGUAGE.get(lang, MAX_SPEEDUP)),
+        min_duration_ratio=(0.0 if smart_fit_pilot else MIN_NARRATION_TO_SOURCE_RATIO),
+        max_slowdown=(1.0 if smart_fit_pilot else 1.18),
     )
+    # Smart fit never forces audio speed or stretches a short recording.
+    # Even an apparently successful WAV must pass actual encoded MP3 timing.
     # Only ONE MP3 encoding is needed: the approved time-fitted recording,
     # or the full natural review recording when time fitting is not safe.
     if timeline_info["needs_review"]:
         wav_to_mp3(preview_wav, preview_mp3)
     else:
         wav_to_mp3(timeline_wav, timeline_mp3)
+        if smart_fit_pilot:
+            encoded_seconds = _ffprobe_duration(timeline_mp3)
+            timeline_info["encoded_mp3_duration"] = round(encoded_seconds, 3)
+            if encoded_seconds > source_duration:
+                # No trimming spoken content. Keep the candidate as review.
+                timeline_info["needs_review"] = True
+                timeline_info["over_source"] = round(encoded_seconds - source_duration, 3)
+                wav_to_mp3(preview_wav, preview_mp3)
+                timeline_mp3.unlink(missing_ok=True)
+                if smart is not None:
+                    smart["report"]["within_source_limit_with_margin"] = False
+                    smart["report"]["needs_review_reason"] = "encoded_mp3_exceeds_original"
+    if smart is not None:
+        smart["report"]["final_status"] = (
+            "needs_review" if timeline_info["needs_review"] else "done"
+        )
+        smart["report_path"].write_text(
+            json.dumps(smart["report"], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     alignment_path = output_dir / f"{lang}.alignment_report.json"
     write_alignment_report(
@@ -552,7 +607,9 @@ def render_natural_language(
         "block_count": len(blocks),
         "assembly_policy": "continuous_total_duration",
         "duration_fit_revision": DURATION_FIT_REVISION,
-        "max_speedup": MAX_SPEEDUP_BY_LANGUAGE.get(lang, MAX_SPEEDUP),
+        "max_speedup": (1.0 if smart_fit_pilot else MAX_SPEEDUP_BY_LANGUAGE.get(lang, MAX_SPEEDUP)),
+        "smart_fit_mode": ("a_b_pilot" if smart_fit_pilot else "legacy"),
+        "smart_fit": (smart["report"] if smart is not None else None),
         "duration_limit_basis": duration_limit_basis,
         "duration_limit_seconds": round(source_duration, 3),
         "overlap_cleanup": overlap_report,
@@ -586,6 +643,10 @@ def render_natural_language(
         "block_count": len(blocks),
         "timeline": timeline_info,
         "preview": preview_info,
+        **({
+            "narration_script": smart["script_path"],
+            "smart_fit_report": smart["report_path"],
+        } if smart is not None else {}),
     }
 
 
@@ -604,6 +665,9 @@ def upload_natural_outputs(
         if result["status"]=="needs_review"
         else ("mp3", "wav", "alignment_report", "manifest")
     )
+    if result.get("smart_fit_report") is not None:
+        # The full original translation is not overwritten.
+        order = ("narration_script", "smart_fit_report") + order
     for key in order:
         path=Path(result[key])
         canonical_name=path.name
@@ -626,6 +690,10 @@ def main():
     parser.add_argument("--all-langs", action="store_true")
     parser.add_argument("--max-tasks", type=int, default=1)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--smart-fit-pilot", action="store_true",
+        help="Opt-in A+B narration shortening; full translations stay immutable.",
+    )
     parser.add_argument(
         "--strict-delivery", action="store_true",
         help="Return nonzero unless every requested language has a verified Drive MP3."
@@ -784,7 +852,7 @@ def main():
                     )
 
                     if (
-                        not args.force
+                        not args.force and not args.smart_fit_pilot
                         and existing_natural_output(
                             drive,
                             folders["audio"],
@@ -816,7 +884,7 @@ def main():
                         )
                         continue
 
-                    if not args.force and verify_uploaded_natural_output(
+                    if not args.force and not args.smart_fit_pilot and verify_uploaded_natural_output(
                         drive,folders["audio"],lang,source_sha256,
                         duration_limit,workdir
                     )=="needs_review":
@@ -873,22 +941,49 @@ def main():
                     result = render_natural_language(
                         segments,
                         lang,
-                        workdir / f"natural-tts-{lang}",
+                        workdir / (
+                            f"natural-tts-smart-pilot-{lang}" if args.smart_fit_pilot
+                            else f"natural-tts-{lang}"
+                        ),
                         source_duration=duration_limit,
                         duration_limit_basis=effective_duration_basis,
-                        checkpoint_store=cloud_cache,
+                        checkpoint_store=(None if args.smart_fit_pilot else cloud_cache),
+                        smart_fit_pilot=args.smart_fit_pilot,
                     )
-                    upload_natural_outputs(
-                        drive,
-                        folders["audio"],
-                        result,
-                        task,
-                    )
+                    if args.smart_fit_pilot and result["status"] == "needs_review":
+                        # NEVER overwrite a previously approved canonical
+                        # manifest/audio when a pilot cannot meet hard limits.
+                        # Publish only separately named review evidence.
+                        for key in ("narration_script", "smart_fit_report"):
+                            path = Path(result[key])
+                            upload_or_replace_file(
+                                drive, folders["audio"], path, path.name,
+                                display_name=formal_drive_name(task, path.name),
+                            )
+                        review_audio = result["preview_mp3"]
+                        pilot_name = f"{lang}.smart_fit_review.mp3"
+                        upload_or_replace_file(
+                            drive, folders["audio"], review_audio, pilot_name,
+                            display_name=formal_drive_name(task, pilot_name),
+                        )
+                    else:
+                        upload_natural_outputs(
+                            drive, folders["audio"], result, task,
+                        )
                     # An API upload call returning is not enough. Re-fetch
                     # the Drive manifest + nonempty MP3 before marking done.
-                    delivered=verify_uploaded_natural_output(
-                        drive,folders["audio"],lang,source_sha256,
-                        duration_limit,workdir
+                    delivered=(
+                        "needs_review"
+                        if args.smart_fit_pilot and result["status"] == "needs_review"
+                           and _verified_drive_audio(
+                               drive, folders["audio"],
+                               f"{lang}.smart_fit_review.mp3",
+                               local_audio_receipt(result["preview_mp3"]),
+                           )
+                        else verify_uploaded_natural_output(
+                            drive,folders["audio"],lang,source_sha256,
+                            duration_limit,workdir
+                        )
                     )
                     if delivered != result["status"]:
                         raise RuntimeError(

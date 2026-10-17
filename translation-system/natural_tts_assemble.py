@@ -68,6 +68,12 @@ def assemble_preview(
     sample_rate = None
     output = bytearray()
 
+    if isinstance(pause_seconds, (list, tuple)):
+        if len(pause_seconds) != len(wav_parts) - 1:
+            raise ValueError("semantic pause count must equal audio gaps")
+        pauses = [max(0.0, min(0.6, float(x))) for x in pause_seconds]
+    else:
+        pauses = [float(pause_seconds)] * (len(wav_parts) - 1)
     for index, path in enumerate(wav_parts):
         rate, frames = _read_pcm(path)
         if sample_rate is None:
@@ -76,7 +82,7 @@ def assemble_preview(
             raise RuntimeError("sample rate mismatch")
         output.extend(frames)
         if index < len(wav_parts) - 1:
-            output.extend(_silence(sample_rate, pause_seconds))
+            output.extend(_silence(sample_rate, pauses[index]))
 
     _write_pcm(output_wav, sample_rate, bytes(output))
     return {

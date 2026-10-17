@@ -56,6 +56,13 @@ jobs:
           python -m unittest -v tests/test_multilingual_manuscript_speech_safety.py
           python -m unittest -v tests/test_gemini_engine.py
 
+      - name: Smart TTS A+B pilot regression
+        working-directory: translation-system
+        run: |
+          python -m unittest -v tests/test_smart_tts_fit.py
+          python -m unittest -v tests/test_tts_duration_fit.py
+          python -m unittest -v tests/test_natural_tts_punctuation_pause.py
+
       - name: JavaScript syntax
         run: |
           node --check studio/review-editor.js
