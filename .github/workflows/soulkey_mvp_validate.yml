@@ -65,6 +65,8 @@ jobs:
         working-directory: translation-system
         run: |
           python -m unittest -v tests/test_smart_tts_fit.py
+          python -m unittest -v tests/test_smart_tts_production_wiring.py
+          python -m unittest -v tests/test_complete_audio_delivery.py
           python -m unittest -v tests/test_tts_duration_fit.py
           python -m unittest -v tests/test_natural_tts_punctuation_pause.py
 

@@ -770,6 +770,7 @@ def main():
                 "--task-id", args.task_id,
                 "--langs", langs,
                 "--max-tasks", "1",
+                "--smart-fit-pilot",
                 "--strict-delivery",
             ]
 
@@ -865,6 +866,7 @@ def main():
                     "--task-id", args.task_id,
                     "--langs", audio_langs,
                     "--max-tasks", "1",
+                    "--smart-fit-pilot",
                     "--strict-delivery",
                 ],refresh_credentials=lambda:refresh_worker_drive_credentials(
                     args.bridge_url,args.runtime_nonce
@@ -877,10 +879,9 @@ def main():
                 args.bridge_url,
                 args.runtime_nonce,
                 "needs_review" if audio_result=="needs_review" else "done",
-                ("所有勾選語言都有自然朗讀 MP3；部分超出安全調速，"
-                 "只有完整自然試聽版，待人工對時"
+                ("部分語言超過原片時長；已保留智慧精簡審核報告，未發布超時 MP3"
                  if audio_result=="needs_review"
-                 else "所有勾選語言正式 MP3 已通過 Drive 驗證")
+                 else "所有勾選語言智慧配音 MP3 已通過時長與 Drive 驗證")
                 + "；Gemini翻譯=" + (translate_langs or "無")
                 + "；音檔=" + (audio_langs or "無"),
             )
@@ -895,9 +896,9 @@ def main():
             report(
                 args.bridge_url,args.runtime_nonce,
                 "needs_review" if audio_result=="needs_review" else "done",
-                "所有勾選語言已建立自然試聽 MP3，部分尚待對時"
+                "部分語言未達原片時長要求，未交付超時 MP3；保留精簡報告"
                 if audio_result=="needs_review"
-                else "所有指定語言正式 MP3 已完成 Drive 實檔驗證",
+                else "所有指定語言智慧配音 MP3 已完成時長與 Drive 驗證",
             )
             cmd=None
         if cmd:

@@ -690,9 +690,15 @@ def main():
     parser.add_argument("--all-langs", action="store_true")
     parser.add_argument("--max-tasks", type=int, default=1)
     parser.add_argument("--force", action="store_true")
-    parser.add_argument(
-        "--smart-fit-pilot", action="store_true",
-        help="Opt-in A+B narration shortening; full translations stay immutable.",
+    smart_mode = parser.add_mutually_exclusive_group()
+    smart_mode.add_argument(
+        "--smart-fit-pilot", action="store_true", dest="smart_fit_pilot",
+        default=True,
+        help="A+B semantic narration fitting (production default).",
+    )
+    smart_mode.add_argument(
+        "--legacy-tts-timing", action="store_false", dest="smart_fit_pilot",
+        help="Emergency compatibility override; not for normal production.",
     )
     parser.add_argument(
         "--strict-delivery", action="store_true",
@@ -840,6 +846,11 @@ def main():
                             en_source_sha256,
                         )
                     source_sha256 = segments_fingerprint(segments)
+                    if args.smart_fit_pilot and not video_duration:
+                        raise RuntimeError(
+                            "Smart TTS requires original source_info.json duration; "
+                            "translation timestamps cannot prove the video hard limit"
+                        )
                     duration_limit = (
                         float(video_duration)
                         if video_duration
@@ -947,25 +958,19 @@ def main():
                         ),
                         source_duration=duration_limit,
                         duration_limit_basis=effective_duration_basis,
-                        checkpoint_store=(None if args.smart_fit_pilot else cloud_cache),
+                        checkpoint_store=cloud_cache,
                         smart_fit_pilot=args.smart_fit_pilot,
                     )
                     if args.smart_fit_pilot and result["status"] == "needs_review":
-                        # NEVER overwrite a previously approved canonical
-                        # manifest/audio when a pilot cannot meet hard limits.
-                        # Publish only separately named review evidence.
+                        # Never publish an overlong audio file to the shared
+                        # folder. Retain review report + spoken script only,
+                        # preserving an existing approved canonical MP3.
                         for key in ("narration_script", "smart_fit_report"):
                             path = Path(result[key])
                             upload_or_replace_file(
                                 drive, folders["audio"], path, path.name,
                                 display_name=formal_drive_name(task, path.name),
                             )
-                        review_audio = result["preview_mp3"]
-                        pilot_name = f"{lang}.smart_fit_review.mp3"
-                        upload_or_replace_file(
-                            drive, folders["audio"], review_audio, pilot_name,
-                            display_name=formal_drive_name(task, pilot_name),
-                        )
                     else:
                         upload_natural_outputs(
                             drive, folders["audio"], result, task,
@@ -975,11 +980,8 @@ def main():
                     delivered=(
                         "needs_review"
                         if args.smart_fit_pilot and result["status"] == "needs_review"
-                           and _verified_drive_audio(
-                               drive, folders["audio"],
-                               f"{lang}.smart_fit_review.mp3",
-                               local_audio_receipt(result["preview_mp3"]),
-                           )
+                           and all(find_file(drive, folders["audio"], Path(result[key]).name)
+                                   for key in ("narration_script", "smart_fit_report"))
                         else verify_uploaded_natural_output(
                             drive,folders["audio"],lang,source_sha256,
                             duration_limit,workdir
@@ -1002,11 +1004,11 @@ def main():
                             "required_speedup": float(timeline["required_speedup"]),
                         })
                         note = (
-                            f"{LANGUAGE_NAMES[lang]} 自然連續朗讀已完成；"
+                            f"{LANGUAGE_NAMES[lang]} 智慧精簡未達時長驗收；"
                             f"自然長度={timeline['natural_duration']:.1f}s，"
-                            f"影片上限={timeline['source_duration']:.1f}s，"
-                            f"需要調速={timeline['required_speedup']:.3f}x；"
-                            "超過安全調速上限，正式 mp3/wav 保留舊版"
+                            f"影片上限={timeline['source_duration']:.1f}s；"
+                            "未發布超時 MP3，已保留完整文稿與審核報告；"
+                            "若有舊版正式檔案則維持不變"
                         )
                         mark_needs_review(
                             task["task_id"],

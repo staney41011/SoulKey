@@ -828,6 +828,8 @@ def process_task(task_id, system_dir):
             "--task-id", task_id,
             "--langs", ",".join(LANGS),
             "--max-tasks", "1",
+            "--smart-fit-pilot",
+            "--strict-delivery",
         ])
 
         # Audio is complete when either:
