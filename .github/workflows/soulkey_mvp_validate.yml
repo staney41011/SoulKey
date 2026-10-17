@@ -56,6 +56,11 @@ jobs:
           python -m unittest -v tests/test_multilingual_manuscript_speech_safety.py
           python -m unittest -v tests/test_gemini_engine.py
 
+      - name: Install audio test runtime
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
       - name: Smart TTS A+B pilot regression
         working-directory: translation-system
         run: |
