@@ -4329,29 +4329,33 @@ function migrateOneLessonFormalNames_(taskId) {
       const file = files.next();
       const currentName = String(file.getName() || "");
       let canonical = canonicalFromDescription_(file.getDescription());
-
-      if (!canonical) {
-        if (!formalizableCanonicalName_(currentName)) {
+      let desired = "";
+      if (canonical || formalizableCanonicalName_(currentName)) {
+        canonical = canonical || currentName;
+        desired = formalDriveName_(taskId, canonical);
+      } else {
+        // Existing full display names can lack a canonical marker. The old
+        // migration skipped them, leaving "第4堂" inside a "第2堂" folder.
+        const match = /^第\d+期_第\d+堂課_[^_]+_[^_]+_(.+)$/.exec(currentName);
+        if (!match) {
           skipped += 1;
           continue;
         }
-        canonical = currentName;
+        desired = formalDrivePrefix_(taskId) + match[1];
       }
-
-      const desired = formalDriveName_(taskId, canonical);
       if (currentName !== desired) {
         file.setName(desired);
         renamed += 1;
       }
-
-      const marker = "SOULKEY_CANONICAL_NAME:" + canonical;
-      if (String(file.getDescription() || "") !== marker) {
-        file.setDescription(marker);
-        marked += 1;
+      if (canonical) {
+        const marker = "SOULKEY_CANONICAL_NAME:" + canonical;
+        if (String(file.getDescription() || "") !== marker) {
+          file.setDescription(marker);
+          marked += 1;
+        }
+        const cacheKey = "file-id-v2:" + folder.getId() + ":" + canonical;
+        CacheService.getScriptCache().put(cacheKey, file.getId(), 21600);
       }
-
-      const cacheKey = "file-id-v2:" + folder.getId() + ":" + canonical;
-      CacheService.getScriptCache().put(cacheKey, file.getId(), 21600);
     }
   });
 
@@ -4506,6 +4510,14 @@ function formalOutputLabel_(canonicalName) {
   if (m) return "中文人工校稿第" + Number(m[1]) + "段.json";
 
   return formalNameClean_(name, "輸出檔案");
+}
+
+function formalDrivePrefix_(taskId) {
+  const technical = "source_info.json";
+  const suffix = formalOutputLabel_(technical);
+  const output = formalDriveName_(taskId, technical);
+  if (!output.endsWith(suffix)) throw new Error("正式檔名前綴解析失敗");
+  return output.slice(0, -suffix.length);
 }
 
 function formalDriveName_(taskId, canonicalName) {

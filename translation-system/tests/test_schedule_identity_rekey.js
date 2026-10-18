@@ -56,4 +56,24 @@ assert.deepEqual(githubCopies.find(x=>x.path.endsWith("/P258-L02/zh.json")).valu
  {task_id:"P258-L02",content:"Upper lesson"});
 assert.deepEqual(githubCopies.find(x=>x.path.endsWith("/P258-L03/zh.json")).value,
  {task_id:"P258-L03",content:"Lower lesson"});
-console.log("SoulKey schedule identity swap regression: OK");
+// A legacy full formal name may have no SOULKEY_CANONICAL_NAME marker.
+// It must nevertheless be renamed to the CURRENT lesson number.
+let oldFilename="第255期_第4堂課_聖音法語解析 上_翁士琇_西班牙文CC字幕.srt";
+const legacyFile={
+ getName(){return oldFilename;},setName(value){oldFilename=value;},
+ getDescription(){return "";},
+};
+function fakeFolder(files){return {getFiles(){let n=0;return {hasNext:()=>n<files.length,next:()=>files[n++]};}};}
+sandbox.lessonFolders_=()=>({
+ source:fakeFolder([legacyFile]),transcript:fakeFolder([]),translation:fakeFolder([]),
+ lesson:fakeFolder([])
+});
+sandbox.cachedChildFolder_=()=>{throw new Error("not needed");};
+sandbox.formalizableCanonicalName_=()=>false;
+sandbox.formalOutputLabel_=name=>name;
+sandbox.formalDriveName_=(id,name)=>"第255期_第2堂課_聖音法語解析 上_翁士琇_"+name;
+sandbox.canonicalFromDescription_=()=>null;
+const renamed=vm.runInContext("migrateOneLessonFormalNames_('P255-L02')",sandbox);
+assert.equal(renamed.renamed,1);
+assert.equal(oldFilename,"第255期_第2堂課_聖音法語解析 上_翁士琇_西班牙文CC字幕.srt");
+console.log("SoulKey schedule identity swap + legacy formal rename: OK");
