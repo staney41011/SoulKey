@@ -603,9 +603,18 @@ function mergeRemoteTasks(remoteTasks){
   if(!Array.isArray(remoteTasks)) return;
   confirmedRemoteTaskIds = new Set(remoteTasks.map(t=>String(t.id||"")));
 
-  const localById=Object.fromEntries(load(STORE.tasks,[]).map(t=>[t.id,t]));
+  const localTasks=load(STORE.tasks,[]);
+  const localById=Object.fromEntries(localTasks.map(t=>[t.id,t]));
+  const localByUid=Object.fromEntries(localTasks
+    .filter(t=>String(t.course_uid||"").trim())
+    .map(t=>[String(t.course_uid),t]));
   const merged=remoteTasks.map(remote=>{
-    const local=localById[remote.id] || {};
+    // SKC is immutable. Reusing an old Pxxx-Lxx for a different course
+    // must NEVER borrow the previous course's local drafts or stage cache.
+    const stableUid=String(remote.course_uid||"").trim();
+    const local=stableUid
+      ? (localByUid[stableUid] || {})
+      : (localById[remote.id] || {});
     const task={
       ...local,
       ...remote,

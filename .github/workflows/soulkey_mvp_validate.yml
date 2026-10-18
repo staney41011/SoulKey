@@ -82,6 +82,7 @@ jobs:
           cp bridge/apps-script/Code.gs /tmp/Code.js
           node --check /tmp/Code.js
           node translation-system/tests/test_course_uid_uniqueness.js
+          node translation-system/tests/test_schedule_identity_rekey.js
 
       - name: MVP wiring assertions
         run: |

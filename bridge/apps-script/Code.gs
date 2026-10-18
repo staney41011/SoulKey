@@ -3229,6 +3229,138 @@ function swapLessonFolderPositions_(oldPeriod, oldLesson, newPeriod, newLesson) 
   }
 }
 
+
+/** SKC-* never changes. Pxxx-Lxx always denotes the CURRENT schedule slot. */
+function scheduledTaskId_(period, lesson) {
+  return "P" + Number(period) + "-L" + String(Number(lesson)).padStart(2, "0");
+}
+
+/** Idempotent, permutation-safe task-key update for dependent sheet rows. */
+function rekeyTaskReferenceSheets_(mapping) {
+  const changed = {};
+  Object.keys(mapping || {}).forEach(function(key) {
+    if (key !== mapping[key]) changed[key] = mapping[key];
+  });
+  if (!Object.keys(changed).length) return {status_rows: 0, language_rows: 0};
+  const book = SpreadsheetApp.openById(CONTROL_SHEET_ID);
+  const counts = {status_rows: 0, language_rows: 0};
+  [
+    {name: STATUS_SHEET_NAME, count: "status_rows"},
+    {name: LANGUAGE_PLAN_SHEET_NAME, count: "language_rows"}
+  ].forEach(function(part) {
+    const target = book.getSheetByName(part.name);
+    if (!target || target.getLastRow() < 2) return;
+    const range = target.getRange(2, 1, target.getLastRow() - 1, 1);
+    const old = range.getValues();
+    const newer = old.map(function(entry) {
+      const id = String(entry[0] || "").trim();
+      if (Object.prototype.hasOwnProperty.call(changed, id)) {
+        counts[part.count]++;
+        return [changed[id]];
+      }
+      return entry;
+    });
+    if (counts[part.count]) range.setValues(newer);
+  });
+  return counts;
+}
+
+function githubCacheSnapshot_(token, path) {
+  const url = "https://api.github.com/repos/" + OWNER + "/" + REPO +
+    "/contents/" + githubPathEncode_(path) + "?ref=" + encodeURIComponent(REF);
+  const r = UrlFetchApp.fetch(url, {
+    headers: {Authorization: "Bearer " + token,
+      Accept: "application/vnd.github+json"},
+    muteHttpExceptions: true
+  });
+  const status = r.getResponseCode();
+  if (status === 404) return null;
+  if (status !== 200) throw new Error("GitHub cache snapshot HTTP " + status);
+  const item = JSON.parse(r.getContentText());
+  if (!item.content) throw new Error("GitHub cache file has no content: " + path);
+  return item.content.replace(/\s/g, "");
+}
+
+/** Snapshot ALL old paths before any write; swapping two tasks must not
+ * overwrite one source before it is read. GitHub history remains reversible. */
+function rekeyGithubTaskCaches_(mapping) {
+  const token = String(
+    PropertiesService.getScriptProperties().getProperty("GITHUB_TOKEN") || ""
+  ).trim();
+  if (!token) throw new Error("無法轉換 GitHub 課程快取：GITHUB_TOKEN 未設定");
+  const templates = [
+    "studio-review-cache/{id}/zh.json",
+    "studio-review-cache/{id}/en.json",
+    "translation-shadow-cache/{id}/gemini/checkpoint.json"
+  ];
+  const snapshots = [];
+  Object.keys(mapping || {}).forEach(function(oldId) {
+    const newId = mapping[oldId];
+    if (!newId || oldId === newId) return;
+    templates.forEach(function(template) {
+      const sourcePath = template.replace("{id}", oldId);
+      const sourceB64 = githubCacheSnapshot_(token, sourcePath);
+      if (sourceB64 === null) return;
+      const targetPath = template.replace("{id}", newId);
+      const decoded = Utilities.newBlob(
+        Utilities.base64Decode(sourceB64)).getDataAsString("UTF-8");
+      const payload = JSON.parse(decoded);
+      if (payload && typeof payload === "object") payload.task_id = newId;
+      snapshots.push({
+        path: targetPath,
+        content: Utilities.base64Encode(
+          Utilities.newBlob(JSON.stringify(payload)).getBytes()),
+      });
+    });
+  });
+  snapshots.forEach(function(snapshot) {
+    const answer = githubUpsertBase64_(
+      token, snapshot.path, snapshot.content,
+      "Migrate SoulKey schedule cache preserving course identity"
+    );
+    if (!answer || !answer.ok) {
+      throw new Error(
+        "GitHub 課程快取遷移失敗：" + snapshot.path + " " +
+        JSON.stringify(answer || {}).slice(0, 300));
+    }
+  });
+  return {updated_cache_files: snapshots.length};
+}
+
+/** Called only after all Drive folder renames succeeded. Stable SKC IDs and
+ * immutable file IDs remain unchanged. These mapped Pxxx-Lxx keys refer to
+ * CURRENT slots rather than the old task's creation order. */
+function finishScheduleIdMigration_(sheet, updatedRows, rekeys, positions) {
+  if (!Object.keys(rekeys).length) {
+    return {rekeys: {}, caches: {updated_cache_files: 0},
+      refs: {status_rows: 0, language_rows: 0}};
+  }
+  const all = sheet.getDataRange().getValues();
+  const updatedPositions = {};
+  (updatedRows || []).forEach(function(item) {
+    updatedPositions[item.sheetRow] = true;
+  });
+  all.slice(1).forEach(function(row, idx) {
+    const id = String(row[0] || "").trim();
+    if (!id || updatedPositions[idx + 2]) return;
+    if (Object.values(rekeys).indexOf(id) >= 0) {
+      throw new Error("調課後的課程序號與其他課程衝突：" + id);
+    }
+  });
+  // Preserve Github caches before switching any Sheets task references.
+  const caches = rekeyGithubTaskCaches_(rekeys);
+  const refs = rekeyTaskReferenceSheets_(rekeys);
+  updatedRows.forEach(function(item) {
+    const newId = rekeys[item.id];
+    if (newId) {
+      sheet.getRange(item.sheetRow, 1).setValue(newId);
+    }
+  });
+  clearScheduleCaches_(
+    Object.keys(rekeys).concat(Object.values(rekeys)), positions || []);
+  return {rekeys: rekeys, caches: caches, refs: refs};
+}
+
 function reorderPeriodTasks_(period, orderedTaskIds) {
   period = Number(period || 0);
   orderedTaskIds = (orderedTaskIds || []).map(function(x) {
@@ -3322,10 +3454,14 @@ function reorderPeriodTasks_(period, orderedTaskIds) {
       const updatedRows = [];
 
       // Phase 2: assign the requested schedule in the sheet.
+      // Keep SKC immutable while recalculating each slot's Pxxx-Lxx.
+      const rekeys = {};
       orderedTaskIds.forEach(function(taskId, positionIndex) {
         const item = byId[taskId];
         const newLesson = positionIndex + 1;
         const oldLesson = item.lesson;
+        const scheduledId = scheduledTaskId_(period, newLesson);
+        if (taskId !== scheduledId) rekeys[taskId] = scheduledId;
         const row = item.row.slice();
 
         row[1] = period;
@@ -3383,12 +3519,24 @@ function reorderPeriodTasks_(period, orderedTaskIds) {
         }
       });
 
+      const migration = finishScheduleIdMigration_(
+        sheet, updatedRows, rekeys,
+        orderedTaskIds.map(function(_, index) {
+          return {period: period, lesson: index + 1};
+        })
+      );
+      const orderedScheduledIds = orderedTaskIds.map(function(_, index) {
+        return scheduledTaskId_(period, index + 1);
+      });
       return {
         ok: true,
         period: period,
         changed: true,
         previous_order: currentOrder,
-        ordered_task_ids: orderedTaskIds,
+        ordered_task_ids: orderedScheduledIds,
+        id_rekeys: migration.rekeys,
+        migrated_refs: migration.refs,
+        migrated_cache_files: migration.caches.updated_cache_files,
         moved_count: updatedRows.filter(function(x) {
           return x.oldLesson !== x.newLesson;
         }).length,
@@ -3396,7 +3544,8 @@ function reorderPeriodTasks_(period, orderedTaskIds) {
         message:
           "第" + period + "期排序完成：" +
           orderedTaskIds.map(function(id, i) {
-            return "第" + (i + 1) + "堂=" + id;
+            return "第" + (i + 1) + "堂=" +
+              scheduledTaskId_(period, i + 1);
           }).join("、")
       };
 
@@ -3567,10 +3716,32 @@ function rescheduleTask_(taskId, newPeriod, newLesson) {
     [normalizedId, destinationTaskId].filter(Boolean).forEach(function(id) {
       try { renamed.push(migrateOneLessonFormalNames_(id)); } catch (_) {}
     });
+    const rekeys = {};
+    const sourceNewId = scheduledTaskId_(newPeriod, newLesson);
+    if (sourceNewId !== normalizedId) rekeys[normalizedId] = sourceNewId;
+    const destinationNewId = destinationTaskId
+      ? scheduledTaskId_(oldPeriod, oldLesson) : "";
+    if (destinationTaskId && destinationNewId !== destinationTaskId) {
+      rekeys[destinationTaskId] = destinationNewId;
+    }
+    const migration = finishScheduleIdMigration_(
+      sheet,
+      [{sheetRow: sourceIndex + 2, id: normalizedId}].concat(
+        destinationTaskId
+        ? [{sheetRow: destinationIndex + 2, id: destinationTaskId}]
+        : []
+      ),
+      rekeys,
+      [{period: oldPeriod, lesson: oldLesson},
+       {period: newPeriod, lesson: newLesson}]
+    );
 
     return {
       ok: true,
-      task_id: normalizedId,
+      task_id: sourceNewId,
+      id_rekeys: migration.rekeys,
+      migrated_refs: migration.refs,
+      migrated_cache_files: migration.caches.updated_cache_files,
       course_uid: String(sourceRow[TASK_COL.course_uid] || ""),
       changed: true,
       old_period: oldPeriod,
@@ -3589,9 +3760,8 @@ function rescheduleTask_(taskId, newPeriod, newLesson) {
 }
 
 function lessonFolders_(taskId) {
-  // task_id is a stable legacy execution key. Schedule position must always
-  // come from the control sheet so a rescheduled course does not jump back to
-  // the slot encoded in P255-L03.
+  // Pxxx-Lxx follows the CURRENT schedule; SKC-* is the stable course UID.
+  // Always resolve current Drive folders from the control sheet.
   const task = taskInfo_(taskId);
   const lessonNumber = Number(String(task.lesson || "").replace(/[^0-9]/g, ""));
   if (!task.period || !lessonNumber) {
@@ -4141,6 +4311,7 @@ function migrateOneLessonFormalNames_(taskId) {
     folders.transcript,
     folders.translation
   ];
+  try { folderList.push(cachedChildFolder_(folders.lesson, "99_處理紀錄")); } catch (_) {}
 
   // The current lesson folder comes from the control sheet, not task_id.
   const lessonFolder = folders.lesson;
