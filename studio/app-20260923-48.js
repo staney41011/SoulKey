@@ -1956,6 +1956,64 @@ const LANGUAGE_ZH_NAMES={
   bn:"孟加拉文",ne:"尼泊爾文",lo:"寮文",my:"緬甸文",it:"義大利文",pt:"葡萄牙文"
 };
 
+let languagePlanExpanded=false;
+function languageDeliverableHtml(data,kind){
+  const item=data?.[kind]||{status:"pending",label:"尚未查詢",url:""};
+  const ready=item.status==="ready" && !!item.url;
+  if(ready){
+    const url=escapeHtml(item.url);
+    return '<div class="language-file-output ready">'+
+      '<a href="'+url+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(item.label)+'</a>'+
+      '<button class="mini ghost" type="button" data-language-file-copy="'+url+'" aria-label="複製檔案連結">複製</button>'+
+      '</div>';
+  }
+  return '<span class="language-file-output pending">'+escapeHtml(item.label)+'</span>';
+}
+function refreshLanguageDeliveryStatus(task){
+  if(!task || task.id!==selectedTaskId) return;
+  const list=document.getElementById("language-plan-list");
+  if(!list || !window.SoulKeyLanguageDelivery) return;
+  const course=courseFilesCache[task.id];
+  const share=ttsShareLinksCache[task.id];
+  list.querySelectorAll(".language-plan-row").forEach(row=>{
+    const code=row.dataset.langPlan;
+    const result=window.SoulKeyLanguageDelivery.resolve(task,code,course,share);
+    ["doc","audio"].forEach(kind=>{
+      const target=row.querySelector('[data-lang-delivery="'+kind+'"]');
+      if(target) target.innerHTML=languageDeliverableHtml(result,kind);
+    });
+  });
+  if(course?.ok){
+    const status=document.getElementById("language-plan-status");
+    const selected=list.querySelectorAll("[data-plan-enabled]:checked").length;
+    if(status) status.textContent="已勾選 "+selected+" 種語言；Drive 成果已更新。更改勾選後請記得儲存。";
+  }
+}
+function updateLanguagePlanExpansion(){
+  const list=document.getElementById("language-plan-list");
+  const btn=document.getElementById("language-plan-expand");
+  if(!list || !btn) return;
+  const total=list.querySelectorAll(".language-plan-row").length;
+  const show=total>6;
+  btn.hidden=!show;
+  list.classList.toggle("expanded",languagePlanExpanded);
+  btn.textContent=languagePlanExpanded?"收合語言":"顯示其餘 "+Math.max(0,total-6)+" 種語言";
+  btn.setAttribute("aria-expanded",languagePlanExpanded?"true":"false");
+  btn.onclick=()=>{languagePlanExpanded=!languagePlanExpanded;updateLanguagePlanExpansion();};
+}
+function attachLanguageFileCopy(list){
+  list.onclick=event=>{
+    const button=event.target.closest("[data-language-file-copy]");
+    if(!button || !list.contains(button)) return;
+    event.preventDefault();
+    const url=button.dataset.languageFileCopy;
+    if(!url) return;
+    const completed=()=>{button.textContent="已複製";};
+    if(navigator.clipboard && window.isSecureContext){
+      navigator.clipboard.writeText(url).then(completed).catch(()=>window.prompt("請複製檔案連結：",url));
+    }else window.prompt("請複製檔案連結：",url);
+  };
+}
 function renderLanguagePlan(task){
   const list=document.getElementById("language-plan-list");
   const status=document.getElementById("language-plan-status");
@@ -1971,13 +2029,12 @@ function renderLanguagePlan(task){
       (item.transcript_enabled || item.audio_enabled);
     const zh=LANGUAGE_ZH_NAMES[code]||code;
     const local=item.language_name||code;
-    return '<label class="language-plan-row" data-lang-plan="'+escapeHtml(code)+'">'+
-      '<input type="checkbox" data-plan-enabled aria-label="選擇'+escapeHtml(zh)+'，產生文稿與音檔" '+(selected?"checked":"")+'>'+
-      '<span class="language-name"><b>'+escapeHtml(zh)+'</b><small>'+escapeHtml(local)+' · '+escapeHtml(code)+'</small></span>'+
-      '<span class="language-deliverables">'+
-        (english ? '英文定稿已保留 · 勾選製作音檔' : '翻譯文稿 ＋ 自然語音 MP3')+
-      '</span>'+
-    '</label>';
+    return '<div class="language-plan-row" data-lang-plan="'+escapeHtml(code)+'">'+
+      '<label class="language-selection"><input type="checkbox" data-plan-enabled aria-label="選擇'+escapeHtml(zh)+'，產生文稿與音檔" '+(selected?"checked":"")+'>'+
+      '<span class="language-name"><b>'+escapeHtml(zh)+'</b><small>'+escapeHtml(local)+' · '+escapeHtml(code)+'</small></span></label>'+
+      '<div class="language-delivery" data-lang-delivery="doc">尚未查詢</div>'+
+      '<div class="language-delivery" data-lang-delivery="audio">尚未查詢</div>'+
+    '</div>';
   }).join("");
 
   const refreshSelectionCount=()=>{
@@ -1990,6 +2047,9 @@ function renderLanguagePlan(task){
   list.querySelectorAll("[data-plan-enabled]").forEach(toggle=>{
     toggle.addEventListener("change",refreshSelectionCount);
   });
+  attachLanguageFileCopy(list);
+  updateLanguagePlanExpansion();
+  refreshLanguageDeliveryStatus(task);
   refreshSelectionCount();
 }
 
@@ -2051,9 +2111,9 @@ const COURSE_FILES_COLLAPSED_KEY="soulkey_course_files_collapsed";
 
 function courseFilesCollapsed(){
   try{
-    return localStorage.getItem(COURSE_FILES_COLLAPSED_KEY)==="1";
+    return localStorage.getItem(COURSE_FILES_COLLAPSED_KEY)!=="0";
   }catch(_){
-    return false;
+    return true;
   }
 }
 
@@ -2163,6 +2223,17 @@ function renderCourseFiles(task){
   });
 }
 
+function setTtsShareCollapsed(collapsed){
+  const panel=document.getElementById("tts-share-panel");
+  const body=document.getElementById("tts-share-content");
+  const toggle=document.getElementById("tts-share-toggle");
+  panel?.classList.toggle("collapsed",!!collapsed);
+  if(body) body.hidden=!!collapsed;
+  if(toggle){
+    toggle.textContent=collapsed?"展開分享訊息":"收合分享訊息";
+    toggle.setAttribute("aria-expanded",collapsed?"false":"true");
+  }
+}
 function renderTtsShare(task){
   const panel=document.getElementById("tts-share-panel");
   const textarea=document.getElementById("tts-share-text");
@@ -2177,6 +2248,12 @@ function renderTtsShare(task){
   );
   panel.hidden=!result.eligible;
   if(!result.eligible) return;
+  const toggle=document.getElementById("tts-share-toggle");
+  if(toggle) toggle.onclick=()=>setTtsShareCollapsed(!document.getElementById("tts-share-content")?.hidden);
+  if(panel.dataset.taskId!==String(task.id)){
+    panel.dataset.taskId=String(task.id);
+    setTtsShareCollapsed(true);
+  }
 
   const changedLesson=textarea.dataset.taskId!==String(task.id);
   // Preserve edits when the same lesson receives a new Drive snapshot.
@@ -2187,8 +2264,10 @@ function renderTtsShare(task){
   textarea.dataset.taskId=String(task.id);
   textarea.dataset.generatedMessage=result.message;
   if(badge){
+    const formalCount=Math.max(0,result.readyCount-(result.reviewCount||0));
     badge.textContent=result.expectedCount
-      ? result.readyCount+" / "+result.expectedCount+" 正式音檔"
+      ? formalCount+" / "+result.expectedCount+" 正式音檔"+
+        (result.reviewCount?"・"+result.reviewCount+" 個試聽待驗收":"")
       : "正在核對正式音檔";
     badge.className="badge"+(result.allReady?" complete":"");
   }
@@ -2196,7 +2275,9 @@ function renderTtsShare(task){
     note.textContent=result.allReady
       ? "所有已勾選的 TTS 語言都有 Google Drive 正式 MP3 連結。可直接複製分享。"
       : result.readyCount
-        ? "已取得 "+result.readyCount+" 個正式音檔連結；其餘語言以「待確認／待驗收」標示。分享前請確認未驗收項目。"
+        ? "已取得 "+Math.max(0,result.readyCount-(result.reviewCount||0))+" 個正式音檔連結；"+
+          (result.reviewCount?result.reviewCount+" 個試聽版仍待驗收；":"")+
+          "其餘語言以「待確認／待驗收」標示。分享前請確認未驗收項目。"
         : "TTS 階段已更新，但尚未取得正式 MP3 連結。按「更新音檔連結」重新核對 Drive。";
   }
   if(note && result.reviewCount && !result.allReady){
@@ -2271,6 +2352,8 @@ function courseFilesLoadFailed(taskId,reason){
   }
   const state=document.getElementById("tts-share-copy-state");
   if(state) state.textContent="查詢失敗，並非音檔已消失；可稍後重試。";
+  const languageStatus=document.getElementById("language-plan-status");
+  if(languageStatus) languageStatus.textContent="成果查詢失敗；原有勾選與已取得的連結均保留，可稍後重試。";
 }
 function requestCourseFiles(taskId,force=false){
   const id=String(taskId||"").trim();
@@ -2279,7 +2362,7 @@ function requestCourseFiles(taskId,force=false){
   const age=Date.now()-Number(courseFilesFetchedAt[id]||0);
   if(!force && courseFilesCache[id] && age<30000){
     const task=tasks.find(x=>String(x.id)===id);
-    if(task) renderCourseFiles(task);
+    if(task){renderCourseFiles(task);refreshLanguageDeliveryStatus(task);}
     return true;
   }
   if(courseFilesLoadingTask===id && !force) return true;
@@ -2348,6 +2431,13 @@ function renderTaskDetail(task){
 
   renderCourseFiles(task);
   renderTtsShare(task);
+  const deliveryRefresh=document.getElementById("language-delivery-refresh");
+  if(deliveryRefresh) deliveryRefresh.onclick=()=>{
+    const status=document.getElementById("language-plan-status");
+    if(status) status.textContent="正在更新文稿與音檔清單，原語言勾選維持不變…";
+    requestCourseFiles(task.id,true);
+    requestTtsShareLinks(task.id,true);
+  };
   setCourseFilesCollapsed(courseFilesCollapsed(),false);
 
   const filesRefresh=document.getElementById("course-files-refresh");
@@ -4861,8 +4951,10 @@ window.addEventListener("message",event=>{
       ttsShareLinkErrors[id]=data.message||data.error||"伺服器未傳回音檔資料";
     }
     const selected=tasks.find(x=>String(x.id)===id);
-    if(selected && currentView==="task-detail" && selectedTaskId===id)
+    if(selected && currentView==="task-detail" && selectedTaskId===id){
       renderTtsShare(selected);
+      refreshLanguageDeliveryStatus(selected);
+    }
   }
 
   if(data.type==="course_files"){
@@ -4881,6 +4973,7 @@ window.addEventListener("message",event=>{
       ){
         renderCourseFiles(selected);
         renderTtsShare(selected);
+        refreshLanguageDeliveryStatus(selected);
       }
     }else if(badge){
       badge.textContent="檔案讀取失敗";

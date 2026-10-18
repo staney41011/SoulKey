@@ -225,3 +225,55 @@ dialog{border:0;border-radius:17px;padding:0;width:min(540px,92vw);box-shadow:0 
   #tts-share-copy{flex:1}
   #tts-share-text{font-size:12px;max-height:60vh}
 }
+
+
+/* 2026-10-18: compact per-language outputs; document and MP3 are independent. */
+.language-plan-head{
+  grid-template-columns:minmax(170px,1.35fr) minmax(0,.8fr) minmax(0,.8fr);
+  gap:12px;padding:0 12px 8px;
+}
+.language-plan-list{gap:6px}
+.language-plan-row{
+  display:grid;
+  grid-template-columns:minmax(170px,1.35fr) minmax(0,.8fr) minmax(0,.8fr);
+  gap:12px;align-items:center;
+  padding:10px 12px;
+  cursor:default;
+}
+.language-plan-row:nth-child(n+7){display:none}
+.language-plan-list.expanded .language-plan-row{display:grid}
+.language-selection{display:flex;align-items:center;gap:10px;min-width:0;cursor:pointer}
+.language-selection .language-name{min-width:0}
+.language-plan-row .language-name b{font-size:13px}
+.language-plan-row .language-name small{font-size:11px;overflow-wrap:anywhere}
+.language-plan-row input[data-plan-enabled]{flex:0 0 18px;width:18px;height:18px}
+.language-delivery{min-width:0;font-size:11px}
+.language-file-output{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}
+.language-file-output a{
+  font-weight:750;color:var(--green);text-decoration:none;white-space:normal;
+}
+.language-file-output a:hover{text-decoration:underline}
+.language-file-output .mini{font-size:10px;padding:4px 7px;white-space:nowrap}
+.language-file-output.pending{color:var(--muted)}
+.language-plan-expand{display:block;width:100%;margin-top:10px}
+.language-plan-expand[hidden]{display:none!important}
+.course-files-panel.collapsed #course-files-folder-link:not([hidden]){display:inline-flex}
+#course-files-folder-link[hidden]{display:none!important}
+.tts-share-panel.collapsed{padding-top:14px;padding-bottom:14px}
+.tts-share-panel.collapsed .panel-head{margin-bottom:0}
+#tts-share-content[hidden]{display:none!important}
+.tts-share-panel.collapsed #tts-share-refresh,.tts-share-panel.collapsed #tts-share-copy{display:none}
+@media(max-width:650px){
+  .language-plan-head{display:none}
+  .language-plan-row{
+    grid-template-columns:minmax(0,1.16fr) minmax(0,.9fr) minmax(0,.9fr);
+    gap:7px;padding:10px 9px;
+  }
+  .language-selection{gap:6px}
+  .language-plan-row input[data-plan-enabled]{flex-basis:16px;width:16px;height:16px}
+  .language-plan-row .language-name b{font-size:12px}
+  .language-plan-row .language-name small{font-size:10px;margin-top:2px}
+  .language-file-output{display:grid;gap:3px}
+  .language-file-output .mini{justify-self:start}
+  .language-delivery{font-size:10px}
+}

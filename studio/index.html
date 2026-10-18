@@ -65,7 +65,7 @@
     })();
   </script>
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20261014-tts-share-v1">
+  <link rel="stylesheet" href="./styles.css?v=20261018-language-grid-v1">
 </head>
 <body>
   <div class="shell">
@@ -229,49 +229,6 @@
           <div id="detail-stage-list" class="detail-stage-list"></div>
         </div>
 
-        <div class="panel course-files-panel" id="course-files-panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">FILE OVERVIEW</p>
-              <h3>05・檔案總覽</h3>
-            </div>
-            <div class="toolbar-actions">
-              <span class="badge" id="course-files-state">尚未載入</span>
-              <a class="ghost course-files-folder-link" id="course-files-folder-link" href="#" target="_blank" rel="noopener" hidden>開啟課程資料夾</a>
-              <button class="ghost" id="course-files-toggle" type="button" aria-expanded="true">隱藏檔案總覽</button>
-              <button class="ghost" id="course-files-refresh" type="button">重新整理</button>
-            </div>
-          </div>
-          <div id="course-files-body" class="course-files-body">
-            <p class="muted block-copy">
-              只顯示這堂課目前可直接交付的成果：逐字稿、MP3 音檔與完成影片。系統 JSON、SRT、時間軸中間檔、QA、manifest、WAV 與分段檔案不會出現在這裡。
-            </p>
-            <div id="course-files-list" class="course-files-list">
-              <div class="empty">進入課程後會自動讀取檔案。</div>
-            </div>
-          </div>
-        </div>
-
-        <section class="panel tts-share-panel" id="tts-share-panel" hidden>
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">MULTILINGUAL AUDIO MESSAGE</p>
-              <h3>06・各國音檔分享訊息</h3>
-            </div>
-            <div class="toolbar-actions">
-              <span class="badge" id="tts-share-count">等待音檔</span>
-              <button class="ghost" id="tts-share-refresh" type="button">更新音檔連結</button>
-              <button class="primary" id="tts-share-copy" type="button" disabled>複製整則訊息</button>
-            </div>
-          </div>
-          <p class="muted block-copy" id="tts-share-note" aria-live="polite">
-            自動帶入期數、堂數、課名、講師與 Google Drive 正式 TTS MP3；試聽版不會被誤當成完成音檔。
-          </p>
-          <label for="tts-share-text">可編輯後直接複製，適合貼到各國聯絡群組</label>
-          <textarea id="tts-share-text" rows="16" spellcheck="false" aria-label="各國語言課程音檔分享訊息"></textarea>
-          <span id="tts-share-copy-state" class="muted" role="status"></span>
-        </section>
-
         <div class="panel" id="detail-current-panel">
           <div class="panel-head">
             <div><p class="eyebrow">CURRENT STAGE</p><h3 id="detail-current-title">目前步驟</h3></div>
@@ -285,23 +242,73 @@
               <p class="eyebrow">LANGUAGE OUTPUTS</p>
               <h3>各國語言輸出設定</h3>
             </div>
-            <button class="ghost" id="refresh-language-settings" type="button">更新語言清單</button>
+            <div class="toolbar-actions">
+              <button class="ghost" id="refresh-language-settings" type="button">更新語言清單</button>
+              <button class="ghost" id="language-delivery-refresh" type="button">更新文稿／音檔成果</button>
+            </div>
           </div>
           <p class="muted block-copy">
             只要勾選需要的語言，系統就會為該語言同時製作翻譯文稿與自然語音 MP3，不必分別選擇。
             英文人工定稿會一直保留；勾選英文代表另外製作英文音檔。
           </p>
           <div class="language-plan-head">
-            <span>選擇語言（中文／當地語）</span><span>自動產生：文稿＋音檔</span>
+            <span>語言（勾選即產生文稿及音檔）</span><span>文稿</span><span>正式 MP3</span>
           </div>
           <div id="language-plan-list" class="language-plan-list">
             <div class="empty">正在等待語言設定。</div>
           </div>
+          <button class="ghost language-plan-expand" id="language-plan-expand" type="button" aria-expanded="false" hidden>展開其他語言</button>
           <div class="language-plan-footer">
             <span class="muted" id="language-plan-status">尚未儲存本堂課的語言輸出設定。</span>
             <button class="primary" id="save-language-plan" type="button">儲存語言設定</button>
           </div>
         </div>
+        <div class="panel course-files-panel" id="course-files-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">FILE OVERVIEW</p>
+              <h3>05・檔案總覽</h3>
+            </div>
+            <div class="toolbar-actions">
+              <span class="badge" id="course-files-state">尚未載入</span>
+              <a class="ghost course-files-folder-link" id="course-files-folder-link" href="#" target="_blank" rel="noopener" hidden>開啟課程資料夾</a>
+              <button class="ghost" id="course-files-toggle" type="button" aria-expanded="false">展開檔案總覽</button>
+              <button class="ghost" id="course-files-refresh" type="button">重新整理</button>
+            </div>
+          </div>
+          <div id="course-files-body" class="course-files-body" hidden>
+            <p class="muted block-copy">
+              詳細檔案清單預設收合。各國語言可在上方輸出設定直接開啟文稿與正式 MP3；本區仍保留完成影片與課程資料夾。
+            </p>
+            <div id="course-files-list" class="course-files-list">
+              <div class="empty">展開本區或按「更新文稿／音檔成果」後讀取詳細檔案。</div>
+            </div>
+          </div>
+        </div>
+
+        <section class="panel tts-share-panel" id="tts-share-panel" hidden>
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">MULTILINGUAL AUDIO MESSAGE</p>
+              <h3>06・各國音檔分享訊息</h3>
+            </div>
+            <div class="toolbar-actions">
+              <span class="badge" id="tts-share-count">等待音檔</span>
+              <button class="ghost" id="tts-share-toggle" type="button" aria-expanded="false" aria-controls="tts-share-content">展開分享訊息</button>
+              <button class="ghost" id="tts-share-refresh" type="button">更新音檔連結</button>
+              <button class="primary" id="tts-share-copy" type="button" disabled>複製整則訊息</button>
+            </div>
+          </div>
+          <div id="tts-share-content" hidden>
+          <p class="muted block-copy" id="tts-share-note" aria-live="polite">
+            自動帶入期數、堂數、課名、講師與 Google Drive 正式 TTS MP3；試聽版不會被誤當成完成音檔。
+          </p>
+          <label for="tts-share-text">可編輯後直接複製，適合貼到各國聯絡群組</label>
+          <textarea id="tts-share-text" rows="16" spellcheck="false" aria-label="各國語言課程音檔分享訊息"></textarea>
+          <span id="tts-share-copy-state" class="muted" role="status"></span>
+          </div>
+        </section>
+
       </section>
 
       <section class="view" id="view-review">
@@ -804,6 +811,7 @@
 
   <script src="./config.js?v=20260922-34"></script>
   <script src="./tts-share-message.js?v=20261014-share-label-v5"></script>
-  <script src="./app-20260923-48.js?v=20261014-share-label-v56"></script>
+  <script src="./language-delivery.js?v=20261018-v1"></script>
+  <script src="./app-20260923-48.js?v=20261018-language-grid-v1"></script>
 </body>
 </html>

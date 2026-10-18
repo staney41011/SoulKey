@@ -5,6 +5,8 @@ on:
     paths:
       - studio/app-20260923-48.js
       - studio/tts-share-message.js
+      - studio/language-delivery.js
+      - studio/tests/test_language_delivery_layout.cjs
       - studio/tests/test_tts_share_message.cjs
       - studio/styles.css
       - studio/index.html
@@ -15,6 +17,8 @@ on:
     paths:
       - studio/app-20260923-48.js
       - studio/tts-share-message.js
+      - studio/language-delivery.js
+      - studio/tests/test_language_delivery_layout.cjs
       - studio/tests/test_tts_share_message.cjs
       - studio/styles.css
       - studio/index.html
@@ -34,8 +38,11 @@ jobs:
         run: |
           node --check studio/app-20260923-48.js
           node --check studio/tts-share-message.js
+          node --check studio/language-delivery.js
       - name: Verify TTS share message includes only valid Drive audio
-        run: node studio/tests/test_tts_share_message.cjs
+        run: |
+          node studio/tests/test_tts_share_message.cjs
+          node studio/tests/test_language_delivery_layout.cjs
       - name: Verify all lessons receive status refresh
         run: node studio/tests/test_status_batch_all_periods.cjs
       - name: Confirm HTML cache-bust deploys corrected script
@@ -43,9 +50,9 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261014-share-label-v56" in html
+          assert "app-20260923-48.js?v=20261018-language-grid-v1" in html
           assert "tts-share-message.js?v=20261014-share-label-v5" in html
           assert "id=\"tts-share-copy\"" in html
-          assert html.index("tts-share-message.js?v=") < html.index("app-20260923-48.js?v=")
+          assert html.index("tts-share-message.js?v=") < html.index("language-delivery.js?v=") < html.index("app-20260923-48.js?v=")
           print("STUDIO_SCRIPT_CACHE_VERSION_OK")
           PY
