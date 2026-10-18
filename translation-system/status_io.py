@@ -155,8 +155,27 @@ def mark_needs_review(task_id, stage, *, sheets=None, run_id="", message="", pro
     )
 
 
+def readable_error(exc=None, message=""):
+    """Avoid putting a Google 502 HTML error document into Studio cards."""
+    detail = str(message or (f"{type(exc).__name__}: {exc}" if exc else ""))
+    lower = detail.lower()
+    if (
+        "resumableuploaderror" in lower
+        or "google drive upload" in lower
+        or ("httperror" in lower and "bad gateway" in lower)
+    ) and any(code in lower for code in ("502", "503", "504", "429")):
+        return (
+            "Google Drive 上傳暫時失敗（HTTP 502／503 等）。"
+            "已保留翻譯檢查點，請稍後重試此階段；"
+            "系統會優先恢復上傳，不必重新翻譯整堂課。"
+        )
+    if "<html" in lower or "<!doctype html" in lower:
+        return "外部服務暫時回傳錯誤網頁，請稍後重試；詳細原因已記錄於執行日誌。"
+    return detail[:350]
+
+
 def mark_error(task_id, stage, *, sheets=None, run_id="", exc=None, message=""):
-    error_message = message or (f"{type(exc).__name__}: {exc}" if exc else "")
+    error_message = readable_error(exc=exc, message=message)
     return append_status(
         task_id,
         stage,

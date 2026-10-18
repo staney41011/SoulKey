@@ -1,4 +1,6 @@
 import io
+import hashlib
+import time
 import json
 import mimetypes
 import os
@@ -291,6 +293,45 @@ def find_file(drive, parent_id: str, name: str):
     return None
 
 
+# Google Drive resumable writes intermittently fail with 502/503; the
+# built-in googleapiclient execute() previously had zero HTTP retries.
+# Do not recreate translations or checkpoints when the upload is transient.
+_RETRYABLE_UPLOAD_HTTP = {408, 409, 429, 500, 502, 503, 504}
+
+
+def _upload_error_status(exc):
+    try:
+        return int(getattr(getattr(exc, "resp", None), "status", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _transient_upload_error(exc):
+    if _upload_error_status(exc) in _RETRYABLE_UPLOAD_HTTP:
+        return True
+    return isinstance(exc, (TimeoutError, ConnectionError, ConnectionResetError))
+
+
+def _uploaded_matches(drive, item, local_path):
+    """Confirm a prior ambiguous Drive commit before repeating a CREATE."""
+    if not item or not item.get("id"):
+        return False
+    try:
+        metadata = drive.files().get(
+            fileId=item["id"], fields="id,size,md5Checksum,name,description",
+            supportsAllDrives=True,
+        ).execute(num_retries=3)
+        if int(metadata.get("size") or 0) != Path(local_path).stat().st_size:
+            return False
+        local_md5 = hashlib.md5()
+        with open(local_path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                local_md5.update(chunk)
+        return str(metadata.get("md5Checksum") or "").lower() == local_md5.hexdigest()
+    except Exception:
+        return False
+
+
 def upload_or_replace_file(
     drive,
     parent_id: str,
@@ -298,42 +339,66 @@ def upload_or_replace_file(
     drive_name: str = None,
     display_name: str = None,
 ):
-    """Upload with a stable canonical key and an optional human display name."""
+    """Idempotent Drive upload with bounded 5xx retry and verified recovery.
+
+    Recover an ambiguous successful create using file size + MD5 before
+    attempting to write again. Rebuild the media on each retry so a failed
+    resumable session is never reused. Canonical filenames stay unchanged.
+    """
     local_path = str(local_path)
     canonical_name = drive_name or Path(local_path).name
     final_name = display_name or canonical_name
     mime = mimetypes.guess_type(canonical_name)[0] or "application/octet-stream"
-    media = MediaFileUpload(local_path, mimetype=mime, resumable=True)
     description = canonical_marker(canonical_name)
+    last_error = None
 
-    existing = find_file(drive, parent_id, canonical_name)
-    if existing:
-        return (
-            drive.files()
-            .update(
-                fileId=existing["id"],
-                body={
-                    "name": final_name,
-                    "description": description,
-                },
-                media_body=media,
-                fields="id,name,webViewLink,description",
-                supportsAllDrives=True,
+    for attempt in range(1, 4):
+        try:
+            # A fresh lookup on every attempt protects already-committed CREATEs.
+            existing = find_file(drive, parent_id, canonical_name)
+            if attempt > 1 and existing and _uploaded_matches(drive, existing, local_path):
+                print(f"[Drive:UPLOAD] {canonical_name}: verified existing bytes after retry", flush=True)
+                return {"id": existing["id"], "name": final_name, "description": description}
+            media = MediaFileUpload(local_path, mimetype=mime, resumable=True)
+            if existing:
+                request = drive.files().update(
+                    fileId=existing["id"],
+                    body={"name": final_name, "description": description},
+                    media_body=media,
+                    fields="id,name,webViewLink,description",
+                    supportsAllDrives=True,
+                )
+            else:
+                request = drive.files().create(
+                    body={
+                        "name": final_name,
+                        "parents": [parent_id],
+                        "description": description,
+                    },
+                    media_body=media,
+                    fields="id,name,webViewLink,description",
+                    supportsAllDrives=True,
+                )
+            # googleapiclient also retries transient responses within one
+            # resumable session; the outer loop restarts a broken session.
+            result = request.execute(num_retries=5)
+            if not result or not result.get("id"):
+                raise RuntimeError("Drive upload did not return a file ID")
+            return result
+        except Exception as exc:
+            if not _transient_upload_error(exc):
+                raise
+            last_error = exc
+            code = _upload_error_status(exc)
+            print(
+                f"[Drive:UPLOAD-RETRY] {canonical_name}: HTTP {code or 'network'} "
+                f"attempt {attempt}/3; local manuscript/checkpoint retained",
+                flush=True,
             )
-            .execute()
-        )
-
-    return (
-        drive.files()
-        .create(
-            body={
-                "name": final_name,
-                "parents": [parent_id],
-                "description": description,
-            },
-            media_body=media,
-            fields="id,name,webViewLink,description",
-            supportsAllDrives=True,
-        )
-        .execute()
-    )
+            if attempt < 3:
+                time.sleep(min(8.0, 2.0 ** attempt))
+    raise RuntimeError(
+        f"Google Drive upload temporarily unavailable after retries: "
+        f"HTTP {_upload_error_status(last_error) or 'network'} "
+        f"file={canonical_name}; rerun resumes from checkpoint"
+    ) from last_error

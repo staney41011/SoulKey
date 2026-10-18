@@ -50,6 +50,11 @@ jobs:
           python translation-system/tests/test_polish_json_resilience.py
           python translation-system/tests/test_review_cache_bridge_resilience.py
 
+      - name: Google Drive resumable upload retry regression
+        working-directory: translation-system
+        run: |
+          python -m unittest -v tests/test_drive_upload_502_retry.py
+
       - name: Multilingual manuscript preflight regression
         working-directory: translation-system
         run: |
