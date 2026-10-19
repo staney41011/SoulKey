@@ -2,6 +2,8 @@
 import ast
 import hashlib
 import mimetypes
+import ssl
+from http.client import RemoteDisconnected
 import tempfile
 import types
 import unittest
@@ -79,6 +81,8 @@ class DriveRetryTests(unittest.TestCase):
             return self.exists
         self.ns={
             "Path":Path,
+            "ssl":ssl,
+            "RemoteDisconnected":RemoteDisconnected,
             "hashlib":hashlib,
             "mimetypes":mimetypes,
             "time":types.SimpleNamespace(sleep=lambda seconds:self.waits.append(seconds)),
@@ -88,7 +92,7 @@ class DriveRetryTests(unittest.TestCase):
         }
         load_functions("translation-system/google_io.py",[
             "_upload_error_status","_transient_upload_error",
-            "_uploaded_matches","upload_or_replace_file"
+            "_uploaded_matches","upload_or_replace_file","update_cells"
         ],self.ns)
         self.ns["_RETRYABLE_UPLOAD_HTTP"]={408,409,429,500,502,503,504}
 
@@ -143,6 +147,67 @@ class DriveRetryTests(unittest.TestCase):
         self.assertNotIn("<html",str(ctx.exception).lower())
         self.assertEqual(files.retries,[5,5,5])
         self.assertEqual(self.waits,[2.0,4.0])
+
+
+    def test_ssl_eof_upload_retry_then_succeed(self):
+        """A broken TLS connection is transient, not a corrupt MP3."""
+        files=FakeFiles([ssl.SSLEOFError(8, "EOF occurred"), {"id":"uploaded"}])
+        self.assertEqual(self.upload(files)["id"], "uploaded")
+        self.assertEqual(files.create_calls, 2)
+        self.assertEqual(self.waits, [2.0])
+
+    def test_sheets_ssl_eof_retry_preserves_same_updates(self):
+        outcomes=[ssl.SSLEOFError(8, "EOF occurred"), {"totalUpdatedCells":2}]
+        calls=[]
+        retries=[]
+        class SheetValues:
+            def batchUpdate(self, **kwargs):
+                calls.append(kwargs)
+                return FakeReq(outcomes.pop(0), retries)
+        class Sheets:
+            def spreadsheets(self):
+                return self
+            def values(self):
+                return SheetValues()
+        self.ns["update_cells"](Sheets(),"sheet-id", {"A1":"one","B2":"two"})
+        self.assertEqual(len(calls),2)
+        self.assertEqual(calls[0],calls[1])
+        self.assertEqual(retries,[5,5])
+        self.assertEqual(self.waits,[2.0])
+
+    def test_sheets_fatal_400_no_retry(self):
+        outcomes=[UploadError(400)]
+        count=[]
+        class SheetValues:
+            def batchUpdate(self, **kwargs):
+                count.append(kwargs)
+                return FakeReq(outcomes.pop(0),[])
+        class Sheets:
+            def spreadsheets(self):
+                return self
+            def values(self):
+                return SheetValues()
+        with self.assertRaises(UploadError):
+            self.ns["update_cells"](Sheets(),"sheet-id",{"A1":"text"})
+        self.assertEqual(len(count),1)
+        self.assertEqual(self.waits,[])
+
+    def test_sheets_repeated_ssl_eof_keeps_checkpoint_message_short(self):
+        outcomes=[ssl.SSLEOFError(8, "EOF occurred") for _ in range(4)]
+        count=[]
+        class SheetValues:
+            def batchUpdate(self, **kwargs):
+                count.append(kwargs)
+                return FakeReq(outcomes.pop(0), [])
+        class Sheets:
+            def spreadsheets(self):
+                return self
+            def values(self):
+                return SheetValues()
+        with self.assertRaisesRegex(RuntimeError,"checkpoint remains in Drive"):
+            self.ns["update_cells"](Sheets(),"sheet-id",{"A1":"text"})
+        self.assertEqual(len(count),4)
+        self.assertEqual(self.waits,[2.0,4.0,8.0])
 
     def test_studio_status_does_not_contain_google_html(self):
         ns={}
