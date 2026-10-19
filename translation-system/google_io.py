@@ -5,6 +5,8 @@ import json
 import mimetypes
 import os
 import re
+import ssl
+from http.client import RemoteDisconnected
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -129,18 +131,41 @@ def read_values(sheets, spreadsheet_id: str, a1_range: str):
 
 
 def update_cells(sheets, spreadsheet_id: str, updates: dict):
+    """Retry transient TLS/HTTP faults; writing the same cells is idempotent.
+
+    Google Sheets may commit a batch before an SSL connection breaks. Retrying
+    identical cell values is safe, unlike blindly repeating a Drive CREATE.
+    """
     data = [{"range": rng, "values": [[value]]} for rng, value in updates.items()]
     if not data:
         return
-    (
-        sheets.spreadsheets()
-        .values()
-        .batchUpdate(
-            spreadsheetId=spreadsheet_id,
-            body={"valueInputOption": "USER_ENTERED", "data": data},
-        )
-        .execute()
-    )
+    for attempt in range(1, 5):
+        try:
+            (
+                sheets.spreadsheets()
+                .values()
+                .batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"valueInputOption": "USER_ENTERED", "data": data},
+                )
+                .execute(num_retries=5)
+            )
+            return
+        except Exception as exc:
+            if not _transient_upload_error(exc):
+                raise
+            code = _upload_error_status(exc)
+            print(
+                f"[Sheets:WRITE-RETRY] HTTP {code or 'network'} "
+                f"attempt {attempt}/4; retrying same {len(data)} cells",
+                flush=True,
+            )
+            if attempt >= 4:
+                raise RuntimeError(
+                    "Google Sheets write interrupted after retries; "
+                    "translation checkpoint remains in Drive for safe resume"
+                ) from exc
+            time.sleep(min(16.0, 2.0 ** attempt))
 
 
 def extract_drive_id(url: str):
@@ -309,7 +334,7 @@ def _upload_error_status(exc):
 def _transient_upload_error(exc):
     if _upload_error_status(exc) in _RETRYABLE_UPLOAD_HTTP:
         return True
-    return isinstance(exc, (TimeoutError, ConnectionError, ConnectionResetError))
+    return isinstance(exc, (TimeoutError, ConnectionError, ssl.SSLError, RemoteDisconnected))
 
 
 def _uploaded_matches(drive, item, local_path):
