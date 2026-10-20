@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 import types
 import unittest
@@ -31,8 +32,8 @@ class Response:
 
 class MirrorTests(unittest.TestCase):
     def setUp(self):
-        self.ctx=dict(base64=base64,json=json,os=os,re=re,time=time,urllib=urllib,
-                      GITHUB_OWNER="staney41011",GITHUB_REPO="SoulKey",GITHUB_REF="main",
+        self.ctx=dict(base64=base64,json=json,os=os,re=re,time=time,urllib=urllib,Path=Path,
+                      GITHUB_OWNER="staney41011",GITHUB_REPO="SoulKey",GITHUB_REF="main",DRIVE_CHECKPOINT_NAME="gemini-shadow-checkpoint.json",
                       _ACTIONS_MIRROR_INTERVAL_SECONDS=600,_actions_last_mirror={})
         functions("translation-system/gemini_checkpoint.py",[
             "_normalize_task_id","github_checkpoint_path",
@@ -91,6 +92,51 @@ class MirrorTests(unittest.TestCase):
             r=self.ctx["_publish_github_with_actions_token"](
                 "P258-L03",{"task_id":"P258-L03"},self.token)
         self.assertTrue(r["ok"])
+    def test_drive_failure_forces_mirror_even_if_recently_throttled(self):
+        functions("translation-system/gemini_checkpoint.py",
+                  ["save_persistent_checkpoint"],self.ctx)
+        self.ctx["_write_json_atomic"]=lambda path,payload:path
+        self.ctx["save_drive_checkpoint"]=lambda *args:(_ for _ in ()).throw(
+            ConnectionError("Drive unavailable"))
+        self.ctx["_actions_last_mirror"]["P258-L03"]=time.monotonic()
+        with patch.dict(os.environ,{"SOULKEY_GITHUB_ACTIONS_TOKEN":self.token}),\
+             patch.object(urllib.request,"urlopen",side_effect=self.fake_api):
+            with tempfile.TemporaryDirectory() as temp:
+                result=self.ctx["save_persistent_checkpoint"](
+                    "P258-L03",{"task_id":"P258-L03","checkpoint_seq":22},
+                    drive=object(),translation_folder_id="folder",workdir=temp)
+        self.assertTrue(result["github"]["ok"])
+        self.assertFalse(result["drive"]["ok"])
+        self.assertEqual(len(self.requests),2)
+
+    def test_drive_and_github_both_failed_do_not_fake_success(self):
+        functions("translation-system/gemini_checkpoint.py",
+                  ["save_persistent_checkpoint"],self.ctx)
+        self.ctx["_write_json_atomic"]=lambda path,payload:path
+        self.ctx["save_drive_checkpoint"]=lambda *args:(_ for _ in ()).throw(
+            ConnectionError("Drive unavailable"))
+        self.ctx["publish_github_checkpoint"]=lambda *args,**kwargs:(
+            _ for _ in ()).throw(RuntimeError("Mirror unavailable"))
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(RuntimeError,"均未保存成功"):
+                self.ctx["save_persistent_checkpoint"](
+                    "P258-L03",{"task_id":"P258-L03"},
+                    drive=object(),translation_folder_id="folder",workdir=temp)
+
+    def test_loader_uses_github_during_drive_outage(self):
+        functions("translation-system/gemini_checkpoint.py",
+                  ["load_persistent_checkpoint"],self.ctx)
+        self.ctx["load_github_checkpoint"]=lambda *_:{"task_id":"P258-L03","checkpoint_seq":33}
+        self.ctx["load_drive_checkpoint"]=lambda *args:(_ for _ in ()).throw(
+            ConnectionError("Drive unavailable"))
+        self.ctx["_read_json"]=lambda path:{}
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint, origin=self.ctx["load_persistent_checkpoint"](
+                "P258-L03",drive=object(),translation_folder_id="folder",
+                workdir=temp)
+        self.assertEqual(checkpoint["checkpoint_seq"],33)
+        self.assertEqual(origin,"github")
+
     def test_invalid_id_prevents_path_injection(self):
         with self.assertRaises(ValueError):
             self.ctx["publish_github_checkpoint"]("../token",{})

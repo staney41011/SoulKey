@@ -153,8 +153,8 @@ def _publish_github_with_actions_token(task_id: str, payload, token: str):
     ) from last_error
 
 
-def publish_github_checkpoint(task_id: str, payload):
-    """Publish through the authenticated Studio runtime bridge when available."""
+def publish_github_checkpoint(task_id: str, payload, *, force=False):
+    """Publish via scoped Actions credential or the legacy Bridge fallback."""
     task_id = _normalize_task_id(task_id)
     actions_token = str(os.environ.get("SOULKEY_GITHUB_ACTIONS_TOKEN") or "").strip()
     if actions_token:
@@ -163,7 +163,7 @@ def publish_github_checkpoint(task_id: str, payload):
             time.monotonic() - previous >= _ACTIONS_MIRROR_INTERVAL_SECONDS
         )
         final = str(payload.get("status") or "").lower() == "complete"
-        if not final and not due:
+        if not final and not due and not force:
             return {"ok": False, "skipped": True, "reason": "throttled"}
         result = _publish_github_with_actions_token(task_id, payload, actions_token)
         _actions_last_mirror[task_id] = time.monotonic()
@@ -275,13 +275,22 @@ def load_persistent_checkpoint(
         candidates.append(("github", github_payload))
 
     if drive is not None and translation_folder_id:
-        drive_payload = load_drive_checkpoint(
-            drive,
-            translation_folder_id,
-            workdir,
-        )
-        if drive_payload is not None:
-            candidates.append(("drive", drive_payload))
+        try:
+            drive_payload = load_drive_checkpoint(
+                drive,
+                translation_folder_id,
+                workdir,
+            )
+            if drive_payload is not None:
+                candidates.append(("drive", drive_payload))
+        except Exception as exc:
+            if github_payload is None:
+                raise
+            print(
+                "[CHECKPOINT] Drive 讀取中斷；從 GitHub 永久備份恢復："
+                + type(exc).__name__,
+                flush=True,
+            )
 
     local_path = Path(workdir) / DRIVE_CHECKPOINT_NAME
     if local_path.exists():
@@ -339,16 +348,29 @@ def save_persistent_checkpoint(
     }
     persistent_ok = False
 
+    drive_error = None
     if drive is not None and translation_folder_id:
-        result["drive"] = save_drive_checkpoint(
-            drive,
-            translation_folder_id,
-            local_path,
-        )
-        persistent_ok = True
+        try:
+            result["drive"] = save_drive_checkpoint(
+                drive,
+                translation_folder_id,
+                local_path,
+            )
+            persistent_ok = True
+        except Exception as exc:
+            drive_error = exc
+            result["drive"] = {"ok": False, "error": type(exc).__name__}
+            print(
+                "[CHECKPOINT] Drive 暫時無法保存；嘗試 GitHub 後備："
+                + type(exc).__name__,
+                flush=True,
+            )
 
     try:
-        github_result = publish_github_checkpoint(task_id, payload)
+        # If Drive failed, bypass normal 10-minute GitHub throttling.
+        github_result = publish_github_checkpoint(
+            task_id, payload, force=not persistent_ok
+        )
         result["github"] = github_result
         if github_result.get("ok"):
             persistent_ok = True
@@ -368,8 +390,8 @@ def save_persistent_checkpoint(
 
     if require_persistent and not persistent_ok:
         raise RuntimeError(
-            "Checkpoint 只有寫入 /kaggle/working，沒有任何永久後端。"
-            "請提供 Drive translation folder，或由 Studio runtime bridge 執行。"
-        )
+            "Checkpoint 只有寫入工作目錄：Drive 與 GitHub 均未保存成功。"
+            "請稍後從上次永久檢查點續跑。"
+        ) from drive_error
 
     return result
