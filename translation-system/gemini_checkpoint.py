@@ -16,6 +16,10 @@ GITHUB_REPO = "SoulKey"
 GITHUB_REF = "main"
 DRIVE_CHECKPOINT_NAME = "gemini-shadow-checkpoint.json"
 
+# Drive is the primary checkpoint. Mirror to GitHub periodically and on completion.
+_ACTIONS_MIRROR_INTERVAL_SECONDS = 600
+_actions_last_mirror = {}
+
 
 def _normalize_task_id(task_id: str):
     value = str(task_id or "").strip()
@@ -80,9 +84,92 @@ def load_github_checkpoint(task_id: str, timeout=20):
         return None
 
 
+def _publish_github_with_actions_token(task_id: str, payload, token: str):
+    """Write via scoped ephemeral Actions token, without logging credentials."""
+    path = github_checkpoint_path(task_id)
+    url = (
+        f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/"
+        f"contents/{path}"
+    )
+    encoded = base64.b64encode(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+    headers = {
+        "Authorization": "Bearer " + token,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "SoulKey-Checkpoint-Mirror",
+    }
+    last_error = None
+    for attempt in range(3):
+        try:
+            sha = ""
+            request = urllib.request.Request(
+                url + "?ref=" + GITHUB_REF, headers=headers
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    metadata = json.loads(response.read().decode("utf-8"))
+                    sha = str(metadata.get("sha") or "")
+            except urllib.error.HTTPError as exc:
+                if exc.code != 404:
+                    raise
+            body = {
+                "message": "Checkpoint mirror " + task_id,
+                "content": encoded,
+                "branch": GITHUB_REF,
+            }
+            if sha:
+                body["sha"] = sha
+            write = urllib.request.Request(
+                url,
+                data=json.dumps(body).encode("utf-8"),
+                headers={**headers, "Content-Type": "application/json"},
+                method="PUT",
+            )
+            with urllib.request.urlopen(write, timeout=45) as response:
+                if response.status not in (200, 201):
+                    raise RuntimeError("GitHub checkpoint PUT returned unexpected status")
+                result = json.loads(response.read().decode("utf-8"))
+            if not result.get("content", {}).get("sha"):
+                raise RuntimeError("GitHub checkpoint PUT returned no content SHA")
+            return {"ok": True, "path": path, "backend": "actions_token"}
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                raise RuntimeError(
+                    "GitHub Actions checkpoint denied (HTTP "
+                    + str(exc.code)
+                    + "); verify CPU job contents: write"
+                ) from exc
+            if exc.code not in (408, 409, 422, 429, 500, 502, 503, 504):
+                raise
+            last_error = exc
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            last_error = exc
+        if attempt < 2:
+            time.sleep(2 ** attempt)
+    raise RuntimeError(
+        "GitHub Actions checkpoint mirror temporarily unavailable after 3 attempts"
+    ) from last_error
+
+
 def publish_github_checkpoint(task_id: str, payload):
     """Publish through the authenticated Studio runtime bridge when available."""
     task_id = _normalize_task_id(task_id)
+    actions_token = str(os.environ.get("SOULKEY_GITHUB_ACTIONS_TOKEN") or "").strip()
+    if actions_token:
+        previous = _actions_last_mirror.get(task_id)
+        due = previous is None or (
+            time.monotonic() - previous >= _ACTIONS_MIRROR_INTERVAL_SECONDS
+        )
+        final = str(payload.get("status") or "").lower() == "complete"
+        if not final and not due:
+            return {"ok": False, "skipped": True, "reason": "throttled"}
+        result = _publish_github_with_actions_token(task_id, payload, actions_token)
+        _actions_last_mirror[task_id] = time.monotonic()
+        print("[CHECKPOINT] GitHub Actions mirror 已更新：" +
+              github_checkpoint_path(task_id), flush=True)
+        return result
     bridge_url = str(os.environ.get("SOULKEY_BRIDGE_URL") or "").strip()
     nonce = str(os.environ.get("SOULKEY_RUNTIME_NONCE") or "").strip()
 

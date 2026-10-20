@@ -191,10 +191,12 @@ def refresh_worker_drive_credentials(bridge_url,nonce):
     print("[FINISH:DRIVE] refreshed short-lived Google token",flush=True)
 
 
-def run_checkpointed_multi(cmd, retry_waits=(15,40)):
-    """Resume checkpointed translation before starting TTS."""
+def run_checkpointed_multi(cmd, retry_waits=(15,40), refresh_credentials=None):
+    """Resume checkpointed translation, refreshing Google credentials on retry."""
     for attempt in range(len(retry_waits)+1):
         try:
+            if attempt and refresh_credentials:
+                refresh_credentials()
             run(cmd)
             return
         except subprocess.CalledProcessError:
@@ -752,12 +754,14 @@ def main():
                     + ",".join(translate_langs),
                     flush=True,
                 )
-                run([
+                run_checkpointed_multi([
                     sys.executable,
                     str(system_dir / "gemini_multi_production_runner.py"),
                     "--task-id", args.task_id,
                     "--langs", ",".join(translate_langs),
-                ])
+                ], refresh_credentials=lambda:refresh_worker_drive_credentials(
+                    args.bridge_url, args.runtime_nonce
+                ))
 
             print(
                 "[TTS] Natural TTS v2 使用 CPU + Internet；不申請 GPU。",
@@ -899,6 +903,14 @@ def main():
                 "部分語言未達原片時長要求，未交付超時 MP3；保留精簡報告"
                 if audio_result=="needs_review"
                 else "所有指定語言智慧配音 MP3 已完成時長與 Drive 驗證",
+            )
+            cmd=None
+        if cmd and args.stage=="multi":
+            run_checkpointed_multi(
+                cmd,
+                refresh_credentials=lambda:refresh_worker_drive_credentials(
+                    args.bridge_url, args.runtime_nonce
+                ),
             )
             cmd=None
         if cmd:

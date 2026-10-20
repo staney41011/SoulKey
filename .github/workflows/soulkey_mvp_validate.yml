@@ -54,6 +54,7 @@ jobs:
         working-directory: translation-system
         run: |
           python -m unittest -v tests/test_drive_upload_502_retry.py
+          python -m unittest -v tests/test_actions_checkpoint_mirror.py
 
       - name: Multilingual manuscript preflight regression
         working-directory: translation-system

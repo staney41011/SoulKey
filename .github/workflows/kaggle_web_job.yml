@@ -384,7 +384,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     permissions:
-      contents: read
+      # CPU Worker can mirror checkpoints with short-lived Actions token.
+      contents: write
     steps:
       - name: Mask short-lived Bridge authentication inputs before any other step
         shell: bash
@@ -428,6 +429,8 @@ jobs:
           SOULKEY_REPO_DIR: ${{ github.workspace }}
           SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/soulkey-tts-workdir
           SOULKEY_GEMINI_MULTI_WORKDIR: ${{ runner.temp }}/soulkey-multi-workdir
+          # Never sent to Apps Script or printed in logs.
+          SOULKEY_GITHUB_ACTIONS_TOKEN: ${{ github.token }}
           SOULKEY_EDGE_ENDPOINT: msedgeservices
           SOULKEY_TTS_PARALLEL_BLOCKS: ${{ vars.SOULKEY_TTS_PARALLEL_BLOCKS || '2' }}
         run: |
