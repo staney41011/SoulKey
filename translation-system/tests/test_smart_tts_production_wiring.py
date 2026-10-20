@@ -15,7 +15,7 @@ class SmartTTSProduction(unittest.TestCase):
         self.assertIn('default=True,',runner)
         self.assertIn('--legacy-tts-timing',runner)
         self.assertIn('smart_fit_pilot=args.smart_fit_pilot',runner)
-        self.assertIn('not args.force and not args.smart_fit_pilot',runner)
+        self.assertIn('if (\n                        not args.force\n                        and existing_natural_output(',runner)
         self.assertIn('existing_natural_output(',runner)
 
     def test_video_duration_is_hard_stop(self):
@@ -27,14 +27,16 @@ class SmartTTSProduction(unittest.TestCase):
         self.assertIn('"needs_review"',runner)
         self.assertIn('if args.strict_delivery and strict_review:',runner)
 
-    def test_no_overlong_audio_uploaded(self):
+    def test_review_preview_is_uploaded_but_formal_mp3_is_never_faked(self):
         runner=code("translation-system/tts_runner.py")
-        self.assertNotIn('smart_fit_review.mp3',runner)
-        section=runner.split('if args.smart_fit_pilot and result["status"] == "needs_review":')[1]
-        section=section.split('                    else:' + chr(10) + '                        upload_natural_outputs(')[0]
-        self.assertIn('("narration_script", "smart_fit_report")',section)
-        self.assertNotIn('preview_mp3',section)
-        self.assertNotIn('upload_natural_outputs(',section)
+        self.assertNotIn("smart_fit_review.mp3",runner)
+        self.assertIn('("preview_mp3", "alignment_report", "manifest")',runner)
+        self.assertIn('upload_natural_outputs(',runner)
+        self.assertIn('delivered=verify_uploaded_natural_output(',runner)
+        self.assertIn('timeline_mp3.unlink(missing_ok=True)',runner)
+        self.assertIn('if result["status"]=="needs_review"',runner)
+        self.assertIn('f"{lang}.preview.mp3"',runner)
+        self.assertIn('未發布超時正式 MP3',runner)
 
     def test_studio_and_batch_always_route_through_smart_fit(self):
         worker=code("translation-system/web_job_worker.py")

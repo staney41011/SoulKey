@@ -90,6 +90,31 @@
     // Languages without a verified full-length Drive file show pending.
     return LANGUAGES;
   }
+  function reviewReason(task,code) {
+    const stage=task?.remoteStages?.["tts:"+code]||{};
+    const state=String(stage.status||"").toLowerCase();
+    const message=String(stage.message||"").trim();
+    const timing=/自然長度\s*=\s*([\d.]+)s[^；\n]*[；,，]\s*影片上限\s*=\s*([\d.]+)s/.exec(message);
+    function length(sec){
+      const whole=Math.max(0,Math.round(Number(sec)||0));
+      return Math.floor(whole/60)+"分"+String(whole%60).padStart(2,"0")+"秒";
+    }
+    if(timing){
+      const actual=Number(timing[1]), limit=Number(timing[2]);
+      if(Number.isFinite(actual)&&Number.isFinite(limit)&&actual>limit)
+        return "自然配音 "+length(actual)+"，影片上限 "+length(limit)+"，超出 "+length(actual-limit);
+      return "音檔時長尚未通過驗收（請核對驗收報告）";
+    }
+    if(/尚未配音|等待.*multi|English Final.*multi/.test(message))
+      return "翻譯稿尚未與最新英文定稿同步，配音未完成";
+    if(state==="stale") return "課程文稿已更新，音檔版本需要重新確認";
+    if(state==="running"||state==="queued") return "最新音檔仍在製作，這是舊試聽檔";
+    if(state==="error") return "配音處理失敗，請查執行紀錄後重新驗證";
+    if(/超過原片|超過影片|時長驗收/.test(message))
+      return "音檔超出原影片時長，尚未符合正式交付標準";
+    if(state==="needs_review") return "尚未通過時長或完整性驗收，請查看執行紀錄";
+    return "自然語音試聽版，尚未確認符合原影片時長";
+  }
   function build(task, courseFilesPayload) {
     const stages=task?.remoteStages || {};
     const audio=(Array.isArray(courseFilesPayload?.groups) ? courseFilesPayload.groups : [])
@@ -103,10 +128,8 @@
       const link=canonicalDriveUrl(file);
       if(link){
         const preview=Boolean(file.needs_timing_review);
-        // Never replace a verified canonical MP3 with an optional preview.
-        if(!fileMap[code] || (fileMap[code].preview && !preview)){
-          fileMap[code]={link,preview};
-        }
+        if(!fileMap[code]) fileMap[code]={};
+        fileMap[code][preview?"review":"official"]={link,preview};
         if(!present.includes(code)) present.push(code);
       }
     });
@@ -138,7 +161,10 @@
       // A partial lesson failure must not hide independently completed files.
       // A stale aggregate still blocks release unless this language has a
       // fresh, explicitly finished stage and a real Drive-backed MP3.
-      const candidate=fileMap[lang.code];
+      const record=fileMap[lang.code]||{};
+      const candidate=status==="needs_review"
+        ? record.review
+        : (record.official||record.review);
       const explicitReview=Boolean(candidate?.preview);
       const validLanguageStatus=explicitReview
         ? ["done","needs_review",""].includes(status)
@@ -149,15 +175,15 @@
         (ttsStatus==="error" && status!=="done" &&
           !(explicitReview && status==="needs_review"));
       if(candidate && !invalidated){
+        lines.push(candidate.link);
         if(explicitReview){
-          lines.push("（尚未與原影片時長同步）");
+          lines.push("⚠️ 待驗收："+reviewReason(task,lang.code)+"（完整試聽檔，非影片同步正式 MP3）");
           reviewCount++;
         }
-        lines.push(candidate.link);
         readyCount++;
       } else {
         lines.push(status==="needs_review"
-          ? "音檔待驗收 / Audio pending review"
+          ? "音檔待驗收："+reviewReason(task,lang.code)+"；尚無可取得的試聽 MP3"
           : "音檔待確認 / Audio pending verification");
         pendingCount++;
       }
@@ -171,5 +197,5 @@
       languages:languages.map(l=>l.code)
     };
   }
-  return { LANGUAGES, build, canonicalMp3Code, canonicalDriveUrl, titleInfo, lessonNumber };
+  return { LANGUAGES, build, canonicalMp3Code, canonicalDriveUrl, reviewReason, titleInfo, lessonNumber };
 });

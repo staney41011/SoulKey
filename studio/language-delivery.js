@@ -51,31 +51,39 @@
     const invalidated=invalid.includes(per) ||
       ((aggregate==="stale"||aggregate==="error") && per!=="done");
     const candidates=[...standard(coursePayload,"audio"),...standard(sharePayload,"audio")];
-    let audio=null,hasPreview=false;
+    let formal=null,preview=null;
     candidates.forEach(file=>{
-      if(file?.needs_timing_review ||
-         /\.preview\.mp3$/i.test(canonical(file)) ||
-         /自然試聽版\.mp3$/i.test(String(file?.name||""))){
-        const previewCode=/^([a-z]{2})\.preview\.mp3$/i.exec(canonical(file));
-        const aliases={en:"英文",th:"泰文",es:"西班牙文",id:"印尼文",vi:"越南文",hi:"印地語",ta:"泰米爾文",ja:"日文",ko:"韓文",km:"高棉文",bn:"孟加拉文",ne:"尼泊爾文",lo:"寮文",my:"緬甸文",it:"義大利文",pt:"葡萄牙文"};
-        if(previewCode?.[1]?.toLowerCase()===code ||
-           String(file?.name||"").endsWith("_"+(aliases[code]||code)+"自然試聽版.mp3")) hasPreview=true;
+      const name=canonical(file);
+      const previewCode=/^([a-z]{2})\.preview\.mp3$/i.exec(name);
+      if(previewCode){
+        if(previewCode[1].toLowerCase()!==code || file?.needs_timing_review!==true) return;
+        const url=TTS?.canonicalDriveUrl ? TTS.canonicalDriveUrl(file) : verifiedDrive(file);
+        if(url) preview={url,label:"開啟試聽 MP3"};
         return;
       }
-      const name=canonical(file);
       const parsed=TTS?.canonicalMp3Code?.(file) ||
         (/^([a-z]{2})\.mp3$/i.exec(name)?.[1]||"").toLowerCase();
-      if(parsed!==code || invalidated) return;
+      if(parsed!==code || file?.needs_timing_review) return;
       const url=TTS?.canonicalDriveUrl ? TTS.canonicalDriveUrl(file) : verifiedDrive(file);
-      if(url) audio={url,label:"開啟 MP3"};
+      if(url) formal={url,label:"開啟正式 MP3"};
     });
+    const reason=TTS?.reviewReason
+      ? TTS.reviewReason(task,code)
+      : "尚未完成配音品質及時長驗收";
     const doc=foundDoc
       ? {status:"ready",label:foundDoc.label,url:foundDoc.url}
       : {status:"pending",label:groupsVerified?"待產生":"尚未查詢",url:""};
-    const voice=audio
-      ? {status:"ready",label:audio.label,url:audio.url}
-      : {status:"pending",label:invalidated||hasPreview||per==="needs_review"?"待驗收":
-          (groupsVerified||shareVerified?"待產生":"尚未查詢"),url:""};
+    const voice=per==="needs_review"
+      ? (preview
+        ? {status:"review",label:preview.label,url:preview.url,reason}
+        : {status:"pending",label:"待驗收（目前尚無可取得的試聽 MP3）",url:"",reason})
+      : (formal&&!invalidated
+        ? {status:"ready",label:formal.label,url:formal.url}
+        : (preview
+          ? {status:"review",label:preview.label,url:preview.url,reason}
+          : {status:"pending",label:invalidated?"待驗收":(
+              groupsVerified||shareVerified?"待產生":"尚未查詢"),url:"",
+              ...(invalidated?{reason}:{})}));
     return {doc,audio:voice};
   }
   return {resolve,verifiedDrive,textCode};

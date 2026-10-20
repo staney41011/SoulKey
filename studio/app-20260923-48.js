@@ -1959,15 +1959,17 @@ const LANGUAGE_ZH_NAMES={
 let languagePlanExpanded=false;
 function languageDeliverableHtml(data,kind){
   const item=data?.[kind]||{status:"pending",label:"尚未查詢",url:""};
-  const ready=item.status==="ready" && !!item.url;
-  if(ready){
+  const linked=(item.status==="ready"||item.status==="review") && !!item.url;
+  const reason=item.reason
+    ? '<small class="language-review-reason">待驗收：'+escapeHtml(item.reason)+'</small>' : "";
+  if(linked){
     const url=escapeHtml(item.url);
-    return '<div class="language-file-output ready">'+
+    return '<div class="language-file-output '+(item.status==="review"?"review":"ready")+'">'+
       '<a href="'+url+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(item.label)+'</a>'+
       '<button class="mini ghost" type="button" data-language-file-copy="'+url+'" aria-label="複製檔案連結">複製</button>'+
-      '</div>';
+      reason+'</div>';
   }
-  return '<span class="language-file-output pending">'+escapeHtml(item.label)+'</span>';
+  return '<span class="language-file-output pending">'+escapeHtml(item.label)+reason+'</span>';
 }
 function refreshLanguageDeliveryStatus(task){
   if(!task || task.id!==selectedTaskId) return;

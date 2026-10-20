@@ -3975,33 +3975,32 @@ function ttsShareLinks_(taskId) {
       {canonical:canonical,preview:false},
       {canonical:code + ".preview.mp3",preview:true}
     ];
-    let selected = null;
-    let file = null;
-    for (let j=0; j<candidates.length && !file; j++){
-      const entry=candidates[j];
+    // Return both official and review audio, if present. A newer review
+    // result must not disappear just because an older official MP3 exists.
+    candidates.forEach(function(entry) {
       const names=[formalDriveName_(id,entry.canonical),entry.canonical];
+      let file=null;
       for (let i=0; i<names.length; i++){
         const matches=audioFolder.getFilesByName(names[i]);
         if(matches.hasNext()){
-          selected=entry;
           file=matches.next();
           break;
         }
       }
-    }
-    if (!file) return;
-    const size = Number(file.getSize() || 0);
-    if (!(size > 0)) return;
-    files.push({
-      id:file.getId(),
-      name:file.getName(),
-      canonical_name:selected.canonical,
-      needs_timing_review:selected.preview,
-      audio_kind:selected.preview?"standalone_preview":"formal_aligned",
-      url:file.getUrl(),
-      size:size,
-      group_key:"audio",
-      group_label:"音檔"
+      if (!file) return;
+      const size = Number(file.getSize() || 0);
+      if (!(size > 0)) return;
+      files.push({
+        id:file.getId(),
+        name:file.getName(),
+        canonical_name:entry.canonical,
+        needs_timing_review:entry.preview,
+        audio_kind:entry.preview?"standalone_preview":"formal_aligned",
+        url:file.getUrl(),
+        size:size,
+        group_key:"audio",
+        group_label:"音檔"
+      });
     });
   });
   return {
@@ -4177,19 +4176,9 @@ function courseFilesOverview_(taskId) {
     .map(function(lang) { return audioChoice_(audioPool, lang); })
     .filter(Boolean);
 
-  // Show one preferred MP3 per language. If a natural narration did not
-  // fit the source video, expose its FULL preview rather than showing no file.
-  // When canonical audio exists, hide the redundant preview from the overview
-  // (never delete it from Drive or silently claim the preview is time-aligned).
-  const formalLangs = {};
-  canonicalAudioFiles.forEach(function(file) {
-    const name = canonicalName_(file);
-    if (/^[A-Za-z-]+\.mp3$/i.test(name)) {
-      formalLangs[audioBaseLang_(name)] = true;
-    }
-  });
+  // Always make real previews visible, including when an older official
+  // MP3 remains on Drive. UI distinguishes qualified vs review-only files.
   const previewAudioFiles = audioLanguages
-    .filter(function(lang) { return !formalLangs[lang]; })
     .map(function(lang) {
       const item=audioPool.find(function(file) {
         return canonicalName_(file) === lang + ".preview.mp3";
@@ -4201,7 +4190,8 @@ function courseFilesOverview_(taskId) {
         display_name: formalDriveName_(
           normalizedTaskId, lang + ".preview.mp3"
         ),
-        needs_timing_review: true
+        needs_timing_review: true,
+        audio_kind: "standalone_preview"
       });
     })
     .filter(Boolean);

@@ -1,6 +1,7 @@
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
+global.SoulKeyTTSShare=require("../tts-share-message.js");
 const api=require("../language-delivery.js");
 const root=path.resolve(__dirname,"..");
 function file(name,props={}){
@@ -21,18 +22,27 @@ let actual=api.resolve(task,"th",payload,null);
 assert.equal(actual.doc.status,"ready");
 assert.equal(actual.doc.label,"開啟定稿");
 assert.equal(actual.audio.status,"ready");
-assert.equal(actual.audio.label,"開啟 MP3");
+assert.equal(actual.audio.label,"開啟正式 MP3");
 actual=api.resolve(task,"en",payload,null);
 assert.equal(actual.doc.status,"ready");
 assert.equal(actual.audio.status,"pending","YouTube reference audio is not formal narration");
 actual=api.resolve(task,"hi",payload,null);
-assert.equal(actual.audio.status,"pending");
-assert.equal(actual.audio.label,"待驗收","Overlength preview must not show formal-ready");
+assert.equal(actual.audio.status,"review");
+assert.equal(actual.audio.label,"開啟試聽 MP3");
+assert.match(actual.audio.url,/drive.google.com/);
+assert.ok(actual.audio.reason.includes("試聽"),"Preview is not formal-ready");
 actual=api.resolve(task,"ko",payload,null);
 assert.equal(actual.audio.label,"待產生","Unrelated language preview must not contaminate status");
 actual=api.resolve({remoteStages:{tts:{status:"needs_review"},"tts:th":{status:"needs_review"}}},"th",payload,null);
 assert.equal(actual.audio.status,"pending");
-assert.equal(actual.audio.label,"待驗收","Review must override an older canonical MP3");
+assert.match(actual.audio.label,/待驗收/,"No approved preview: do not mislabel old official MP3");
+const thPreview=file("th.preview.mp3",{needs_timing_review:true,audio_kind:"standalone_preview"});
+actual=api.resolve({remoteStages:{tts:{status:"needs_review"},
+ "tts:th":{status:"needs_review",message:"自然長度=3610.0s，影片上限=3500.0s"}}},"th",
+ {ok:true,groups:[{key:"audio",files:[audio,thPreview]}]},null);
+assert.equal(actual.audio.status,"review","Prefer newer preview over old official MP3");
+assert.ok(actual.audio.url.includes(thPreview.id));
+assert.match(actual.audio.reason,/超出 1分50秒/);
 actual=api.resolve({remoteStages:{tts:{status:"stale"}}},"th",payload,null);
 assert.equal(actual.audio.status,"pending","Stale aggregate must block formal-ready");
 actual=api.resolve(task,"th",null,null);

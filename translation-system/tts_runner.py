@@ -666,8 +666,16 @@ def upload_natural_outputs(
         else ("mp3", "wav", "alignment_report", "manifest")
     )
     if result.get("smart_fit_report") is not None:
-        # The full original translation is not overwritten.
-        order = ("narration_script", "smart_fit_report") + order
+        # The full original translation is not overwritten. Review audio
+        # must be uploaded before metadata so a manifest never points to
+        # an unavailable preview.
+        order = (
+            ("preview_mp3", "narration_script", "smart_fit_report",
+             "alignment_report", "manifest")
+            if result["status"] == "needs_review"
+            else ("mp3", "wav", "narration_script", "smart_fit_report",
+                  "alignment_report", "manifest")
+        )
     for key in order:
         path=Path(result[key])
         canonical_name=path.name
@@ -863,7 +871,7 @@ def main():
                     )
 
                     if (
-                        not args.force and not args.smart_fit_pilot
+                        not args.force
                         and existing_natural_output(
                             drive,
                             folders["audio"],
@@ -895,7 +903,7 @@ def main():
                         )
                         continue
 
-                    if not args.force and not args.smart_fit_pilot and verify_uploaded_natural_output(
+                    if not args.force and verify_uploaded_natural_output(
                         drive,folders["audio"],lang,source_sha256,
                         duration_limit,workdir
                     )=="needs_review":
@@ -918,9 +926,12 @@ def main():
                         mark_needs_review(
                             task["task_id"],lang_stage,
                             sheets=sheets,run_id=lang_run_id,
-                            message=f"{LANGUAGE_NAMES[lang]} full natural "
-                                "preview MP3 already verified on Drive; "
-                                "video timing review still needed"
+                            message=(
+                                f"{LANGUAGE_NAMES[lang]} 完整自然試聽 MP3 已存在 Drive；"
+                                f"自然長度={float(timeline.get('natural_duration') or 0):.1f}s；"
+                                f"影片上限={float(timeline.get('source_duration') or duration_limit):.1f}s；"
+                                "待驗收：音檔超過原片時長"
+                            )
                         )
                         print(
                             f"[TTS-DRIVE-VERIFIED] {lang}=needs_review "
@@ -961,31 +972,17 @@ def main():
                         checkpoint_store=cloud_cache,
                         smart_fit_pilot=args.smart_fit_pilot,
                     )
-                    if args.smart_fit_pilot and result["status"] == "needs_review":
-                        # Never publish an overlong audio file to the shared
-                        # folder. Retain review report + spoken script only,
-                        # preserving an existing approved canonical MP3.
-                        for key in ("narration_script", "smart_fit_report"):
-                            path = Path(result[key])
-                            upload_or_replace_file(
-                                drive, folders["audio"], path, path.name,
-                                display_name=formal_drive_name(task, path.name),
-                            )
-                    else:
-                        upload_natural_outputs(
-                            drive, folders["audio"], result, task,
-                        )
-                    # An API upload call returning is not enough. Re-fetch
-                    # the Drive manifest + nonempty MP3 before marking done.
-                    delivered=(
-                        "needs_review"
-                        if args.smart_fit_pilot and result["status"] == "needs_review"
-                           and all(find_file(drive, folders["audio"], Path(result[key]).name)
-                                   for key in ("narration_script", "smart_fit_report"))
-                        else verify_uploaded_natural_output(
-                            drive,folders["audio"],lang,source_sha256,
-                            duration_limit,workdir
-                        )
+                    # A+B keeps unqualified audio OUT of the formal <lang>.mp3.
+                    # However, reviewers need the complete, clearly named
+                    # <lang>.preview.mp3 even if it is longer than the video.
+                    # Upload preview first, then review reports, then manifest;
+                    # the manifest's MD5/size receipt is verified from Drive.
+                    upload_natural_outputs(
+                        drive, folders["audio"], result, task,
+                    )
+                    delivered=verify_uploaded_natural_output(
+                        drive,folders["audio"],lang,source_sha256,
+                        duration_limit,workdir
                     )
                     if delivered != result["status"]:
                         raise RuntimeError(
@@ -1007,8 +1004,8 @@ def main():
                             f"{LANGUAGE_NAMES[lang]} 智慧精簡未達時長驗收；"
                             f"自然長度={timeline['natural_duration']:.1f}s，"
                             f"影片上限={timeline['source_duration']:.1f}s；"
-                            "未發布超時 MP3，已保留完整文稿與審核報告；"
-                            "若有舊版正式檔案則維持不變"
+                            "完整自然試聽 MP3 已上傳 Drive，僅供人工驗收；"
+                            "未發布超時正式 MP3；若有舊版正式檔案則維持不變"
                         )
                         mark_needs_review(
                             task["task_id"],

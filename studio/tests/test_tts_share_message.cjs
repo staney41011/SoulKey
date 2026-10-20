@@ -81,8 +81,15 @@ assert.equal(availablePreview.pendingCount,5);
 assert.equal(availablePreview.hasLinks,true);
 assert.equal(availablePreview.allReady,false);
 assert.ok(availablePreview.message.includes(spanishPreview.id));
-assert.match(availablePreview.message,/（尚未與原影片時長同步）/);
+assert.match(availablePreview.message,/待驗收：/);
+assert.match(availablePreview.message,/非影片同步正式 MP3/);
 assert.ok(!availablePreview.message.includes("未對時自然朗讀版"));
+lesson3.remoteStages["tts:es"].message="自然長度=3610.0s，影片上限=3500.0s";
+const withTiming=build(lesson3,payload([spanishPreview,make("es",99)]));
+assert.equal(withTiming.reviewCount,1,"Pending-review preview overrides older official audio");
+assert.match(withTiming.message,/超出 1分50秒/);
+assert.match(withTiming.message,/1ExampleSoulKeyDriveAudioId_41/);
+assert.doesNotMatch(withTiming.message,/1ExampleSoulKeyDriveAudioId_99/);
 const fakePreview=make("es",42,{
   canonical_name:"es.preview.mp3",name:"es.preview.mp3",
   needs_timing_review:true
