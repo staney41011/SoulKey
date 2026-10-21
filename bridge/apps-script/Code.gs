@@ -974,6 +974,8 @@ function normalizedReviewSharePayload_(taskId, payloadJson) {
       version: 5,
       task_id: String(taskId || "").trim(),
         save_request_id: String(payload.save_request_id || "").slice(0,90),
+        confirmed_segment_ids: Array.isArray(payload.confirmed_segment_ids)
+          ? payload.confirmed_segment_ids.map(Number) : [],
       draft_saved_at: new Date().toISOString(),
       zh_finalized_at: String(payload.zh_finalized_at || payload.finalized_at || ""),
       en_finalized_at: String(payload.en_finalized_at || ""),
@@ -1096,6 +1098,52 @@ function reviewShareDraftSave_(taskId, payloadJson) {
   };
 }
 
+/** Merge ONLY reviewed English rows. SKC owns the lesson; multiple editors
+ * must not replace the entire manuscript with stale snapshots. */
+function mergeEnglishConfirmedDraft_(existing, incoming, confirmedIds) {
+  if(!Array.isArray(confirmedIds) || !confirmedIds.length ||
+     confirmedIds.length>5000) throw new Error("missing_confirmed_segment_ids");
+  const selected={};
+  confirmedIds.forEach(function(id) {
+    const n=Number(id);
+    if(!Number.isSafeInteger(n)||n<0) throw new Error("invalid_confirmed_segment_id");
+    selected[String(n)]=true;
+  });
+  const incomingMap={};
+  incoming.segments.forEach(function(item){
+    incomingMap[String(item.id)]=item;
+  });
+  const oldRows=existing&&Array.isArray(existing.segments)&&existing.segments.length
+    ? existing.segments : null;
+  if(oldRows && oldRows.length!==incoming.segments.length)
+    throw new Error("draft_segment_layout_changed");
+  const sourceRows=oldRows||incoming.segments;
+  const found={};
+  const merged=sourceRows.map(function(old) {
+    const key=String(old.id);
+    if(!selected[key]) return old;
+    const next=incomingMap[key];
+    if(!next || next.en_confirmed!==true)
+      throw new Error("confirmed_segment_not_present_"+key);
+    found[key]=true;
+    return Object.assign({},old,{
+      en_text:String(next.en_text||""),
+      en_confirmed:true,
+      source_en:String(next.source_en||old.source_en||"")
+    });
+  });
+  Object.keys(selected).forEach(function(key){
+    if(!found[key])throw new Error("confirmed_segment_layout_mismatch_"+key);
+  });
+  return Object.assign({},oldRows?existing:incoming,{
+    task_id:incoming.task_id,
+    save_request_id:incoming.save_request_id,
+    draft_saved_at:new Date().toISOString(),
+    total_segments:merged.length,
+    segments:merged
+  });
+}
+
 function reviewEnglishDraftSave_(taskId, payloadJson) {
   const normalizedTaskId = String(taskId || "").trim();
   if (!/^P\d+-L\d+$/i.test(normalizedTaskId)) {
@@ -1130,26 +1178,43 @@ function reviewEnglishDraftSave_(taskId, payloadJson) {
     return normalized;
   }
 
-  // Drive is the durable primary store. GitHub sync runs in background;
-  // a slow GitHub API must never stall a per-sentence human confirmation.
+  // Serialize all English confirmations across browsers and merge only
+  // this request's rows. Existing Drive content is always authoritative.
+  const requested=normalized.payload.confirmed_segment_ids;
+  if(!Array.isArray(requested)||!requested.length){
+    return {source:"soulkey-bridge",type:"english_review_draft_saved",
+      ok:false,task_id:normalizedTaskId,
+      request_id:String(normalized.payload.save_request_id||""),
+      error:"client_upgrade_required",
+      message:"為防止跨裝置覆蓋，請備份目前修改後重新開啟最新版 Studio"};
+  }
   const props=PropertiesService.getScriptProperties();
   const requestId=String(normalized.payload.save_request_id||"");
-  const savedAt=String(normalized.payload.draft_saved_at||"");
+  let savedAt="";
+  let confirmedCount=0;
+  const lock=LockService.getScriptLock();
+  let locked=false;
   try {
+    lock.waitLock(20000);
+    locked=true;
     const folders=lessonFolders_(normalizedTaskId);
+    const current=readJsonFile_(folders.translation,"en.review.draft.json");
+    const merged=mergeEnglishConfirmedDraft_(
+      current,normalized.payload,requested
+    );
     writeTextFile_(
       folders.translation,"en.review.draft.json",
-      JSON.stringify(normalized.payload,null,2),
+      JSON.stringify(merged,null,2),
       "application/json",normalizedTaskId
     );
-    // Receipt is published ONLY after a successful Drive write. JSONP can
-    // independently recover this ACK when the cross-origin iframe is blocked.
+    savedAt=String(merged.draft_saved_at||"");
+    confirmedCount=merged.segments.filter(function(row){
+      return row.en_confirmed===true;
+    }).length;
+    // Receipt is issued ONLY after the Drive write completed.
     props.setProperty("SOULKEY_EN_DRAFT_RECEIPT_"+normalizedTaskId,
       JSON.stringify({
-        request_id:requestId,saved_at:savedAt,
-        confirmed_count:normalized.payload.segments.filter(function(row){
-          return row.en_confirmed===true;
-        }).length
+        request_id:requestId,saved_at:savedAt,confirmed_count:confirmedCount
       }));
   } catch(err) {
     return {
@@ -1158,6 +1223,8 @@ function reviewEnglishDraftSave_(taskId, payloadJson) {
       error:"drive_save_failed",
       message:"Google Drive 草稿儲存失敗："+String(err&&err.message||err)
     };
+  } finally {
+    if(locked) lock.releaseLock();
   }
   props.setProperty("SOULKEY_EN_CACHE_PENDING_"+normalizedTaskId,savedAt);
   try { scheduleChineseCacheRepair_(); } catch(_) {}

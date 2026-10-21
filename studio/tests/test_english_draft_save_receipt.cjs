@@ -42,6 +42,7 @@ const mocks={
 const codeDecls=[
  'let englishDraftSavePendingId=null;',
  'const englishDraftSaveQueuedIds=new Set();',
+ 'const englishReviewDirtyIds=new Set();',
  'let englishDraftSavePendingIds=new Set();',
  'let englishDraftSaveRequestId="";',
  'let englishDraftSaveWatchdog=null;',

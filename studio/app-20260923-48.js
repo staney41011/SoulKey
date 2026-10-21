@@ -191,6 +191,7 @@ let currentEnglishReview = [];
 let englishDraftSavePendingId = null;
 const englishDraftSaveQueuedIds = new Set();
 let englishDraftSavePendingIds = new Set();
+const englishReviewDirtyIds = new Set();
 let englishDraftSaveRequestId = "";
 let englishDraftSaveWatchdog = null;
 let englishDraftSavedSnapshot = null;
@@ -3688,22 +3689,57 @@ function syncEnglishFinalizeButton(task){
     :finalized?"✓ 已定稿・查看後續流程 →":"英文定稿";
 }
 
+function showEnglishDraftRecovery(taskId){
+  const button=document.getElementById("en-review-restore-unsaved");
+  if(!button) return;
+  let backup=null;
+  try{backup=JSON.parse(localStorage.getItem(
+    ENGLISH_UNCONFIRMED_BACKUP_PREFIX+taskId
+  )||"null");}catch(_){}
+  const exists=backup?.task_id===taskId &&
+    Array.isArray(backup.segments)&&backup.segments.length;
+  button.hidden=!exists;
+  button.onclick=()=>{
+    if(!window.confirm("將本機尚未核實的英文草稿載回畫面，請逐句確認後再儲存。確定恢復？"))return;
+    let restored;
+    try{restored=JSON.parse(localStorage.getItem(
+      ENGLISH_UNCONFIRMED_BACKUP_PREFIX+taskId
+    )||"null");}catch(_){}
+    if(!restored?.segments?.length)return;
+    const existing=new Map(currentEnglishReview.map(x=>[Number(x.id),x]));
+    const edits=restored.segments.map(x=>{
+      const old=existing.get(Number(x.id));
+      return old && String(old.en||"")!==String(x.en_text||"")
+        ? {...old,en:String(x.en_text||""),en_confirmed:false} : null;
+    }).filter(Boolean);
+    const map=new Map(edits.map(x=>[Number(x.id),x]));
+    edits.forEach(x=>englishReviewDirtyIds.add(Number(x.id)));
+    renderEnglishReview(currentEnglishReview.map(x=>map.get(Number(x.id))||x));
+    const state=document.getElementById("en-review-share-state");
+    if(state)state.textContent="已取回 "+edits.length+
+      " 筆本機草稿差異，尚未寫入雲端；請檢查並逐句確認。";
+    button.hidden=true;
+  };
+}
 async function openEnglishReview(taskId){
   if(!bridgeAuthenticated){
     setDashboardBridgeState("請先連線控制中心，才能編輯英文定稿。","error");
     showView("dashboard");
     return;
   }
-  if(englishDraftSavePendingId!==null && selectedTaskId!==taskId){
-    alert("前一堂英文確認正在儲存中，請等候完成後再切換課程。");
+  if(selectedTaskId!==taskId &&
+     (englishDraftSavePendingId!==null||englishReviewDirtyIds.size)){
+    alert("這堂課仍有未確認的英文修改，請先完成確認或複製備份再切換課程。");
     return;
   }
+  if(selectedTaskId!==taskId) englishReviewDirtyIds.clear();
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
 
   const shareState=document.getElementById("en-review-share-state");
   if(shareState) shareState.textContent="";
+  showEnglishDraftRecovery(taskId);
   // Reset the shared action on EVERY lesson switch. A previously finalized
   // lesson must never leave the next lesson with a disabled "已定稿" button.
   syncEnglishFinalizeButton(task);
@@ -3781,6 +3817,9 @@ async function openEnglishReview(taskId){
             ? "提示：英文 CC 來自重新上傳前的影片；已依中文定稿整理成對照段落。若新片有剪輯變更，請先驗證影片來源。"
             : "已按中文 Final 時間軸載入完整的中英對照段落；正式儲存仍寫入 Google Drive";
         }
+        // GitHub is a fast PREVIEW, not the manuscript source of truth.
+        // Always fetch the latest Google Drive draft, even on another device.
+        requestReviewData(taskId,"en",0);
         return;
       }
     }catch(err){
@@ -4018,6 +4057,7 @@ function finishEnglishReviewDraftSave(data){
       const unchanged=!!saved && !!current && current.en_confirmed===true &&
         String(current.en||"")===String(saved.en_text||"");
       markEnglishConfirmResult(id,unchanged,unchanged?"":"確認此句");
+      if(unchanged) englishReviewDirtyIds.delete(id);
     });
     if(submitted && Array.isArray(submitted.segments)){
       const ack={...submitted,
@@ -4025,9 +4065,13 @@ function finishEnglishReviewDraftSave(data){
         github_synced:data.github_synced!==false};
       try{
         // Save the exact server-acknowledged version, not later unsent edits.
-        localStorage.setItem(ENGLISH_DRIVE_ACK_PREFIX+currentId,
-          JSON.stringify(ack));
-        localStorage.removeItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+currentId);
+        if(!englishReviewDirtyIds.size && !englishDraftSaveQueuedIds.size){
+          localStorage.setItem(ENGLISH_DRIVE_ACK_PREFIX+currentId,
+            JSON.stringify(ack));
+          localStorage.removeItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+currentId);
+        }
+        // This ACK attests the confirmed row(s) only. Unsent rows in a
+        // full snapshot must never be advertised as Drive-confirmed.
       }catch(_){}
     }
     if(state) state.textContent="本批 "+pendingIds.length+
@@ -4062,6 +4106,7 @@ function saveEnglishReviewDraft(confirmedId){
   englishDraftSaveRequestId=requestId;
   englishDraftSavedSnapshot=englishSavedPayloadSnapshot();
   englishDraftSavedSnapshot.save_request_id=requestId;
+  englishDraftSavedSnapshot.confirmed_segment_ids=ids;
   const state=document.getElementById("en-review-share-state");
   if(state) state.textContent="正在將 "+ids.length+" 筆英文確認保存到 Google Drive…";
   try{
@@ -4179,6 +4224,11 @@ function renderEnglishReview(items){
       if(!item) return;
       item.en=textarea.value;
       item.en_confirmed=false;
+      englishReviewDirtyIds.add(Number(item.id));
+      try{
+        localStorage.setItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+selectedTaskId,
+          JSON.stringify(englishReviewDraftPayload()));
+      }catch(_){}
       row.classList.remove("confirmed");
       if(btn){
         btn.disabled=false;
@@ -4859,18 +4909,32 @@ window.addEventListener("message",event=>{
     }else if(data.kind==="vernacular"){
       renderVernacularReview(data.segments||[]);
     }else if(data.kind==="en"){
+      if(String(data.task_id||"")!==String(selectedTaskId||"")) return;
       // A late Drive response must not discard the user's in-flight edit.
       if(englishDraftSavePendingId!==null ||
          englishDraftSaveQueuedIds.size>0) return;
       // Bridge's current Drive English draft wins over an old GitHub cache.
       // review_load returns {original,en,ids,...}, unlike GitHub en.json.
       const loaded=Array.isArray(data.segments)?data.segments:[];
-      renderEnglishReview(loaded);
+      const dirty=new Map(currentEnglishReview
+        .filter(row=>englishReviewDirtyIds.has(Number(row.id)))
+        .map(row=>[Number(row.id),row]));
+      renderEnglishReview(loaded.map(row=>{
+        const edited=dirty.get(Number(row.id));
+        return edited
+          ? {...row,en:edited.en,en_confirmed:edited.en_confirmed}
+          : row;
+      }));
       if(data.source==="en.review.draft.json" ||
          data.source==="en.final.json"){
-        try{localStorage.removeItem(ENGLISH_DRIVE_ACK_PREFIX+data.task_id);}
-        catch(_){}
+        try{
+          if(!englishReviewDirtyIds.size)
+            localStorage.removeItem(ENGLISH_DRIVE_ACK_PREFIX+data.task_id);
+        }catch(_){}
       }
+      const state=document.getElementById("en-review-share-state");
+      if(state) state.textContent="已從 Google Drive 核對最新英文稿"+
+        (englishReviewDirtyIds.size?"；本機尚未儲存的修改已保留":"");
       // For earlier Drive-completed lessons, seed a separate GitHub /en.json
       // only once. Future opening is fast and will not touch Chinese /zh.json.
       if(bridgeAuthenticated && data.task_id &&
