@@ -603,7 +603,7 @@ class PipelineContracts(unittest.TestCase):
 
         self.assertIn('action:"review_en_draft_save"', app)
         self.assertIn("function saveEnglishReviewDraft(", app)
-        self.assertIn("英文確認進度已保存到 Google Drive 與 GitHub", app)
+        self.assertIn("review_en_draft_status", app)
         self.assertIn("正在寫入 Google Drive English Final", app)
         self.assertIn("englishFinalizePendingTaskId", app)
 
