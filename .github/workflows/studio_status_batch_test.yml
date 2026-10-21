@@ -8,6 +8,7 @@ on:
       - studio/language-delivery.js
       - studio/tests/test_language_delivery_layout.cjs
       - studio/tests/test_tts_share_message.cjs
+      - studio/tests/test_english_draft_save_receipt.cjs
       - studio/tests/test_review_audio_backend.cjs
       - studio/styles.css
       - studio/index.html
@@ -21,6 +22,7 @@ on:
       - studio/language-delivery.js
       - studio/tests/test_language_delivery_layout.cjs
       - studio/tests/test_tts_share_message.cjs
+      - studio/tests/test_english_draft_save_receipt.cjs
       - studio/tests/test_review_audio_backend.cjs
       - studio/styles.css
       - studio/index.html
@@ -44,6 +46,7 @@ jobs:
       - name: Verify TTS share message includes only valid Drive audio
         run: |
           node studio/tests/test_tts_share_message.cjs
+          node studio/tests/test_english_draft_save_receipt.cjs
           node studio/tests/test_review_audio_backend.cjs
           node studio/tests/test_language_delivery_layout.cjs
       - name: Verify all lessons receive status refresh
@@ -53,7 +56,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261020-review-preview-v2" in html
+          assert "app-20260923-48.js?v=20261021-english-save-receipt-v1" in html
           assert "tts-share-message.js?v=20261020-review-preview-v2" in html
           assert "id=\"tts-share-copy\"" in html
           assert html.index("tts-share-message.js?v=") < html.index("language-delivery.js?v=") < html.index("app-20260923-48.js?v=")

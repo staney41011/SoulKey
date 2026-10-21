@@ -54,6 +54,7 @@ function doGet(e) {
     "tasks_get",
     "review_load",
     "review_cache_status",
+    "review_en_draft_status",
     "youtube_capture_files",
     "course_files",
     "tts_share_links"
@@ -517,6 +518,24 @@ function bridgeRequest(request) {
       };
     }
 
+    if (action === "review_en_draft_status") {
+      const taskId = String(request.task_id || "").trim();
+      const valid = /^P\d+-L\d+$/i.test(taskId);
+      const raw = valid ? String(
+        PropertiesService.getScriptProperties().getProperty(
+          "SOULKEY_EN_DRAFT_RECEIPT_" + taskId
+        ) || ""
+      ) : "";
+      let receipt = {};
+      try { receipt=raw ? JSON.parse(raw) : {}; } catch (_) {}
+      return {
+        source:"soulkey-bridge",type:"review_en_draft_status",
+        ok:valid,task_id:taskId,
+        request_id:String(receipt.request_id||""),
+        saved_at:String(receipt.saved_at||""),
+        confirmed_count:Number(receipt.confirmed_count||0)
+      };
+    }
     if (action === "review_cache_status") {
       const taskId = String(request.task_id || "").trim();
       const state = chineseReviewCacheRevisionState_(taskId);
@@ -954,6 +973,7 @@ function normalizedReviewSharePayload_(taskId, payloadJson) {
     payload: {
       version: 5,
       task_id: String(taskId || "").trim(),
+        save_request_id: String(payload.save_request_id || "").slice(0,90),
       draft_saved_at: new Date().toISOString(),
       zh_finalized_at: String(payload.zh_finalized_at || payload.finalized_at || ""),
       en_finalized_at: String(payload.en_finalized_at || ""),
@@ -1110,54 +1130,42 @@ function reviewEnglishDraftSave_(taskId, payloadJson) {
     return normalized;
   }
 
-  // Drive is the durable primary store; GitHub is a convenience cache.
-  // Previously a failed GitHub update made the UI revert a genuinely saved
-  // confirmation to "確認此句", even though Drive already held the edit.
+  // Drive is the durable primary store. GitHub sync runs in background;
+  // a slow GitHub API must never stall a per-sentence human confirmation.
+  const props=PropertiesService.getScriptProperties();
+  const requestId=String(normalized.payload.save_request_id||"");
+  const savedAt=String(normalized.payload.draft_saved_at||"");
   try {
-    const folders = lessonFolders_(normalizedTaskId);
+    const folders=lessonFolders_(normalizedTaskId);
     writeTextFile_(
-      folders.translation,
-      "en.review.draft.json",
-      JSON.stringify(normalized.payload, null, 2),
-      "application/json",
-      normalizedTaskId
+      folders.translation,"en.review.draft.json",
+      JSON.stringify(normalized.payload,null,2),
+      "application/json",normalizedTaskId
     );
-  } catch (err) {
+    // Receipt is published ONLY after a successful Drive write. JSONP can
+    // independently recover this ACK when the cross-origin iframe is blocked.
+    props.setProperty("SOULKEY_EN_DRAFT_RECEIPT_"+normalizedTaskId,
+      JSON.stringify({
+        request_id:requestId,saved_at:savedAt,
+        confirmed_count:normalized.payload.segments.filter(function(row){
+          return row.en_confirmed===true;
+        }).length
+      }));
+  } catch(err) {
     return {
       source:"soulkey-bridge",type:"english_review_draft_saved",
-      ok:false,task_id:normalizedTaskId,error:"drive_save_failed",
-      message:"Google Drive 草稿儲存失敗："+String(err && err.message || err)
+      ok:false,task_id:normalizedTaskId,request_id:requestId,
+      error:"drive_save_failed",
+      message:"Google Drive 草稿儲存失敗："+String(err&&err.message||err)
     };
   }
-
-  let published;
-  try {
-    published = publishEnglishReviewCachePayload_(
-      normalizedTaskId, normalized.payload
-    );
-  } catch (err) {
-    published = {ok:false,error:"github_cache_exception",
-      message:String(err && err.message || err)};
-  }
-
-  const props=PropertiesService.getScriptProperties();
-  const pendingKey="SOULKEY_EN_CACHE_PENDING_"+normalizedTaskId;
-  if(published && published.ok){
-    props.deleteProperty(pendingKey);
-  }else{
-    props.setProperty(pendingKey,new Date().toISOString());
-    // Existing cache repair trigger can service English too.
-    scheduleChineseCacheRepair_();
-  }
+  props.setProperty("SOULKEY_EN_CACHE_PENDING_"+normalizedTaskId,savedAt);
+  try { scheduleChineseCacheRepair_(); } catch(_) {}
   return {
     source:"soulkey-bridge",type:"english_review_draft_saved",
-    ok:true,
-    github_synced:!!(published && published.ok),
-    task_id:normalizedTaskId,
-    saved_at:normalized.payload.draft_saved_at,
-    message:(published && published.ok)
-      ? "英文確認已保存到 Drive 與 GitHub"
-      : "英文確認已保存到 Google Drive，GitHub 快取稍後自動補同步"
+    ok:true,github_synced:false,task_id:normalizedTaskId,
+    request_id:requestId,saved_at:savedAt,
+    message:"英文確認已保存到 Google Drive；GitHub 快取將於背景同步"
   };
 }
 

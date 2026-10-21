@@ -189,11 +189,14 @@ let zhGithubSaveRevisionInFlight = 0;
 let currentVernacularReview = [];
 let currentEnglishReview = [];
 let englishDraftSavePendingId = null;
-let englishDraftSaveQueuedId = null;
+const englishDraftSaveQueuedIds = new Set();
+let englishDraftSavePendingIds = new Set();
+let englishDraftSaveRequestId = "";
 let englishDraftSaveWatchdog = null;
 let englishDraftSavedSnapshot = null;
 // Only acknowledgements from Drive-backed saves may enter this local cache.
 const ENGLISH_DRIVE_ACK_PREFIX="soulkey_en_drive_ack:";
+const ENGLISH_UNCONFIRMED_BACKUP_PREFIX="soulkey_en_unsaved_backup:";
 let englishFinalizePendingTaskId = "";
 let englishFinalizePriorFinishedAt = "";
 let englishFinalizeWatchdog = null;
@@ -3756,7 +3759,7 @@ async function openEnglishReview(taskId){
       const items=englishReviewItemsFromGithub(payload,kind==="en");
       if(items.length && items.some(x=>String(x.en||"").trim())){
         if(selectedTaskId!==taskId) return;
-        if(englishDraftSavePendingId!==null || englishDraftSaveQueuedId!==null){
+        if(englishDraftSavePendingId!==null || englishDraftSaveQueuedIds.size>0){
           if(shareState) shareState.textContent=
             "英文確認正在儲存；已略過較舊的 GitHub 快取畫面";
           return;
@@ -3990,46 +3993,118 @@ function englishSavedPayloadSnapshot(){
   return JSON.parse(JSON.stringify(englishReviewDraftPayload()));
 }
 
+function englishDraftQueueCount(){
+  return englishDraftSavePendingIds.size+englishDraftSaveQueuedIds.size;
+}
+function finishEnglishReviewDraftSave(data){
+  const currentId=String(selectedTaskId||"");
+  if(currentId!==String(data.task_id||"") ||
+     englishDraftSavePendingId===null ||
+     !englishDraftSaveRequestId ||
+     String(data.request_id||"")!==englishDraftSaveRequestId) return;
+  const state=document.getElementById("en-review-share-state");
+  const pendingIds=[...englishDraftSavePendingIds];
+  const submitted=englishDraftSavedSnapshot;
+  englishDraftSavePendingId=null;
+  englishDraftSavePendingIds=new Set();
+  englishDraftSavedSnapshot=null;
+  englishDraftSaveRequestId="";
+  window.clearTimeout(englishDraftSaveWatchdog);
+  if(data.ok){
+    const byId=new Map((submitted?.segments||[]).map(x=>[Number(x.id),x]));
+    pendingIds.forEach(id=>{
+      const saved=byId.get(id);
+      const current=currentEnglishReview.find(x=>Number(x.id)===id);
+      const unchanged=!!saved && !!current && current.en_confirmed===true &&
+        String(current.en||"")===String(saved.en_text||"");
+      markEnglishConfirmResult(id,unchanged,unchanged?"":"確認此句");
+    });
+    if(submitted && Array.isArray(submitted.segments)){
+      const ack={...submitted,
+        draft_saved_at:String(data.saved_at||new Date().toISOString()),
+        github_synced:data.github_synced!==false};
+      try{
+        // Save the exact server-acknowledged version, not later unsent edits.
+        localStorage.setItem(ENGLISH_DRIVE_ACK_PREFIX+currentId,
+          JSON.stringify(ack));
+        localStorage.removeItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+currentId);
+      }catch(_){}
+    }
+    if(state) state.textContent="本批 "+pendingIds.length+
+      " 筆英文確認已保存到 Google Drive"+(englishDraftSaveQueuedIds.size
+        ?"；繼續儲存後續確認…":"；GitHub 快取背景同步");
+  }else{
+    pendingIds.forEach(id=>markEnglishConfirmResult(id,false,"重試確認"));
+    if(state) state.textContent="本批儲存失敗："+String(data.message||data.error||"未知錯誤")+
+      "。英文文字仍保留在本頁，請按「重試確認」。";
+  }
+  if(englishDraftSaveQueuedIds.size){
+    const next=englishDraftSaveQueuedIds.values().next().value;
+    window.setTimeout(()=>saveEnglishReviewDraft(next),0);
+  }
+}
 function saveEnglishReviewDraft(confirmedId){
   if(!selectedTaskId || !currentEnglishReview.length) return false;
   const id=Number(confirmedId);
+  englishDraftSaveQueuedIds.add(id);
   if(englishDraftSavePendingId!==null){
-    englishDraftSaveQueuedId=id;
     const state=document.getElementById("en-review-share-state");
-    if(state) state.textContent="前一筆儲存中；新的確認已排入佇列…";
+    if(state) state.textContent="前一批儲存中；其餘 "+
+      englishDraftSaveQueuedIds.size+" 筆確認已排入佇列…";
     return true;
   }
-
-  englishDraftSavePendingId=id;
+  const ids=[...englishDraftSaveQueuedIds];
+  englishDraftSaveQueuedIds.clear();
+  englishDraftSavePendingIds=new Set(ids);
+  englishDraftSavePendingId=ids[0];
+  const currentId=selectedTaskId;
+  const requestId=String(Date.now())+"-"+Math.random().toString(36).slice(2);
+  englishDraftSaveRequestId=requestId;
   englishDraftSavedSnapshot=englishSavedPayloadSnapshot();
+  englishDraftSavedSnapshot.save_request_id=requestId;
   const state=document.getElementById("en-review-share-state");
-  if(state) state.textContent="正在儲存英文確認進度到 Google Drive…";
-
+  if(state) state.textContent="正在將 "+ids.length+" 筆英文確認保存到 Google Drive…";
+  try{
+    localStorage.setItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+currentId,
+      JSON.stringify(englishDraftSavedSnapshot));
+  }catch(_){}
   const sent=submitBridgePost({
     action:"review_en_draft_save",
-    task_id:selectedTaskId,
+    task_id:currentId,
     payload_json:JSON.stringify(englishDraftSavedSnapshot)
   });
-
   if(!sent){
+    ids.forEach(x=>markEnglishConfirmResult(x,false,"重試確認"));
     englishDraftSavePendingId=null;
+    englishDraftSavePendingIds=new Set();
+    englishDraftSaveRequestId="";
     englishDraftSavedSnapshot=null;
-    if(state) state.textContent="英文草稿尚未儲存：控制中心未連線";
+    if(state) state.textContent="控制中心未連線：英文保留在本機，尚未確認寫入。";
     return false;
   }
+  const probe=()=>{
+    if(selectedTaskId===currentId &&
+       englishDraftSaveRequestId===requestId)
+      jsonpBridgeRequest({
+        action:"review_en_draft_status",task_id:currentId
+      });
+  };
+  // POST iframe messages can be lost on mobile/cross-origin browsers.
+  // Read a tiny, Drive-committed receipt independently over JSONP.
+  [9000,25000,50000].forEach(delay=>window.setTimeout(probe,delay));
   window.clearTimeout(englishDraftSaveWatchdog);
-  const sendingTaskId=selectedTaskId;
   englishDraftSaveWatchdog=window.setTimeout(()=>{
-    if(englishDraftSavePendingId!==id || selectedTaskId!==sendingTaskId) return;
+    if(englishDraftSaveRequestId!==requestId ||
+       selectedTaskId!==currentId) return;
+    const waiting=[...englishDraftSavePendingIds,...englishDraftSaveQueuedIds];
+    waiting.forEach(x=>markEnglishConfirmResult(x,false,"重試確認"));
     englishDraftSavePendingId=null;
+    englishDraftSavePendingIds=new Set();
+    englishDraftSaveQueuedIds.clear();
+    englishDraftSaveRequestId="";
     englishDraftSavedSnapshot=null;
-    markEnglishConfirmResult(id,false,"重試確認");
-    if(state) state.textContent=
-      "未收到 Google Drive 儲存確認，請重新點選「重試確認」，不要直接離開。";
-    const next=englishDraftSaveQueuedId;
-    englishDraftSaveQueuedId=null;
-    if(next!==null) window.setTimeout(()=>saveEnglishReviewDraft(next),0);
-  },165000);
+    if(state) state.textContent="儲存確認逾時。文字已留在本機備份，但雲端尚未核實，請按「重試確認」。";
+  },85000);
   return true;
 }
 
@@ -4786,7 +4861,7 @@ window.addEventListener("message",event=>{
     }else if(data.kind==="en"){
       // A late Drive response must not discard the user's in-flight edit.
       if(englishDraftSavePendingId!==null ||
-         englishDraftSaveQueuedId!==null) return;
+         englishDraftSaveQueuedIds.size>0) return;
       // Bridge's current Drive English draft wins over an old GitHub cache.
       // review_load returns {original,en,ids,...}, unlike GitHub en.json.
       const loaded=Array.isArray(data.segments)?data.segments:[];
@@ -4809,46 +4884,17 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="english_review_draft_saved"){
-    if(String(data.task_id||"")!==String(selectedTaskId||"") ||
-       englishDraftSavePendingId===null) return;
-    const state=document.getElementById("en-review-share-state");
-    const pendingId=englishDraftSavePendingId;
-    const submitted=englishDraftSavedSnapshot;
-    englishDraftSavePendingId=null;
-    englishDraftSavedSnapshot=null;
-    window.clearTimeout(englishDraftSaveWatchdog);
-
-    if(data.ok){
-      markEnglishConfirmResult(pendingId,true);
-      if(submitted && Array.isArray(submitted.segments)){
-        const ack={
-          ...submitted,
-          draft_saved_at:String(data.saved_at||new Date().toISOString()),
-          github_synced:data.github_synced!==false
-        };
-        writeReviewCache({
-          task_id:selectedTaskId,kind:"en",segments:ack.segments
-        });
-        // GitHub raw propagation can lag even after API reports success.
-        // Wait until Bridge re-reads the authoritative Drive draft.
-        localStorage.setItem(
-          ENGLISH_DRIVE_ACK_PREFIX+selectedTaskId,JSON.stringify(ack)
-        );
-      }
-      if(state) state.textContent=
-        data.github_synced===false
-          ?"英文已確認並存到 Google Drive；GitHub 快取會自動補同步"
-          :"英文確認進度已保存到 Google Drive 與 GitHub";
-    }else{
-      markEnglishConfirmResult(pendingId,false,"重試確認");
-      if(state) state.textContent=
-        "英文確認未成功儲存："+(data.message||data.error||"未知錯誤")+
-        "；請按「重試確認」。";
-    }
-    const next=englishDraftSaveQueuedId;
-    englishDraftSaveQueuedId=null;
-    if(next!==null && next!==pendingId){
-      window.setTimeout(()=>saveEnglishReviewDraft(next),0);
+    finishEnglishReviewDraftSave(data);
+  }
+  if(data.type==="review_en_draft_status"){
+    if(data.ok && englishDraftSaveRequestId &&
+       String(data.task_id||"")===String(selectedTaskId||"") &&
+       String(data.request_id||"")===englishDraftSaveRequestId){
+      finishEnglishReviewDraftSave({
+        source:"soulkey-bridge",type:"english_review_draft_saved",
+        ok:true,task_id:data.task_id,request_id:data.request_id,
+        saved_at:data.saved_at,github_synced:false
+      });
     }
   }
 
