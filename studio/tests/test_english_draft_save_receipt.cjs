@@ -52,6 +52,7 @@ const codeDecls=[
  'let englishDraftSavePendingId=null;',
  'const englishDraftSaveQueuedIds=new Set();',
  'const englishReviewDirtyIds=new Set();',
+ 'const englishCloudOverridesByTask={};',
  'let englishDraftSavePendingIds=new Set();',
  'let englishDraftSaveRequestId="";',
  'let englishDraftSaveWatchdog=null;',
@@ -97,5 +98,5 @@ assert.ok(bridge.includes('if (action === "review_en_draft_status")'));
 assert.ok(bridge.includes('SOULKEY_EN_DRAFT_RECEIPT_'));
 const backend=extract(bridge,"reviewEnglishDraftSave_");
 assert.ok(backend.indexOf("writeTextFile_(")<backend.indexOf("SOULKEY_EN_DRAFT_RECEIPT_"));
-assert.ok(backend.indexOf("SOULKEY_EN_DRAFT_RECEIPT_")<backend.indexOf("scheduleChineseCacheRepair_()"));
+assert.ok(backend.indexOf("en.review.edits.json")<backend.indexOf("SOULKEY_EN_DRAFT_RECEIPT_"),"Drive verified before receipt");
 console.log("SOULKEY_ENGLISH_SAVE_QUEUE_AND_RECEIPT_OK");

@@ -67,7 +67,9 @@ function doGet(e) {
       task_id: String((e && e.parameter && e.parameter.task_id) || "").trim(),
       task_ids: String((e && e.parameter && e.parameter.task_ids) || "").trim(),
       kind: String((e && e.parameter && e.parameter.kind) || "").trim(),
-      chunk_index: String((e && e.parameter && e.parameter.chunk_index) || "0").trim()
+      chunk_index: String((e && e.parameter && e.parameter.chunk_index) || "0").trim(),
+      request_id: String((e && e.parameter && e.parameter.request_id) || "").trim(),
+      include_edits: String((e && e.parameter && e.parameter.include_edits) || "").trim()
     };
     return jsonp_(callback, bridgeRequest(request));
   }
@@ -521,30 +523,43 @@ function bridgeRequest(request) {
     if (action === "review_en_draft_status") {
       const taskId = String(request.task_id || "").trim();
       const valid = /^P\d+-L\d+$/i.test(taskId);
-      const raw = valid ? String(
-        PropertiesService.getScriptProperties().getProperty(
-          "SOULKEY_EN_DRAFT_RECEIPT_" + taskId
-        ) || ""
-      ) : "";
-      let receipt = {};
-      try { receipt=raw ? JSON.parse(raw) : {}; } catch (_) {}
-      let failed = {};
-      try {
-        failed=JSON.parse(String(props.getProperty(
-          "SOULKEY_EN_DRAFT_FAILURE_"+taskId
-        )||"{}"));
-      } catch(_) {}
-      const newerFailure=String(failed.at||"")>String(receipt.saved_at||"");
-      const latest=newerFailure?failed:receipt;
-      return {
+      if(!valid)return {
         source:"soulkey-bridge",type:"review_en_draft_status",
-        ok:valid,task_id:taskId,
-        request_id:String(latest.request_id||""),
-        saved_at:String(receipt.saved_at||""),
-        confirmed_count:Number(receipt.confirmed_count||0),
-        error:newerFailure?String(failed.error||""):"",
-        message:newerFailure?String(failed.message||""):""
+        ok:false,task_id:taskId,error:"invalid_task_id"
       };
+      const prop=PropertiesService.getScriptProperties();
+      const requestId=String(request.request_id||"");
+      let ledger={};
+      try { ledger=JSON.parse(String(prop.getProperty(
+        "SOULKEY_EN_DRAFT_RECEIPTS_"+taskId
+      )||"{}")); } catch(_) {}
+      const receipt=requestId ? ledger[requestId] : null;
+      let failed={};
+      try { failed=JSON.parse(String(prop.getProperty(
+        "SOULKEY_EN_DRAFT_FAILURE_"+taskId
+      )||"{}")); }catch(_){}
+      const failure=requestId && !receipt && failed.request_id===requestId?failed:null;
+      const output={
+        source:"soulkey-bridge",type:"review_en_draft_status",
+        ok:true,task_id:taskId,
+        request_id:requestId,
+        committed:!!receipt,
+        saved_at:receipt?String(receipt.saved_at||""):"",
+        confirmed_count:receipt?Number(receipt.confirmed_count||0):0,
+        error:failure?String(failure.error||""):"",
+        message:failure?String(failure.message||""):""
+      };
+      if(String(request.include_edits||"")==="1"){
+        try {
+          const stored=readJsonFile_(lessonFolders_(taskId).translation,
+            "en.review.edits.json");
+          output.edits=stored&&stored.edits?stored.edits:{};
+          output.edits_saved_at=String(stored&&stored.saved_at||"");
+        }catch(err){
+          output.edits_error=String(err&&err.message||err).slice(0,180);
+        }
+      }
+      return output;
     }
     if (action === "review_cache_status") {
       const taskId = String(request.task_id || "").trim();
@@ -969,6 +984,7 @@ function normalizedReviewSharePayload_(taskId, payloadJson) {
       source_en: String(x.source_en || ""),
       en_text: (x.en_text === undefined || x.en_text === null ? String(x.source_en || "") : String(x.en_text)),
       en_confirmed: x.en_confirmed === true,
+      base_request_id:String(x.base_request_id||"").slice(0,90),
       // English passages have their own boundaries. Preserve the original
       // Chinese-to-English pairing across saves and reloads.
       pre_aligned: x.pre_aligned === true,
@@ -1208,43 +1224,71 @@ function reviewEnglishDraftSave_(taskId, payloadJson) {
     lock.waitLock(20000);
     locked=true;
     const folders=lessonFolders_(normalizedTaskId);
-    const current=readJsonFile_(folders.translation,"en.review.draft.json");
-    if(!current || !Array.isArray(current.segments) || !current.segments.length){
-      const loaded=loadReview_(normalizedTaskId,"en",0);
-      if(!loaded.ok || !Array.isArray(loaded.segments) || !loaded.segments.length)
-        throw new Error("english_source_missing_for_first_save");
-      normalized.payload.base_segments=loaded.segments.map(function(row,i){
-        return {
-          id:Number(row.id!==undefined?row.id:i),
-          start:Number(row.start||0),end:Number(row.end||0),
-          time:String(row.time||""),
-          text:String(row.original||""),source_en:String(row.source_en||""),
-          en_text:String(row.en||""),en_confirmed:row.en_confirmed===true,
-          pre_aligned:true,
-          zh_ids:Array.isArray(row.ids)?row.ids:[Number(row.id!==undefined?row.id:i)]
-        };
-      });
-    }
-    const merged=mergeEnglishConfirmedDraft_(
-      current,normalized.payload,requested
-    );
-    delete merged.base_segments;
-    writeTextFile_(
-      folders.translation,"en.review.draft.json",
-      JSON.stringify(merged,null,2),
-      "application/json",normalizedTaskId
-    );
-    savedAt=String(merged.draft_saved_at||"");
-    confirmedCount=merged.segments.filter(function(row){
-      return row.en_confirmed===true;
-    }).length;
-    // Receipt is issued ONLY after the Drive write completed.
+    // One independent durable map of human-confirmed paragraphs.
+    // Do NOT require en.json/en.final.json/en.review.draft.json to exist.
+    const stored=readJsonFile_(folders.translation,"en.review.edits.json")||{};
+    const edits=stored.edits&&typeof stored.edits==="object"
+      ? Object.assign({},stored.edits):{};
+    const incoming={};
+    normalized.payload.segments.forEach(function(row){
+      incoming[String(row.id)]=row;
+    });
+    requested.forEach(function(raw){
+      const id=Number(raw);
+      if(!Number.isSafeInteger(id)||id<0)throw new Error("invalid_segment_id");
+      const row=incoming[String(id)];
+      if(!row||row.en_confirmed!==true)
+        throw new Error("confirmed_segment_missing_"+id);
+      const existing=edits[String(id)];
+      const repeated=existing &&
+        String(existing.request_id||"")===requestId &&
+        String(existing.en_text)===String(row.en_text);
+      if(existing && !repeated &&
+         String(existing.request_id||"")!==String(row.base_request_id||""))
+        throw new Error("edit_conflict_reload_required_"+id);
+      edits[String(id)]={
+        en_text:String(row.en_text),
+        en_confirmed:true,
+        request_id:requestId,
+        updated_at:new Date().toISOString()
+      };
+    });
+    const now=new Date().toISOString();
+    const complete={
+      version:1,task_id:normalizedTaskId,saved_at:now,edits:edits
+    };
+    writeTextFile_(folders.translation,"en.review.edits.json",
+      JSON.stringify(complete),"application/json",normalizedTaskId);
+    // Do not claim success until Drive content was actually read back.
+    const verified=readJsonFile_(folders.translation,"en.review.edits.json");
+    requested.forEach(function(raw){
+      const key=String(Number(raw)),seen=verified&&verified.edits&&verified.edits[key];
+      if(!seen||seen.request_id!==requestId ||
+         String(seen.en_text)!==String(incoming[key].en_text))
+        throw new Error("drive_readback_mismatch_"+key);
+    });
+    savedAt=now;
+    confirmedCount=Object.keys(edits).length;
+    let ledger={};
+    try { ledger=JSON.parse(String(props.getProperty(
+      "SOULKEY_EN_DRAFT_RECEIPTS_"+normalizedTaskId
+    )||"{}")); }catch(_){}
+    ledger[requestId]={saved_at:now,confirmed_count:confirmedCount};
+    const recent=Object.keys(ledger).slice(-45);
+    const pruned={};
+    recent.forEach(function(k){pruned[k]=ledger[k];});
+    props.setProperty("SOULKEY_EN_DRAFT_RECEIPTS_"+normalizedTaskId,
+      JSON.stringify(pruned));
+    // Compatibility with the previous one-receipt endpoint.
     props.setProperty("SOULKEY_EN_DRAFT_RECEIPT_"+normalizedTaskId,
       JSON.stringify({
-        request_id:requestId,saved_at:savedAt,confirmed_count:confirmedCount
+        request_id:requestId,saved_at:now,confirmed_count:confirmedCount
       }));
   } catch(err) {
-    const message="Google Drive 草稿儲存失敗："+String(err&&err.message||err);
+    const detail=String(err&&err.message||err);
+    const message=detail.indexOf("edit_conflict_reload_required_")>=0
+      ? "這一句已由其他裝置更新，請先核對雲端最新文字再重新確認。"
+      : "Google Drive 草稿儲存失敗："+detail;
     try {
       props.setProperty("SOULKEY_EN_DRAFT_FAILURE_"+normalizedTaskId,
         JSON.stringify({
@@ -1260,13 +1304,11 @@ function reviewEnglishDraftSave_(taskId, payloadJson) {
   } finally {
     if(locked) lock.releaseLock();
   }
-  props.setProperty("SOULKEY_EN_CACHE_PENDING_"+normalizedTaskId,savedAt);
-  try { scheduleChineseCacheRepair_(); } catch(_) {}
   return {
     source:"soulkey-bridge",type:"english_review_draft_saved",
     ok:true,github_synced:false,task_id:normalizedTaskId,
     request_id:requestId,saved_at:savedAt,
-    message:"英文確認已保存到 Google Drive；GitHub 快取將於背景同步"
+    message:"該句英文已寫入 Drive 並完成回讀核對"
   };
 }
 

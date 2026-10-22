@@ -192,6 +192,7 @@ let englishDraftSavePendingId = null;
 const englishDraftSaveQueuedIds = new Set();
 let englishDraftSavePendingIds = new Set();
 const englishReviewDirtyIds = new Set();
+const englishCloudOverridesByTask={};
 let englishDraftSaveRequestId = "";
 let englishDraftSaveWatchdog = null;
 let englishDraftSavedSnapshot = null;
@@ -3721,6 +3722,11 @@ function showEnglishDraftRecovery(taskId){
     button.hidden=true;
   };
 }
+function requestEnglishCloudOverrides(taskId){
+  return jsonpBridgeRequest({
+    action:"review_en_draft_status",task_id:taskId,include_edits:"1"
+  });
+}
 async function openEnglishReview(taskId){
   if(!bridgeAuthenticated){
     setDashboardBridgeState("請先連線控制中心，才能編輯英文定稿。","error");
@@ -3740,6 +3746,7 @@ async function openEnglishReview(taskId){
   const shareState=document.getElementById("en-review-share-state");
   if(shareState) shareState.textContent="";
   showEnglishDraftRecovery(taskId);
+  requestEnglishCloudOverrides(taskId);
   // Reset the shared action on EVERY lesson switch. A previously finalized
   // lesson must never leave the next lesson with a disabled "已定稿" button.
   syncEnglishFinalizeButton(task);
@@ -4075,8 +4082,8 @@ function finishEnglishReviewDraftSave(data){
       }catch(_){}
     }
     if(state) state.textContent="本批 "+pendingIds.length+
-      " 筆英文確認已保存到 Google Drive"+(englishDraftSaveQueuedIds.size
-        ?"；繼續儲存後續確認…":"；GitHub 快取背景同步");
+      " 筆英文已通過 Google Drive 回讀驗證"+(englishDraftSaveQueuedIds.size
+        ?"；繼續儲存後續確認…":"");
   }else{
     pendingIds.forEach(id=>markEnglishConfirmResult(id,false,"重試確認"));
     if(state) state.textContent="本批儲存失敗："+String(data.message||data.error||"未知錯誤")+
@@ -4120,7 +4127,14 @@ function saveEnglishReviewDraft(confirmedId){
   const selected=new Set(ids.map(Number));
   const compactPayload={
     ...englishDraftSavedSnapshot,
-    segments:englishDraftSavedSnapshot.segments.filter(x=>selected.has(Number(x.id)))
+    segments:englishDraftSavedSnapshot.segments
+      .filter(x=>selected.has(Number(x.id)))
+      .map(x=>({
+        ...x,
+        base_request_id:String(
+          englishCloudOverridesByTask[currentId]?.[String(x.id)]?.request_id||""
+        )
+      }))
   };
   const endpoint=bridgeEndpointValue();
   const secret=bridgeKeyValue();
@@ -4150,12 +4164,13 @@ function saveEnglishReviewDraft(confirmedId){
     if(selectedTaskId===currentId &&
        englishDraftSaveRequestId===requestId)
       jsonpBridgeRequest({
-        action:"review_en_draft_status",task_id:currentId
+        action:"review_en_draft_status",task_id:currentId,
+        request_id:requestId
       });
   };
   // POST iframe messages can be lost on mobile/cross-origin browsers.
   // Read a tiny, Drive-committed receipt independently over JSONP.
-  [2000,6000,12000,22000,40000,65000].forEach(delay=>window.setTimeout(probe,delay));
+  [2000,6000,12000,22000,35000,45000].forEach(delay=>window.setTimeout(probe,delay));
   window.clearTimeout(englishDraftSaveWatchdog);
   englishDraftSaveWatchdog=window.setTimeout(()=>{
     if(englishDraftSaveRequestId!==requestId ||
@@ -4167,8 +4182,8 @@ function saveEnglishReviewDraft(confirmedId){
     englishDraftSaveQueuedIds.clear();
     englishDraftSaveRequestId="";
     englishDraftSavedSnapshot=null;
-    if(state) state.textContent="儲存確認逾時。文字已留在本機備份，但雲端尚未核實，請按「重試確認」。";
-  },85000);
+    if(state) state.textContent="55秒內未收到 Drive 儲存憑證。文字已保存在本機，按鈕可重試；請先核對雲端避免重複修改。";
+  },55000);
   return true;
 }
 
@@ -4186,14 +4201,21 @@ function englishReviewDisplayChinese(text){
 }
 function renderEnglishReview(items){
   const groupedItems=groupEnglishReviewItems(items);
-  currentEnglishReview=groupedItems;
+  const cloud=englishCloudOverridesByTask[selectedTaskId]||{};
+  currentEnglishReview=groupedItems.map(row=>{
+    const id=Number(row.id),edit=cloud[String(id)];
+    if(!edit||englishReviewDirtyIds.has(id)||
+       englishDraftSavePendingIds.has(id)||englishDraftSaveQueuedIds.has(id))
+      return row;
+    return {...row,en:String(edit.en_text),en_confirmed:edit.en_confirmed===true};
+  });
   document.getElementById("en-review-head")?.classList.add("hide-vernacular");
   document.getElementById("en-review-list")?.classList.add("hide-vernacular");
   const list=document.getElementById("en-review-list");
   const termBox=document.getElementById("en-term-learning");
   if(!list || !termBox) return;
 
-  list.innerHTML=groupedItems.map((item,index)=>
+  list.innerHTML=currentEnglishReview.map((item,index)=>
     '<article class="en-review-row" data-en-segment="'+item.id+'" data-en-ids="'+escapeHtml(item.ids.join(","))+'" data-start="'+escapeHtml(item.start ?? 0)+'" data-end="'+escapeHtml(item.end ?? 0)+'">'+
       '<div class="en-review-meta">'+
         '<span>句 '+(index+1)+'</span><span>'+escapeHtml(item.time)+'</span>'+
@@ -4872,12 +4894,17 @@ window.addEventListener("message",event=>{
         }
         if(!isMissing) alert("讀取人工校正資料失敗："+reason);
       }else if(data.kind==="en"){
-        // Neither GitHub English-CC cache nor Drive en.json is available.
-        // Present the intended fallback actions instead of a dead-end alert.
-        showNoEnglishCcFallback(data.task_id || selectedTaskId);
-        const status=document.getElementById("en-fallback-status");
-        if(status){
-          status.textContent="Drive 英文稿目前也尚未建立："+(data.message || data.error || "未知錯誤");
+        // A missing *base* JSON must never hide already-loaded manuscripts:
+        // Drive's independent human-edits store works without en.json.
+        if(Array.isArray(currentEnglishReview) && currentEnglishReview.length &&
+           String(data.task_id||"")===String(selectedTaskId||"")){
+          const state=document.getElementById("en-review-share-state");
+          if(state)state.textContent="已載入現有中英稿；Drive 尚未有整堂 JSON，逐句修改仍可獨立儲存";
+          requestEnglishCloudOverrides(data.task_id);
+        }else{
+          showNoEnglishCcFallback(data.task_id || selectedTaskId);
+          const status=document.getElementById("en-fallback-status");
+          if(status)status.textContent="此堂英文來源尚未建立："+(data.message || data.error || "未知錯誤");
         }
       }else{
         alert("讀取人工校正資料失敗："+(data.message || data.error || "未知錯誤"));
@@ -4964,8 +4991,9 @@ window.addEventListener("message",event=>{
         }catch(_){}
       }
       const state=document.getElementById("en-review-share-state");
-      if(state) state.textContent="已從 Google Drive 核對最新英文稿"+
+      if(state) state.textContent="已取得英文稿；正在核對 Drive 逐句人工修改"+
         (englishReviewDirtyIds.size?"；本機尚未儲存的修改已保留":"");
+      requestEnglishCloudOverrides(data.task_id);
       // For earlier Drive-completed lessons, seed a separate GitHub /en.json
       // only once. Future opening is fast and will not touch Chinese /zh.json.
       if(bridgeAuthenticated && data.task_id &&
@@ -4982,15 +5010,29 @@ window.addEventListener("message",event=>{
     finishEnglishReviewDraftSave(data);
   }
   if(data.type==="review_en_draft_status"){
+    const taskId=String(data.task_id||"");
+    if(data.ok && data.edits && typeof data.edits==="object" &&
+       taskId===String(selectedTaskId||"")){
+      englishCloudOverridesByTask[taskId]=data.edits;
+      if(englishDraftSavePendingId===null && !englishReviewDirtyIds.size &&
+         Array.isArray(currentEnglishReview) && currentEnglishReview.length){
+        renderEnglishReview(currentEnglishReview);
+        const state=document.getElementById("en-review-share-state");
+        if(state)state.textContent="已從 Google Drive 核對 "+
+          Object.keys(data.edits).length+" 筆逐句人工定稿";
+      }
+    }
     if(data.ok && englishDraftSaveRequestId &&
-       String(data.task_id||"")===String(selectedTaskId||"") &&
-       String(data.request_id||"")===englishDraftSaveRequestId){
+       taskId===String(selectedTaskId||"") &&
+       String(data.request_id||"")===englishDraftSaveRequestId &&
+       (data.committed===true || Boolean(data.error))){
       finishEnglishReviewDraftSave({
         source:"soulkey-bridge",type:"english_review_draft_saved",
-        ok:!data.error,task_id:data.task_id,request_id:data.request_id,
-        saved_at:data.saved_at,error:data.error||"",
-        message:data.message||"",github_synced:false
+        ok:data.committed===true&&!data.error,task_id:taskId,
+        request_id:data.request_id,saved_at:data.saved_at,
+        error:data.error||"",message:data.message||"",github_synced:false
       });
+      if(data.committed===true)requestEnglishCloudOverrides(taskId);
     }
   }
 
