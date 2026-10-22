@@ -5022,17 +5022,20 @@ window.addEventListener("message",event=>{
           Object.keys(data.edits).length+" 筆逐句人工定稿";
       }
     }
+    const verifiedNew=data.committed===true;
+    const verifiedLegacy=data.committed===undefined &&
+      Boolean(data.saved_at) && !data.error;
     if(data.ok && englishDraftSaveRequestId &&
        taskId===String(selectedTaskId||"") &&
        String(data.request_id||"")===englishDraftSaveRequestId &&
-       (data.committed===true || Boolean(data.error))){
+       (verifiedNew || verifiedLegacy || Boolean(data.error))){
       finishEnglishReviewDraftSave({
         source:"soulkey-bridge",type:"english_review_draft_saved",
-        ok:data.committed===true&&!data.error,task_id:taskId,
+        ok:(verifiedNew||verifiedLegacy)&&!data.error,task_id:taskId,
         request_id:data.request_id,saved_at:data.saved_at,
         error:data.error||"",message:data.message||"",github_synced:false
       });
-      if(data.committed===true)requestEnglishCloudOverrides(taskId);
+      if(verifiedNew)requestEnglishCloudOverrides(taskId);
     }
   }
 
