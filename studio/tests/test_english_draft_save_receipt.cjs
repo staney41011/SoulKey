@@ -27,9 +27,18 @@ const mocks={
     segments:rows.map(r=>({id:r.id,en_text:r.en,en_confirmed:r.en_confirmed}))
   }),
   document:{getElementById:()=>status},
-  submitBridgePost:payload=>{calls.push(payload);return true;},
+  bridgeEndpointValue:()=>"https://script.google.com/macros/s/fake/exec",
+  bridgeKeyValue:()=>"test-only-bridge-key",
+  bridgeAuthenticated:true,
+  fetch:(endpoint,opts)=>{calls.push({
+    action:"review_en_draft_save",
+    payload_json:new URLSearchParams(opts.body).get("payload_json"),
+    request_method:opts.method,
+    request_mode:opts.mode
+  });return Promise.resolve({type:"opaque"});},
   jsonpBridgeRequest:payload=>{calls.push(payload);return true;},
   markEnglishConfirmResult:(id,confirmed)=>{results[id]=confirmed;},
+  URLSearchParams,
   localStorage:{
     setItem:(k,v)=>localStore[k]=v,
     removeItem:k=>delete localStore[k]
@@ -59,6 +68,8 @@ assert.equal(mocks.saveEnglishReviewDraft(64),true);
 assert.equal(calls.filter(x=>x.action==="review_en_draft_save").length,1);
 const request=JSON.parse(calls[0].payload_json);
 assert.ok(request.save_request_id);
+assert.deepEqual(request.confirmed_segment_ids,[63]);
+assert.equal(request.segments.length,1,"Only current confirmed row sent");
 mocks.finishEnglishReviewDraftSave({
   task_id:"P258-L03",request_id:"different",ok:true
 });

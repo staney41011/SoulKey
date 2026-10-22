@@ -3480,7 +3480,7 @@ function englishReviewItemsFromGithub(payload,fromEnglishCache=false){
   return segments.map((item,i)=>{
     const zhText=String(item.text||"").trim();
     const sourceEn=String(item.source_en||"").trim();
-    const editableEn=String(item.en_text||sourceEn).trim();
+    const editableEn=String(item.en_text===undefined||item.en_text===null ? sourceEn : item.en_text).trim();
     const pairs=terms
       .filter(t=>t && t.name && zhText.includes(String(t.name)))
       .map(t=>({zh:String(t.name),en:String(t.en||"")}));
@@ -4113,20 +4113,39 @@ function saveEnglishReviewDraft(confirmedId){
     localStorage.setItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+currentId,
       JSON.stringify(englishDraftSavedSnapshot));
   }catch(_){}
-  const sent=submitBridgePost({
-    action:"review_en_draft_save",
-    task_id:currentId,
-    payload_json:JSON.stringify(englishDraftSavedSnapshot)
-  });
-  if(!sent){
+  // Google web apps can discard/never acknowledge large hidden iframe
+  // form POSTs. Use a small, cross-origin no-CORS POST (no third-party
+  // iframe/cookies) and authenticate success only via the Drive receipt GET.
+  // The payload contains ONLY rows confirmed in this request.
+  const selected=new Set(ids.map(Number));
+  const compactPayload={
+    ...englishDraftSavedSnapshot,
+    segments:englishDraftSavedSnapshot.segments.filter(x=>selected.has(Number(x.id)))
+  };
+  const endpoint=bridgeEndpointValue();
+  const secret=bridgeKeyValue();
+  if(!endpoint || !secret || !bridgeAuthenticated){
     ids.forEach(x=>markEnglishConfirmResult(x,false,"重試確認"));
     englishDraftSavePendingId=null;
     englishDraftSavePendingIds=new Set();
     englishDraftSaveRequestId="";
     englishDraftSavedSnapshot=null;
-    if(state) state.textContent="控制中心未連線：英文保留在本機，尚未確認寫入。";
+    if(state) state.textContent="控制中心尚未連線；文字保留在本機。";
     return false;
   }
+  const body=new URLSearchParams({
+    action:"review_en_draft_save",task_id:currentId,
+    bridge_key:secret,payload_json:JSON.stringify(compactPayload)
+  });
+  fetch(endpoint,{
+    method:"POST",mode:"no-cors",credentials:"omit",
+    body:body,redirect:"follow",cache:"no-store"
+  }).catch(err=>{
+    if(englishDraftSaveRequestId!==requestId)return;
+    const state=document.getElementById("en-review-share-state");
+    if(state)state.textContent="網路可能無法送出儲存請求；正在核對 Drive，尚未確認成功。";
+    // The request might still be committed; the receipt probe decides.
+  });
   const probe=()=>{
     if(selectedTaskId===currentId &&
        englishDraftSaveRequestId===requestId)
@@ -4136,7 +4155,7 @@ function saveEnglishReviewDraft(confirmedId){
   };
   // POST iframe messages can be lost on mobile/cross-origin browsers.
   // Read a tiny, Drive-committed receipt independently over JSONP.
-  [9000,25000,50000].forEach(delay=>window.setTimeout(probe,delay));
+  [2000,6000,12000,22000,40000,65000].forEach(delay=>window.setTimeout(probe,delay));
   window.clearTimeout(englishDraftSaveWatchdog);
   englishDraftSaveWatchdog=window.setTimeout(()=>{
     if(englishDraftSaveRequestId!==requestId ||
@@ -4153,6 +4172,18 @@ function saveEnglishReviewDraft(confirmedId){
   return true;
 }
 
+function englishReviewDisplayChinese(text){
+  // The upstream bilingual display sometimes joins an identical complete
+  // paragraph twice. Fold ONLY exact adjacent duplicates in the UI; retain
+  // the raw original in the manuscript and all saved payloads.
+  const raw=String(text||"");
+  const flat=raw.replace(/\s+/g,"").trim();
+  if(flat.length>=24 && flat.length%2===0){
+    const half=flat.length/2;
+    if(flat.slice(0,half)===flat.slice(half))return flat.slice(0,half);
+  }
+  return raw;
+}
 function renderEnglishReview(items){
   const groupedItems=groupEnglishReviewItems(items);
   currentEnglishReview=groupedItems;
@@ -4169,7 +4200,7 @@ function renderEnglishReview(items){
         (item.ids.length>1 ? '<span>合併 '+item.ids.length+' 個原始片段</span>' : '')+
       '</div>'+
       '<div class="en-review-pair">'+
-        '<div class="zh-source original-column">'+escapeHtml(item.original)+'</div>'+
+        '<div class="zh-source original-column">'+escapeHtml(englishReviewDisplayChinese(item.original))+'</div>'+
         '<textarea class="en-draft">'+escapeHtml(item.en)+'</textarea>'+
       '</div>'+
       '<div class="segment-actions">'+
@@ -4956,8 +4987,9 @@ window.addEventListener("message",event=>{
        String(data.request_id||"")===englishDraftSaveRequestId){
       finishEnglishReviewDraftSave({
         source:"soulkey-bridge",type:"english_review_draft_saved",
-        ok:true,task_id:data.task_id,request_id:data.request_id,
-        saved_at:data.saved_at,github_synced:false
+        ok:!data.error,task_id:data.task_id,request_id:data.request_id,
+        saved_at:data.saved_at,error:data.error||"",
+        message:data.message||"",github_synced:false
       });
     }
   }

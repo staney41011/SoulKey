@@ -528,12 +528,22 @@ function bridgeRequest(request) {
       ) : "";
       let receipt = {};
       try { receipt=raw ? JSON.parse(raw) : {}; } catch (_) {}
+      let failed = {};
+      try {
+        failed=JSON.parse(String(props.getProperty(
+          "SOULKEY_EN_DRAFT_FAILURE_"+taskId
+        )||"{}"));
+      } catch(_) {}
+      const newerFailure=String(failed.at||"")>String(receipt.saved_at||"");
+      const latest=newerFailure?failed:receipt;
       return {
         source:"soulkey-bridge",type:"review_en_draft_status",
         ok:valid,task_id:taskId,
-        request_id:String(receipt.request_id||""),
+        request_id:String(latest.request_id||""),
         saved_at:String(receipt.saved_at||""),
-        confirmed_count:Number(receipt.confirmed_count||0)
+        confirmed_count:Number(receipt.confirmed_count||0),
+        error:newerFailure?String(failed.error||""):"",
+        message:newerFailure?String(failed.message||""):""
       };
     }
     if (action === "review_cache_status") {
@@ -957,7 +967,7 @@ function normalizedReviewSharePayload_(taskId, payloadJson) {
         : [],
       confirmed: x.confirmed === true,
       source_en: String(x.source_en || ""),
-      en_text: String(x.en_text || x.source_en || ""),
+      en_text: (x.en_text === undefined || x.en_text === null ? String(x.source_en || "") : String(x.en_text)),
       en_confirmed: x.en_confirmed === true,
       // English passages have their own boundaries. Preserve the original
       // Chinese-to-English pairing across saves and reloads.
@@ -1115,9 +1125,9 @@ function mergeEnglishConfirmedDraft_(existing, incoming, confirmedIds) {
   });
   const oldRows=existing&&Array.isArray(existing.segments)&&existing.segments.length
     ? existing.segments : null;
-  if(oldRows && oldRows.length!==incoming.segments.length)
-    throw new Error("draft_segment_layout_changed");
-  const sourceRows=oldRows||incoming.segments;
+  // Each save sends only the confirmed row, not hundreds of paragraphs.
+  // Bootstrap the first cloud draft from the authoritative review timeline.
+  const sourceRows=oldRows||incoming.base_segments||incoming.segments;
   const found={};
   const merged=sourceRows.map(function(old) {
     const key=String(old.id);
@@ -1199,9 +1209,26 @@ function reviewEnglishDraftSave_(taskId, payloadJson) {
     locked=true;
     const folders=lessonFolders_(normalizedTaskId);
     const current=readJsonFile_(folders.translation,"en.review.draft.json");
+    if(!current || !Array.isArray(current.segments) || !current.segments.length){
+      const loaded=loadReview_(normalizedTaskId,"en",0);
+      if(!loaded.ok || !Array.isArray(loaded.segments) || !loaded.segments.length)
+        throw new Error("english_source_missing_for_first_save");
+      normalized.payload.base_segments=loaded.segments.map(function(row,i){
+        return {
+          id:Number(row.id!==undefined?row.id:i),
+          start:Number(row.start||0),end:Number(row.end||0),
+          time:String(row.time||""),
+          text:String(row.original||""),source_en:String(row.source_en||""),
+          en_text:String(row.en||""),en_confirmed:row.en_confirmed===true,
+          pre_aligned:true,
+          zh_ids:Array.isArray(row.ids)?row.ids:[Number(row.id!==undefined?row.id:i)]
+        };
+      });
+    }
     const merged=mergeEnglishConfirmedDraft_(
       current,normalized.payload,requested
     );
+    delete merged.base_segments;
     writeTextFile_(
       folders.translation,"en.review.draft.json",
       JSON.stringify(merged,null,2),
@@ -1217,11 +1244,18 @@ function reviewEnglishDraftSave_(taskId, payloadJson) {
         request_id:requestId,saved_at:savedAt,confirmed_count:confirmedCount
       }));
   } catch(err) {
+    const message="Google Drive 草稿儲存失敗："+String(err&&err.message||err);
+    try {
+      props.setProperty("SOULKEY_EN_DRAFT_FAILURE_"+normalizedTaskId,
+        JSON.stringify({
+          request_id:requestId,at:new Date().toISOString(),
+          error:"drive_save_failed",message:message.slice(0,350)
+        }));
+    }catch(_){}
     return {
       source:"soulkey-bridge",type:"english_review_draft_saved",
       ok:false,task_id:normalizedTaskId,request_id:requestId,
-      error:"drive_save_failed",
-      message:"Google Drive 草稿儲存失敗："+String(err&&err.message||err)
+      error:"drive_save_failed",message:message
     };
   } finally {
     if(locked) lock.releaseLock();
@@ -5070,7 +5104,7 @@ function loadReview_(taskId, kind, chunkIndex) {
             time: String(x.time || formatPlainTime_(start)),
             original: zhText,
             vernacular: "",
-            en: String(x.en_text || x.source_en || ""),
+            en: (x.en_text === undefined || x.en_text === null ? String(x.source_en || "") : String(x.en_text)),
             source_en: String(x.source_en || ""),
             en_confirmed: x.en_confirmed === true,
             pre_aligned:x.pre_aligned===true,
