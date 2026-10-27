@@ -1,0 +1,21 @@
+{
+  "source": "illustrative_original_demo_not_from_soulkey_lecture_or_human_reviewed",
+  "purpose": "pipeline-smoke-test_only; replace with approved translations for meaningful A/B quality review",
+  "languages": {
+    "en": {
+      "text": "A kind word can help someone through a difficult day. When we listen with patience, we create space for understanding and compassion."
+    },
+    "th": {
+      "text": "คำพูดที่อ่อนโยนอาจช่วยให้คนคนหนึ่งผ่านวันที่ยากลำบากไปได้ เมื่อเรารับฟังด้วยความอดทน เราก็เปิดโอกาสให้เกิดความเข้าใจและความเมตตา"
+    },
+    "km": {
+      "text": "ពាក្យសម្តីទន់ភ្លន់អាចជួយនរណាម្នាក់ឆ្លងកាត់ថ្ងៃដ៏លំបាកបាន។ ពេលយើងស្តាប់គ្នាដោយអត់ធ្មត់ យើងអាចយល់ចិត្តគ្នាបានកាន់តែច្បាស់។"
+    },
+    "lo": {
+      "text": "ຄຳເວົ້າທີ່ອ່ອນໂຍນອາດຊ່ວຍໃຫ້ຄົນຄົນໜຶ່ງຜ່ານມື້ທີ່ຍາກລຳບາກໄປໄດ້. ເມື່ອເຮົາຟັງກັນດ້ວຍຄວາມອົດທົນ ເຮົາກໍຈະເຂົ້າໃຈກັນຫຼາຍຂຶ້ນ."
+    },
+    "my": {
+      "text": "နူးညံ့သော စကားတစ်ခွန်းသည် တစ်စုံတစ်ယောက်အား ခက်ခဲသောနေ့တစ်နေ့ကို ကျော်ဖြတ်နိုင်ရန် ကူညီပေးနိုင်သည်။ စိတ်ရှည်စွာ နားထောင်ပေးသည့်အခါ နားလည်မှုနှင့် မေတ္တာတရား ပိုမိုတိုးပွားလာနိုင်သည်။"
+    }
+  }
+}

@@ -63,6 +63,10 @@ jobs:
           python -m unittest -v tests/test_multilingual_manuscript_speech_safety.py
           python -m unittest -v tests/test_gemini_engine.py
 
+      - name: Isolated Voice A/B offline regression
+        run: |
+          python -m unittest -v translation-system/tests/test_voice_ab_runner.py
+          python translation-system/experiments/voice_ab_runner.py --samples translation-system/experiments/voice_ab_samples.demo.json --dry-run
       - name: Install audio test runtime
         run: |
           sudo apt-get update -qq
