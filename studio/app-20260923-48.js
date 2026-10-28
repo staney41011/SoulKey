@@ -5014,9 +5014,15 @@ window.addEventListener("message",event=>{
           if(state)state.textContent="已載入現有中英稿；Drive 尚未有整堂 JSON，逐句修改仍可獨立儲存";
           requestEnglishCloudOverrides(data.task_id);
         }else{
-          showNoEnglishCcFallback(data.task_id || selectedTaskId);
-          const status=document.getElementById("en-fallback-status");
-          if(status)status.textContent="此堂英文來源尚未建立："+(data.message || data.error || "未知錯誤");
+          const msg=String(data.message||data.error||"未知錯誤");
+          if(/尚未產生英文稿/.test(msg)){
+            const list=document.getElementById("en-review-list");
+            if(list)list.innerHTML='<div class="empty"><b>中文 Final 已保存，英文稿尚未產生。</b><br><br>請先在課程流程完成英文翻譯或擷取英文 CC，再返回這裡進行人工定稿。中文定稿不會被刪除或重跑。</div>';
+          }else{
+            showNoEnglishCcFallback(data.task_id || selectedTaskId);
+            const status=document.getElementById("en-fallback-status");
+            if(status)status.textContent="英文資料讀取失敗："+msg;
+          }
         }
       }else{
         alert("讀取人工校正資料失敗："+(data.message || data.error || "未知錯誤"));
