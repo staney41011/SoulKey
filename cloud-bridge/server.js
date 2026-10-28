@@ -2,7 +2,7 @@
 const http=require("node:http"),{GoogleAuth}=require("google-auth-library");
 const {createBridgeAuth}=require("./auth");
 const {createDriveReview}=require("./drive-review");
-const {createEnglishFinalBackup}=require("./english-final-backup");
+const {createEnglishFinalBackup,normalizeEnglishFinal}=require("./english-final-backup");
 const {createDriveFinalPublisher}=require("./drive-final-publisher");
 const ID="1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
 const N={tasks:"任務佇列",status:"執行狀態",lang:"語言設定",plans:"語言任務設定",edits:"英文人工定稿"};
@@ -39,10 +39,8 @@ async function saveFullEnglishFinal(p){
   return {...backup,message:"英文全文已安全備存中央 Google Sheet，正式 Drive 寫入權限尚未啟用。請由管理者完成一次 SoulKey Drive 授權，原本六碼登入不變。"};
  }
  try{
-  const manuscript=JSON.parse(p.segments_json||"[]");
-  const result=await driveFinalPublisher.publish(String(p.task_id||""),{
-   segments:manuscript
-  });
+  const manuscript=normalizeEnglishFinal(p);
+  const result=await driveFinalPublisher.publish(String(p.task_id||""),manuscript);
   return {...result,backup_id:backup.backup_id,backup_saved:true};
  }catch(err){
   console.error("Owner Drive finalize failed",String(err.message||err).slice(0,180));
