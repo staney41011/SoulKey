@@ -86,11 +86,13 @@ http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https:/
   const isFiles=p.action==="course_files" || p.action==="tts_share_links";
   const isReview=p.action==="review_load";
   const isEnglishSave=p.action==="review_en_draft_save";
+  const isFinalSave=p.action==="review_save";
   let requestId="";
   if(isEnglishSave)try{requestId=String(JSON.parse(p.payload_json||"{}").save_request_id||"");}catch(_){}
   const conflict=/^edit_conflict_reload_required_/.test(message);
-  const type=isFiles?String(p.action):isEnglishSave?"english_review_draft_saved":isReview?"review_data":p.action==="status_health"?"status_health":"bridge_error";
+  const type=isFiles?String(p.action):isFinalSave?"review_saved":isEnglishSave?"english_review_draft_saved":isReview?"review_data":p.action==="status_health"?"status_health":"bridge_error";
   send(res,out(type,{ok:false,error:conflict?"edit_conflict_reload_required":"bridge_exception",message,
+    ...(isFinalSave?{task_id:String(p.task_id||""),kind:String(p.kind||"")}:{}),
     ...(isFiles?{task_id:String(p.task_id||""),groups:[],total_files:0}:{}),
     ...(isEnglishSave?{task_id:String(p.task_id||""),request_id:requestId}:{}),
     ...(isReview?{task_id:String(p.task_id||""),kind:String(p.kind||"")}: {})}),conflict?409:500,p.callback);
