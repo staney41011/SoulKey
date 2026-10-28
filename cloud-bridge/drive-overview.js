@@ -120,7 +120,7 @@ function createDriveOverview({children,context,getJsonFile=null}){
     entry.audio_kind="length_review";
     entry.timing_review_reason=lengthReport.reason||"音檔對時尚未完成";
    }
-   return {...entry,lang:meta.code,preview:needsReview};
+   return {...entry,lang:meta.code,preview:meta.preview};
   }).filter(Boolean);
   const audioFiles=codes.filter(x=>x!=="zh-TW").flatMap(lang=>{
    const official=pickNewest(audioPool.filter(f=>f.lang===lang&&!f.preview));
