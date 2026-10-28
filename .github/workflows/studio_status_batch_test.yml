@@ -58,6 +58,8 @@ jobs:
           node cloud-bridge/tests/drive-overview.test.js
           node --check cloud-bridge/english-final-backup.js
           node cloud-bridge/tests/english-final-backup.test.js
+          node --check cloud-bridge/sheet-final-store.js
+          node cloud-bridge/tests/sheet-final-store.test.js
           node --check cloud-bridge/drive-final-publisher.js
           node --check cloud-bridge/setup_owner_drive.js
           node cloud-bridge/tests/drive-final-publisher.test.js
