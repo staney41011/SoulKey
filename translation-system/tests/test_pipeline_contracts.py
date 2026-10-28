@@ -604,7 +604,8 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('action:"review_en_draft_save"', app)
         self.assertIn("function saveEnglishReviewDraft(", app)
         self.assertIn("review_en_draft_status", app)
-        self.assertIn("正在寫入 Google Drive English Final", app)
+        self.assertIn("Drive 正式儲存尚未恢復時，系統只會雲端備存", app)
+        self.assertIn("ENGLISH_FINAL_PENDING_PREFIX", app)
         self.assertIn("englishFinalizePendingTaskId", app)
 
         self.assertIn('action === "review_en_draft_save"', bridge)
