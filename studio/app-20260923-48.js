@@ -4737,14 +4737,17 @@ function jsonpBridgeRequest(fields){
 
   const fail=(reason)=>{
     if(!cleanup()) return;
-    const syncState=document.getElementById("status-sync-state");
-    const syncText=document.getElementById("status-sync-text");
-    if(syncState){
-      syncState.textContent="同步失敗";
-      syncState.className="warn";
-    }
-    if(syncText){
-      syncText.textContent="Apps Script 連線失敗："+reason;
+    const isCentralSync=["status_health","tasks_get","status_batch"].includes(action);
+    if(isCentralSync){
+      const syncState=document.getElementById("status-sync-state");
+      const syncText=document.getElementById("status-sync-text");
+      if(syncState){
+        syncState.textContent="背景同步暫時失敗";
+        syncState.className="warn";
+      }
+      if(syncText){
+        syncText.textContent="雲端暫時無法同步："+reason;
+      }
     }
     bridgeSyncRequestFailed(action,reason);
     if(action==="course_files") courseFilesLoadFailed(String(fields.task_id||""),reason);
@@ -4877,7 +4880,11 @@ function requestTaskStatuses(){
   // promptly; then refresh every remaining task in bounded batches.
   const selected=tasksForSelectedPeriod();
   const prioritized=[...selected,...tasks.filter(t=>!selected.includes(t))];
-  const ids=[...new Set(prioritized.map(t=>String(t.id||"").trim()).filter(Boolean))];
+  // Reviewing a manuscript does not require polling every lesson in
+  // the school. Do not compete with ongoing sentence saves.
+  const ids=currentView==="en-review" && selectedTaskId
+    ? [String(selectedTaskId)]
+    : [...new Set(prioritized.map(t=>String(t.id||"").trim()).filter(Boolean))];
   let sent=false;
   for(let i=0;i<ids.length;i+=20){
     const ok=jsonpBridgeRequest({
@@ -4966,18 +4973,18 @@ window.addEventListener("message",event=>{
     // editor active when some unrelated Cloud Run action returns 409.
     const revoked=["unauthorized","rate_limited"].includes(String(data.error||""));
     if(revoked) setDashboardBridgeState(bridgeErrorText,"error");
-    else if(bridgeAuthenticated){
-      setDashboardBridgeState(
-        "控制中心仍已連線；部分功能尚未恢復："+reason,"ok");
-    }else setDashboardBridgeState(bridgeErrorText,"working");
-    const syncState=document.getElementById("status-sync-state");
-    const syncText=document.getElementById("status-sync-text");
-    if(syncState){
-      syncState.textContent="Bridge 錯誤："+reason;
-      syncState.className="warn";
-    }
-    if(syncText){
-      syncText.textContent="Bridge 錯誤："+reason;
+    // A 409 from an unavailable function is unrelated to authentication.
+    // Leave global connection state untouched and report only locally.
+    // Optional, currently unsupported Cloud Run functions must not
+    // turn a healthy connection indicator red.
+    if(revoked){
+      const syncState=document.getElementById("status-sync-state");
+      const syncText=document.getElementById("status-sync-text");
+      if(syncState){
+        syncState.textContent="驗證失敗";
+        syncState.className="warn";
+      }
+      if(syncText) syncText.textContent=bridgeErrorText;
     }
   }
 
@@ -5678,6 +5685,9 @@ function initStatusPolling(){
 
   window.setInterval(()=>{
     if(!bridgeAuthenticated) return;
+    // Background dashboard refresh is irrelevant to a long-lived English
+    // editing session, and must not disrupt local unsaved edits.
+    if(currentView==="en-review") return;
     requestTasksFromControlCenter();
   },180000);
 }
