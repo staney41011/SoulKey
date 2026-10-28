@@ -12,7 +12,7 @@ const shareCodes=["en","es","th","id","km","vi"];
 const FOLDER="application/vnd.google-apps.folder";
 const url=id=>"https://drive.google.com/file/d/"+id+"/view";
 const folderUrl=id=>"https://drive.google.com/drive/folders/"+id;
-function createDriveOverview({children,context}){
+function createDriveOverview({children,context,getJsonFile=null}){
  function filesOf(all){return (all||[]).filter(x=>x.mimeType!==FOLDER &&
    /^[a-zA-Z0-9_-]{12,}$/.test(String(x.id||"")));}
  function languageFromName(name){
@@ -81,10 +81,46 @@ function createDriveOverview({children,context}){
    const {lang:_,rank:__,...entry}=best;
    return entry;
   }).filter(Boolean);
+  // TTS reports may explicitly show natural, unaligned audio that is
+  // substantially shorter than the source lesson. Do not advertise such a
+  // rendition as a synchronized official MP3 merely because the name is formal.
+  const reports={};
+  if(getJsonFile){
+   const candidates=filesOf(audio).filter(f=>/TTS對齊報告\.json$|\.alignment\.json$/i.test(f.name||""));
+   await Promise.all(candidates.map(async f=>{
+    const lang=languageFromName(f.name);
+    if(!lang)return;
+    try {
+     const report=await getJsonFile(f.id);
+     const timeline=report?.timeline||{};
+     const sourceDuration=Number(timeline.source_duration);
+     const finalDuration=Number(timeline.final_duration);
+     if(sourceDuration>0 && finalDuration>0){
+      const ratio=finalDuration/sourceDuration;
+      // Below 90% or above the full source length needs human timing review.
+      // Also honor the backend's explicit review flag.
+      const short=ratio<0.90, long=ratio>1.02;
+      const review=short||long||timeline.needs_review===true;
+      if(review)reports[lang]={
+       review:true,
+       reason:short?"配音比原影片短 "+Math.round((1-ratio)*100)+"%":
+         long?"配音超過原影片時長":"音檔對時尚未完成"
+      };
+     }
+    }catch(_){ /* A missing report must never hide an existing audio file. */ }
+   }));
+  }
   const audioPool=filesOf(audio).map(f=>{
    const meta=audioKind(f.name);
-   return meta?{...item(f,"audio","音檔",meta.canonical_name,meta.preview),
-     lang:meta.code,preview:meta.preview}:null;
+   if(!meta)return null;
+   const lengthReport=reports[meta.code]||{};
+   const needsReview=meta.preview||Boolean(lengthReport.review);
+   const entry=item(f,"audio","音檔",meta.canonical_name,needsReview);
+   if(needsReview && !meta.preview){
+    entry.audio_kind="length_review";
+    entry.timing_review_reason=lengthReport.reason||"音檔對時尚未完成";
+   }
+   return {...entry,lang:meta.code,preview:needsReview};
   }).filter(Boolean);
   const audioFiles=codes.filter(x=>x!=="zh-TW").flatMap(lang=>{
    const official=pickNewest(audioPool.filter(f=>f.lang===lang&&!f.preview));
