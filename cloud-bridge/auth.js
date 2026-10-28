@@ -12,10 +12,11 @@ function createBridgeAuth(opts){
   const legacy=String(opts.legacyHmac||"").trim().toLowerCase();
   if(legacy && !/^[a-f0-9]{64}$/.test(legacy))throw Error("invalid BRIDGE_LEGACY_HMAC");
   const legacyBytes=legacy?Buffer.from(legacy,"hex"):null;
-  // Fixed window by requester plus service-wide budget. For meaningful
-  // brute-force resistance Cloud Run should have max-instances=1.
-  const windowMs=60*60*1000, ipMax=6, globalMax=20;
-  let globalCount=0,globalWindow=0;
+  // Fixed one-hour window per requester. A global hard lock can be
+  // abused to deny service to all legitimate teachers, so we avoid it.
+  // This is a best-effort control; a six-character shared key still requires
+  // careful distribution and stronger edge protections when exposed publicly.
+  const windowMs=60*60*1000, ipMax=6;
   const attempts=new Map();
   function valid(value){
     const input=String(value||"");
@@ -26,17 +27,22 @@ function createBridgeAuth(opts){
     if(!legacyBytes || input.length!==6)return false;
     return crypto.timingSafeEqual(digest(secret,input),legacyBytes);
   }
+  function isBlocked(addr,clock=Date.now()){
+    const ip=String(addr||"unknown").slice(0,128);
+    const item=attempts.get(ip);
+    return Boolean(item && clock-item.start<windowMs && item.count>ipMax);
+  }
   function noteFailure(addr,clock=Date.now()){
-    if(clock-globalWindow>=windowMs){globalWindow=clock;globalCount=0;attempts.clear();}
     const ip=String(addr||"unknown").slice(0,128);
     const item=attempts.get(ip)||{start:clock,count:0};
     if(clock-item.start>=windowMs){item.start=clock;item.count=0;}
     item.count++;
     attempts.set(ip,item);
-    globalCount++;
-    if(attempts.size>5000){for(const [k,v] of attempts)if(clock-v.start>=windowMs)attempts.delete(k);}
-    return item.count>ipMax || globalCount>globalMax;
+    if(attempts.size>5000){
+      for(const [k,v] of attempts)if(clock-v.start>=windowMs)attempts.delete(k);
+    }
+    return isBlocked(ip,clock);
   }
-  return {valid,noteFailure,hasLegacy:!!legacyBytes};
+  return {valid,noteFailure,isBlocked,hasLegacy:!!legacyBytes};
 }
 module.exports={createBridgeAuth,digest};
