@@ -48,7 +48,7 @@ function bodyMeta(meta,mime,contents){
  ]);
  return {body,boundary:b};
 }
-function createDriveFinalPublisher({authFactory=ownerAuth,resolveFolders,get,put}){
+function createDriveFinalPublisher({authFactory=ownerAuth,resolveFolders,invalidateFolder=()=>{},get,put}){
  const client=authFactory();
  const isConfigured=()=>!!client;
  async function request(opts){
@@ -119,6 +119,7 @@ function createDriveFinalPublisher({authFactory=ownerAuth,resolveFolders,get,put
   const files={};
   for(const f of generated)files[f.name]=await write(folder,task,f);
   if(Object.keys(files).length!==3)throw Error("incomplete_final_outputs");
+  invalidateFolder(folder);
   // Only after verifying all three Drive files, mark the lesson as finalized.
   const rows=await get("任務佇列","A1:J5000");
   const rowIndex=rows.findIndex((r,i)=>i>0&&r[0]===task);
