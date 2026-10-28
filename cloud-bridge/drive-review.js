@@ -184,7 +184,13 @@ function ccRows(chinese,cues){
   }
   return err(task,kind,"尚未支援這種類型的校稿資料","unsupported_review_kind");
  }
- const overview=createDriveOverview({children,context});
+ const overview=createDriveOverview({children,context,getJsonFile:async id=>{
+  if(!ID_RE.test(id))throw Error("invalid_audio_report_id");
+  return cached("report:"+id,async()=>{
+   const result=await drive(ROOT+"/"+encodeURIComponent(id)+"?alt=media&supportsAllDrives=true");
+   return typeof result==="string"?JSON.parse(result):result;
+  },180000);
+ }});
  return {review,courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
 }
 module.exports={createDriveReview};
