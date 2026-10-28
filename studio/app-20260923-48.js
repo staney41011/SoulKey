@@ -200,6 +200,7 @@ let englishDraftSavedSnapshot = null;
 // Only acknowledgements from Drive-backed saves may enter this local cache.
 const ENGLISH_DRIVE_ACK_PREFIX="soulkey_en_drive_ack:";
 const ENGLISH_UNCONFIRMED_BACKUP_PREFIX="soulkey_en_unsaved_backup:";
+const ENGLISH_FINAL_PENDING_PREFIX="soulkey_en_final_pending:";
 let englishFinalizePendingTaskId = "";
 let englishFinalizePriorFinishedAt = "";
 let englishFinalizeWatchdog = null;
@@ -3750,9 +3751,12 @@ function syncEnglishFinalizeButton(task){
   const pending=englishFinalizePendingTaskId===task.id;
   button.dataset.finalized=finalized?"1":"0";
   button.disabled=pending;
+  const backup=(()=>{try{return JSON.parse(localStorage.getItem(
+    ENGLISH_FINAL_PENDING_PREFIX+task.id)||"null");}catch(_){return null;}})();
   button.textContent=pending
     ?"正在儲存…"
-    :finalized?"✓ 已定稿・查看後續流程 →":"英文定稿";
+    :finalized?"✓ 已定稿・查看後續流程 →"
+      :backup?.backup_saved?"英文已備存・Drive 待定稿":"英文定稿";
 }
 
 function showEnglishDraftRecovery(taskId){
@@ -4522,7 +4526,17 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
     button.disabled=true;
     button.textContent="正在儲存…";
   }
-  if(state) state.textContent="正在寫入 Google Drive English Final…";
+  const fullTerms=[...document.querySelectorAll("[data-term-en-input]")].map(input=>({
+    zh:String(input.dataset.termEnInput||"").trim(),
+    en:String(input.value||"").trim()
+  })).filter(x=>x.zh&&x.en);
+  try{
+    localStorage.setItem(ENGLISH_FINAL_PENDING_PREFIX+task.id,
+      JSON.stringify({task_id:task.id,kind:"en",segments,terms:fullTerms,
+        backup_saved:false,queued_at:new Date().toISOString()}));
+  }catch(_){}
+  if(state) state.textContent=
+    "正在提交英文全文。Drive 正式儲存尚未恢復時，系統只會雲端備存，不會假裝定稿完成。";
   englishFinalizePendingTaskId=task.id;
   englishFinalizePriorFinishedAt=String(
     remoteStageStatus(task,"en-review")?.finished_at || ""
@@ -4544,12 +4558,7 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
     task_id:task.id,
     kind:"en",
     segments_json:JSON.stringify(segments),
-    terms_json:JSON.stringify(
-      [...document.querySelectorAll("[data-term-en-input]")].map(input=>({
-        zh:String(input.dataset.termEnInput||"").trim(),
-        en:String(input.value||"").trim()
-      })).filter(x=>x.zh&&x.en)
-    )
+    terms_json:JSON.stringify(fullTerms)
   });
 
   if(!sent){
@@ -5243,7 +5252,26 @@ window.addEventListener("message",event=>{
     const state=document.getElementById("en-review-share-state");
     const button=document.getElementById("finalize-en");
 
-    if(data.ok){
+    if(data.backup_saved===true && data.kind==="en"){
+      const taskId=String(data.task_id||"");
+      englishFinalizePendingTaskId="";
+      englishFinalizePriorFinishedAt="";
+      window.clearTimeout(englishFinalizeWatchdog);
+      try{
+        const backup=JSON.parse(localStorage.getItem(
+          ENGLISH_FINAL_PENDING_PREFIX+taskId)||"null");
+        if(backup?.task_id===taskId){
+          backup.backup_saved=true;
+          backup.backup_id=String(data.backup_id||"");
+          backup.backup_at=new Date().toISOString();
+          localStorage.setItem(ENGLISH_FINAL_PENDING_PREFIX+taskId,JSON.stringify(backup));
+        }
+      }catch(_){}
+      syncEnglishFinalizeButton(tasks.find(x=>x.id===taskId));
+      if(state) state.textContent=
+        "英文全文 "+Number(data.segment_count||0)+" 段已備份到中央 Google Sheet，未遺失。"+
+        "Google Drive 正式檔案尚未完成，系統不會標記為定稿。";
+    }else if(data.ok){
       requestTaskStatuses();
 
       if(
@@ -5251,6 +5279,7 @@ window.addEventListener("message",event=>{
         englishFinalizePendingTaskId &&
         String(data.task_id||"")===String(englishFinalizePendingTaskId)
       ){
+        try{localStorage.removeItem(ENGLISH_FINAL_PENDING_PREFIX+data.task_id);}catch(_){}
         completeEnglishFinalizeUi(data.task_id,"callback");
       }
     }else{
