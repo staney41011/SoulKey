@@ -101,6 +101,16 @@ function createDriveFinalPublisher({authFactory=ownerAuth,resolveFolders,get,put
   if(!verified)throw Error("drive_final_readback_mismatch:"+file.name);
   return {id:result.id,url:"https://drive.google.com/file/d/"+result.id+"/view",unchanged:false};
  }
+ async function probe(task){
+  if(!isConfigured())return {ok:false,error:"owner_drive_authorization_not_configured"};
+  const folders=await resolveFolders(task);
+  const resp=await request({method:"GET",url:DRIVE+"/"+encodeURIComponent(folders.translation)+
+   "?fields=id,capabilities(canAddChildren)&supportsAllDrives=true"});
+  return {ok:!!resp.id && resp.capabilities?.canAddChildren===true,
+   can_add_children:resp.capabilities?.canAddChildren===true,
+   message:resp.capabilities?.canAddChildren===true
+    ?"已驗證 Google Drive 寫入授權":"授權帳號沒有此課程的資料夾編輯權限"};
+ }
  async function publish(task,manuscript){
   if(!isConfigured())return {ok:false,error:"owner_drive_authorization_not_configured"};
   const folders=await resolveFolders(task);
@@ -131,6 +141,6 @@ function createDriveFinalPublisher({authFactory=ownerAuth,resolveFolders,get,put
    finalized_at:stamp,source:"soulkey-bridge",type:"review_saved",
    message:"English Final 已寫入 Google Drive（JSON、TXT、SRT）並完成回讀驗證"};
  }
- return {publish,isConfigured};
+ return {publish,probe,isConfigured};
 }
 module.exports={ownerAuth,createDriveFinalPublisher,outputs};
