@@ -48,7 +48,7 @@
     // Do not infer authenticity from a localized display_name.
     const name=canonical || String(file?.name || "").trim();
     const match=/^([a-z]{2})\.mp3$/i.exec(name);
-    if(match && !file?.needs_timing_review) return match[1].toLowerCase();
+    if(match && (!file?.needs_timing_review || file?.audio_kind==="length_review")) return match[1].toLowerCase();
     const preview=/^([a-z]{2})\.preview\.mp3$/i.exec(name);
     if(preview && file?.needs_timing_review &&
         file?.audio_kind==="standalone_preview") return preview[1].toLowerCase();
@@ -74,6 +74,8 @@
     // eligible. Never expose previews or youtube-captured source audio.
     if (!/^[A-Za-z0-9_-]{12,}$/.test(id) || !(size > 0)) return "";
     if(file?.needs_timing_review &&
+      !(file?.audio_kind==="length_review" &&
+        /^[a-z]{2}\.mp3$/i.test(String(file?.canonical_name||""))) &&
       !(file?.audio_kind==="standalone_preview" &&
         /^[a-z]{2}\.preview\.mp3$/i.test(String(file?.canonical_name||""))))
       return "";
@@ -129,7 +131,7 @@
       if(link){
         const preview=Boolean(file.needs_timing_review);
         if(!fileMap[code]) fileMap[code]={};
-        fileMap[code][preview?"review":"official"]={link,preview};
+        fileMap[code][preview?"review":"official"]={link,preview,reason:String(file.timing_review_reason||"")};
         if(!present.includes(code)) present.push(code);
       }
     });
@@ -177,7 +179,7 @@
       if(candidate && !invalidated){
         lines.push(candidate.link);
         if(explicitReview){
-          lines.push("⚠️ 待驗收："+reviewReason(task,lang.code)+"（完整試聽檔，非影片同步正式 MP3）");
+          lines.push("⚠️ 待驗收："+(candidate.reason||reviewReason(task,lang.code))+"（可獨立試聽，尚未確認與影片同步）");
           reviewCount++;
         }
         readyCount++;
