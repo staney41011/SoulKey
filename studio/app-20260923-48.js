@@ -3852,7 +3852,7 @@ async function openEnglishReview(taskId){
     ));
     if(shareState){
       shareState.textContent=
-        "英文確認已保存到 Google Drive；正在從 Drive 核對最新狀態。";
+        "英文逐句修改已由中央 Google Sheet 確認；正在核對最新狀態。";
     }
     requestReviewData(taskId,"en",0);
     return;
@@ -3887,7 +3887,7 @@ async function openEnglishReview(taskId){
           const sourceDiffers=cachedVideo && currentVideo && cachedVideo!==currentVideo;
           shareState.textContent=sourceDiffers
             ? "提示：英文 CC 來自重新上傳前的影片；已依中文定稿整理成對照段落。若新片有剪輯變更，請先驗證影片來源。"
-            : "已按中文 Final 時間軸載入完整的中英對照段落；正式儲存仍寫入 Google Drive";
+            : "已按中文 Final 時間軸載入完整的中英對照段落；逐句確認儲存於中央 Google Sheet";
         }
         // GitHub is a fast PREVIEW, not the manuscript source of truth.
         // Always fetch the latest Google Drive draft, even on another device.
@@ -4155,7 +4155,7 @@ function finishEnglishReviewDraftSave(data){
       }catch(_){}
     }
     if(state) state.textContent="本批 "+pendingIds.length+
-      " 筆英文已通過 Google Drive 回讀驗證"+(englishDraftSaveQueuedIds.size
+      " 筆英文已通過中央 Google Sheet 回讀驗證"+(englishDraftSaveQueuedIds.size
         ?"；繼續儲存後續確認…":"");
   }else{
     pendingIds.forEach(id=>markEnglishConfirmResult(id,false,"重試確認"));
@@ -5184,7 +5184,7 @@ window.addEventListener("message",event=>{
       if(state) state.textContent=
         (data.manuscript_source==="youtube.en.json"
           ? "已依中文 Final 時間軸載入 YouTube English CC 初稿（尚未人工定稿）"
-          : "已取得英文稿；正在核對 Drive 逐句人工修改")+
+          : "已取得英文稿；正在核對中央 Google Sheet 逐句人工修改")+
         (englishReviewDirtyIds.size?"；本機尚未儲存的修改已保留":"");
       requestEnglishCloudOverrides(data.task_id);
       // For earlier Drive-completed lessons, seed a separate GitHub /en.json
@@ -5211,7 +5211,7 @@ window.addEventListener("message",event=>{
          Array.isArray(currentEnglishReview) && currentEnglishReview.length){
         renderEnglishReview(currentEnglishReview);
         const state=document.getElementById("en-review-share-state");
-        if(state)state.textContent="已從 Google Drive 核對 "+
+        if(state)state.textContent="已從中央 Google Sheet 核對 "+
           Object.keys(data.edits).length+" 筆逐句人工定稿";
       }
     }
