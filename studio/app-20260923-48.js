@@ -5109,13 +5109,16 @@ window.addEventListener("message",event=>{
         }catch(_){}
       }
       const state=document.getElementById("en-review-share-state");
-      if(state) state.textContent="已取得英文稿；正在核對 Drive 逐句人工修改"+
+      if(state) state.textContent=
+        (data.manuscript_source==="youtube.en.json"
+          ? "已依中文 Final 時間軸載入 YouTube English CC 初稿（尚未人工定稿）"
+          : "已取得英文稿；正在核對 Drive 逐句人工修改")+
         (englishReviewDirtyIds.size?"；本機尚未儲存的修改已保留":"");
       requestEnglishCloudOverrides(data.task_id);
       // For earlier Drive-completed lessons, seed a separate GitHub /en.json
       // only once. Future opening is fast and will not touch Chinese /zh.json.
       if(bridgeAuthenticated && data.task_id &&
-         data.source!=="en.review.draft.json" &&
+         !["en.review.draft.json","youtube.en.json"].includes(String(data.manuscript_source||"")) &&
          Array.isArray(data.segments) && data.segments.length &&
          !englishCacheSeedRequested.has(data.task_id)){
         englishCacheSeedRequested.add(data.task_id);

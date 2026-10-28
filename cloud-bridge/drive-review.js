@@ -78,7 +78,8 @@ function createDriveReview(auth,get){
   const zhAlias={
    "zh-TW.final.json":/_中文人工定稿資料\.json$/,
    "zh-TW.review.manifest.json":/zh-TW\.review\.manifest\.json$/,
-   "en.final.json":/_英文人工定稿資料\.json$/
+   "en.final.json":/_英文人工定稿資料\.json$/,
+   "youtube.en.json":/_英文CC資料\.json$/
   };
   return zhAlias[canonical]?
     (files.find(f=>f.mimeType!==FOLDER&&zhAlias[canonical].test(f.name))||null):null;
@@ -100,6 +101,39 @@ function createDriveReview(auth,get){
   if(hit.length)return hit.join("");
   return String((original.find((s,i)=>Number(s.id??i)===id)||{}).text||"");
  }
+function uniqueEnglish(prev,text){
+ const newWords=String(text||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
+ if(!newWords.length)return "";
+ const oldWords=String(prev||"").split(" ").filter(Boolean).slice(-70);
+ const norm=x=>x.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g,"");
+ let duplicate=0;
+ for(let i=Math.min(oldWords.length,newWords.length,40);i>=3;i--){
+  const end=oldWords.slice(-i).map(norm);
+  const start=newWords.slice(0,i).map(norm);
+  if(end.every(Boolean)&&start.every(Boolean)&&end.join(" ")===start.join(" ")){
+   duplicate=i;break;
+  }
+ }
+ return newWords.slice(duplicate).join(" ");
+}
+function ccRows(chinese,cues){
+ let history="";
+ return chinese.map((item,i)=>{
+  const id=Number(item.id??i),start=Number(item.start||0),end=Number(item.end||start);
+  const matched=[],seen=new Set();
+  for(const cue of cues){
+   const from=Number(cue.start||0),to=Number(cue.end||from);
+   if(to<=start||from>=end)continue;
+   const text=String(cue.text||"").replace(/\s+/g," ").trim();
+   if(text&&!seen.has(text)){matched.push(text);seen.add(text);}
+  }
+  const clipped=uniqueEnglish(history,matched.join(" "));
+  if(clipped)history=(history+" "+clipped).trim().split(" ").slice(-80).join(" ");
+  return {id,start,end,time:fmtTime(start),original:String(item.text||""),
+   vernacular:"",en:clipped,source_en:clipped,en_confirmed:false,
+   ids:[id],terms:[]};
+ });
+}
  async function review(p){
   const task=String(p.task_id||""),kind=String(p.kind||"");
   if(!TASK_RE.test(task))return err(task,kind,"課程編號不正確","invalid_task_id");
@@ -137,7 +171,15 @@ function createDriveReview(auth,get){
     return {source:"soulkey-bridge",type:"review_data",ok:true,task_id:task,kind,
      manuscript_source:canonical,load_ms:Date.now()-begin,segments:rows};
    }
-   return err(task,kind,"中文定稿已保存，但尚未產生英文稿；需先執行英文翻譯或擷取 English CC");
+   const cc=await jsonFile(ids.source,"youtube.en.json");
+   if(Array.isArray(cc?.segments)&&cc.segments.length){
+    const rows=ccRows(source,cc.segments);
+    if(rows.some(x=>x.en.trim()))return {
+     source:"soulkey-bridge",type:"review_data",ok:true,task_id:task,kind,
+     manuscript_source:"youtube.en.json",needs_human_review:true,
+     load_ms:Date.now()-begin,segments:rows};
+   }
+   return err(task,kind,"中文定稿已保存，但尚未產生英文稿或可用的 English CC");
   }
   return err(task,kind,"尚未支援這種類型的校稿資料","unsupported_review_kind");
  }
