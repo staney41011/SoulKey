@@ -34,7 +34,7 @@ async function saveEnglish(p){const task=p.task_id;if(!valid(task))throw Error("
  for(const x of batch)if(after.edits[x[1]]?.request_id!==rid||after.edits[x[1]]?.en_text!==x[2])throw Error("readback_failed_"+x[1]);
  return out("english_review_draft_saved",{ok:true,task_id:task,request_id:rid,saved_at:now(),github_synced:false,message:"Drive 暫不可用；人工修改已保存至原 Google Sheet 並驗證"});
 }
-async function read(p){const a=p.action;if(a==="review_load")return driveReview.review(p);if(a==="status_health"){const rows=await get(N.status,"A1:A10000");return out("status_health",{ok:true,sheet:N.status,rows:Math.max(rows.length-1,0),bridge_protocol:"cloud-recovery",youtube_cookies_configured:false,server_time:now()});}
+async function read(p){const a=p.action;if(a==="course_files")return driveReview.courseFiles(p);if(a==="tts_share_links")return driveReview.ttsShareLinks(p);if(a==="review_load")return driveReview.review(p);if(a==="status_health"){const rows=await get(N.status,"A1:A10000");return out("status_health",{ok:true,sheet:N.status,rows:Math.max(rows.length-1,0),bridge_protocol:"cloud-recovery",youtube_cookies_configured:false,server_time:now()});}
  if(a==="tasks_get")return out("tasks_result",{ok:true,tasks:await tasks(),server_time:now()});
  if(a==="language_settings")return out("language_settings",{ok:true,languages:await langs(),server_time:now()});
  if(a==="language_plan_get")return out("language_plan",{ok:true,task_id:p.task_id||"",plan:await plans(String(p.task_id||""))});
@@ -53,19 +53,21 @@ http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https:/
    send(res,out(p.action==="status_health"?"status_health":"bridge_error",{ok:false,error:limited?"rate_limited":"unauthorized",message:limited?"登入嘗試過多，請稍後再試":"Bridge Key 不正確"}),limited?429:401,p.callback);
    return;
  }
- const readActions=new Set(["status_health","tasks_get","language_settings","language_plan_get","status","status_batch","review_en_draft_status","review_load"]);
+ const readActions=new Set(["status_health","tasks_get","language_settings","language_plan_get","status","status_batch","review_en_draft_status","review_load","course_files","tts_share_links"]);
  const data=req.method==="GET"||readActions.has(String(p.action||""))?await read(p):await write(p);
  send(res,data,data.ok===false?409:200,p.callback);
  }catch(e){
   const message=String(e.message||e).slice(0,200);
   console.error("Bridge failure",message);
+  const isFiles=p.action==="course_files" || p.action==="tts_share_links";
   const isReview=p.action==="review_load";
   const isEnglishSave=p.action==="review_en_draft_save";
   let requestId="";
   if(isEnglishSave)try{requestId=String(JSON.parse(p.payload_json||"{}").save_request_id||"");}catch(_){}
   const conflict=/^edit_conflict_reload_required_/.test(message);
-  const type=isEnglishSave?"english_review_draft_saved":isReview?"review_data":p.action==="status_health"?"status_health":"bridge_error";
+  const type=isFiles?String(p.action):isEnglishSave?"english_review_draft_saved":isReview?"review_data":p.action==="status_health"?"status_health":"bridge_error";
   send(res,out(type,{ok:false,error:conflict?"edit_conflict_reload_required":"bridge_exception",message,
+    ...(isFiles?{task_id:String(p.task_id||""),groups:[],total_files:0}:{}),
     ...(isEnglishSave?{task_id:String(p.task_id||""),request_id:requestId}:{}),
     ...(isReview?{task_id:String(p.task_id||""),kind:String(p.kind||"")}: {})}),conflict?409:500,p.callback);
  }
