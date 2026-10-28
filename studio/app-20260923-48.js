@@ -337,7 +337,7 @@ function syncStudioNow(){
   firebaseSnapshotReadOnly=false;
   const key=bridgeKeyValue();
   if(!BRIDGE_ENDPOINT){
-    setDashboardBridgeState("系統尚未設定 Apps Script URL。","error");
+    setDashboardBridgeState("系統尚未設定 Cloud Run 橋樑網址。","error");
     return false;
   }
   if(!key){
@@ -4873,7 +4873,10 @@ window.addEventListener("message",event=>{
       }
       youtubeCaptureFilesLoadingTask="";
     }
-    setDashboardBridgeState("Bridge 錯誤："+reason,"error");
+    const bridgeErrorText=data.error==="unauthorized"
+      ? "此網站目前連接 Cloud Run，不是原本的 Apps Script。原本 Apps Script 的 6 碼金鑰沒有失效，但不能用來登入 Cloud Run。請從授權電腦桌面開啟 SoulKey-手機配對.cmd，掃描 QR Code 自動帶入 Cloud Run 金鑰。"
+      : "Bridge 錯誤："+reason;
+    setDashboardBridgeState(bridgeErrorText,"error");
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
     if(syncState){
@@ -5456,7 +5459,9 @@ window.addEventListener("message",event=>{
         requestLanguageSettings();
       }
     }else{
-      const reason=data.message || data.error || "未知錯誤";
+      const reason=data.error==="unauthorized"
+        ? "目前網站連接 Cloud Run，與 Apps Script 的 6 碼 Bridge Key 是不同的驗證設定。請在已授權電腦開啟 SoulKey-手機配對.cmd，掃描 QR Code 自動連線；原本的 Apps Script 金鑰並未被修改。"
+        : (data.message || data.error || "未知錯誤");
       bridgeSyncRequestFailed("status_health",reason);
       if(syncState){
         syncState.textContent="狀態表連線失敗";
