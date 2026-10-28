@@ -1,0 +1,15 @@
+const crypto=require("node:crypto"),fs=require("node:fs"),path=require("node:path");
+const root=__dirname,pub=path.join(root,"public");
+fs.mkdirSync(pub,{recursive:true});
+const input=JSON.parse(fs.readFileSync(path.join(root,"tasks_snapshot_source.json"),"utf8"));
+const secretFile=path.join(root,"firebase_view_key.txt");
+if(!fs.existsSync(secretFile))fs.writeFileSync(secretFile,crypto.randomBytes(24).toString("base64url")+"\n",{mode:0o600});
+const pass=fs.readFileSync(secretFile,"utf8").trim();
+const salt=crypto.randomBytes(16),iv=crypto.randomBytes(12),iterations=210000;
+const key=crypto.pbkdf2Sync(pass,salt,iterations,32,"sha256");
+const cipher=crypto.createCipheriv("aes-256-gcm",key,iv);cipher.setAAD(Buffer.from("SoulKey-Firebase-Snapshot-v1"));
+const content=Buffer.from(JSON.stringify(input),"utf8");
+const packed=Buffer.concat([cipher.update(content),cipher.final(),cipher.getAuthTag()]);
+const b64=v=>v.toString("base64");
+fs.writeFileSync(path.join(pub,"data.enc.json"),JSON.stringify({version:1,kdf:"PBKDF2-SHA256",cipher:"AES-256-GCM",iterations,salt:b64(salt),iv:b64(iv),ciphertext:b64(packed)})+"\n");
+console.log(JSON.stringify({tasks:input.tasks.length,encryptedBytes:packed.length,publicFile:path.join(pub,"data.enc.json"),secretFile}));
