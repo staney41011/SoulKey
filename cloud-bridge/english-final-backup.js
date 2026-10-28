@@ -39,7 +39,16 @@ function createEnglishFinalBackup({get,put,ensureTab,now=()=>new Date().toISOStr
   const data=JSON.stringify(final);
   const hash=crypto.createHash("sha256").update(data).digest("hex");
   const parts=[];
-  for(let i=0;i<data.length;i+=CHUNK_SIZE)parts.push(data.slice(i,i+CHUNK_SIZE));
+  // Do not split a Unicode surrogate pair across separate Sheet cells.
+  for(let i=0;i<data.length;){
+   let end=Math.min(i+CHUNK_SIZE,data.length);
+   if(end<data.length){
+    const previous=data.charCodeAt(end-1),next=data.charCodeAt(end);
+    if(previous>=0xD800&&previous<=0xDBFF&&next>=0xDC00&&next<=0xDFFF)end--;
+   }
+   parts.push(data.slice(i,end));
+   i=end;
+  }
   if(parts.length>100)throw Error("final_backup_too_large");
   await ensureTab(TAB,HEADER);
   const existing=await get(TAB,"A1:G10000");
