@@ -12,7 +12,7 @@ const sampleFolder="1eGmhvzVsXoIQwBQ9YyOEGFJ17cW9pMpP";
 const log=message=>process.stdout.write(String(message)+"\n");
 function cmd(name,args,opts={}){
  const result=cp.spawnSync(process.platform==="win32"?name+".cmd":name,args,{
-  shell:false,encoding:"utf8",stdio:opts.inherit?"inherit":"pipe",input:opts.input,
+  shell:process.platform==="win32",encoding:"utf8",stdio:opts.inherit?"inherit":"pipe",input:opts.input,
   maxBuffer:1024*1024*5,timeout:opts.timeout||120000
  });
  if(result.error)throw Error(name+" unavailable: "+result.error.message);
@@ -30,6 +30,31 @@ function getCredentialFile(){
  const scopes=String(def.scope||"");
  return {id,secret,refresh,scopes};
 }
+function findDefaultClaspClient(){
+ let root="";
+ try{root=cmd("npm",["root","-g"]).trim();}catch(_){return null;}
+ const home=path.join(root,"@google","clasp");
+ if(!fs.existsSync(home))return null;
+ const targets=[];
+ function walk(dir,depth){
+  if(depth>6||targets.length>1000)return;
+  for(const entry of fs.readdirSync(dir,{withFileTypes:true})){
+   const item=path.join(dir,entry.name);
+   if(entry.isDirectory()){
+    if(!["node_modules",".git","tests"].includes(entry.name))walk(item,depth+1);
+   }else if(entry.isFile()&&/oauth_client\.(?:js|ts)$/.test(entry.name))
+    targets.push(item);
+  }
+ }
+ walk(home,0);
+ for(const item of targets){
+  const data=fs.readFileSync(item,"utf8");
+  const id=data.match(/DEFAULT_CLASP_OAUTH_CLIENT_ID\s*=\s*["']([^"']+)/);
+  const secret=data.match(/DEFAULT_CLASP_OAUTH_CLIENT_SECRET\s*=\s*["']([^"']+)/);
+  if(id&&secret)return{id:id[1],secret:secret[1]};
+ }
+ return null;
+}
 async function credential(){
  let cred=getCredentialFile();
  if(!cred?.refresh||!cred.scopes.split(" ").includes("https://www.googleapis.com/auth/drive")){
@@ -39,7 +64,12 @@ async function credential(){
   cred=getCredentialFile();
  }
  if(!cred?.refresh)throw Error("Cannot find clasp OAuth refresh token after login");
- if(!cred?.id||!cred?.secret)throw Error("clasp OAuth client credentials missing in ~/.clasprc.json; use clasp login --creds with a desktop OAuth client and rerun");
+ if(!cred?.id||!cred?.secret){
+  const defaults=findDefaultClaspClient();
+  if(defaults){cred.id=cred.id||defaults.id;cred.secret=cred.secret||defaults.secret;}
+ }
+ if(!cred?.id||!cred?.secret)
+  throw Error("Cannot locate clasp OAuth client details. Use clasp login --creds with a Google Desktop OAuth client and rerun.");
  if(!cred.scopes.split(" ").includes("https://www.googleapis.com/auth/drive"))
   throw Error("Google Drive full access scope was not granted");
  return cred;
