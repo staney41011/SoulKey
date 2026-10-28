@@ -1,7 +1,7 @@
 "use strict";
 const assert=require("node:assert/strict");
 const {createDriveFinalPublisher,outputs}=require("../drive-final-publisher");
-const files=new Map();let creates=0,patches=0,appends=0;
+const files=new Map();let creates=0,patches=0,appends=0,termWrites=0;
 const api={request:async({method,url,data})=>{
  if(url.includes("?alt=media")){
   const id=url.match(/\/files\/([^?]+)/)?.[1];
@@ -25,13 +25,14 @@ const api={request:async({method,url,data})=>{
  throw Error("Unexpected URL "+url);
 }};
 let table=[["task_id"],["P259-L01"]],status=[["task_id","stage","status","run_id","progress","message","finished_at","updated_at"]];
-const get=async(tab)=>tab==="任務佇列"?table:status;
+const get=async(tab)=>tab==="任務佇列"?table:tab==="專有名詞庫"?[["中文原詞","類別","說明","English"]]:status;
 const put=async(tab,range,values,append)=>{
  if(tab==="任務佇列"){
   if(range==="J2")table[1][9]=values[0][0];
   if(range==="S2:T2"){table[1][18]=values[0][0];table[1][19]=values[0][1];}
   return;
  }
+ if(tab==="專有名詞庫"){termWrites++;return;}
  if(tab==="執行狀態"&&append){appends++;status.push(values[0]);}
 };
 const pub=createDriveFinalPublisher({
@@ -42,8 +43,10 @@ const pub=createDriveFinalPublisher({
  const segments=Array.from({length:449},(_,i)=>({
   id:i,start:i*4,end:i*4+4,text:"Edited English "+i
  }));
- const r=await pub.publish("P259-L01",{segments});
+ const r=await pub.publish("P259-L01",{segments,learned_terms:[{zh:"修道",en:"Dao cultivation"}]});
  assert.equal(r.ok,true);assert.equal(r.drive_saved,true);
+ assert.equal(r.terms_synced,1);
+ assert.equal(termWrites,1);
  assert.equal(Object.keys(r.files).length,3);
  assert.equal(files.size,3);
  assert.equal(table[1][9],"完成");
