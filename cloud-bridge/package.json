@@ -1,0 +1,14 @@
+{
+  "name": "soulkey-cloud-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "google-auth-library": "^9.15.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
