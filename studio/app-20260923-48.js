@@ -4610,7 +4610,18 @@ function submitBridgePost(fields){
       const body=await response.json();
       window.dispatchEvent(new MessageEvent("message",{data:body}));
     }).catch(error=>{
-      const message="控制中心寫入請求失敗："+String(error?.message||error);
+      const message="雲端寫入請求失敗："+String(error?.message||error);
+      // A failed final-submit fetch does not revoke the shared Bridge login.
+      // The full manuscript was already backed up locally before POST.
+      if(fields?.action==="review_save"){
+        window.dispatchEvent(new MessageEvent("message",{data:{
+          source:"soulkey-bridge",type:"review_saved",ok:false,
+          kind:String(fields.kind||""),task_id:String(fields.task_id||""),
+          error:"request_failed",message:message+
+            "。此裝置仍保留英文全文備份，請確認網路後重試。"
+        }}));
+        return;
+      }
       setDashboardBridgeState(message,"error");
       const details=document.getElementById("dashboard-bridge-message");
       if(details)details.textContent=message;
