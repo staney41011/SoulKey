@@ -31,7 +31,8 @@ function outputs(manuscript){
    "\n"+x.text+"\n").join("\n");
  return [
   {name:"en.final.json",mime:"application/json",value:JSON.stringify({
-    language:"English Final",finalized_at:final,segments
+    language:"English Final",finalized_at:final,segments,
+    learned_terms:Array.isArray(manuscript.learned_terms)?manuscript.learned_terms:[]
    },null,2)},
   {name:"en.final.txt",mime:"text/plain",value:txt},
   {name:"en.final.srt",mime:"text/plain",value:srt}
