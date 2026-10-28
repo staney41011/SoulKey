@@ -30,7 +30,7 @@ const englishFinalBackup=createEnglishFinalBackup({
  get,put,ensureTab:ensureBackupTab
 });
 const driveFinalPublisher=createDriveFinalPublisher({
- resolveFolders:driveReview.resolveFolders,get,put
+ resolveFolders:driveReview.resolveFolders,invalidateFolder:driveReview.invalidateFolder,get,put
 });
 async function saveFullEnglishFinal(p){
  const backup=await englishFinalBackup.save(p);
