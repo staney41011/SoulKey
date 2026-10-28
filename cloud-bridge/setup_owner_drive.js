@@ -141,8 +141,26 @@ async function main(){
  ].join(",");
  cmd("gcloud",["run","services","update",service,"--project="+project,"--region="+region,
   "--update-secrets="+update,"--quiet"],{timeout:360000});
- log("Google Drive owner authorization is now active on Cloud Run.");
- log("All editors continue using the existing six-character Bridge Key.");
- log("Next: open SoulKey, submit an English Final and confirm the three Drive files appear.");
+ const active=JSON.parse(cmd("gcloud",[
+  "run","services","describe",service,"--project="+project,
+  "--region="+region,"--format=json"
+ ]));
+ const rootUrl=String(active.status?.url||"").replace(/\/$/,"");
+ const master=(active.spec?.template?.spec?.containers?.[0]?.env||[])
+  .find(x=>x.name==="BRIDGE_KEY")?.value;
+ if(!rootUrl||!master)throw Error("Unable to verify Cloud Run authorization after deployment");
+ const params=new URLSearchParams({
+  action:"drive_owner_probe",task_id:"P259-L01",bridge_key:master
+ });
+ const answer=await fetch(rootUrl,{
+  method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+  body:params
+ });
+ const verified=await answer.json();
+ if(!verified.ok||!verified.can_add_children)
+  throw Error("Cloud Run Drive write-probe failed: "+String(verified.message||verified.error||answer.status));
+ log("SUCCESS: Cloud Run verified that it can write into the original course Drive folder.");
+ log("The six-character shared Bridge Key was not changed.");
+ log("You may now reopen SoulKey and save the English Final to the original Google Drive lesson folder.");
 }
 main().catch(e=>{process.stderr.write("Setup failed: "+String(e.message||e)+"\n");process.exitCode=1;});
