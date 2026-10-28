@@ -56,6 +56,8 @@ jobs:
           node --check cloud-bridge/drive-overview.js
           node cloud-bridge/tests/auth.test.js
           node cloud-bridge/tests/drive-overview.test.js
+          node --check cloud-bridge/english-final-backup.js
+          node cloud-bridge/tests/english-final-backup.test.js
       - name: Verify TTS share message includes only valid Drive audio
         run: |
           node studio/tests/test_tts_share_message.cjs
@@ -71,7 +73,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261028-stable-sync-v5" in html
+          assert "app-20260923-48.js?v=20261029-english-final-safe-backup-v1" in html
           assert "tts-share-message.js?v=20261028-length-audit-v1" in html
           assert "id=\"tts-share-copy\"" in html
           assert html.index("tts-share-message.js?v=") < html.index("language-delivery.js?v=") < html.index("app-20260923-48.js?v=")
