@@ -111,6 +111,30 @@ function createDriveFinalPublisher({authFactory=ownerAuth,resolveFolders,invalid
    message:resp.capabilities?.canAddChildren===true
     ?"已驗證 Google Drive 寫入授權":"授權帳號沒有此課程的資料夾編輯權限"};
  }
+ async function syncApprovedTerms(terms){
+  const list=Array.isArray(terms)?terms:[];
+  if(!list.length)return 0;
+  const rows=await get("專有名詞庫","A1:J5000");
+  let count=0;
+  for(const item of list){
+   const zh=String(item.zh||"").trim(),en=String(item.en||"").trim();
+   if(!zh||!en)continue;
+   const index=rows.findIndex((r,i)=>i>0&&String(r[0]||"").trim()===zh);
+   if(index>0){
+    const old=rows[index]||[];
+    if(String(old[3]||"").trim()!==en)await put("專有名詞庫","D"+(index+1),[[en]]);
+    if(String(old[8]||"").toUpperCase()!=="TRUE")
+     await put("專有名詞庫","I"+(index+1),[["TRUE"]]);
+   }else{
+    await put("專有名詞庫","A:J",[[
+     zh,"宗教術語","",en,"","","","","TRUE","由人工英文定稿學習"
+    ]],true);
+    rows.push([zh,"宗教術語","",en,"","","","","TRUE","由人工英文定稿學習"]);
+   }
+   count++;
+  }
+  return count;
+ }
  async function publish(task,manuscript){
   if(!isConfigured())return {ok:false,error:"owner_drive_authorization_not_configured"};
   const folders=await resolveFolders(task);
@@ -138,7 +162,8 @@ function createDriveFinalPublisher({authFactory=ownerAuth,resolveFolders,invalid
   for(const [k,v] of Object.entries(data))if(at[k]!==undefined)statusRow[at[k]]=v;
   const old=check.slice(1).some(x=>x[at.task_id]===task&&x[at.stage]==="en-review"&&x[at.status]==="done");
   if(!old)await put("執行狀態","A:M",[statusRow],true);
-  return {ok:true,task_id:task,kind:"en",drive_saved:true,files,
+  const termsSynced=await syncApprovedTerms(manuscript.learned_terms);
+  return {ok:true,task_id:task,kind:"en",drive_saved:true,terms_synced:termsSynced,files,
    finalized_at:stamp,source:"soulkey-bridge",type:"review_saved",
    message:"English Final 已寫入 Google Drive（JSON、TXT、SRT）並完成回讀驗證"};
  }
