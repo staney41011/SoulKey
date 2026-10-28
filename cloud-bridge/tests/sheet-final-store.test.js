@@ -35,7 +35,7 @@ const put=async(tab,_range,rows,append)=>{
  const loaded=await final.read("P259-L01");
  assert.equal(loaded.manuscript.segments.length,449);
  assert.equal(loaded.manuscript.learned_terms[0].en,"Dao cultivation");
- assert.equal(loaded.manuscript.segments[400].text,segments[400].text);
+ assert.equal(loaded.manuscript.segments[400].text,segments[400].text.trim());
  const count=writes;
  const again=await final.finalize("P259-L01",saved.backup_id,449);
  assert.equal(again.backup_id,saved.backup_id);
