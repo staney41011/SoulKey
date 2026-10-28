@@ -3,6 +3,7 @@ name: SoulKey Studio Status and TTS Share Tests
 on:
   pull_request:
     paths:
+      - cloud-bridge/**
       - studio/app-20260923-48.js
       - studio/tts-share-message.js
       - studio/language-delivery.js
@@ -19,6 +20,7 @@ on:
   push:
     branches: [main]
     paths:
+      - cloud-bridge/**
       - studio/app-20260923-48.js
       - studio/tts-share-message.js
       - studio/language-delivery.js
@@ -47,6 +49,13 @@ jobs:
           node --check studio/app-20260923-48.js
           node --check studio/tts-share-message.js
           node --check studio/language-delivery.js
+      - name: Validate Cloud Run Bridge read-only helpers
+        run: |
+          node --check cloud-bridge/server.js
+          node --check cloud-bridge/drive-review.js
+          node --check cloud-bridge/drive-overview.js
+          node cloud-bridge/tests/auth.test.js
+          node cloud-bridge/tests/drive-overview.test.js
       - name: Verify TTS share message includes only valid Drive audio
         run: |
           node studio/tests/test_tts_share_message.cjs
@@ -63,7 +72,7 @@ jobs:
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
           assert "app-20260923-48.js?v=20261028-stable-sync-v5" in html
-          assert "tts-share-message.js?v=20261020-review-preview-v2" in html
+          assert "tts-share-message.js?v=20261028-length-audit-v1" in html
           assert "id=\"tts-share-copy\"" in html
           assert html.index("tts-share-message.js?v=") < html.index("language-delivery.js?v=") < html.index("app-20260923-48.js?v=")
           print("STUDIO_SCRIPT_CACHE_VERSION_OK")
