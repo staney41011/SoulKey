@@ -82,7 +82,7 @@ assert.equal(availablePreview.hasLinks,true);
 assert.equal(availablePreview.allReady,false);
 assert.ok(availablePreview.message.includes(spanishPreview.id));
 assert.match(availablePreview.message,/待驗收：/);
-assert.match(availablePreview.message,/非影片同步正式 MP3/);
+assert.match(availablePreview.message,/尚未確認與影片同步/);
 assert.ok(!availablePreview.message.includes("未對時自然朗讀版"));
 lesson3.remoteStages["tts:es"].message="自然長度=3610.0s，影片上限=3500.0s";
 const withTiming=build(lesson3,payload([spanishPreview,make("es",99)]));
@@ -90,6 +90,18 @@ assert.equal(withTiming.reviewCount,1,"Pending-review preview overrides older of
 assert.match(withTiming.message,/超出 1分50秒/);
 assert.match(withTiming.message,/1ExampleSoulKeyDriveAudioId_41/);
 assert.doesNotMatch(withTiming.message,/1ExampleSoulKeyDriveAudioId_99/);
+// A formally named MP3 may still be too short; preserve its real URL
+// but never present it as video-synchronized release audio.
+const shortEnglish=make("en",50,{
+  needs_timing_review:true,audio_kind:"length_review",
+  timing_review_reason:"配音比原影片短 18%"
+});
+const shortResult=build(task(),payload([shortEnglish]));
+assert.equal(shortResult.readyCount,1);
+assert.equal(shortResult.reviewCount,1);
+assert.equal(shortResult.allReady,false);
+assert.match(shortResult.message,/配音比原影片短 18%/);
+assert.match(shortResult.message,/尚未確認與影片同步/);
 const fakePreview=make("es",42,{
   canonical_name:"es.preview.mp3",name:"es.preview.mp3",
   needs_timing_review:true
