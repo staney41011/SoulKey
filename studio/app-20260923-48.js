@@ -3760,7 +3760,7 @@ function syncEnglishFinalizeButton(task){
     ?"正在儲存…"
     :finalized?(sheetFinal?"✓ 已存中央定稿・Drive 待同步":"✓ 已定稿・查看後續流程 →")
       :backup?.backup_saved?"英文已備存・Drive 待定稿"
-      :driveOwnerConfigured?"英文定稿":"備存英文全文";
+      :"英文定稿";
 }
 
 function showEnglishDraftRecovery(taskId){
