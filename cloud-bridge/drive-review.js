@@ -12,6 +12,7 @@ function cached(key,load,ttl=180000){
  return load().then(value=>{cache.set(key,{at:Date.now(),value});return value;});
 }
 function createDriveReview(auth,get){
+ let sheetFinalLoader=null;
  let client;
  async function drive(url){
   client??=await auth.getClient();
@@ -156,6 +157,23 @@ function ccRows(chinese,cues){
    if(!Array.isArray(original?.segments)||!original.segments.length)
     return err(task,kind,"這堂課尚未有中文人工定稿");
    const source=original.segments;
+   if(sheetFinalLoader){
+    const final=await sheetFinalLoader(task);
+    if(final?.manuscript?.segments?.length){
+      const rows=final.manuscript.segments.map((seg,i)=>{
+       const id=Number(seg.id??i),start=Number(seg.start||0),
+        end=Number(seg.end||start);
+       return {id,start,end,time:fmtTime(start),
+        original:overlap(source,start,end,id),vernacular:"",
+        en:String(seg.text||""),source_en:String(seg.text||""),
+        en_confirmed:true,ids:[id],terms:[]};
+      });
+      return {source:"soulkey-bridge",type:"review_data",ok:true,
+       task_id:task,kind:"en",manuscript_source:"google-sheet-final",
+       sheet_finalized:true,backup_id:final.backup_id,
+       finalized_at:final.finalized_at,load_ms:Date.now()-begin,segments:rows};
+    }
+   }
    for(const [canonical,tag] of [["en.final.json","final"],["en.review.draft.json","draft"],["en.json","machine"]]){
     const english=await jsonFile(ids.translation,canonical);
     if(!Array.isArray(english?.segments)||!english.segments.length)continue;
@@ -191,6 +209,6 @@ function ccRows(chinese,cues){
    return typeof result==="string"?JSON.parse(result):result;
   },180000);
  }});
- return {review,resolveFolders:context,invalidateFolder:id=>cache.delete("dir:"+String(id||"")),courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
+ return {review,setSheetFinalLoader:fn=>{sheetFinalLoader=fn;},resolveFolders:context,invalidateFolder:id=>cache.delete("dir:"+String(id||"")),courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
 }
 module.exports={createDriveReview};
