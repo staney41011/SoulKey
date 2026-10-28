@@ -47,8 +47,16 @@ function send(res,data,status=200,jsonp){if(jsonp&&/^[a-zA-Z_$][\w.$]{0,120}$/.t
 http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https://staney41011.github.io"){res.setHeader("Access-Control-Allow-Origin",req.headers.origin);res.setHeader("Vary","Origin");res.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");res.setHeader("Access-Control-Allow-Headers","Content-Type");}if(req.method==="OPTIONS"){res.writeHead(204);res.end();return;}
  if(req.method==="GET"){p=Object.fromEntries(new URL(req.url,"http://localhost").searchParams);if(!p.action){send(res,{ok:true,service:"SoulKey Studio Cloud Bridge",message:"bridge-ready"});return;}}
  else if(req.method==="POST"){let size=0,buff=[];for await(const part of req){size+=part.length;if(size>1000000)throw Error("payload_too_large");buff.push(part);}p=Object.fromEntries(new URLSearchParams(Buffer.concat(buff).toString("utf8")));}else{send(res,{error:"method_not_allowed"},405);return;}
+ // The Google ingress adds the peer and proxy at the end of XFF.
+ // Prefer the penultimate peer to avoid trusting a user-supplied first hop.
+ const peers=String(req.headers["x-forwarded-for"]||"").split(",").map(x=>x.trim()).filter(Boolean);
+ const address=String(peers.length>=2?peers[peers.length-2]:(peers[0]||req.socket.remoteAddress||"unknown"));
+ if(bridgeAuth.isBlocked(address)){
+   send(res,out(p.action==="status_health"?"status_health":"bridge_error",
+    {ok:false,error:"rate_limited",message:"登入嘗試過多，請稍後再試"}),429,p.callback);
+   return;
+ }
  if(!ok(p.bridge_key)){
-   const address=String(req.headers["x-forwarded-for"]||req.socket.remoteAddress||"unknown").split(",")[0].trim();
    const limited=bridgeAuth.noteFailure(address);
    send(res,out(p.action==="status_health"?"status_health":"bridge_error",{ok:false,error:limited?"rate_limited":"unauthorized",message:limited?"登入嘗試過多，請稍後再試":"Bridge Key 不正確"}),limited?429:401,p.callback);
    return;
