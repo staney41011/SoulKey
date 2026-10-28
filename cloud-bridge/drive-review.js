@@ -191,6 +191,6 @@ function ccRows(chinese,cues){
    return typeof result==="string"?JSON.parse(result):result;
   },180000);
  }});
- return {review,courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
+ return {review,resolveFolders:context,courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
 }
 module.exports={createDriveReview};
