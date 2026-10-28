@@ -4529,6 +4529,26 @@ function submitBridgePost(fields){
     }
   }
 
+  // Google Cloud replacement returns JSON over CORS. The former Apps Script
+  // hidden iframe cannot receive that response, so deliver its ACK through the
+  // same event dispatcher used by the existing UI.
+  if(/^https:\/\/soulkey-bridge-[a-z0-9-]+\.(?:asia-east1\.run\.app|a\.run\.app)/.test(endpoint)){
+    fetch(endpoint,{
+      method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:new URLSearchParams({...fields,bridge_key:key}),
+      mode:"cors",cache:"no-store"
+    }).then(async response=>{
+      const body=await response.json();
+      window.dispatchEvent(new MessageEvent("message",{data:body}));
+    }).catch(error=>{
+      const message="控制中心寫入請求失敗："+String(error?.message||error);
+      setDashboardBridgeState(message,"error");
+      const details=document.getElementById("dashboard-bridge-message");
+      if(details)details.textContent=message;
+    });
+    return true;
+  }
   // Every POST gets its own hidden iframe. Reusing one target causes two rapid
   // submissions (for example P255-L01 + P255-L02) to race, and the second
   // navigation can replace the first before Apps Script receives it.
@@ -5392,7 +5412,8 @@ window.addEventListener("message",event=>{
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
     if(data.ok){
-      bridgeProtocolVersion=Number(data.bridge_protocol||0);
+      bridgeProtocolVersion=String(data.bridge_protocol||"")==="cloud-recovery"
+        ? REQUIRED_BRIDGE_PROTOCOL : Number(data.bridge_protocol||0);
       const protocolOk=bridgeProtocolVersion>=REQUIRED_BRIDGE_PROTOCOL;
       if(syncState){
         syncState.textContent=protocolOk ? "狀態表已連線" : "控制中心版本過舊";
