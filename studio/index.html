@@ -117,12 +117,12 @@
             <p class="eyebrow">CONTROL CENTER</p>
             <div>
               <h3>連線全球翻譯控制中心</h3>
-              <p class="muted">目前網頁使用 Google Cloud Run 連線原 Sheet，與原本 Google Apps Script 是不同服務。你原本在 Apps Script 設定的 6 碼金鑰仍屬該服務；此網頁需使用 Cloud Run 專用金鑰。可在已授權電腦開啟「SoulKey-手機配對.cmd」，用手機掃描 QR Code 直接連線。</p>
+              <p class="muted">所有使用者只要輸入管理者原本設定的 6 碼 Bridge Key，即可共用翻譯工作台，不必掃 QR Code 或進行手機配對。首次啟用 6 碼登入須由管理者在授權電腦完成一次設定。</p>
             </div>
           </div>
           <div class="dashboard-bridge-form">
-            <label>Bridge Key
-              <input id="dashboard-bridge-key" type="password" autocomplete="off" placeholder="輸入 Bridge Key">
+            <label>共用 Bridge Key（原設定 6 碼）
+              <input id="dashboard-bridge-key" type="password" autocomplete="off" inputmode="text" placeholder="輸入原本的 6 碼">
             </label>
             <button class="primary" id="dashboard-bridge-connect" type="button">連線控制中心</button>
             <span class="badge" id="dashboard-bridge-state">尚未連線</span>

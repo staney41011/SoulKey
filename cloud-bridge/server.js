@@ -1,16 +1,17 @@
 "use strict";
-const http=require("node:http"),crypto=require("node:crypto"),{GoogleAuth}=require("google-auth-library");
+const http=require("node:http"),{GoogleAuth}=require("google-auth-library");
+const {createBridgeAuth}=require("./auth");
 const ID="1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
 const N={tasks:"任務佇列",status:"執行狀態",lang:"語言設定",plans:"語言任務設定",edits:"英文人工定稿"};
 const key=process.env.BRIDGE_KEY||"",source="soulkey-bridge";
-if(key.length<24)throw Error("BRIDGE_KEY missing");
+const bridgeAuth=createBridgeAuth({primaryKey:key,legacyHmac:process.env.BRIDGE_LEGACY_HMAC||""});
 const auth=new GoogleAuth({scopes:["https://www.googleapis.com/auth/spreadsheets"]});
 let client;async function google(method,url,body){client??=await auth.getClient();return(await client.request({method,url:"https://sheets.googleapis.com/v4/spreadsheets/"+ID+"/"+url,data:body,timeout:20000})).data;}
 const range=(sheet,a)=>encodeURIComponent("'"+sheet+"'!"+a);
 async function get(s,a="A1:Z10000"){return(await google("GET","values/"+range(s,a)+"?valueRenderOption=FORMATTED_VALUE")).values||[];}
 async function put(s,a,rows,append=false){return google(append?"POST":"PUT","values/"+range(s,a)+(append?":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS":"?valueInputOption=RAW"),{values:rows,majorDimension:"ROWS"});}
 const out=(type,o={})=>({source,type,...o}), now=()=>new Date().toISOString(),n=x=>Number(String(x||"").replace(/\D/g,""))||null,b=x=>String(x||"").toUpperCase()==="TRUE", valid=x=>/^P\d+-L\d+(?:-R\d+)?$/i.test(String(x));
-function ok(k){if(!k)return false;return crypto.timingSafeEqual(crypto.createHash("sha256").update(k).digest(),crypto.createHash("sha256").update(key).digest());}
+function ok(k){return bridgeAuth.valid(k);}
 async function tasks(){return(await get(N.tasks,"A1:Z5000")).slice(1).filter(r=>valid(r[0])).map(r=>({
  id:r[0],period:n(r[1]),lesson:r[2]||"",title:r[3]||"",url:r[4]||"",lecturer:r[5]||"",source_language:r[6]||"",
  asr:r[7]||"",zh_review:r[8]||"",en:r[9]||"",th:r[10]||"",es:r[11]||"",id_lang:r[12]||"",vi:r[13]||"",subtitle:r[14]||"",audio:r[15]||"",video:r[16]||"",
@@ -44,7 +45,14 @@ function send(res,data,status=200,jsonp){if(jsonp&&/^[a-zA-Z_$][\w.$]{0,120}$/.t
 http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https://staney41011.github.io"){res.setHeader("Access-Control-Allow-Origin",req.headers.origin);res.setHeader("Vary","Origin");res.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");res.setHeader("Access-Control-Allow-Headers","Content-Type");}if(req.method==="OPTIONS"){res.writeHead(204);res.end();return;}
  if(req.method==="GET"){p=Object.fromEntries(new URL(req.url,"http://localhost").searchParams);if(!p.action){send(res,{ok:true,service:"SoulKey Studio Cloud Bridge",message:"bridge-ready"});return;}}
  else if(req.method==="POST"){let size=0,buff=[];for await(const part of req){size+=part.length;if(size>1000000)throw Error("payload_too_large");buff.push(part);}p=Object.fromEntries(new URLSearchParams(Buffer.concat(buff).toString("utf8")));}else{send(res,{error:"method_not_allowed"},405);return;}
- if(!ok(p.bridge_key)){send(res,out(p.action==="status_health"?"status_health":"bridge_error",{ok:false,error:"unauthorized",message:"Bridge Key 不正確"}),401,p.callback);return;}
- const data=req.method==="GET"?await read(p):await write(p);send(res,data,data.ok===false?409:200,p.callback);
+ if(!ok(p.bridge_key)){
+   const address=String(req.headers["x-forwarded-for"]||req.socket.remoteAddress||"unknown").split(",")[0].trim();
+   const limited=bridgeAuth.noteFailure(address);
+   send(res,out(p.action==="status_health"?"status_health":"bridge_error",{ok:false,error:limited?"rate_limited":"unauthorized",message:limited?"登入嘗試過多，請稍後再試":"Bridge Key 不正確"}),limited?429:401,p.callback);
+   return;
+ }
+ const readActions=new Set(["status_health","tasks_get","language_settings","language_plan_get","status","status_batch","review_en_draft_status"]);
+ const data=req.method==="GET"||readActions.has(String(p.action||""))?await read(p):await write(p);
+ send(res,data,data.ok===false?409:200,p.callback);
  }catch(e){console.error("Bridge failure",String(e.message||e));send(res,out(p.action==="status_health"?"status_health":"bridge_error",{ok:false,error:"bridge_exception",message:String(e.message||e).slice(0,200)}),500,p.callback);}
 }).listen(Number(process.env.PORT)||8080,"0.0.0.0",()=>console.log("SoulKey bridge ready"));

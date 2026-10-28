@@ -4686,6 +4686,26 @@ function jsonpBridgeRequest(fields){
     if(action==="course_files") courseFilesLoadFailed(String(fields.task_id||""),reason);
     if(action==="tts_share_links") ttsShareLinksFailed(String(fields.task_id||""),reason);
   };
+  // Six-character shared keys use CORS POST. Avoid putting a short shared
+  // passcode in URL query strings, browser history, and request access logs.
+  if(key.length===6){
+    const controller=new AbortController();
+    params.delete("callback");
+    params.delete("_t");
+    watchdog=window.setTimeout(()=>{
+      controller.abort();
+      fail("逾時 "+Math.round(timeoutMs/1000)+" 秒，請稍後再試");
+    },timeoutMs);
+    fetch(endpoint,{
+      method:"POST",mode:"cors",cache:"no-store",
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:params.toString(),signal:controller.signal
+    }).then(response=>response.json()).then(data=>{
+      if(!cleanup())return;
+      window.dispatchEvent(new MessageEvent("message",{data}));
+    }).catch(error=>fail("Cloud Run 連線失敗："+String(error?.message||error)));
+    return true;
+  }
   script.onerror=()=>fail("控制中心可能拒絕存取或暫時無法連線");
   watchdog=window.setTimeout(
     ()=>fail("逾時 "+Math.round(timeoutMs/1000)+" 秒，請檢查控制中心部署權限"),
@@ -4874,7 +4894,9 @@ window.addEventListener("message",event=>{
       youtubeCaptureFilesLoadingTask="";
     }
     const bridgeErrorText=data.error==="unauthorized"
-      ? "此網站目前連接 Cloud Run，不是原本的 Apps Script。原本 Apps Script 的 6 碼金鑰沒有失效，但不能用來登入 Cloud Run。請從授權電腦桌面開啟 SoulKey-手機配對.cmd，掃描 QR Code 自動帶入 Cloud Run 金鑰。"
+      ? "Bridge Key 驗證失敗。若使用原本 Apps Script 六碼，請確認管理者已在授權電腦執行一次「SoulKey-啟用共用6碼登入.cmd」，再核對輸入。"
+      : data.error==="rate_limited"
+        ? "登入嘗試太多，請在一小時後再試，或請管理者檢查金鑰。"
       : "Bridge 錯誤："+reason;
     setDashboardBridgeState(bridgeErrorText,"error");
     const syncState=document.getElementById("status-sync-state");
@@ -5460,7 +5482,9 @@ window.addEventListener("message",event=>{
       }
     }else{
       const reason=data.error==="unauthorized"
-        ? "目前網站連接 Cloud Run，與 Apps Script 的 6 碼 Bridge Key 是不同的驗證設定。請在已授權電腦開啟 SoulKey-手機配對.cmd，掃描 QR Code 自動連線；原本的 Apps Script 金鑰並未被修改。"
+        ? "Bridge Key 驗證失敗。原 Apps Script 六碼可在管理者完成一次「SoulKey-啟用共用6碼登入.cmd」後於此直接使用。"
+        : data.error==="rate_limited"
+          ? "登入嘗試過多，請稍後再試或通知管理者。"
         : (data.message || data.error || "未知錯誤");
       bridgeSyncRequestFailed("status_health",reason);
       if(syncState){
