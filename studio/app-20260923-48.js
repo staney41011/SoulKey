@@ -16,6 +16,7 @@ const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubus
 const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
 let bridgeAuthenticated = false; // true only after verified health AND central tasks are loaded
+let driveOwnerConfigured = false; // requires verified owner OAuth before Drive publishing
 let firebaseSnapshotReadOnly=false; // verified encrypted Firebase snapshot, NEVER enables mutations
 let youtubeCookiesConfigured = null;
 let reviewYouTubePlayer = null;
@@ -3756,7 +3757,8 @@ function syncEnglishFinalizeButton(task){
   button.textContent=pending
     ?"正在儲存…"
     :finalized?"✓ 已定稿・查看後續流程 →"
-      :backup?.backup_saved?"英文已備存・Drive 待定稿":"英文定稿";
+      :backup?.backup_saved?"英文已備存・Drive 待定稿"
+      :driveOwnerConfigured?"英文定稿":"備存英文全文";
 }
 
 function showEnglishDraftRecovery(taskId){
@@ -5565,6 +5567,7 @@ window.addEventListener("message",event=>{
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
     if(data.ok){
+      driveOwnerConfigured=data.drive_owner_configured===true;
       bridgeProtocolVersion=String(data.bridge_protocol||"")==="cloud-recovery"
         ? REQUIRED_BRIDGE_PROTOCOL : Number(data.bridge_protocol||0);
       const protocolOk=bridgeProtocolVersion>=REQUIRED_BRIDGE_PROTOCOL;
@@ -5575,8 +5578,8 @@ window.addEventListener("message",event=>{
       const apiState=document.getElementById("api-state");
       if(apiState){
         apiState.textContent=protocolOk
-          ? "Apps Script 已連線"
-          : "Apps Script 需重新部署";
+          ? (String(data.bridge_protocol||"")==="cloud-recovery"?"Cloud Run 已連線":"Apps Script 已連線")
+          : "控制中心版本需更新";
         apiState.className=protocolOk ? "ok" : "warn";
       }
       if(syncText){
