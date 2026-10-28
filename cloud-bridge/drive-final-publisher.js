@@ -1,6 +1,5 @@
 "use strict";
 const crypto=require("node:crypto");
-const {OAuth2Client}=require("google-auth-library");
 const DRIVE="https://www.googleapis.com/drive/v3/files";
 const UPLOAD="https://www.googleapis.com/upload/drive/v3/files";
 const MANIFEST_ID=/^[A-Za-z0-9_-]{12,}$/;
@@ -9,6 +8,7 @@ function ownerAuth(){
  const secret=String(process.env.GOOGLE_OWNER_CLIENT_SECRET||"").trim();
  const refresh=String(process.env.GOOGLE_OWNER_REFRESH_TOKEN||"").trim();
  if(!id||!secret||!refresh)return null;
+ const {OAuth2Client}=require("google-auth-library");
  const client=new OAuth2Client(id,secret);
  client.setCredentials({refresh_token:refresh});
  return client;
