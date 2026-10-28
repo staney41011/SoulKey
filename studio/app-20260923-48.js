@@ -4123,8 +4123,16 @@ function finishEnglishReviewDraftSave(data){
   window.clearTimeout(englishDraftSaveWatchdog);
   if(data.ok){
     const byId=new Map((submitted?.segments||[]).map(x=>[Number(x.id),x]));
+    const cloudStore=englishCloudOverridesByTask[currentId] || (englishCloudOverridesByTask[currentId]={});
     pendingIds.forEach(id=>{
       const saved=byId.get(id);
+      if(saved){
+        // This receipt becomes the base revision for subsequent edits to
+        // this very same sentence, preventing false edit_conflict failures.
+        cloudStore[String(id)]={en_text:String(saved.en_text||""),
+          en_confirmed:true,request_id:String(data.request_id||""),
+          updated_at:String(data.saved_at||"")};
+      }
       const current=currentEnglishReview.find(x=>Number(x.id)===id);
       const unchanged=!!saved && !!current && current.en_confirmed===true &&
         String(current.en||"")===String(saved.en_text||"");
@@ -4159,6 +4167,22 @@ function finishEnglishReviewDraftSave(data){
     window.setTimeout(()=>saveEnglishReviewDraft(next),0);
   }
 }
+function resumeQueuedEnglishSaves(){
+  if(englishDraftSavePendingId!==null || !englishDraftSaveQueuedIds.size ||
+     !selectedTaskId || !bridgeAuthenticated || !bridgeKeyValue())return;
+  const next=englishDraftSaveQueuedIds.values().next().value;
+  const item=currentEnglishReview.find(row=>Number(row.id)===Number(next));
+  if(!item)return;
+  item.en_confirmed=true;
+  window.setTimeout(()=>saveEnglishReviewDraft(next),250);
+}
+window.addEventListener("online",()=>{
+  if(bridgeKeyValue() && !bridgeAuthenticated)requestStatusHealth();
+  resumeQueuedEnglishSaves();
+});
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible")resumeQueuedEnglishSaves();
+});
 function saveEnglishReviewDraft(confirmedId){
   if(!selectedTaskId || !currentEnglishReview.length) return false;
   const id=Number(confirmedId);
@@ -4180,15 +4204,11 @@ function saveEnglishReviewDraft(confirmedId){
   englishDraftSavedSnapshot.save_request_id=requestId;
   englishDraftSavedSnapshot.confirmed_segment_ids=ids;
   const state=document.getElementById("en-review-share-state");
-  if(state) state.textContent="正在將 "+ids.length+" 筆英文確認保存到 Google Drive…";
+  if(state) state.textContent="正在安全儲存 "+ids.length+" 筆英文修改…";
   try{
     localStorage.setItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+currentId,
       JSON.stringify(englishDraftSavedSnapshot));
   }catch(_){}
-  // Google web apps can discard/never acknowledge large hidden iframe
-  // form POSTs. Use a small, cross-origin no-CORS POST (no third-party
-  // iframe/cookies) and authenticate success only via the Drive receipt GET.
-  // The payload contains ONLY rows confirmed in this request.
   const selected=new Set(ids.map(Number));
   const compactPayload={
     ...englishDraftSavedSnapshot,
@@ -4204,42 +4224,80 @@ function saveEnglishReviewDraft(confirmedId){
   const endpoint=bridgeEndpointValue();
   const secret=bridgeKeyValue();
   if(!endpoint || !secret || !bridgeAuthenticated){
-    ids.forEach(x=>markEnglishConfirmResult(x,false,"重試確認"));
+    // No write was attempted: keep the same confirmation in the local queue.
+    ids.forEach(x=>englishDraftSaveQueuedIds.add(x));
     englishDraftSavePendingId=null;
     englishDraftSavePendingIds=new Set();
     englishDraftSaveRequestId="";
     englishDraftSavedSnapshot=null;
-    if(state) state.textContent="控制中心尚未連線；文字保留在本機。";
-    return false;
+    if(state) state.textContent="暫時離線：修改和確認已留在本機；恢復連線後會重新送出。";
+    return true;
   }
   const body=new URLSearchParams({
     action:"review_en_draft_save",task_id:currentId,
     bridge_key:secret,payload_json:JSON.stringify(compactPayload)
   });
-  fetch(endpoint,{
-    method:"POST",mode:"no-cors",credentials:"omit",
-    body:body,redirect:"follow",cache:"no-store"
-  }).catch(err=>{
-    if(englishDraftSaveRequestId!==requestId)return;
-    const state=document.getElementById("en-review-share-state");
-    if(state)state.textContent="網路可能無法送出儲存請求；正在核對 Drive，尚未確認成功。";
-    // The request might still be committed; the receipt probe decides.
-  });
+  const stillPending=()=>selectedTaskId===currentId &&
+    englishDraftSaveRequestId===requestId;
   const probe=()=>{
-    if(selectedTaskId===currentId &&
-       englishDraftSaveRequestId===requestId)
-      jsonpBridgeRequest({
-        action:"review_en_draft_status",task_id:currentId,
-        request_id:requestId
-      });
+    if(stillPending())jsonpBridgeRequest({
+      action:"review_en_draft_status",task_id:currentId,request_id:requestId
+    });
   };
-  // POST iframe messages can be lost on mobile/cross-origin browsers.
-  // Read a tiny, Drive-committed receipt independently over JSONP.
-  [2000,6000,12000,22000,35000,45000].forEach(delay=>window.setTimeout(probe,delay));
+  // Direct CORS POST returns a verifiable ACK. Reuse the *same* request ID
+  // on retries so an interrupted response can never create a second edit.
+  // The receipt polls are only a fallback if the POST ACK is lost.
+  const send=async()=>{
+    for(let attempt=0;attempt<3;attempt++){
+      if(!stillPending())return;
+      if(attempt)await new Promise(resolve=>
+        window.setTimeout(resolve,attempt===1?1600:4200));
+      if(!stillPending())return;
+      const controller=new AbortController();
+      const cutoff=window.setTimeout(()=>controller.abort(),20000);
+      try{
+        const response=await fetch(endpoint,{
+          method:"POST",mode:"cors",credentials:"omit",
+          headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+          body:body.toString(),redirect:"follow",cache:"no-store",
+          signal:controller.signal
+        });
+        const data=await response.json();
+        if(!stillPending())return;
+        if(data?.type==="english_review_draft_saved" &&
+           String(data.request_id||"")===requestId){
+          finishEnglishReviewDraftSave(data);
+          return;
+        }
+        if(response.status===401 || response.status===429){
+          finishEnglishReviewDraftSave({
+            type:"english_review_draft_saved",task_id:currentId,
+            request_id:requestId,ok:false,
+            message:response.status===429
+              ?"伺服器限制登入嘗試，請稍後再試"
+              :"共用 Bridge Key 驗證失敗，請重新連線"
+          });
+          return;
+        }
+        if(state)state.textContent="雲端暫時未確認儲存，正自動重試（"+
+          (attempt+1)+"/3）；本機草稿安全保留。";
+      }catch(error){
+        if(!stillPending())return;
+        if(state)state.textContent="網路中斷或回應逾時，正自動重試（"+
+          (attempt+1)+"/3）；英文修改沒有清除。";
+      }finally{window.clearTimeout(cutoff);}
+    }
+    if(stillPending()){
+      if(state)state.textContent="正在核對雲端是否已收到修改；本機草稿已保存，請勿關閉編輯頁。";
+      probe();
+    }
+  };
+  send();
+  [8000,23000,43000,65000,85000].forEach(delay=>
+    window.setTimeout(probe,delay));
   window.clearTimeout(englishDraftSaveWatchdog);
   englishDraftSaveWatchdog=window.setTimeout(()=>{
-    if(englishDraftSaveRequestId!==requestId ||
-       selectedTaskId!==currentId) return;
+    if(!stillPending())return;
     const waiting=[...englishDraftSavePendingIds,...englishDraftSaveQueuedIds];
     waiting.forEach(x=>markEnglishConfirmResult(x,false,"重試確認"));
     englishDraftSavePendingId=null;
@@ -4247,8 +4305,9 @@ function saveEnglishReviewDraft(confirmedId){
     englishDraftSaveQueuedIds.clear();
     englishDraftSaveRequestId="";
     englishDraftSavedSnapshot=null;
-    if(state) state.textContent="55秒內未收到 Drive 儲存憑證。文字已保存在本機，按鈕可重試；請先核對雲端避免重複修改。";
-  },55000);
+    if(state)state.textContent=
+      "雲端仍未回覆儲存憑證。所有英文修改已備份在此裝置；請按「重試確認」，不要重新翻譯。";
+  },100000);
   return true;
 }
 
@@ -4620,12 +4679,17 @@ function bridgeClientRequest(fields){
 function bridgeSyncRequestFailed(action,reason){
   if(firebaseSnapshotReadOnly)return;
   if(action==="status_health" || action==="tasks_get"){
-    bridgeAuthenticated=false;
+    const wasAuthenticated=bridgeAuthenticated;
+    // A transient background poll failure is not a revoked Bridge Key.
+    // Keep the current editor and save permission alive until the server
+    // explicitly reports unauthorized. Never discard unsaved English edits.
+    if(!wasAuthenticated) bridgeAuthenticated=false;
     const humanReason=String(reason||"無法取得控制中心回應");
     setDashboardBridgeState(
-      "無法同步控制中心："+humanReason+
-      "。請稍後按「連線控制中心」重試；原本 Google Sheet 的資料不會消失。",
-      "error"
+      wasAuthenticated
+        ? "網路暫時無法同步："+humanReason+"。編輯內容已暫存在本機，可繼續修改；系統將於恢復連線後重試。"
+        : "無法同步控制中心："+humanReason+"。請按「連線控制中心」重試；原本 Google Sheet 資料不會消失。",
+      wasAuthenticated?"working":"error"
     );
     const apiState=document.getElementById("api-state");
     if(apiState){
@@ -4898,7 +4962,14 @@ window.addEventListener("message",event=>{
       : data.error==="rate_limited"
         ? "登入嘗試太多，請在一小時後再試，或請管理者檢查金鑰。"
       : "Bridge 錯誤："+reason;
-    setDashboardBridgeState(bridgeErrorText,"error");
+    // An unimplemented feature is not a lost login. Keep the English
+    // editor active when some unrelated Cloud Run action returns 409.
+    const revoked=["unauthorized","rate_limited"].includes(String(data.error||""));
+    if(revoked) setDashboardBridgeState(bridgeErrorText,"error");
+    else if(bridgeAuthenticated){
+      setDashboardBridgeState(
+        "控制中心仍已連線；部分功能尚未恢復："+reason,"ok");
+    }else setDashboardBridgeState(bridgeErrorText,"working");
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
     if(syncState){
@@ -4931,6 +5002,7 @@ window.addEventListener("message",event=>{
       }
       bridgeAuthenticated=true; // first verified central snapshot
       mergeRemoteTasks(data.tasks||[]);
+      resumeQueuedEnglishSaves();
       const backendText=document.getElementById("backend-text");
       const backendDot=document.querySelector(".backend-pill .status-dot");
       if(backendText) backendText.textContent="控制中心已連線";

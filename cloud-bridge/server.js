@@ -56,5 +56,17 @@ http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https:/
  const readActions=new Set(["status_health","tasks_get","language_settings","language_plan_get","status","status_batch","review_en_draft_status","review_load"]);
  const data=req.method==="GET"||readActions.has(String(p.action||""))?await read(p):await write(p);
  send(res,data,data.ok===false?409:200,p.callback);
- }catch(e){console.error("Bridge failure",String(e.message||e));const isReview=p.action==="review_load";send(res,out(isReview?"review_data":p.action==="status_health"?"status_health":"bridge_error",{ok:false,error:"bridge_exception",message:String(e.message||e).slice(0,200),...(isReview?{task_id:String(p.task_id||""),kind:String(p.kind||"")}: {})}),500,p.callback);}
+ }catch(e){
+  const message=String(e.message||e).slice(0,200);
+  console.error("Bridge failure",message);
+  const isReview=p.action==="review_load";
+  const isEnglishSave=p.action==="review_en_draft_save";
+  let requestId="";
+  if(isEnglishSave)try{requestId=String(JSON.parse(p.payload_json||"{}").save_request_id||"");}catch(_){}
+  const conflict=/^edit_conflict_reload_required_/.test(message);
+  const type=isEnglishSave?"english_review_draft_saved":isReview?"review_data":p.action==="status_health"?"status_health":"bridge_error";
+  send(res,out(type,{ok:false,error:conflict?"edit_conflict_reload_required":"bridge_exception",message,
+    ...(isEnglishSave?{task_id:String(p.task_id||""),request_id:requestId}:{}),
+    ...(isReview?{task_id:String(p.task_id||""),kind:String(p.kind||"")}: {})}),conflict?409:500,p.callback);
+ }
 }).listen(Number(process.env.PORT)||8080,"0.0.0.0",()=>console.log("SoulKey bridge ready"));
