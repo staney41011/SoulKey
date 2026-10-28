@@ -1,4 +1,5 @@
 "use strict";
+const {createDriveOverview}=require("./drive-overview");
 const ROOT="https://www.googleapis.com/drive/v3/files";
 const ID_RE=/^[a-zA-Z0-9_-]{12,}$/;
 const TASK_RE=/^P(\d+)-L(\d{2})$/i;
@@ -183,6 +184,7 @@ function ccRows(chinese,cues){
   }
   return err(task,kind,"尚未支援這種類型的校稿資料","unsupported_review_kind");
  }
- return {review};
+ const overview=createDriveOverview({children,context});
+ return {review,courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
 }
 module.exports={createDriveReview};
