@@ -3,6 +3,7 @@ const http=require("node:http"),{GoogleAuth}=require("google-auth-library");
 const {createBridgeAuth}=require("./auth");
 const {createDriveReview}=require("./drive-review");
 const {createEnglishFinalBackup}=require("./english-final-backup");
+const {createDriveFinalPublisher}=require("./drive-final-publisher");
 const ID="1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
 const N={tasks:"任務佇列",status:"執行狀態",lang:"語言設定",plans:"語言任務設定",edits:"英文人工定稿"};
 const key=process.env.BRIDGE_KEY||"",source="soulkey-bridge";
@@ -28,6 +29,28 @@ async function ensureBackupTab(title,headers){
 const englishFinalBackup=createEnglishFinalBackup({
  get,put,ensureTab:ensureBackupTab
 });
+const driveFinalPublisher=createDriveFinalPublisher({
+ resolveFolders:driveReview.resolveFolders,get,put
+});
+async function saveFullEnglishFinal(p){
+ const backup=await englishFinalBackup.save(p);
+ if(!backup.backup_saved)throw Error("english_final_backup_incomplete");
+ if(!driveFinalPublisher.isConfigured()){
+  return {...backup,message:"英文全文已安全備存中央 Google Sheet，正式 Drive 寫入權限尚未啟用。請由管理者完成一次 SoulKey Drive 授權，原本六碼登入不變。"};
+ }
+ try{
+  const manuscript=JSON.parse(p.segments_json||"[]");
+  const result=await driveFinalPublisher.publish(String(p.task_id||""),{
+   segments:manuscript
+  });
+  return {...result,backup_id:backup.backup_id,backup_saved:true};
+ }catch(err){
+  console.error("Owner Drive finalize failed",String(err.message||err).slice(0,180));
+  return {...backup,error:"drive_publish_pending",
+   message:"英文全文已備存（"+backup.segment_count+" 段），但 Google Drive 正式定稿失敗："+String(err.message||err).slice(0,130)};
+ }
+}
+
 const out=(type,o={})=>({source,type,...o}), now=()=>new Date().toISOString(),n=x=>Number(String(x||"").replace(/\D/g,""))||null,b=x=>String(x||"").toUpperCase()==="TRUE", valid=x=>/^P\d+-L\d+(?:-R\d+)?$/i.test(String(x));
 function ok(k){return bridgeAuth.valid(k);}
 async function tasks(){return(await get(N.tasks,"A1:Z5000")).slice(1).filter(r=>valid(r[0])).map(r=>({
@@ -58,7 +81,7 @@ async function read(p){const a=p.action;if(a==="course_files")return driveReview
  if(a==="review_en_draft_status"){const task=String(p.task_id||"");if(!valid(task))return out("review_en_draft_status",{ok:false,error:"invalid_task_id"});const r=await allEdits(task),rid=String(p.request_id||""),at=r.receipts[rid]||"";return out("review_en_draft_status",{ok:true,task_id:task,request_id:rid,committed:!!at,saved_at:at,confirmed_count:Object.keys(r.edits).length,...(p.include_edits==="1"?{edits:r.edits}:{})});}
  return out("bridge_error",{ok:false,error:"not_yet_restored",message:a+" 暫時無法使用，沒有修改資料"});
 }
-async function write(p){if(p.action==="review_en_draft_save")return saveEnglish(p);if(p.action==="review_save" && p.kind==="en")return englishFinalBackup.save(p);return out(({tasks_upsert:"tasks_saved",language_plan_save:"language_plan_saved",task_reschedule:"task_rescheduled",review_save:"review_saved",run_stage:"run_stage"}[p.action]||"bridge_error"),{ok:false,error:"not_yet_restored",message:"這項寫入尚在修復，沒有修改資料"});}
+async function write(p){if(p.action==="review_en_draft_save")return saveEnglish(p);if(p.action==="review_save" && p.kind==="en")return saveFullEnglishFinal(p);return out(({tasks_upsert:"tasks_saved",language_plan_save:"language_plan_saved",task_reschedule:"task_rescheduled",review_save:"review_saved",run_stage:"run_stage"}[p.action]||"bridge_error"),{ok:false,error:"not_yet_restored",message:"這項寫入尚在修復，沒有修改資料"});}
 function send(res,data,status=200,jsonp){if(jsonp&&/^[a-zA-Z_$][\w.$]{0,120}$/.test(jsonp)){res.writeHead(200,{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store"});res.end(jsonp+"("+JSON.stringify(data)+");");return;}res.writeHead(status,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"});res.end(JSON.stringify(data));}
 http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https://staney41011.github.io"){res.setHeader("Access-Control-Allow-Origin",req.headers.origin);res.setHeader("Vary","Origin");res.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");res.setHeader("Access-Control-Allow-Headers","Content-Type");}if(req.method==="OPTIONS"){res.writeHead(204);res.end();return;}
  if(req.method==="GET"){p=Object.fromEntries(new URL(req.url,"http://localhost").searchParams);if(!p.action){send(res,{ok:true,service:"SoulKey Studio Cloud Bridge",message:"bridge-ready"});return;}}
