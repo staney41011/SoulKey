@@ -23,7 +23,10 @@ assert.ok(app.includes("list.innerHTML=currentEnglishReview.map"),
  "Screen must render actual cloud-overlaid edits, not old grouped items");
 assert.ok(app.includes("if(!edit||englishReviewDirtyIds.has(id)"),
  "Unsent edits have priority over late cloud results");
-assert.ok(app.includes('mode:"no-cors"'));
+assert.ok(app.includes('method:"POST",mode:"cors",credentials:"omit"'),
+ "English writes must use CORS and a direct verified acknowledgement");
+assert.ok(app.includes('finishEnglishReviewDraftSave(data)'),
+ "Cloud ACK must complete the current save");
 assert.ok(app.includes('.filter(x=>selected.has(Number(x.id)))'));
 assert.ok(app.includes("已載入現有中英稿；Drive 尚未有整堂 JSON"),
  "Missing full JSON is not a reason to hide usable editor");
