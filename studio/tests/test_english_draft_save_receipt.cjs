@@ -35,10 +35,11 @@ const mocks={
     payload_json:new URLSearchParams(opts.body).get("payload_json"),
     request_method:opts.method,
     request_mode:opts.mode
-  });return Promise.resolve({type:"opaque"});},
+  });return new Promise(()=>{});},
   jsonpBridgeRequest:payload=>{calls.push(payload);return true;},
   markEnglishConfirmResult:(id,confirmed)=>{results[id]=confirmed;},
   URLSearchParams,
+  AbortController,
   localStorage:{
     setItem:(k,v)=>localStore[k]=v,
     removeItem:k=>delete localStore[k]
@@ -67,6 +68,7 @@ vm.runInContext(codeDecls.join("\n"),mocks);
 assert.equal(mocks.saveEnglishReviewDraft(63),true);
 assert.equal(mocks.saveEnglishReviewDraft(64),true);
 assert.equal(calls.filter(x=>x.action==="review_en_draft_save").length,1);
+assert.equal(calls[0].request_mode,"cors","English saves must use verifiable CORS POST");
 const request=JSON.parse(calls[0].payload_json);
 assert.ok(request.save_request_id);
 assert.deepEqual(request.confirmed_segment_ids,[63]);
