@@ -127,6 +127,15 @@
             <button class="primary" id="dashboard-bridge-connect" type="button">連線控制中心</button>
             <span class="badge" id="dashboard-bridge-state">尚未連線</span>
             <a href="https://soulkey-control-2026.web.app/" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;justify-content:center;padding:12px 18px;border-radius:12px;background:#e8ecf7;color:#314c8d;text-decoration:none;font-weight:750">Firebase 備援課程總覽</a>
+          <div style="width:100%;padding:14px;margin-top:12px;border:1px solid #c4cee8;border-radius:15px;background:#f3f6ff">
+            <div style="font-weight:750;margin-bottom:7px">Firebase 備援：在原 SoulKey 網頁直接開啟課程</div>
+            <p class="muted" style="margin:3px 0 10px;font-size:13px">Google Apps Script 暫時拒絕存取時，可使用 Firebase 專用存取碼讀取原課程清單（唯讀，不會執行或改寫）。</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <input id="dashboard-firebase-key" type="password" autocomplete="off" placeholder="Firebase 專用存取碼" style="flex:1;min-width:155px;padding:10px 12px;border:1px solid #b6c0d5;border-radius:10px">
+              <button type="button" id="dashboard-firebase-connect" style="padding:10px 15px;border-radius:10px;background:#40569f;color:#fff;font-weight:750;border:0">恢復課程總覽</button>
+            </div>
+            <div id="dashboard-firebase-message" role="status" style="font-size:13px;margin-top:8px;color:#53618a"></div>
+          </div>
           </div>
           <div class="dashboard-bridge-message" id="dashboard-bridge-message">
             Bridge Key 只保留在目前瀏覽器分頁，不會寫入 GitHub。
@@ -815,6 +824,6 @@
   <script src="./config.js?v=20260922-34"></script>
   <script src="./tts-share-message.js?v=20261020-review-preview-v2"></script>
   <script src="./language-delivery.js?v=20261020-review-preview-v2"></script>
-  <script src="./app-20260923-48.js?v=20261022-edit-store-v3"></script>
+  <script src="./app-20260923-48.js?v=20261028-firebase-readonly-restore"></script>
 </body>
 </html>

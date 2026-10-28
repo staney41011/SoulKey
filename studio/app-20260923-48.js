@@ -16,6 +16,7 @@ const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubus
 const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
 let bridgeAuthenticated = false; // true only after verified health AND central tasks are loaded
+let firebaseSnapshotReadOnly=false; // verified encrypted Firebase snapshot, NEVER enables mutations
 let youtubeCookiesConfigured = null;
 let reviewYouTubePlayer = null;
 let reviewYouTubeVideoId = "";
@@ -273,7 +274,67 @@ function setDashboardBridgeState(message,state="idle"){
   }
 }
 
+async function restoreFirebaseSnapshot(){
+  const input=document.getElementById("dashboard-firebase-key");
+  const button=document.getElementById("dashboard-firebase-connect");
+  const message=document.getElementById("dashboard-firebase-message");
+  if(!input?.value.trim()){if(message)message.textContent="請輸入 Firebase 專用存取碼";return false;}
+  if(button)button.disabled=true;
+  if(message)message.textContent="正在驗證並讀取 Firebase 課程快照…";
+  try{
+    // Same-origin GitHub Pages path; no Apps Script, no third-party cookies.
+    const url=new URL("../firebase-control-center/public/data.enc.json",window.location.href);
+    const response=await fetch(url.toString(),{cache:"no-store"});
+    if(!response.ok)throw new Error("無法取得 Firebase 資料（HTTP "+response.status+"）");
+    const blob=await response.json();
+    const asBytes=base64=>Uint8Array.from(atob(base64),c=>c.charCodeAt(0));
+    const textEncoder=new TextEncoder();
+    const material=await crypto.subtle.importKey("raw",textEncoder.encode(input.value.trim()),"PBKDF2",false,["deriveKey"]);
+    const key=await crypto.subtle.deriveKey({
+      name:"PBKDF2",salt:asBytes(blob.salt),iterations:blob.iterations,hash:"SHA-256"
+    },material,{name:"AES-GCM",length:256},false,["decrypt"]);
+    let plain;
+    try{
+      plain=await crypto.subtle.decrypt({
+        name:"AES-GCM",iv:asBytes(blob.iv),additionalData:textEncoder.encode("SoulKey-Firebase-Snapshot-v1")
+      },key,asBytes(blob.ciphertext));
+    }catch(_){throw new Error("Firebase 存取碼不正確，或快照無法驗證");}
+    const data=JSON.parse(new TextDecoder().decode(plain));
+    if(!Array.isArray(data.tasks)||!data.tasks.length ||
+       !data.tasks.every(t=>/^P\d+-L\d+$/i.test(String(t.id||""))&&/^SKC-\d+$/i.test(String(t.course_uid||""))))
+       throw new Error("課程資料格式或固定 UID 驗證失敗");
+    input.value="";
+    firebaseSnapshotReadOnly=true;
+    bridgeAuthenticated=true;  // permits existing read-only dashboard renderer
+    confirmedRemoteTaskIds=new Set();
+    tasks=data.tasks.map(x=>normalizeTask({
+      id:x.id,period:x.period,lesson:x.lesson,title:x.title,
+      youtubeUrl:x.youtubeUrl,course_uid:x.course_uid,
+      progress:x.progress,asr:x.asr,zh:x.zh,en:x.en,tts:x.tts,
+      workflowVersion:WORKFLOW_VERSION,completedStep:-1,languagePlan:[]
+    }));
+    selectedPeriod=Math.max(...tasks.map(x=>Number(x.period)||0));
+    // Snapshot is NEVER merged into local drafts or uploaded to central Sheets.
+    renderTasks();
+    const state=document.getElementById("stat-tasks");
+    if(state)state.textContent=String(tasks.length);
+    setDashboardBridgeState(
+      "Firebase 已恢復 "+tasks.length+" 堂課的唯讀總覽（備援快照，非即時狀態）。目前禁止調課、定稿與啟動 Kaggle。",
+      "ok"
+    );
+    const badge=document.getElementById("dashboard-bridge-state");
+    if(badge)badge.textContent="Firebase 唯讀";
+    if(message)message.textContent="已驗證 "+tasks.length+" 堂課。查看課程可用；寫入功能仍待後端恢復。";
+    showView("dashboard");
+    return true;
+  }catch(error){
+    if(message)message.textContent="Firebase 備援讀取失敗："+String(error.message||error);
+    return false;
+  }finally{if(button)button.disabled=false;}
+}
+
 function syncStudioNow(){
+  firebaseSnapshotReadOnly=false;
   const key=bridgeKeyValue();
   if(!BRIDGE_ENDPOINT){
     setDashboardBridgeState("系統尚未設定 Apps Script URL。","error");
@@ -317,6 +378,10 @@ function applyLatestPeriodToNewTask(){
 }
 
 function showView(name, options={}){
+  if(firebaseSnapshotReadOnly && name!=="dashboard"){
+    setDashboardBridgeState("Firebase 備援目前只有課程總覽，不可修改課程、人工定稿或執行翻譯。","ok");
+    name="dashboard";
+  }
   if(name!=="dashboard" && !bridgeAuthenticated){
     setDashboardBridgeState("請先完成控制中心連線驗證，才能開啟課程或修改資料。","error");
     name="dashboard";
@@ -4533,6 +4598,7 @@ function bridgeClientRequest(fields){
 }
 
 function bridgeSyncRequestFailed(action,reason){
+  if(firebaseSnapshotReadOnly)return;
   if(action==="status_health" || action==="tasks_get"){
     bridgeAuthenticated=false;
     const humanReason=String(reason||"無法取得控制中心回應");
@@ -4744,6 +4810,7 @@ window.addEventListener("message",event=>{
   }
 
   if(data.source!=="soulkey-bridge") return;
+  if(firebaseSnapshotReadOnly)return; // stale Apps Script events must never erase verified fallback tasks
 
   if(data.type==="worker_setup"){
     if(data.ok){
@@ -5581,6 +5648,10 @@ function initBridgePanel(){
   };
 
   connectButton?.addEventListener("click",connect);
+  document.getElementById("dashboard-firebase-connect")?.addEventListener("click",restoreFirebaseSnapshot);
+  document.getElementById("dashboard-firebase-key")?.addEventListener("keydown",e=>{
+    if(e.key==="Enter"){e.preventDefault();restoreFirebaseSnapshot();}
+  });
   dashboardKey?.addEventListener("keydown",event=>{
     if(event.key==="Enter"){
       event.preventDefault();
