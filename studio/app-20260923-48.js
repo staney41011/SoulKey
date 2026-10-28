@@ -207,6 +207,7 @@ let englishFinalizePriorFinishedAt = "";
 let englishFinalizeWatchdog = null;
 // A confirmed Drive acknowledgement applies to its own task only.
 const englishFinalizedThisSession = new Set();
+const englishSheetFinalizedThisSession = new Set();
 let currentView = "dashboard";
 const viewHistory = [];
 const youtubeCaptureFilesCache = {};
@@ -3747,7 +3748,8 @@ function showNoEnglishCcFallback(taskId){
 function syncEnglishFinalizeButton(task){
   const button=document.getElementById("finalize-en");
   if(!button || !task) return;
-  const finalized=englishFinalizedThisSession.has(task.id) ||
+  const sheetFinal=englishSheetFinalizedThisSession.has(task.id);
+  const finalized=sheetFinal || englishFinalizedThisSession.has(task.id) ||
     remoteStageStatus(task,"en-review")?.status==="done";
   const pending=englishFinalizePendingTaskId===task.id;
   button.dataset.finalized=finalized?"1":"0";
@@ -3756,7 +3758,7 @@ function syncEnglishFinalizeButton(task){
     ENGLISH_FINAL_PENDING_PREFIX+task.id)||"null");}catch(_){return null;}})();
   button.textContent=pending
     ?"正在儲存…"
-    :finalized?"✓ 已定稿・查看後續流程 →"
+    :finalized?(sheetFinal?"✓ 已存中央定稿・Drive 待同步":"✓ 已定稿・查看後續流程 →")
       :backup?.backup_saved?"英文已備存・Drive 待定稿"
       :driveOwnerConfigured?"英文定稿":"備存英文全文";
 }
@@ -4811,13 +4813,15 @@ function completeEnglishFinalizeUi(taskId,confirmationSource){
   if(!taskId || englishFinalizePendingTaskId!==taskId) return;
   englishFinalizePendingTaskId="";
   englishFinalizePriorFinishedAt="";
-  englishFinalizedThisSession.add(taskId);
+  if(confirmationSource==="sheet")englishSheetFinalizedThisSession.add(taskId);
+  else englishFinalizedThisSession.add(taskId);
   window.clearTimeout(englishFinalizeWatchdog);
   const state=document.getElementById("en-review-share-state");
   const task=tasks.find(x=>x.id===taskId);
-  if(state) state.textContent=
-    "英文定稿已寫入 Google Drive"+
-    (confirmationSource==="status"?"（中央狀態已確認）":"");
+  if(state) state.textContent=confirmationSource==="sheet"
+    ? "英文全文已完成 Google Sheet 中央定稿及回讀驗證；Google Drive 尚待同步。"
+    : "英文定稿已寫入 Google Drive"+
+      (confirmationSource==="status"?"（中央狀態已確認）":"");
   syncEnglishFinalizeButton(task);
   // Refresh only after the server confirms completion. Never submit again.
   if(currentView==="en-review" && selectedTaskId===taskId){
@@ -5192,6 +5196,10 @@ window.addEventListener("message",event=>{
          englishDraftSaveQueuedIds.size>0) return;
       // Bridge's current Drive English draft wins over an old GitHub cache.
       // review_load returns {original,en,ids,...}, unlike GitHub en.json.
+      if(data.sheet_finalized){
+        englishSheetFinalizedThisSession.add(String(data.task_id));
+        syncEnglishFinalizeButton(tasks.find(x=>x.id===data.task_id));
+      }
       const loaded=Array.isArray(data.segments)?data.segments:[];
       const dirty=new Map(currentEnglishReview
         .filter(row=>englishReviewDirtyIds.has(Number(row.id)))
@@ -5210,8 +5218,9 @@ window.addEventListener("message",event=>{
         }catch(_){}
       }
       const state=document.getElementById("en-review-share-state");
-      if(state) state.textContent=
-        (data.manuscript_source==="youtube.en.json"
+      if(state) state.textContent=data.sheet_finalized
+        ? "已讀取中央 Google Sheet 正式英文定稿（Google Drive 尚待同步）"
+        : (data.manuscript_source==="youtube.en.json"
           ? "已依中文 Final 時間軸載入 YouTube English CC 初稿（尚未人工定稿）"
           : "已取得英文稿；正在核對中央 Google Sheet 逐句人工修改")+
         (englishReviewDirtyIds.size?"；本機尚未儲存的修改已保留":"");
@@ -5219,7 +5228,7 @@ window.addEventListener("message",event=>{
       // For earlier Drive-completed lessons, seed a separate GitHub /en.json
       // only once. Future opening is fast and will not touch Chinese /zh.json.
       if(bridgeAuthenticated && data.task_id &&
-         !["en.review.draft.json","youtube.en.json"].includes(String(data.manuscript_source||"")) &&
+         !["en.review.draft.json","youtube.en.json","google-sheet-final"].includes(String(data.manuscript_source||"")) &&
          Array.isArray(data.segments) && data.segments.length &&
          !englishCacheSeedRequested.has(data.task_id)){
         englishCacheSeedRequested.add(data.task_id);
@@ -5265,7 +5274,20 @@ window.addEventListener("message",event=>{
     const state=document.getElementById("en-review-share-state");
     const button=document.getElementById("finalize-en");
 
-    if(data.backup_saved===true && data.kind==="en"){
+    if(data.ok && data.kind==="en" && data.sheet_finalized){
+      const id=String(data.task_id||"");
+      try{localStorage.removeItem(ENGLISH_FINAL_PENDING_PREFIX+id);}catch(_){}
+      if(englishFinalizePendingTaskId===id)completeEnglishFinalizeUi(id,"sheet");
+      else{
+        englishSheetFinalizedThisSession.add(id);
+        syncEnglishFinalizeButton(tasks.find(x=>x.id===id));
+        if(state)state.textContent=String(data.message||"英文已保存到 Google Sheet");
+      }
+    }else if(data.ok && data.drive_saved===true && data.kind==="en"){
+      const id=String(data.task_id||"");
+      try{localStorage.removeItem(ENGLISH_FINAL_PENDING_PREFIX+id);}catch(_){}
+      if(englishFinalizePendingTaskId===id)completeEnglishFinalizeUi(id,"callback");
+    }else if(data.backup_saved===true && data.kind==="en"){
       const taskId=String(data.task_id||"");
       englishFinalizePendingTaskId="";
       englishFinalizePriorFinishedAt="";
