@@ -48,14 +48,29 @@ def github_oidc():
     if not token:raise RuntimeError("GitHub OIDC token response was empty")
     return token
 
-def bridge_request(token,action,body=None):
+def bridge_request(_initial_token,action,body=None):
+    """Obtain a fresh GitHub OIDC JWT for every server operation.
+
+    GitHub's OIDC JWT is short lived. A single five-language CPU job can
+    take far longer than its lifetime; reusing the initial token makes
+    result upload and even failure reporting return HTTP 401.
+    """
     data=urllib.parse.urlencode({"action":action,**(body or {})}).encode("utf-8")
-    req=urllib.request.Request(BASE,method="POST",data=data,
-      headers={"Authorization":"Bearer "+token,
-               "Content-Type":"application/x-www-form-urlencoded",
-               "Accept":"application/json"})
-    with urllib.request.urlopen(req,timeout=130) as response:
-        return json.loads(response.read().decode("utf-8"))
+    def send():
+        token=github_oidc()
+        req=urllib.request.Request(BASE,method="POST",data=data,
+          headers={"Authorization":"Bearer "+token,
+                   "Content-Type":"application/x-www-form-urlencoded",
+                   "Accept":"application/json"})
+        with urllib.request.urlopen(req,timeout=130) as response:
+            return json.loads(response.read().decode("utf-8"))
+    try:
+        return send()
+    except HTTPError as error:
+        if error.code!=401:
+            raise
+        # One fresh-token retry, not an unbounded authorization loop.
+        return send()
 
 def gemini(messages):
     if not GEMINI:raise RuntimeError("GEMINI_API_KEY repository secret is missing")
