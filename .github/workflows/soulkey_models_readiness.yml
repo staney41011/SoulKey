@@ -1,0 +1,40 @@
+name: SoulKey GitHub Models Readiness
+
+on:
+  push:
+    paths:
+      - ".github/workflows/soulkey_models_readiness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  models: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_MODELS_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify GitHub Models token and catalog
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request,urllib.error
+          token=os.environ["GH_MODELS_TOKEN"]
+          urls=[
+            "https://models.github.ai/catalog/models",
+            "https://models.github.ai/inference/chat/completions"
+          ]
+          req=urllib.request.Request(urls[0],headers={
+            "Authorization":"Bearer "+token,"Accept":"application/vnd.github+json"})
+          try:
+            with urllib.request.urlopen(req,timeout=25) as r:
+              data=json.load(r)
+              names=[x.get("id","") for x in data] if isinstance(data,list) else []
+              print("CATALOG_HTTP",r.status,"MODELS_COUNT",len(names))
+              print("LOW_COST_MODELS",[x for x in names if any(z in x.lower() for z in ("gpt-4o-mini","gpt-4.1-mini","deepseek-v3","llama-3.3"))][:10])
+          except urllib.error.HTTPError as e:
+            print("CATALOG_HTTP",e.code)
+            raise
+          PY
