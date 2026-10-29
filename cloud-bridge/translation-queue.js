@@ -131,7 +131,7 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
   if(results.some(r=>!verified.has(r[2]+":"+r[3])))
    throw Error("translation_results_readback_failed");
   await put(TAB,"F"+(idx+2)+":J"+(idx+2),
-   [["done",job[6]||"",job[7]||"",utcNow(),"多語翻譯 "+langs.join(",")+" 完成"]];
+   [["done",job[6]||"",job[7]||"",utcNow(),"多語翻譯 "+langs.join(",")+" 完成"]]);
   await appendStatus(task,"multi","done",id,100,
    "中央 Google Sheet 多語翻譯已核對 "+results.length+" 段",revision);
   return {ok:true,task_id:task,status:"done",
