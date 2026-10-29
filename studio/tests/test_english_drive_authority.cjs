@@ -37,4 +37,22 @@ const zh="因為你不知道。誰會藉著你的善良，走出了絕望。";
 assert.equal(context.englishReviewDisplayChinese(zh+zh),zh);
 assert.equal(context.englishReviewDisplayChinese(zh+"故事尚未結束"),zh+"故事尚未結束");
 assert.ok(bridge.includes("en.review.edits.json"));
+// Verified Sheet Final must unlock the multilingual stage, not reopen
+// the English editor or require a Google Drive export.
+assert.match(method(app,"completeEnglishFinalizeUi"),/openTaskDetail\(taskId\)/);
+assert.ok(app.includes("markVerifiedEnglishStage(String(data.task_id),\"sheet\")"),
+ "Sheet Final load must refresh the local stage completion");
+assert.match(method(app,"syncEnglishFinalizeButton"),/✓ 已定稿・進入下一步/);
+const finalTask={id:"P259-L01",completedStep:0,
+ remoteStages:{zh:{status:"done"}}};
+const stageContext={
+ tasks:[finalTask],STORE:{tasks:"test"},save:()=>{},
+ renderTasks:()=>{},remoteStageStatus:(task,key)=>task.remoteStages?.[key]
+};
+vm.createContext(stageContext);
+vm.runInContext(method(app,"markVerifiedEnglishStage"),stageContext);
+stageContext.markVerifiedEnglishStage("P259-L01","sheet");
+assert.equal(finalTask.completedStep,1);
+assert.equal(finalTask.remoteStages["en-review"].status,"done");
+assert.match(finalTask.remoteStages["en-review"].message,/Drive 待同步/);
 console.log("SOULKEY_ENGLISH_DRIVE_AUTHORITY_AND_UNSAVED_EDIT_PROTECTION_OK");
