@@ -46,7 +46,7 @@ const put=async(name,range,rows,append=false)=>{
  };
  await assert.rejects(()=>queue.report({
   job_id:claim.job.id,status:"done",translations:{th:results.th}
- }),/incomplete_translation_es/);
+ }),/missing_semantic_quality_receipt_th/);
  for(const lang of ["th","es"]){
   const rows=results[lang];
   await queue.part({job_id:claim.job.id,language:lang,
