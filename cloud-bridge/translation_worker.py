@@ -64,13 +64,22 @@ def bridge_request(_initial_token,action,body=None):
                    "Accept":"application/json"})
         with urllib.request.urlopen(req,timeout=130) as response:
             return json.loads(response.read().decode("utf-8"))
-    try:
-        return send()
-    except HTTPError as error:
-        if error.code!=401:
-            raise
-        # One fresh-token retry, not an unbounded authorization loop.
-        return send()
+    # Chunk uploads and QA receipts are idempotent on the server. Retry
+    # network disconnects only for those two safe operations. Never
+    # automatically re-claim a job after an uncertain server response.
+    allowed_retry=action in ("worker_job_part","worker_job_quality")
+    for attempt in range(3 if allowed_retry else 1):
+        try:
+            return send()
+        except HTTPError as error:
+            if error.code!=401:
+                raise
+            return send()  # Refresh the expiring OIDC token once.
+        except (URLError,OSError) as error:
+            if attempt>=2 or not allowed_retry:raise
+            print("BRIDGE_TRANSIENT_RETRY",action,attempt+1,
+                  type(error).__name__,flush=True)
+            time.sleep(3*(attempt+1))
 
 def gemini(messages,schema=None):
     if not GEMINI:raise RuntimeError("GEMINI_API_KEY repository secret is missing")
@@ -91,7 +100,7 @@ def gemini(messages,schema=None):
         except HTTPError as exc:
             last=RuntimeError("Gemini HTTP "+str(exc.code))
             if exc.code not in (429,500,502,503,504):break
-        except (KeyError,ValueError,RuntimeError,URLError) as exc:
+        except (KeyError,ValueError,RuntimeError,URLError,OSError) as exc:
             last=exc
         if attempt<4:time.sleep(min(45,5*(2**attempt)))
     raise RuntimeError("Gemini translation failed: "+str(last)[:160])
