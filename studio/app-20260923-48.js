@@ -708,6 +708,13 @@ function mergeRemoteTasks(remoteTasks){
       languagePlan:Array.isArray(local.languagePlan) ? local.languagePlan : []
     };
     normalizeTask(task);
+    if(bridgeIsCloudRecovery && /^已退回：/.test(String(local.status||""))){
+      // Previous UI rollback only touched localStorage. Discard the misleading
+      // local status while preserving central Sheet and all draft manuscripts.
+      task.status=String(remote.status||"中央工作狀態已同步");
+      delete task.rollbackStage;
+      delete task.rollbackAt;
+    }
     return task;
   });
 
@@ -2733,6 +2740,12 @@ function rollbackPreviousStage(taskId){
 
   const reopenIndex=task.completedStep;
   const reopenStage=workflow[reopenIndex];
+  if(bridgeIsCloudRecovery){
+    // Cloud Run cannot yet reconcile an actual server-side rollback. Do not
+    // fabricate a locally completed rollback that contradicts central Sheet.
+    alert("目前 Cloud Run 尚未恢復正式退回功能，因此沒有更改任何課程進度。\n\n需要修改稿件時，請使用人工中文或英文定稿；資料會保留在原課程。");
+    return;
+  }
 
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
