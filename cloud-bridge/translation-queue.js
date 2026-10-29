@@ -72,7 +72,7 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
   await appendStatus(task,"multi","running",id,1,
    "GitHub Worker 開始翻譯",revision);
   return {ok:true,has_job:true,job:{
-    id,task_id:task,stage:"multi",langs:parseLanguages(row[3]),
+    id,task_id:task,stage:"multi",chunked_upload:true,langs:parseLanguages(row[3]),
     revision,segments:final.manuscript.segments.map(x=>({
       id:x.id,start:x.start,end:x.end,text:x.text
     }))
