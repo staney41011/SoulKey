@@ -94,9 +94,14 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,readGlos
       fields.push("LOCKED");
     return "- "+fields.join(" | ");
   }).join("\n").slice(0,12000);
+  const priorQa=(await get(QA_TAB,"A1:I5000")).slice(1).filter(r=>
+    r[0]===id&&r[1]===task&&r[2]===revision&&r[7]==="passed");
+  const completedLanguages=priorQa.map(r=>String(r[3]))
+    .filter(code=>requested.includes(code));
   return {ok:true,has_job:true,job:{
     id,task_id:task,stage:"multi",chunked_upload:true,
-    qa_required:true,langs:requested,revision,glossary,segments
+    qa_required:true,qa_completed_languages:completedLanguages,
+    langs:requested,revision,glossary,segments
   }};
  }
  async function part(p){
