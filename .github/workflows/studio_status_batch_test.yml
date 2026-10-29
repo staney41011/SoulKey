@@ -55,6 +55,7 @@ jobs:
         run: |
           node --check cloud-bridge/server.js
           python -m unittest discover -s cloud-bridge/tests -p 'test_gemini_response_recovery.py' -v
+          python -m unittest discover -s translation-system/tests -p 'test_central_tts_source.py' -v
           node cloud-bridge/tests/sheets-request.test.js
           node cloud-bridge/tests/english-final-source.test.js
           node --check cloud-bridge/drive-review.js
@@ -74,6 +75,7 @@ jobs:
           node cloud-bridge/tests/github-worker-auth.test.js
           node cloud-bridge/tests/translation-queue.test.js
           node cloud-bridge/tests/translation-chunk.test.js
+          node cloud-bridge/tests/translation-resume.test.js
           node --check cloud-bridge/youtube-cc-queue.js
           node cloud-bridge/tests/youtube-cc-queue.test.js
           node cloud-bridge/tests/youtube-cc-progressive.test.js

@@ -34,6 +34,7 @@ node cloud-bridge/tests/central-writes.test.js
 node cloud-bridge/tests/github-worker-auth.test.js
 node cloud-bridge/tests/translation-queue.test.js
 node cloud-bridge/tests/translation-chunk.test.js
+node cloud-bridge/tests/translation-resume.test.js
 node cloud-bridge/tests/youtube-cc-queue.test.js
 node cloud-bridge/tests/youtube-cc-progressive.test.js
 python3 -m py_compile cloud-bridge/translation_worker.py cloud-bridge/youtube_cc_worker.py cloud-bridge/youtube_cc_kaggle.py

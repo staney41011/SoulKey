@@ -251,14 +251,15 @@ def main():
                           "repair_count",quality["repairs"],flush=True)
                 elif job.get("qa_required"):
                     raise RuntimeError("Gemini required for production QA")
-                for start in range(0,len(translated),8):
-                    result=bridge_request(token,"worker_job_part",{
-                     "job_id":jid,"language":code,
-                     "input_revision":job["revision"],
-                     "segments":json.dumps(translated[start:start+8],ensure_ascii=False)
-                    })
-                    if not result.get("ok"):
-                        raise RuntimeError("Chunk readback not verified for "+code)
+                # Source-ID complete whole-language idempotent upload:
+                # avoids exhausting the 60 read-requests/min/user Sheets quota.
+                result=bridge_request(token,"worker_job_part",{
+                 "job_id":jid,"language":code,
+                 "input_revision":job["revision"],
+                 "segments":json.dumps(translated,ensure_ascii=False)
+                })
+                if not result.get("ok"):
+                    raise RuntimeError("Language readback not verified for "+code)
                 print("SAVED_VERIFIED_CHUNKS",code,len(translated),flush=True)
                 if GEMINI:
                     save_qa_audit(job,code,quality)
