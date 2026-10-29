@@ -8,13 +8,13 @@ class TestQuality(unittest.TestCase):
  def test_clean(self):
   source=[{"id":1,"text":"Welcome to the lecture."}]
   rows=[{"id":1,"text":"Bienvenidos a la conferencia."}]
-  output,stats=m.audit_and_repair(source,rows,"es",lambda _:{"failures":[]})
+  output,stats=m.audit_and_repair(source,rows,"es",lambda _,schema=None:{"failures":[]})
   self.assertEqual(output,rows)
   self.assertEqual(stats["repairs"],0)
  def test_number_repair(self):
   source=[{"id":1,"text":"42 people joined."}]
   rows=[{"id":1,"text":"Se unieron 24 personas."}]
-  def api(prompt):
+  def api(prompt,schema=None):
    if "FAILED:" in prompt:return {"repairs":[{"id":1,"text":"Se unieron 42 personas."}]}
    return {"failures":[]}
   output,stats=m.audit_and_repair(source,rows,"es",api)
