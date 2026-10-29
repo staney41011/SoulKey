@@ -13,6 +13,7 @@ if [[ ! -f cloud-bridge/server.js || ! -d .git ]]; then
   exit 2
 fi
 command -v gcloud >/dev/null || { echo "ERROR: gcloud not installed; use Google Cloud Shell." >&2; exit 2; }
+command -v node >/dev/null || { echo "ERROR: Node.js is required for the preflight tests." >&2; exit 2; }
 command -v python3 >/dev/null || { echo "ERROR: Python 3 is required." >&2; exit 2; }
 [[ -n "$(gcloud auth list --filter='status:ACTIVE' --format='value(account)' 2>/dev/null)" ]] ||
   { echo "ERROR: Google Cloud authentication is missing." >&2; exit 2; }
@@ -27,6 +28,8 @@ echo "Running dependency-free regression checks..."
 node --check cloud-bridge/server.js
 node --check cloud-bridge/translation-queue.js
 node --check cloud-bridge/youtube-cc-queue.js
+node cloud-bridge/tests/central-writes.test.js
+node cloud-bridge/tests/github-worker-auth.test.js
 node cloud-bridge/tests/translation-queue.test.js
 node cloud-bridge/tests/translation-chunk.test.js
 node cloud-bridge/tests/youtube-cc-queue.test.js
