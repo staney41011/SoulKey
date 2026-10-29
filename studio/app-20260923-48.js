@@ -190,6 +190,8 @@ let zhGithubLastSavedRevision = 0;
 let zhGithubSaveRevisionInFlight = 0;
 let currentVernacularReview = [];
 let currentEnglishReview = [];
+// Only an authenticated task-matched Bridge read can authorize editing/finalizing.
+let englishCanonicalLoadedTaskId = "";
 let englishDraftSavePendingId = null;
 const englishDraftSaveQueuedIds = new Set();
 let englishDraftSavePendingIds = new Set();
@@ -3764,7 +3766,7 @@ function syncEnglishFinalizeButton(task){
     remoteStageStatus(task,"en-review")?.status==="done";
   const pending=englishFinalizePendingTaskId===task.id;
   button.dataset.finalized=finalized?"1":"0";
-  button.disabled=pending;
+  button.disabled=pending || (!finalized && englishCanonicalLoadedTaskId!==task.id);
   const backup=(()=>{try{return JSON.parse(localStorage.getItem(
     ENGLISH_FINAL_PENDING_PREFIX+task.id)||"null");}catch(_){return null;}})();
   button.textContent=pending
@@ -3822,7 +3824,12 @@ async function openEnglishReview(taskId){
     alert("這堂課仍有未確認的英文修改，請先完成確認或複製備份再切換課程。");
     return;
   }
-  if(selectedTaskId!==taskId) englishReviewDirtyIds.clear();
+  if(selectedTaskId!==taskId){
+    // The previous task's English rows must never survive a lesson switch.
+    englishReviewDirtyIds.clear();
+    currentEnglishReview=[];
+  }
+  englishCanonicalLoadedTaskId="";
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
@@ -3844,85 +3851,15 @@ async function openEnglishReview(taskId){
     '<small>'+escapeHtml(task.url)+'</small>';
 
   const list=document.getElementById("en-review-list");
-  list.innerHTML='<div class="empty">正在讀取英文定稿快取…</div>';
+  list.innerHTML='<div class="empty">正在核對本堂 Google Drive／中央英文資料，禁止使用其他堂的快取…</div>';
   showView("en-review");
 
-  // Instant repeat openings on this device: preview the last known English
-  // passage layout, then independently reconcile the live GitHub snapshot.
-  const preview=readReviewCache(taskId,"en");
-  if(preview?.segments?.length){
-    renderEnglishReview(englishReviewItemsFromGithub(preview,true));
-    if(shareState) shareState.textContent="先顯示本機英文快取・正在檢查雲端最新版";
+  // Do not display cached English or a local Drive ACK before validating the
+  // current lesson's Drive/Sheet source. Previously these previews could
+  // display P259-L03 content under the P259-L04 heading after a switch.
+  if(!requestReviewData(taskId,"en",0)){
+    list.innerHTML='<div class="empty">本堂英文資料驗證失敗，沒有載入或儲存其他堂內容。</div>';
   }
-
-  // A confirmed Drive save can precede GitHub cache propagation. Do not
-  // replace acknowledged confirmations with a stale GitHub snapshot.
-  let pendingDriveAck=null;
-  try{
-    pendingDriveAck=JSON.parse(localStorage.getItem(
-      ENGLISH_DRIVE_ACK_PREFIX+taskId
-    )||"null");
-  }catch(_){}
-  if(pendingDriveAck &&
-     Array.isArray(pendingDriveAck.segments) &&
-     pendingDriveAck.segments.length){
-    renderEnglishReview(englishReviewItemsFromGithub(
-      {segments:pendingDriveAck.segments},true
-    ));
-    if(shareState){
-      shareState.textContent=
-        "英文逐句修改已由中央 Google Sheet 確認；正在核對最新狀態。";
-    }
-    requestReviewData(taskId,"en",0);
-    return;
-  }
-
-  // The English cache is the preferred authoritative layout. A missing cache
-  // falls back to the Chinese review cache, then Drive, without two 7s waits.
-  for(const kind of ["en","zh"]){
-    try{
-      const payload=await fetchReviewPayload(task.id,kind);
-      if(payload.task_id && payload.task_id!==taskId) continue;
-      const items=englishReviewItemsFromGithub(payload,kind==="en");
-      if(items.length && items.some(x=>String(x.en||"").trim())){
-        if(selectedTaskId!==taskId) return;
-        if(englishDraftSavePendingId!==null || englishDraftSaveQueuedIds.size>0){
-          if(shareState) shareState.textContent=
-            "英文確認正在儲存；已略過較舊的 GitHub 快取畫面";
-          return;
-        }
-        renderEnglishReview(items);
-        writeReviewCache({
-          ...payload,task_id:taskId,kind:"en",
-          segments:items.map(x=>({
-            id:x.id,start:x.start,end:x.end,time:x.time,
-            text:x.original,en_text:x.en,source_en:x.source_en,
-            en_confirmed:x.en_confirmed,zh_ids:x.ids,pre_aligned:x.pre_aligned
-          }))
-        });
-        if(shareState){
-          const cachedVideo=String(payload.source_video_id||"").trim();
-          const currentVideo=youtubeVideoIdFromUrl(task.url);
-          const sourceDiffers=cachedVideo && currentVideo && cachedVideo!==currentVideo;
-          shareState.textContent=sourceDiffers
-            ? "提示：英文 CC 來自重新上傳前的影片；已依中文定稿整理成對照段落。若新片有剪輯變更，請先驗證影片來源。"
-            : "已按中文 Final 時間軸載入完整的中英對照段落；逐句確認儲存於中央 Google Sheet";
-        }
-        // GitHub is a fast PREVIEW, not the manuscript source of truth.
-        // Always fetch the latest Google Drive draft, even on another device.
-        requestReviewData(taskId,"en",0);
-        return;
-      }
-    }catch(err){
-      console.warn("GitHub English review cache unavailable, using Drive:",err);
-    }
-  }
-
-  if(selectedTaskId===taskId && requestReviewData(taskId,"en",0)){
-    list.innerHTML='<div class="empty">GitHub 尚未有英文稿，改從 Google Drive 載入…</div>';
-    return;
-  }
-  list.innerHTML='<div class="empty">無法讀取英文稿。請檢查控制中心連線與 GitHub 快取。</div>';
 }
 
 function mergeEnglishTextParts(parts){
@@ -4510,6 +4447,10 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
     return;
   }
 
+  if(englishCanonicalLoadedTaskId!==task.id){
+    alert("尚未從中央資料確認本堂英文稿，已阻止跨堂英文定稿。請重新開啟這一堂。");
+    return;
+  }
   document.querySelectorAll("#en-review-list .en-review-row").forEach(row=>{
     const item=currentEnglishReview.find(
       x=>Number(x.id)===Number(row.dataset.enSegment)
@@ -5105,6 +5046,9 @@ window.addEventListener("message",event=>{
 
   if(data.type==="review_data"){
     const chunkIndex=Number(data.chunk_index||0);
+    if(data.kind==="en" &&
+       (String(data.task_id||"")!==String(selectedTaskId||"") ||
+        currentView!=="en-review"))return;
     const browserElapsed=reviewElapsedMs(data.task_id,data.kind,chunkIndex);
     if(!data.ok){
       if(data.kind==="zh"){
@@ -5127,6 +5071,8 @@ window.addEventListener("message",event=>{
         }
         if(!isMissing) alert("讀取人工校正資料失敗："+reason);
       }else if(data.kind==="en"){
+        englishCanonicalLoadedTaskId="";
+        syncEnglishFinalizeButton(tasks.find(x=>x.id===data.task_id));
         // A missing *base* JSON must never hide already-loaded manuscripts:
         // Drive's independent human-edits store works without en.json.
         if(Array.isArray(currentEnglishReview) && currentEnglishReview.length &&
@@ -5218,6 +5164,8 @@ window.addEventListener("message",event=>{
         syncEnglishFinalizeButton(tasks.find(x=>x.id===data.task_id));
       }
       const loaded=Array.isArray(data.segments)?data.segments:[];
+      englishCanonicalLoadedTaskId=loaded.length?String(data.task_id||""):"";
+      syncEnglishFinalizeButton(tasks.find(x=>x.id===data.task_id));
       const dirty=new Map(currentEnglishReview
         .filter(row=>englishReviewDirtyIds.has(Number(row.id)))
         .map(row=>[Number(row.id),row]));
