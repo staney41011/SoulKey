@@ -59,6 +59,13 @@ def capture(video_id,languages):
             if "complete" in status:
                 completed=True;break
             if any(x in status for x in ("error","failed","failure","cancel")):
+                try:
+                    logs=command("kaggle","kernels","logs",KERNEL,timeout=45)
+                    # Source caption scripts never receive any secrets.
+                    print("KAGGLE_CC_ERROR_LOG_TAIL",logs[-4500:],flush=True)
+                except Exception as diagnostic:
+                    print("KAGGLE_CC_LOG_UNAVAILABLE",
+                          type(diagnostic).__name__,flush=True)
                 raise RuntimeError("kaggle_caption_kernel_failed:"+status[:180])
             if attempt%10==0:
                 print("KAGGLE_CC_WAITING",video_id,"poll",attempt,flush=True)
