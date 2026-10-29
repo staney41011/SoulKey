@@ -180,6 +180,6 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
     task_id:task,lang,name:lang+".transcript.txt",
     content:Array.from({length:g.count},(_,i)=>g.parts.get(i)).join("")};
  }
- return {enqueue,claim,part,finish,manifest,transcript};
+ return {enqueue,claim,part,finish,manifest,transcript,ready:init};
 }
 module.exports={createYoutubeCCQueue,videoId,TASK_HEAD,CONTENT_HEAD};
