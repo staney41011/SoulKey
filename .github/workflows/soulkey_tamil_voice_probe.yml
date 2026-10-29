@@ -1,0 +1,40 @@
+name: SoulKey Tamil Natural Voice Probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/soulkey_tamil_voice_probe.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tamil:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Install current Edge voice library
+        run: python -m pip install -q edge-tts==7.3.1
+      - name: Try Tamil voices without source manuscripts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import asyncio,edge_tts,json
+          from pathlib import Path
+          text="அனைவரையும் வரவேற்கிறோம். நாம் ஒன்றாகக் கற்று நல்ல செயல்கள் செய்வோம்."
+          voices=["ta-IN-ValluvarNeural","ta-LK-KumarNeural","ta-IN-PallaviNeural"]
+          async def test():
+            results=[]
+            for name in voices:
+              file=Path("/tmp")/(name+".mp3")
+              try:
+                await asyncio.wait_for(edge_tts.Communicate(text=text,voice=name).save(str(file)),timeout=25)
+                size=file.stat().st_size if file.exists() else 0
+                state="ok" if size>1000 else "no_audio"
+                results.append((name,state,size))
+              except Exception as e:
+                results.append((name,type(e).__name__,0))
+              await asyncio.sleep(1.5)
+            for r in results:print("TAMIL_VOICE_RESULT",json.dumps(r))
+            if not any(r[1]=="ok" for r in results):raise SystemExit(1)
+          asyncio.run(test())
+          PY
