@@ -647,6 +647,14 @@ function normalizeRemoteStatus(item){
   return copy;
 }
 
+function remoteProgressText(remote){
+  // The legacy Bridge sets 1% when translation is claimed, but does not
+  // update that figure after each language chunk. Hide false precision.
+  if(!remote || (remote.stage==="multi" &&
+     ["queued","running","delayed"].includes(remote.status)))return "";
+  const pct=Number(remote.progress);
+  return Number.isFinite(pct)&&pct>0 ? " "+pct+"%" : "";
+}
 function remoteStatusText(status){
   const map={
     pending:"等待執行",
@@ -1178,8 +1186,7 @@ function renderTasks(){
             '</span>'+
             '<span class="muted">'+escapeHtml(
               remoteActive
-                ? remoteStatusText(remoteActive.status)+
-                  (remoteActive.status!=="delayed" && remoteActive.progress ? " "+remoteActive.progress+"%" : "")
+                ? remoteStatusText(remoteActive.status)+remoteProgressText(remoteActive)
                 : t.status
             )+'</span>'+
           '</div>'+
@@ -2545,7 +2552,7 @@ function renderTaskDetail(task){
     const state=stageState(task,i);
     const remote=remoteStageStatus(task,stage.key);
     const label=remote
-      ? remoteStatusText(remote.status)+(remote.progress ? " "+remote.progress+"%" : "")
+      ? remoteStatusText(remote.status)+remoteProgressText(remote)
       : state==="done"?"已完成":state==="current"?"目前步驟":"尚未開放";
     const stageFailure=remoteErrorReason(remote);
     const reviewStage=["zh","en-review"].includes(stage.key);
@@ -2638,7 +2645,11 @@ function renderTaskDetail(task){
   }
 
   const previousBtn=document.getElementById("detail-previous-btn");
-  previousBtn.disabled=task.completedStep < 0;
+  previousBtn.disabled=task.completedStep < 0 ||
+    (currentRemote && ["queued","running","delayed"].includes(currentRemote.status));
+  previousBtn.title=previousBtn.disabled&&currentRemote&&
+    ["queued","running","delayed"].includes(currentRemote.status)
+    ? "正在翻譯，暫時不可返回並重新派工" : "";
   previousBtn.onclick=()=>rollbackPreviousStage(task.id);
 
   const reviewBtn=document.getElementById("detail-review-btn");
