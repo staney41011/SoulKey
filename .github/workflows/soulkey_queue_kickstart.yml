@@ -1,0 +1,29 @@
+name: SoulKey Queue Recovery Kickstart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/soulkey_queue_kickstart.yml
+  workflow_dispatch:
+
+# This one-shot recovery dispatches the existing idempotent Sheet queues.
+# It does not add jobs or edit any manuscript.
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  kickstart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch translation and CC queue workers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh workflow run soulkey_translation_queue.yml --ref main
+          gh workflow run soulkey_cc_queue.yml --ref main
+          echo "SOULKEY_QUEUES_DISPATCH_REQUESTED"
