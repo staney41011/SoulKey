@@ -137,11 +137,29 @@ def main():
         languages=job.get("langs") or []
         if not languages or any(x not in LANGS for x in languages):
             raise RuntimeError("Invalid language list")
-        translated={code:translate(code,segments) for code in languages}
-        result=bridge_request(token,"worker_job_report",{
-         "job_id":jid,"status":"done",
-         "translations":json.dumps(translated,ensure_ascii=False)
-        })
+        if job.get("chunked_upload"):
+            # Keep each upload well below the Cloud Run 1 MB request limit.
+            for code in languages:
+                translated=translate(code,segments)
+                for start in range(0,len(translated),8):
+                    result=bridge_request(token,"worker_job_part",{
+                     "job_id":jid,"language":code,
+                     "input_revision":job["revision"],
+                     "segments":json.dumps(translated[start:start+8],ensure_ascii=False)
+                    })
+                    if not result.get("ok"):
+                        raise RuntimeError("Chunk readback not verified for "+code)
+                print("SAVED_VERIFIED_CHUNKS",code,len(translated),flush=True)
+            result=bridge_request(token,"worker_job_report",{
+             "job_id":jid,"status":"done"
+            })
+        else:
+            # Compatibility with the currently deployed pre-chunk Cloud Run.
+            translated={code:translate(code,segments) for code in languages}
+            result=bridge_request(token,"worker_job_report",{
+             "job_id":jid,"status":"done",
+             "translations":json.dumps(translated,ensure_ascii=False)
+            })
         if not result.get("ok"):
             raise RuntimeError("Bridge did not confirm translation readback")
         print("VERIFIED",jid,result.get("language_count"),
