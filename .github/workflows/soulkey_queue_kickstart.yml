@@ -24,7 +24,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # P259-L01/L02/L03: source-verified Gemini translation, all 15
+          # Second safe dispatch: L01 network-disconnect retry after prior worker completes.
           # selected target languages; preserve L02's five completed languages.
           gh workflow run soulkey_translation_queue.yml --ref main
           echo "SOULKEY_P259_TRANSLATION_DISPATCH_REQUESTED"
