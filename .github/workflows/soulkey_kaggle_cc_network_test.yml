@@ -1,0 +1,96 @@
+name: SoulKey Kaggle YouTube CC Network Test
+
+on:
+  push:
+    paths:
+      - ".github/workflows/soulkey_kaggle_cc_network_test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - name: Prepare new isolated CPU-only test kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m pip install -q kaggle
+          mkdir -p "$RUNNER_TEMP/cc-network"
+          cat > "$RUNNER_TEMP/cc-network/kernel-metadata.json" <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-cc-network-test",
+            "title": "SoulKey CC Network Test",
+            "code_file": "cc_network_test.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          JSON
+          cat > "$RUNNER_TEMP/cc-network/cc_network_test.py" <<'PY'
+          import json,subprocess,sys
+          from pathlib import Path
+          target="w7rzYft4MeE"
+          result={"video_id":target,"accessible":False,"available_languages":[]}
+          try:
+              subprocess.run([sys.executable,"-m","pip","install","-q","yt-dlp"],check=True,timeout=240)
+              import yt_dlp
+              with yt_dlp.YoutubeDL({"quiet":True,"no_warnings":True,
+                        "skip_download":True,"socket_timeout":35,
+                        "retries":2,"extractor_retries":2}) as dl:
+                  meta=dl.extract_info("https://www.youtube.com/watch?v="+target,download=False)
+              if meta.get("id")!=target:raise RuntimeError("unexpected_video_id")
+              result["accessible"]=True
+              originals=meta.get("subtitles") or {}
+              autos=meta.get("automatic_captions") or {}
+              result["available_languages"]=[x for x in ["en","th","es","id","vi","sd","ta"]
+                  if x in originals or x in autos]
+          except Exception as err:
+              result["reason"]=str(err)[:300]
+          Path("/kaggle/working/cc_readiness_result.json").write_text(
+              json.dumps(result,ensure_ascii=False),encoding="utf-8")
+          print("CC_READINESS",json.dumps(result,ensure_ascii=False),flush=True)
+          PY
+      - name: Execute CPU-only Kaggle YouTube check
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/cc-network"
+          KERNEL="cwlmrcsir/soulkey-cc-network-test"
+          kaggle kernels push -p "$DIR" -t 1800
+          for i in $(seq 1 65); do
+            STATUS="$(kaggle kernels status "$KERNEL" 2>&1 || true)"
+            if echo "$STATUS" | grep -Eqi 'complete|completed'; then break; fi
+            if echo "$STATUS" | grep -Eqi 'error|failed|failure|cancel'; then
+              echo "$STATUS"
+              exit 1
+            fi
+            sleep 12
+          done
+          OUT="$RUNNER_TEMP/cc-network-out"
+          mkdir -p "$OUT"
+          kaggle kernels output "$KERNEL" -p "$OUT"
+          python - "$OUT" <<'PY'
+          from pathlib import Path
+          import sys,json
+          candidates=list(Path(sys.argv[1]).rglob("cc_readiness_result.json"))
+          assert candidates,"Kaggle CC readiness report not downloaded"
+          r=json.loads(candidates[0].read_text(encoding="utf-8"))
+          print("KAGGLE_CC_ACCESSIBLE="+str(r["accessible"]))
+          print("KAGGLE_CC_LANGUAGES="+",".join(r["available_languages"]))
+          print("KAGGLE_CC_REASON="+str(r.get("reason",""))[:180])
+          if not r["accessible"]:sys.exit(2)
+          PY
