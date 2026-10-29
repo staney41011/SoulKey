@@ -28,7 +28,10 @@ jobs:
           model="gemini-3.5-flash-lite"
           url="https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent"
           body={"contents":[{"role":"user","parts":[{"text":"Return ONLY a JSON object with segments array containing id 0 and Spanish translation of 'Welcome'."}]}],
-                "generationConfig":{"temperature":0.2,"responseMimeType":"application/json","maxOutputTokens":1024}}
+                "generationConfig":{"responseMimeType":"application/json","maxOutputTokens":1024,
+                 "responseJsonSchema":{"type":"object","properties":{"segments":{"type":"array","items":
+                     {"type":"object","properties":{"id":{"type":"integer"},"text":{"type":"string"}},
+                      "required":["id","text"]}}},"required":["segments"]}}}
           req=urllib.request.Request(url,data=json.dumps(body).encode(),headers={"Content-Type":"application/json","x-goog-api-key":key},method="POST")
           try:
               with urllib.request.urlopen(req,timeout=80) as r:
@@ -37,7 +40,7 @@ jobs:
               parsed=json.loads(txt)
               assert isinstance(parsed.get("segments"),list) and parsed["segments"],"Missing segments"
               assert int(parsed["segments"][0].get("id",-1))==0,"Wrong ID"
-              print("GEMINI_MODEL_PREFLIGHT_OK",model)
+              print("GEMINI_MODEL_SCHEMA_PREFLIGHT_OK",model)
           except urllib.error.HTTPError as exc:
               detail=exc.read(1000).decode("utf-8","replace")
               try:
