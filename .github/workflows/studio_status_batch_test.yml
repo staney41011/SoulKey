@@ -77,6 +77,8 @@ jobs:
           python -m py_compile cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
           python -m py_compile cloud-bridge/translation_worker.py cloud-bridge/nllb_cpu.py
           python -m unittest discover -s cloud-bridge/tests -p 'test_translation_oidc_refresh.py' -v
+          python -m py_compile cloud-bridge/gemini_quality.py
+          python -m unittest discover -s cloud-bridge/tests -p 'test_gemini_quality.py' -v
           node --check cloud-bridge/drive-final-publisher.js
           node --check cloud-bridge/setup_owner_drive.js
           node cloud-bridge/tests/drive-final-publisher.test.js
