@@ -10,23 +10,38 @@ const N={tasks:"任務佇列",status:"執行狀態",lang:"語言設定",plans:"�
 const key=process.env.BRIDGE_KEY||"",source="soulkey-bridge";
 const bridgeAuth=createBridgeAuth({primaryKey:key,legacyHmac:process.env.BRIDGE_LEGACY_HMAC||""});
 const auth=new GoogleAuth({scopes:["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive.readonly"]});
-let client;async function google(method,url,body){client??=await auth.getClient();return(await client.request({method,url:"https://sheets.googleapis.com/v4/spreadsheets/"+ID+"/"+url,data:body,timeout:20000})).data;}
+let client;async function google(method,url,body){client??=await auth.getClient();return(await client.request({method,url:"https://sheets.googleapis.com/v4/spreadsheets/"+ID+((url.startsWith("?")||url.startsWith(":"))?"":"/")+url,data:body,timeout:20000})).data;}
 const range=(sheet,a)=>encodeURIComponent("'"+sheet+"'!"+a);
 async function get(s,a="A1:Z10000"){return(await google("GET","values/"+range(s,a)+"?valueRenderOption=FORMATTED_VALUE")).values||[];}
 async function put(s,a,rows,append=false){return google(append?"POST":"PUT","values/"+range(s,a)+(append?":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS":"?valueInputOption=RAW"),{values:rows,majorDimension:"ROWS"});}
 const driveReview=createDriveReview(auth,get);
-let finalBackupTabReady=null;
+const finalBackupTabReady=new Map();
 async function ensureBackupTab(title,headers){
- if(finalBackupTabReady)return finalBackupTabReady;
- finalBackupTabReady=(async()=>{
-  const m=await google("GET","?fields=sheets.properties.title");
-  if(!(m.sheets||[]).some(s=>s.properties.title===title)){
-   await google("POST",":batchUpdate",{requests:[{addSheet:{properties:{title}}}]});
-   await put(title,"A1:G1",[headers]);
+ if(finalBackupTabReady.has(title))return finalBackupTabReady.get(title);
+ const promise=(async()=>{
+  const metadata=await google("GET","?fields=sheets.properties.title");
+  const found=(metadata.sheets||[]).some(s=>s.properties.title===title);
+  if(!found){
+   try{
+    await google("POST",":batchUpdate",{requests:[{addSheet:{properties:{title}}}]});
+   }catch(error){
+    const latest=await google("GET","?fields=sheets.properties.title");
+    if(!(latest.sheets||[]).some(s=>s.properties.title===title))throw error;
+   }
+  }
+  const endCol=String.fromCharCode(64+headers.length);
+  const existing=(await get(title,"A1:"+endCol+"1"))[0]||[];
+  if(!existing.length){
+   await put(title,"A1:"+endCol+"1",[headers]);
+  }else if(headers.some((value,i)=>String(existing[i]||"")!==value)){
+   throw Error("tab_header_mismatch:"+title);
   }
  })();
- try{await finalBackupTabReady;}catch(e){finalBackupTabReady=null;throw e;}
+ finalBackupTabReady.set(title,promise);
+ try{await promise;}
+ catch(error){finalBackupTabReady.delete(title);throw error;}
 }
+
 const englishFinalBackup=createEnglishFinalBackup({
  get,put,ensureTab:ensureBackupTab
 });
