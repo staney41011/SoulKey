@@ -58,6 +58,14 @@ jobs:
               autos=meta.get("automatic_captions") or {}
               result["available_languages"]=[x for x in ["en","th","es","id","vi","sd","ta"]
                   if x in originals or x in autos]
+              english=(originals.get("en") or autos.get("en") or [])
+              vtt=next((x.get("url") for x in english if x.get("ext")=="vtt" and x.get("url")),None)
+              if not vtt:raise RuntimeError("English VTT URL unavailable")
+              with yt_dlp.YoutubeDL({"quiet":True,"no_warnings":True}) as dl:
+                  raw=dl.urlopen(vtt).read(600000)
+              if len(raw)<100:raise RuntimeError("English CC response was empty")
+              result["caption_download_verified"]=True
+              result["english_caption_bytes"]=len(raw)
           except Exception as err:
               result["reason"]=str(err)[:300]
           Path("/kaggle/working/cc_readiness_result.json").write_text(
@@ -92,5 +100,5 @@ jobs:
           print("KAGGLE_CC_ACCESSIBLE="+str(r["accessible"]))
           print("KAGGLE_CC_LANGUAGES="+",".join(r["available_languages"]))
           print("KAGGLE_CC_REASON="+str(r.get("reason",""))[:180])
-          if not r["accessible"]:sys.exit(2)
+          if not r["accessible"] or not r.get("caption_download_verified"):sys.exit(2)
           PY
