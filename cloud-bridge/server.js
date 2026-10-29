@@ -50,22 +50,47 @@ driveReview.setSheetFinalLoader(task=>sheetFinalStore.read(task));
 const driveFinalPublisher=createDriveFinalPublisher({
  resolveFolders:driveReview.resolveFolders,invalidateFolder:driveReview.invalidateFolder,get,put
 });
+async function recordVerifiedEnglishStage(taskId,hash,mode){
+ const tasksRows=await get(N.tasks,"A1:J5000");
+ const taskRow=tasksRows.findIndex((r,i)=>i>0&&r[0]===taskId);
+ if(taskRow<1)throw Error("english_final_task_not_found");
+ if(String(tasksRows[taskRow][9]||"")!=="完成")
+  await put(N.tasks,"J"+(taskRow+1),[["完成"]]);
+ const rows=await get(N.status,"A1:M20000");
+ const previouslyRecorded=rows.slice(1).some(r=>
+  r[0]===taskId&&r[1]==="en-review"&&r[2]==="done"&&
+  (r[11]===hash||r[12]===hash));
+ if(previouslyRecorded)return;
+ const timestamp=now();
+ await put(N.status,"A:M",[[
+  taskId,"en-review","done","sheet-final-"+hash.slice(0,12),"100",
+  mode==="drive"?"英文 Google Drive 正式定稿已回讀驗證":
+    "英文 Google Sheet 中央定稿已回讀驗證；Drive 待同步",
+  "",timestamp,timestamp,"","",hash,hash
+ ]],true);
+}
 async function saveFullEnglishFinal(p){
  const backup=await englishFinalBackup.save(p);
  if(!backup.backup_saved)throw Error("english_final_backup_incomplete");
  if(!driveFinalPublisher.isConfigured()){
   const result=await sheetFinalStore.finalize(String(p.task_id||""),
     backup.backup_id,backup.segment_count);
+  await recordVerifiedEnglishStage(String(p.task_id||""),
+    backup.backup_id,"sheet");
   return {...result,backup_saved:true};
  }
  try{
   const manuscript=normalizeEnglishFinal(p);
   const result=await driveFinalPublisher.publish(String(p.task_id||""),manuscript);
+  await recordVerifiedEnglishStage(String(p.task_id||""),
+    backup.backup_id,"drive");
   return {...result,backup_id:backup.backup_id,backup_saved:true};
  }catch(err){
   console.error("Owner Drive finalize failed",String(err.message||err).slice(0,180));
   const result=await sheetFinalStore.finalize(String(p.task_id||""),
     backup.backup_id,backup.segment_count);
+  await recordVerifiedEnglishStage(String(p.task_id||""),
+    backup.backup_id,"sheet");
   return {...result,backup_saved:true,
    message:"英文全文已正式儲存至中央 Google Sheet；Google Drive 同步未成功："+String(err.message||err).slice(0,100)};
  }
