@@ -96,7 +96,7 @@ def gemini(messages):
         if attempt<4:time.sleep(min(45,5*(2**attempt)))
     raise RuntimeError("Gemini translation failed: "+str(last)[:160])
 
-def translate(language,segments):
+def translate(language,segments,glossary=""):
     global _NLLB_RUNNER
     if not GEMINI:
         if _NLLB_RUNNER is None:
@@ -114,7 +114,10 @@ def translate(language,segments):
           "Return only JSON object with array 'segments', each with the identical "
           "integer 'id' and its translated 'text'. Exactly one translated "
           "item per source item. Preserve segment IDs and order. "
-          "If a spiritual or religious term is ambiguous, translate conservatively.\n\n"+
+          "If a spiritual or religious term is ambiguous, translate conservatively. "
+          "Respect the following source-grounded glossary and any LOCKED target "
+          "terms. Do not invent translations when glossary targets are blank.\n"
+          "GLOSSARY:\n"+str(glossary)[:12000]+"\n\n"+
           json.dumps({"segments":[{"id":x["id"],"text":x["text"]} for x in chunk]},
                      ensure_ascii=False)
         )
@@ -152,10 +155,20 @@ def main():
         languages=job.get("langs") or []
         if not languages or any(x not in LANGS for x in languages):
             raise RuntimeError("Invalid language list")
+        glossary=str(job.get("glossary") or "")
+        from gemini_quality import audit_and_repair
         if job.get("chunked_upload"):
-            # Keep each upload well below the Cloud Run 1 MB request limit.
+            # QA BEFORE publication: failed or unrepairable translations never
+            # enter the central output table as completed content.
             for code in languages:
-                translated=translate(code,segments)
+                translated=translate(code,segments,glossary)
+                if GEMINI:
+                    translated,quality=audit_and_repair(
+                        segments,translated,code,gemini,glossary=glossary)
+                    print("GEMINI_QA_PASSED",code,quality["qa_batches"],
+                          "repair_count",quality["repairs"],flush=True)
+                elif job.get("qa_required"):
+                    raise RuntimeError("Gemini required for production QA")
                 for start in range(0,len(translated),8):
                     result=bridge_request(token,"worker_job_part",{
                      "job_id":jid,"language":code,
@@ -165,12 +178,29 @@ def main():
                     if not result.get("ok"):
                         raise RuntimeError("Chunk readback not verified for "+code)
                 print("SAVED_VERIFIED_CHUNKS",code,len(translated),flush=True)
+                if job.get("qa_required"):
+                    receipt=bridge_request(token,"worker_job_quality",{
+                        "job_id":jid,"language":code,
+                        "input_revision":job["revision"],"status":"passed",
+                        "unresolved":"0","model":MODEL,
+                        "qa_batches":str(quality["qa_batches"]),
+                        "repair_count":str(quality["repairs"])
+                    })
+                    if not receipt.get("qa_passed"):
+                        raise RuntimeError("Central Gemini QA receipt not verified")
             result=bridge_request(token,"worker_job_report",{
              "job_id":jid,"status":"done"
             })
         else:
             # Compatibility with the currently deployed pre-chunk Cloud Run.
-            translated={code:translate(code,segments) for code in languages}
+            translated={}
+            for code in languages:
+                rows=translate(code,segments,glossary)
+                if GEMINI:
+                    rows,quality=audit_and_repair(
+                        segments,rows,code,gemini,glossary=glossary)
+                    print("GEMINI_QA_PASSED",code,quality["qa_batches"],flush=True)
+                translated[code]=rows
             result=bridge_request(token,"worker_job_report",{
              "job_id":jid,"status":"done",
              "translations":json.dumps(translated,ensure_ascii=False)
