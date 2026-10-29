@@ -43,6 +43,14 @@ async function run(){
   await queue.part({...base,language:"th",segments:JSON.stringify([{id:2,text:"幫助"}])});
   await queue.part({...base,language:"es",segments:JSON.stringify([
     {id:0,text:"Sé amable"},{id:1,text:"Sé paciente"},{id:2,text:"Ayuda"}])});
+  await assert.rejects(()=>queue.report({job_id:newJob.job_id,status:"done"}),
+    /missing_semantic_quality_receipt_th/);
+  for(const lang of ["th","es"]){
+    const qa=await queue.quality({job_id:newJob.job_id,language:lang,
+      input_revision:source.backup_id,model:"gemini-3.5-flash-lite",
+      status:"passed",unresolved:"0",qa_batches:"1",repair_count:"0"});
+    assert.equal(qa.qa_passed,true);
+  }
   const done=await queue.report({job_id:newJob.job_id,status:"done"});
   assert.equal(done.status,"done");
   assert.equal(done.segment_count,6);
