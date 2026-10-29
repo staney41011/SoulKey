@@ -69,6 +69,24 @@ function createDriveReview(auth,get){
    video:folder(folders,"05_完成影片")};
  }
  async function filesOf(p){return children(p);}
+ async function youtubeCaptureFiles(task){
+  const ids=await context(task);
+  const [source,audio]=await Promise.all([children(ids.source),children(ids.audio)]);
+  const readable=f=>({
+   name:String(f.name||""),display_name:String(f.name||""),
+   url:f.webViewLink||"https://drive.google.com/file/d/"+f.id+"/view",
+   size:Number(f.size||0),updated_at:String(f.modifiedTime||""),
+   storage:"google-drive"
+  });
+  return {
+   cc_files:source.filter(f=>f.mimeType!==FOLDER &&
+    (/\\.transcript\\.txt$/i.test(f.name||"")||
+     /CC純逐字稿\\.txt$/i.test(f.name||""))).map(readable),
+   audio_files:audio.filter(f=>f.mimeType!==FOLDER &&
+    /(?:YouTube|音軌|audio[-_]?track)/i.test(f.name||"") &&
+    /\\.mp3$/i.test(f.name||"")).map(readable)
+  };
+ }
  async function readOriginalChineseFinal(task){
   const id=await context(task);
   return jsonFile(id.transcript,"zh-TW.final.json");
@@ -239,6 +257,6 @@ function ccRows(chinese,cues){
    return typeof result==="string"?JSON.parse(result):result;
   },180000);
  }});
- return {review,readOriginalChineseFinal,setChineseFinalLoader:fn=>{chineseFinalLoader=fn;},setSheetFinalLoader:fn=>{sheetFinalLoader=fn;},resolveFolders:context,invalidateFolder:id=>cache.delete("dir:"+String(id||"")),courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
+ return {review,youtubeCaptureFiles,readOriginalChineseFinal,setChineseFinalLoader:fn=>{chineseFinalLoader=fn;},setSheetFinalLoader:fn=>{sheetFinalLoader=fn;},resolveFolders:context,invalidateFolder:id=>cache.delete("dir:"+String(id||"")),courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
 }
 module.exports={createDriveReview};
