@@ -1598,9 +1598,15 @@ function captureStateInfo(task,kind,files){
     : "尚未找到可閱讀的外語 CC 純逐字稿。";
 
   if(status==="running" || status==="queued"){
-    return {key:"working",label:"執行中",detail:message || "Kaggle 正在處理這項抓取工作。"};
+    return {key:"working",label:status==="queued"?"佇列已登記":"執行中",
+      detail:message || (status==="queued"?"等待 Worker 實際領取，不代表已在 Kaggle 執行。":
+      "正在等待 Worker 的資料回報。")};
   }
   if(status==="done"){
+    if(kind==="cc" && ccDone===0){
+      return {key:"error",label:"缺少已驗證字幕",
+        detail:"執行狀態雖記錄完成，但目前沒有對應本堂、可讀取的 CC 成果；不可視為完成。"};
+    }
     if(message.includes("NO_YOUTUBE_CC")){
       return {
         key:"idle",
