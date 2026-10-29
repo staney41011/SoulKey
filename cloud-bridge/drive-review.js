@@ -80,11 +80,11 @@ function createDriveReview(auth,get){
   });
   return {
    cc_files:source.filter(f=>f.mimeType!==FOLDER &&
-    (/\\.transcript\\.txt$/i.test(f.name||"")||
-     /CC純逐字稿\\.txt$/i.test(f.name||""))).map(readable),
+    (/\.transcript\.txt$/i.test(f.name||"")||
+     /CC純逐字稿\.txt$/i.test(f.name||""))).map(readable),
    audio_files:audio.filter(f=>f.mimeType!==FOLDER &&
     /(?:YouTube|音軌|audio[-_]?track)/i.test(f.name||"") &&
-    /\\.mp3$/i.test(f.name||"")).map(readable)
+    /\.mp3$/i.test(f.name||"")).map(readable)
   };
  }
  async function readOriginalChineseFinal(task){
