@@ -3745,6 +3745,23 @@ function showNoEnglishCcFallback(taskId){
   });
 }
 
+function markVerifiedEnglishStage(taskId,source="sheet"){
+  const task=tasks.find(x=>x.id===taskId);
+  if(!task)return;
+  task.remoteStages=task.remoteStages||{};
+  task.remoteStages["en-review"]={
+    task_id:taskId,stage:"en-review",status:"done",progress:"100",
+    message:source==="sheet"
+      ?"Google Sheet 中央英文定稿已回讀驗證；Drive 待同步"
+      :"Google Drive 英文定稿已回讀驗證",
+    finished_at:new Date().toISOString(),updated_at:new Date().toISOString()
+  };
+  task.en="完成";
+  if(remoteStageStatus(task,"zh")?.status==="done"||task.completedStep>=0)
+    task.completedStep=Math.max(task.completedStep,1);
+  save(STORE.tasks,tasks);
+  renderTasks();
+}
 function syncEnglishFinalizeButton(task){
   const button=document.getElementById("finalize-en");
   if(!button || !task) return;
@@ -3758,7 +3775,7 @@ function syncEnglishFinalizeButton(task){
     ENGLISH_FINAL_PENDING_PREFIX+task.id)||"null");}catch(_){return null;}})();
   button.textContent=pending
     ?"正在儲存…"
-    :finalized?(sheetFinal?"✓ 已存中央定稿・Drive 待同步":"✓ 已定稿・查看後續流程 →")
+    :finalized?"✓ 已定稿・進入下一步 →"
       :backup?.backup_saved?"英文已備存・Drive 待定稿"
       :"英文定稿";
 }
@@ -4492,7 +4509,10 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   // A confirmed final is a navigation action, not a second Drive write.
   if(document.getElementById("finalize-en")?.dataset.finalized==="1" ||
      remoteStageStatus(task,"en-review")?.status==="done"){
+    if(englishSheetFinalizedThisSession.has(task.id))
+      markVerifiedEnglishStage(task.id,"sheet");
     openTaskDetail(task.id);
+    requestTaskStatuses();
     return;
   }
 
@@ -4520,7 +4540,7 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
     "確定英文稿已人工確認完成並定稿？\n"+
-    "系統會先確認 Google Drive 寫入成功，再顯示完成。"
+    "系統會先驗證中央 Google Sheet 正式定稿；Drive 另行同步。"
   );
   if(!ok) return;
 
@@ -4815,6 +4835,7 @@ function completeEnglishFinalizeUi(taskId,confirmationSource){
   englishFinalizePriorFinishedAt="";
   if(confirmationSource==="sheet")englishSheetFinalizedThisSession.add(taskId);
   else englishFinalizedThisSession.add(taskId);
+  markVerifiedEnglishStage(taskId,confirmationSource);
   window.clearTimeout(englishFinalizeWatchdog);
   const state=document.getElementById("en-review-share-state");
   const task=tasks.find(x=>x.id===taskId);
@@ -4823,9 +4844,10 @@ function completeEnglishFinalizeUi(taskId,confirmationSource){
     : "英文定稿已寫入 Google Drive"+
       (confirmationSource==="status"?"（中央狀態已確認）":"");
   syncEnglishFinalizeButton(task);
-  // Refresh only after the server confirms completion. Never submit again.
+  // Never loop back to the editor after the save acknowledgement.
   if(currentView==="en-review" && selectedTaskId===taskId){
-    window.setTimeout(()=>openEnglishReview(taskId),500);
+    openTaskDetail(taskId);
+    requestTaskStatuses();
   }
 }
 
@@ -5198,6 +5220,7 @@ window.addEventListener("message",event=>{
       // review_load returns {original,en,ids,...}, unlike GitHub en.json.
       if(data.sheet_finalized){
         englishSheetFinalizedThisSession.add(String(data.task_id));
+        markVerifiedEnglishStage(String(data.task_id),"sheet");
         syncEnglishFinalizeButton(tasks.find(x=>x.id===data.task_id));
       }
       const loaded=Array.isArray(data.segments)?data.segments:[];
@@ -5276,6 +5299,7 @@ window.addEventListener("message",event=>{
 
     if(data.ok && data.kind==="en" && data.sheet_finalized){
       const id=String(data.task_id||"");
+      markVerifiedEnglishStage(id,"sheet");
       try{localStorage.removeItem(ENGLISH_FINAL_PENDING_PREFIX+id);}catch(_){}
       if(englishFinalizePendingTaskId===id)completeEnglishFinalizeUi(id,"sheet");
       else{
@@ -5285,6 +5309,7 @@ window.addEventListener("message",event=>{
       }
     }else if(data.ok && data.drive_saved===true && data.kind==="en"){
       const id=String(data.task_id||"");
+      markVerifiedEnglishStage(id,"drive");
       try{localStorage.removeItem(ENGLISH_FINAL_PENDING_PREFIX+id);}catch(_){}
       if(englishFinalizePendingTaskId===id)completeEnglishFinalizeUi(id,"callback");
     }else if(data.backup_saved===true && data.kind==="en"){
