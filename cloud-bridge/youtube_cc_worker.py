@@ -18,7 +18,7 @@ from urllib.error import HTTPError
 
 BASE=os.environ.get("SOULKEY_BRIDGE_URL","https://soulkey-bridge-214901732194.asia-east1.run.app").rstrip("/")
 AUDIENCE="soulkey-bridge-translation-worker-v1"
-LANGS=("en","th","es","id","vi","sd","ta")
+LANGS=("en",)
 def request_json(url,payload=None,headers=None,timeout=90):
     headers={"Accept":"application/json",**(headers or {})}
     data=None
@@ -96,7 +96,7 @@ def blocked_by_youtube(error):
     return ("429" in message or "too many requests" in message or
         "confirm you" in message and "bot" in message)
 
-def pull_caption(url,ytdlp,tries=2):
+def pull_caption(url,ytdlp,tries=1):
     for attempt in range(tries):
         try:
             resp=ytdlp.urlopen(url)
@@ -140,7 +140,7 @@ def fetch_youtube(video_id,languages,cookiefile=None,on_caption=None):
     opts={
       "quiet":True,"no_warnings":True,"skip_download":True,
       "extract_flat":False,"ignoreerrors":False,
-      "noplaylist":True,"retries":3,"extractor_retries":3,
+      "noplaylist":True,"retries":0,"extractor_retries":0,
       "socket_timeout":40
     }
     if cookiefile:
