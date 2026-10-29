@@ -30,9 +30,11 @@ jobs:
             "Authorization":"Bearer "+token,"Accept":"application/vnd.github+json"})
           try:
             with urllib.request.urlopen(req,timeout=25) as r:
-              data=json.load(r)
+              body=r.read(500000).decode("utf-8","replace")
+              print("CATALOG_HTTP",r.status,"CONTENT_TYPE",r.headers.get("content-type"),"BODY_LEN",len(body),"BODY_PREFIX",repr(body[:120]))
+              data=json.loads(body)
               names=[x.get("id","") for x in data] if isinstance(data,list) else []
-              print("CATALOG_HTTP",r.status,"MODELS_COUNT",len(names))
+              print("MODELS_COUNT",len(names))
               print("LOW_COST_MODELS",[x for x in names if any(z in x.lower() for z in ("gpt-4o-mini","gpt-4.1-mini","deepseek-v3","llama-3.3"))][:10])
           except urllib.error.HTTPError as e:
             print("CATALOG_HTTP",e.code)
