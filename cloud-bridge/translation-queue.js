@@ -110,7 +110,7 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
     throw Error("incomplete_translation_"+code);
    const seen=new Map();
    for(const row of data){
-    const rid=String(row?.id||"");
+    const rid=String(row?.id??"");
     const val=String(row?.text||"").trim();
     if(!ids.includes(rid)||seen.has(rid)||!val||val.length>16000)
      throw Error("invalid_translated_segment_"+code);
