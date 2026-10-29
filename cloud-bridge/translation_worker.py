@@ -163,7 +163,11 @@ def main():
         if job.get("chunked_upload"):
             # QA BEFORE publication: failed or unrepairable translations never
             # enter the central output table as completed content.
+            completed=set(job.get("qa_completed_languages") or [])
             for code in languages:
+                if code in completed:
+                    print("RESUME_VERIFIED_LANGUAGE",code,flush=True)
+                    continue
                 translated=translate(code,segments,glossary)
                 if GEMINI:
                     translated,quality=audit_and_repair(
