@@ -35,13 +35,32 @@ jobs:
           fi
           echo "SOULKEY_GEMINI_SECRET_PRESENT"
           echo "SOULKEY_GEMINI_MODEL=$SOULKEY_GEMINI_MODEL"
-      - name: Recover and process up to three queued lessons sequentially
+      - name: Detect live QA bridge capabilities
+        shell: bash
+        run: python -u cloud-bridge/check_worker_capabilities.py
+      - name: Recover and process up to three queued jobs sequentially
         shell: bash
         run: |
           set -euo pipefail
-          # Do not claim jobs in parallel: a completed lesson must be verified
-          # before the next queue item is taken.
-          for lesson in 1 2 3; do
-            echo "SOULKEY_QUEUE_SLOT=$lesson"
-            python -u cloud-bridge/translation_worker.py
+          failures=0
+          # Independent jobs: errors do not prevent the next queued lesson
+          # from being picked up. Each failure is recorded in the central queue.
+          for slot in 1 2 3; do
+            echo "SOULKEY_QUEUE_SLOT=$slot"
+            if ! python -u cloud-bridge/translation_worker.py; then
+              failures=$((failures+1))
+              echo "::warning::Translation slot $slot failed; next job remains independent"
+            fi
           done
+          if [ "$failures" -gt 0 ]; then
+            echo "::error::$failures translation slots failed"
+            exit 1
+          fi
+      - name: Preserve Gemini QA audit receipts (no manuscripts or secrets)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-qa-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/soulkey-qa-receipts.jsonl
+          if-no-files-found: ignore
+          retention-days: 30
