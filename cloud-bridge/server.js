@@ -4,6 +4,7 @@ const {createBridgeAuth}=require("./auth");
 const {createDriveReview}=require("./drive-review");
 const {createEnglishFinalBackup,normalizeEnglishFinal}=require("./english-final-backup");
 const {createSheetFinalStore}=require("./sheet-final-store");
+const {createChineseFinalStore}=require("./chinese-final-store");
 const {createDriveFinalPublisher}=require("./drive-final-publisher");
 const {createTranslationQueue}=require("./translation-queue");
 const {verifyGithubWorker}=require("./github-worker-auth");
@@ -48,6 +49,11 @@ const englishFinalBackup=createEnglishFinalBackup({
  get,put,ensureTab:ensureBackupTab
 });
 const sheetFinalStore=createSheetFinalStore({get,put,ensureTab:ensureBackupTab});
+const chineseFinalStore=createChineseFinalStore({
+ get,put,ensureTab:ensureBackupTab,
+ readOriginal:task=>driveReview.readOriginalChineseFinal(task)
+});
+driveReview.setChineseFinalLoader(task=>chineseFinalStore.read(task));
 driveReview.setSheetFinalLoader(task=>sheetFinalStore.read(task));
 const translationQueue=createTranslationQueue({
  get,put,ensureTab:ensureBackupTab,
@@ -167,6 +173,21 @@ async function write(p){
    return out("run_stage",{ok:false,task_id:p.task_id||"",
     stage:p.stage||"",error:message,message:"無法建立翻譯工作："+message});
   }
+ }
+ if(p.action==="review_save" && p.kind==="zh"){
+  const saved=await chineseFinalStore.save(p);
+  // Only after the entire Chinese manuscript is independently read back,
+  // confirm the current task's Chinese stage as completed.
+  const rows=await get(N.tasks,"A1:J5000");
+  const index=rows.findIndex((row,i)=>i>0&&row[0]===p.task_id);
+  if(index<1)throw Error("chinese_final_task_not_registered");
+  if(String(rows[index][8]||"")!=="完成")
+   await put(N.tasks,"I"+(index+1),[["完成"]]);
+  await put(N.status,"A:M",[[
+   p.task_id,"zh","done","sheet-zh-"+saved.revision.slice(0,12),"100",
+   "中文中央定稿已回讀驗證；Drive 待同步","",now(),now(),"","",saved.revision,saved.revision
+  ]],true);
+  return saved;
  }
  if(p.action==="review_en_draft_save")return saveEnglish(p);
  if(p.action==="review_save" && p.kind==="en")return saveFullEnglishFinal(p);
