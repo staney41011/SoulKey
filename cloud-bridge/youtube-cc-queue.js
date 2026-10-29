@@ -7,7 +7,8 @@ const CONTENT_HEAD=["job_id","task_id","video_id","language","part_index","part_
 const VID=/^[A-Za-z0-9_-]{11}$/;
 const TASK=/^P\d+-L\d{2}(?:-R\d+)?$/;
 const JOB=/^[0-9a-f-]{36}$/;
-const LANGS=new Set(["en","th","es","id","vi","sd","ta"]);
+// New CC captures only English; old rows remain readable for audit.
+const LANGS=new Set(["en"]);
 function videoId(url){
  const text=String(url||"").trim();
  const match=text.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?[^#]*?v=|shorts\/|live\/))([\w-]{11})(?![\w-])/);
@@ -42,6 +43,17 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
    throw Error("unsupported_capture_stage");
   const video=await taskVideo(task);
   const rows=await tasks();
+  // Never redownload subtitles that have already been fully persisted
+  // for the same canonical video, even if other-language work once failed.
+  const cached=await contents();
+  for(const previous of rows.slice().reverse().filter(r=>
+       r[1]===task&&r[2]===video)){
+    const g=grouped(cached,previous[0]).get("en");
+    if(completeGroup(g))return {ok:true,duplicate:true,task_id:task,
+      stage:"cc",job_id:previous[0],status:"done",cached:true,
+      queue_mode:"saved-google-sheet",
+      message:"本堂英文 CC 已完整保存，直接沿用，不再向 YouTube 發出請求"};
+  }
   const existing=rows.slice().reverse().find(r=>r[1]===task&&r[2]===video&&
     ["queued","running"].includes(r[3]));
   if(existing)return {ok:true,task_id:task,stage:"cc",job_id:existing[0],
@@ -71,7 +83,7 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
    [["running",row[4]||"",now(),"","GitHub Worker 已領取 CC 抓取工作"]]);
   await appendStatus(row[1],"running",row[0],video,"正在從本堂 YouTube 抓取 CC");
   return {ok:true,has_job:true,job:{id:row[0],task_id:row[1],video_id:video,
-   languages:[...LANGS],progressive_visibility:true}};
+   languages:["en"],progressive_visibility:true}};
  }
  async function part(p){
   const id=String(p.job_id||""),lang=String(p.language||"").trim().toLowerCase();
@@ -139,8 +151,7 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
   }
   if(p.status!=="done")throw Error("invalid_cc_finish_status");
   const expected=String(p.languages||"").split(",").filter(Boolean);
-  if(!expected.length||expected.some(x=>!LANGS.has(x))||
-     new Set(expected).size!==expected.length)throw Error("invalid_caption_languages");
+  if(expected.length!==1||expected[0]!=="en")throw Error("english_caption_required");
   const groups=grouped(await contents(),id);
   if(groups.size!==expected.length||expected.some(x=>!groups.has(x)))
    throw Error("cc_languages_incomplete");
@@ -171,7 +182,7 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
   for(const job of entries){
    const groups=grouped(data,job[0]);
    for(const [lang,g] of groups){
-    if(!completeGroup(g))continue;
+    if(lang!=="en"||!completeGroup(g))continue;
     const name=lang+".transcript.txt";
     if(cc.some(x=>x.name===name))continue;
     cc.push({name,task_id:task,display_name:lang.toUpperCase()+" YouTube CC 純逐字稿",
@@ -184,7 +195,7 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
    captions_storage:"google-sheet",drive_synced:false};
  }
  async function transcript(task,jobId,lang){
-  if(!JOB.test(String(jobId||""))||!LANGS.has(lang))throw Error("invalid_caption_read");
+  if(!JOB.test(String(jobId||""))||lang!=="en")throw Error("invalid_caption_read");
   const rows=await tasks();
   const job=rows.find(r=>r[0]===jobId&&r[1]===task&&
     ["done","running","error"].includes(r[3]));
