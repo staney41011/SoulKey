@@ -72,14 +72,14 @@ def bridge_request(_initial_token,action,body=None):
         # One fresh-token retry, not an unbounded authorization loop.
         return send()
 
-def gemini(messages):
+def gemini(messages,schema=None):
     if not GEMINI:raise RuntimeError("GEMINI_API_KEY repository secret is missing")
     url="https://generativelanguage.googleapis.com/v1beta/models/"+MODEL+":generateContent"
-    payload={
-     "contents":[{"role":"user","parts":[{"text":messages}]}],
-     "generationConfig":{"temperature":0.2,"responseMimeType":"application/json",
-       "maxOutputTokens":14000}
-    }
+    config={"responseMimeType":"application/json","maxOutputTokens":14000}
+    if schema is not None:
+        config["responseJsonSchema"]=schema
+    payload={"contents":[{"role":"user","parts":[{"text":messages}]}],
+      "generationConfig":config}
     last=None
     for attempt in range(5):
         try:
@@ -121,7 +121,10 @@ def translate(language,segments,glossary=""):
           json.dumps({"segments":[{"id":x["id"],"text":x["text"]} for x in chunk]},
                      ensure_ascii=False)
         )
-        data=gemini(prompt)
+        schema={"type":"object","properties":{"segments":{"type":"array","items":{
+          "type":"object","properties":{"id":{"type":"integer"},
+            "text":{"type":"string"}},"required":["id","text"]}}},"required":["segments"]}
+        data=gemini(prompt,schema)
         rows=data.get("segments") if isinstance(data,dict) else data
         if not isinstance(rows,list) or len(rows)!=len(chunk):
             raise RuntimeError("Translated segment count mismatch for "+language)
