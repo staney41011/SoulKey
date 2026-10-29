@@ -108,19 +108,10 @@ async def synthesize_block(
         }
 
     import edge_tts
-    import edge_tts.communicate as edge_communicate
-    import os
 
-    # The legacy speech.platform.bing.com WebSocket began returning 403 in
-    # October 2026. The newer Edge Read Aloud synthesis endpoint has been
-    # verified with the full SoulKey 16-voice smoke test on GitHub Actions.
-    # Keep a selectable legacy setting if the provider changes again.
-    if os.getenv("SOULKEY_EDGE_ENDPOINT", "msedgeservices") == "msedgeservices":
-        from edge_tts.constants import TRUSTED_CLIENT_TOKEN
-        edge_communicate.WSS_URL = (
-            "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
-            "?Ocp-Apim-Subscription-Key=" + TRUSTED_CLIENT_TOKEN
-        )
+    # edge-tts 7.3.1 handles Microsoft's v2 Sec-MS-GEC token handshake.
+    # Do not monkeypatch its WebSocket URL: the upstream library owns both
+    # the endpoint and versioned authentication protocol.
 
     output_mp3.parent.mkdir(parents=True, exist_ok=True)
     last_error = None
