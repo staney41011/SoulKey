@@ -175,6 +175,7 @@ let languageSettings = [
 let selectedTaskId = null;
 let selectedPeriod = null;
 let currentZhReview = [];
+let zhFinalPendingTaskId = "";
 let currentZhReviewAll = [];
 let zhFreshSegments = [];
 let zhReviewLoading = false;
@@ -3348,7 +3349,7 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
     "確定中文逐字稿已人工確認完成並定稿？\n"+
-    "定稿會寫回 Google Drive，之後 AI 白話文只使用這份 Final。"
+    "系統會先存到本堂中央 Google Sheet 並回讀驗證，Drive 另行同步。"
   );
   if(!ok) return;
 
@@ -3369,19 +3370,24 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
     return;
   }
 
-  submitBridgePost({
+  // Never navigate away or claim a saved Chinese Final until the server
+  // returns a confirmed, read-back-verified Sheet revision.
+  zhFinalPendingTaskId=task.id;
+  setZhFinalizeEnabled(false);
+  setZhReviewLoadState("正在驗證本堂中文中央定稿寫入…","working");
+  const sent=submitBridgePost({
     action:"review_save",
     task_id:task.id,
     kind:"zh",
     segments_json:JSON.stringify(segments),
-    terms_json:"[]"
+    terms_json:"[]",
+    source_video_id:youtubeVideoIdFromUrl(task.url)
   });
-
-  task.status="中文定稿儲存中";
-  save(STORE.tasks,tasks);
-  alert("已送出中文 Final。系統確認寫入後會自動解鎖 AI 白話文。");
-  openTaskDetail(task.id);
-  window.setTimeout(()=>requestTaskStatuses(),1500);
+  if(!sent){
+    zhFinalPendingTaskId="";
+    setZhFinalizeEnabled(true);
+    setZhReviewLoadState("中文定稿尚未送出；目前修改保留於畫面","error");
+  }
 });
 
 
@@ -4517,7 +4523,8 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
     task_id:task.id,
     kind:"en",
     segments_json:JSON.stringify(segments),
-    terms_json:JSON.stringify(fullTerms)
+    terms_json:JSON.stringify(fullTerms),
+    source_video_id:youtubeVideoIdFromUrl(task.url)
   });
 
   if(!sent){
@@ -5236,6 +5243,28 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="review_saved"){
+    if(data.kind==="zh" && data.ok && data.sheet_finalized &&
+       zhFinalPendingTaskId===String(data.task_id||"")){
+      const id=zhFinalPendingTaskId;
+      zhFinalPendingTaskId="";
+      setZhFinalizeEnabled(true);
+      setZhReviewLoadState("本堂中文定稿已存中央 Sheet 並回讀驗證；Drive 待同步","ok");
+      const task=tasks.find(x=>x.id===id);
+      if(task){
+        task.zh_review="完成";
+        task.status="中文中央定稿已驗證";
+        save(STORE.tasks,tasks);
+      }
+      requestTaskStatuses();
+      if(currentView==="review"&&selectedTaskId===id)openTaskDetail(id);
+      return;
+    }
+    if(data.kind==="zh" && !data.ok){
+      zhFinalPendingTaskId="";
+      setZhFinalizeEnabled(true);
+      setZhReviewLoadState("中文定稿沒有寫入："+(data.message||data.error||"未知錯誤"),"error");
+      return;
+    }
     const state=document.getElementById("en-review-share-state");
     const button=document.getElementById("finalize-en");
 
