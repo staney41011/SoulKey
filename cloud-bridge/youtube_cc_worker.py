@@ -91,17 +91,24 @@ def find_tracks(info,language):
                      and x.get("url") and x.get("ext") in ("vtt","ttml","srv3")]
             if choices:return choices[0]["url"],origin,k
     return None
-def pull_caption(url,ytdlp,tries=4):
+def blocked_by_youtube(error):
+    message=str(error).lower()
+    return ("429" in message or "too many requests" in message or
+        "confirm you" in message and "bot" in message)
+
+def pull_caption(url,ytdlp,tries=2):
     for attempt in range(tries):
         try:
             resp=ytdlp.urlopen(url)
-            content=resp.read()
+            content=resp.read(650001)
             if len(content)>650000:raise RuntimeError("Caption too large")
             return content.decode("utf-8-sig","replace")
         except Exception as error:
-            if attempt+1==tries:raise
+            # Stop immediately on YouTube throttling; retries on the same
+            # egress IP aggravate a 429 response.
+            if blocked_by_youtube(error) or attempt+1==tries:raise
             print("CAPTION_RETRY",attempt+1,type(error).__name__,flush=True)
-            time.sleep(min(35,4*(2**attempt)))
+            time.sleep(4*(attempt+1))
 def temporary_cookiefile(secret,directory):
     """Decode an authorized Netscape cookie export on the ephemeral runner.
 
@@ -127,7 +134,7 @@ def temporary_cookiefile(secret,directory):
     filename.chmod(0o600)
     return str(filename)
 
-def fetch_youtube(video_id,languages,cookiefile=None):
+def fetch_youtube(video_id,languages,cookiefile=None,on_caption=None):
     import yt_dlp
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}",video_id):raise RuntimeError("Invalid YouTube video id")
     opts={
@@ -144,15 +151,28 @@ def fetch_youtube(video_id,languages,cookiefile=None):
             raise RuntimeError("YouTube returned a different video")
         captions={}
         missing=[]
-        for lang in languages:
+        ordered=list(dict.fromkeys(sorted(languages,key=lambda l:(l!="en",l))))
+        for pos,lang in enumerate(ordered):
             source=find_tracks(info,lang)
             if not source:
                 missing.append(lang)
                 continue
             url,origin,actual_lang=source
-            body=pull_caption(url,yt)
-            clean=strip_vtt(body)
-            captions[lang]=(clean,origin+":"+actual_lang)
+            try:
+                body=pull_caption(url,yt)
+                clean=strip_vtt(body)
+            except Exception as exc:
+                missing.append(lang)
+                if blocked_by_youtube(exc):
+                    print("CC_YOUTUBE_RATE_LIMITED_STOP",lang,flush=True)
+                    missing.extend(ordered[pos+1:])
+                    break
+                print("CC_LANGUAGE_UNAVAILABLE",lang,type(exc).__name__,flush=True)
+                continue
+            label=origin+":"+actual_lang
+            captions[lang]=(clean,label)
+            if on_caption:on_caption(lang,clean,label)
+            print("CC_CAPTURED_VERIFIED_SOURCE",lang,len(clean),flush=True)
         return captions,missing
 def parts(text,size=17000):
     for i in range(0,len(text),size):
@@ -186,38 +206,21 @@ def main():
     jid=job["id"]
     print("CLAIM_CC",jid,job["task_id"],job["video_id"],flush=True)
     try:
-        requested=job.get("languages") or LANGS
-        # Prefer the authenticated GitHub path when the owner has explicitly
-        # provided an export. The cookie file stays on GitHub's temporary disk.
-        # Kaggle never receives browser cookies or the encoded secret.
-        cookies=os.environ.get("YOUTUBE_COOKIES_B64","")
-        data=None;missing=[]
-        if cookies:
-            with tempfile.TemporaryDirectory(prefix="soulkey-cc-auth-") as tmp:
-                cookiefile=temporary_cookiefile(cookies,tmp)
-                print("CC_BACKEND=GITHUB_AUTHENTICATED",flush=True)
-                try:
-                    data,missing=fetch_youtube(job["video_id"],requested,cookiefile=cookiefile)
-                except Exception as error:
-                    print("CC_AUTHENTICATED_FETCH_FAILED",
-                          type(error).__name__,flush=True)
-        if data is None and os.environ.get("KAGGLE_API_TOKEN"):
-            from youtube_cc_kaggle_client import capture
-            print("CC_BACKEND=KAGGLE_CPU_ANONYMOUS",flush=True)
-            try:
-                data,missing=capture(job["video_id"],requested)
-            except Exception as kaggle_exc:
-                print("CC_KAGGLE_FAILED_TRY_GITHUB_CPU",
-                      type(kaggle_exc).__name__,flush=True)
-                data,missing=fetch_youtube(job["video_id"],requested)
-                print("CC_BACKEND=GITHUB_CPU_ANONYMOUS_FALLBACK",flush=True)
-        elif data is None:
-            print("CC_BACKEND=GITHUB_CPU_ANONYMOUS",flush=True)
-            data,missing=fetch_youtube(job["video_id"],requested)
-        if not data:
-            raise RuntimeError("YouTube did not expose any of the seven requested CC languages")
+        requested=list(dict.fromkeys(job.get("languages") or LANGS))
+        progressive=job.get("progressive_visibility") is True
+        # Existing deployed bridge does not expose running captions in
+        # manifests. To guarantee the English review is usable, finish the
+        # English-only capture before attempting any other language.
+        if "en" in requested and not progressive:
+            requested=["en"]
+            print("CC_ENGLISH_FIRST_LEGACY_BRIDGE",flush=True)
+        else:
+            requested.sort(key=lambda code:(code!="en",code))
         complete=[]
-        for lang,(caption,source) in data.items():
+        def persist(lang,caption,source):
+            if lang in complete:return
+            if lang not in requested or not str(caption).strip():
+                raise RuntimeError("CC invalid requested language")
             chunks=list(parts(caption))
             for i,chunk in enumerate(chunks):
                 answer=bridge("worker_cc_part",{
@@ -226,7 +229,41 @@ def main():
                 },token)
                 if not answer.get("ok"):raise RuntimeError("CC part was not saved")
             complete.append(lang)
-            print("CAPTURED_CC",lang,len(caption),flush=True)
+            print("CC_SAVED_VERIFIED",lang,len(caption),flush=True)
+        cookies=os.environ.get("YOUTUBE_COOKIES_B64","")
+        data=None;missing=[]
+        if cookies:
+            with tempfile.TemporaryDirectory(prefix="soulkey-cc-auth-") as tmp:
+                cookiefile=temporary_cookiefile(cookies,tmp)
+                print("CC_BACKEND=GITHUB_AUTHENTICATED",flush=True)
+                try:
+                    data,missing=fetch_youtube(job["video_id"],requested,
+                        cookiefile=cookiefile,on_caption=persist)
+                except Exception as error:
+                    if complete:raise
+                    print("CC_AUTHENTICATED_FETCH_FAILED",
+                          type(error).__name__,flush=True)
+        if data is None and os.environ.get("KAGGLE_API_TOKEN"):
+            from youtube_cc_kaggle_client import capture
+            print("CC_BACKEND=KAGGLE_CPU_ANONYMOUS",flush=True)
+            try:
+                data,missing=capture(job["video_id"],requested)
+                for lang in sorted(data,key=lambda code:(code!="en",code)):
+                    caption,source=data[lang]
+                    persist(lang,caption,source)
+            except Exception as kaggle_exc:
+                if complete:raise
+                print("CC_KAGGLE_FAILED_TRY_GITHUB_CPU",
+                      type(kaggle_exc).__name__,flush=True)
+                data,missing=fetch_youtube(job["video_id"],requested,
+                    on_caption=persist)
+                print("CC_BACKEND=GITHUB_CPU_ANONYMOUS_FALLBACK",flush=True)
+        elif data is None:
+            print("CC_BACKEND=GITHUB_CPU_ANONYMOUS",flush=True)
+            data,missing=fetch_youtube(job["video_id"],requested,
+                on_caption=persist)
+        if not complete:
+            raise RuntimeError("YouTube CC unavailable for requested languages")
         answer=bridge("worker_cc_finish",{
           "job_id":jid,"status":"done","languages":",".join(complete)
         },token)
