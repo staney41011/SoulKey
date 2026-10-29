@@ -39,7 +39,7 @@ async function run(){
   await assert.rejects(()=>queue.part({...base,language:"th",
     segments:JSON.stringify([{id:0,text:"誤寫"}])}),/translation_chunk_conflict/);
   await assert.rejects(()=>queue.report({job_id:newJob.job_id,status:"done"}),
-    /incomplete_translation_th/);
+    /missing_semantic_quality_receipt_th/);
   await queue.part({...base,language:"th",segments:JSON.stringify([{id:2,text:"幫助"}])});
   await queue.part({...base,language:"es",segments:JSON.stringify([
     {id:0,text:"Sé amable"},{id:1,text:"Sé paciente"},{id:2,text:"Ayuda"}])});
