@@ -47,7 +47,7 @@ const editor=createChineseFinalStore(config);
   ()=>editor.save({...payload,task_id:"P259-L05"}),
   /chinese_source_not_found_for_lesson/
  );
- const bad=JSON.parse(payload.segments_json);bad[0].start=999;
+ const bad=JSON.parse(payload.segments_json);bad[0].start=9;
  await assert.rejects(
   ()=>editor.save({...payload,segments_json:JSON.stringify(bad)}),
   /chinese_source_timeline_mismatch/
