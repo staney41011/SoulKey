@@ -13,6 +13,7 @@ function cached(key,load,ttl=180000){
 }
 function createDriveReview(auth,get){
  let sheetFinalLoader=null;
+ let chineseFinalLoader=null;
  let client;
  async function drive(url){
   client??=await auth.getClient();
@@ -68,6 +69,19 @@ function createDriveReview(auth,get){
    video:folder(folders,"05_完成影片")};
  }
  async function filesOf(p){return children(p);}
+ async function readOriginalChineseFinal(task){
+  const id=await context(task);
+  return jsonFile(id.transcript,"zh-TW.final.json");
+ }
+ async function readCurrentChineseFinal(task,folderIds){
+  if(chineseFinalLoader){
+   const latest=await chineseFinalLoader(task);
+   if(latest?.manuscript?.segments?.length)
+    return {segments:latest.manuscript.segments,source:"google-sheet-final",
+     revision:latest.revision};
+  }
+  return jsonFile(folderIds.transcript,"zh-TW.final.json");
+ }
  function findFile(files,canonical){
   const original=files.find(f=>f.mimeType!==FOLDER && f.name===canonical);
   if(original)return original;
@@ -141,6 +155,22 @@ function ccRows(chinese,cues){
   if(!TASK_RE.test(task))return err(task,kind,"課程編號不正確","invalid_task_id");
   const begin=Date.now(),ids=await context(task);
   if(kind==="zh"){
+   if(chineseFinalLoader){
+    const latest=await chineseFinalLoader(task);
+    if(latest?.manuscript?.segments?.length){
+     const rows=latest.manuscript.segments.map(seg=>({
+      ...seg,confirmed:true,time:fmtTime(seg.start)
+     }));
+     const size=80,idx=Math.max(0,Number(p.chunk_index||0)||0);
+     const count=Math.ceil(rows.length/size);
+     return {source:"soulkey-bridge",type:"review_data",ok:true,
+      task_id:task,kind:"zh",manuscript_source:"google-sheet-final",
+      chunk_index:idx,chunk_count:count,total_segments:rows.length,
+      has_more:idx<count-1,
+      segments:rows.slice(idx*size,(idx+1)*size),
+      load_ms:Date.now()-begin};
+    }
+   }
    const manifest=await jsonFile(ids.transcript,"zh-TW.review.manifest.json");
    if(!manifest || !Array.isArray(manifest.first_chunk))
     return err(task,kind,"找不到中文校稿快取，請檢查雲端資料");
@@ -153,7 +183,7 @@ function ccRows(chinese,cues){
     load_ms:Date.now()-begin};
   }
   if(kind==="en"){
-   const original=await jsonFile(ids.transcript,"zh-TW.final.json");
+   const original=await readCurrentChineseFinal(task,ids);
    if(!Array.isArray(original?.segments)||!original.segments.length)
     return err(task,kind,"這堂課尚未有中文人工定稿");
    const source=original.segments;
@@ -209,6 +239,6 @@ function ccRows(chinese,cues){
    return typeof result==="string"?JSON.parse(result):result;
   },180000);
  }});
- return {review,setSheetFinalLoader:fn=>{sheetFinalLoader=fn;},resolveFolders:context,invalidateFolder:id=>cache.delete("dir:"+String(id||"")),courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
+ return {review,readOriginalChineseFinal,setChineseFinalLoader:fn=>{chineseFinalLoader=fn;},setSheetFinalLoader:fn=>{sheetFinalLoader=fn;},resolveFolders:context,invalidateFolder:id=>cache.delete("dir:"+String(id||"")),courseFiles:overview.courseFiles,ttsShareLinks:overview.ttsShareLinks};
 }
 module.exports={createDriveReview};
