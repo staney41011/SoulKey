@@ -8,6 +8,7 @@ const {createChineseFinalStore}=require("./chinese-final-store");
 const {createDriveFinalPublisher}=require("./drive-final-publisher");
 const {createTranslationQueue}=require("./translation-queue");
 const {createYoutubeCCQueue}=require("./youtube-cc-queue");
+const {createCentralWrites}=require("./central-writes");
 const {verifyGithubWorker}=require("./github-worker-auth");
 const ID="1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
 const N={tasks:"任務佇列",status:"執行狀態",lang:"語言設定",plans:"語言任務設定",edits:"英文人工定稿"};
@@ -57,6 +58,7 @@ const chineseFinalStore=createChineseFinalStore({
 driveReview.setChineseFinalLoader(task=>chineseFinalStore.read(task));
 driveReview.setSheetFinalLoader(task=>sheetFinalStore.read(task));
 const youtubeCCQueue=createYoutubeCCQueue({get,put,ensureTab:ensureBackupTab});
+const centralWrites=createCentralWrites({get,put});
 const translationQueue=createTranslationQueue({
  get,put,ensureTab:ensureBackupTab,
  readFinal:task=>sheetFinalStore.read(task),
@@ -207,6 +209,8 @@ if(a==="course_files")return driveReview.courseFiles(p);if(a==="tts_share_links"
  return out("bridge_error",{ok:false,error:"not_yet_restored",message:a+" 暫時無法使用，沒有修改資料"});
 }
 async function write(p){
+ if(p.action==="tasks_upsert")return out("tasks_saved",await centralWrites.tasksUpsert(p));
+ if(p.action==="language_plan_save")return out("language_plan_saved",await centralWrites.languagePlanSave(p));
  if(p.action==="run_stage"){
   if(p.stage==="cc" && p.lang!=="multi-audio"){
    try{return out("run_stage",await youtubeCCQueue.enqueue(p));}
