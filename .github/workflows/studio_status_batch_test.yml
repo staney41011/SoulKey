@@ -60,6 +60,10 @@ jobs:
           node cloud-bridge/tests/english-final-backup.test.js
           node --check cloud-bridge/sheet-final-store.js
           node cloud-bridge/tests/sheet-final-store.test.js
+          node --check cloud-bridge/translation-queue.js
+          node --check cloud-bridge/github-worker-auth.js
+          node cloud-bridge/tests/translation-queue.test.js
+          python -m py_compile cloud-bridge/translation_worker.py cloud-bridge/nllb_cpu.py
           node --check cloud-bridge/drive-final-publisher.js
           node --check cloud-bridge/setup_owner_drive.js
           node cloud-bridge/tests/drive-final-publisher.test.js
