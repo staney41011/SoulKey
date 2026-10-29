@@ -157,13 +157,22 @@ def main():
     jid=job["id"]
     print("CLAIM_CC",jid,job["task_id"],job["video_id"],flush=True)
     try:
+        requested=job.get("languages") or LANGS
         if os.environ.get("KAGGLE_API_TOKEN"):
             from youtube_cc_kaggle_client import capture
             print("CC_BACKEND=KAGGLE_CPU",flush=True)
-            data,missing=capture(job["video_id"],job.get("languages") or LANGS)
+            try:
+                data,missing=capture(job["video_id"],requested)
+            except Exception as kaggle_exc:
+                print("CC_KAGGLE_FAILED_TRY_GITHUB_CPU",
+                      type(kaggle_exc).__name__,str(kaggle_exc)[:160],flush=True)
+                # The fallback reads public subtitle tracks for the SAME
+                # verified video ID; it does not generate or substitute text.
+                data,missing=fetch_youtube(job["video_id"],requested)
+                print("CC_BACKEND=GITHUB_CPU_FALLBACK",flush=True)
         else:
             print("CC_BACKEND=GITHUB_CPU_WITHOUT_KAGGLE",flush=True)
-            data,missing=fetch_youtube(job["video_id"],job.get("languages") or LANGS)
+            data,missing=fetch_youtube(job["video_id"],requested)
         if not data:
             raise RuntimeError("YouTube did not expose any of the seven requested CC languages")
         complete=[]
