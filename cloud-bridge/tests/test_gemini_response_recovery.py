@@ -35,7 +35,7 @@ class GeminiRecoveryTest(unittest.TestCase):
         counts=[]
         def gemini_mock(prompt,schema=None):
             import json
-            data=json.loads(prompt.split("\\n\\n")[-1])["segments"]
+            data=json.loads(prompt.split("\n\n")[-1])["segments"]
             counts.append(len(data))
             if len(data)>2:raise worker.GeminiResponseError("gemini_missing_parts:MAX_TOKENS")
             return {"segments":[{"id":x["id"],"text":"Translated "+str(x["id"])} for x in data]}
@@ -51,7 +51,7 @@ class GeminiRecoveryTest(unittest.TestCase):
         checked=[]
         def gemini_mock(prompt,schema=None):
             import json
-            rows=json.loads(prompt.split("DATA:\\n",1)[1])
+            rows=json.loads(prompt.split("DATA:\n",1)[1])
             checked.extend(x["segment_id"] for x in rows)
             if len(rows)>2:raise worker.GeminiResponseError("gemini_missing_parts:MAX_TOKENS")
             return {"failures":[]}
