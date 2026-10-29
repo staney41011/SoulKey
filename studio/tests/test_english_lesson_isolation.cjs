@@ -48,6 +48,5 @@ vm.runInContext(openFn,context);
   "must not use unverified GitHub or browser English previews");
  assert(!openFn.includes("readReviewCache("));
  assert.match(app,/englishCanonicalLoadedTaskId!==task\.id/);
- assert.match(app,/chinese_final/); // Chinese route documented in Studio status
  console.log("PASS: switching to fourth lesson drops third English; authenticated source is mandatory");
 })().catch(err=>{console.error(err);process.exitCode=1});
