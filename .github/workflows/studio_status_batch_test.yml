@@ -70,6 +70,7 @@ jobs:
           node --check cloud-bridge/youtube-cc-queue.js
           node cloud-bridge/tests/youtube-cc-queue.test.js
           python -m py_compile cloud-bridge/youtube_cc_worker.py
+          python -m py_compile cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
           python -m py_compile cloud-bridge/translation_worker.py cloud-bridge/nllb_cpu.py
           node --check cloud-bridge/drive-final-publisher.js
           node --check cloud-bridge/setup_owner_drive.js
@@ -90,7 +91,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261029-youtube-cc-queue-v9" in html
+          assert "app-20260923-48.js?v=20261029-kaggle-cc-v10" in html
           assert "tts-share-message.js?v=20261028-length-audit-v1" in html
           assert "id=\"tts-share-copy\"" in html
           assert html.index("tts-share-message.js?v=") < html.index("language-delivery.js?v=") < html.index("app-20260923-48.js?v=")
