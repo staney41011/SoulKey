@@ -1,6 +1,7 @@
 "use strict";
 const {randomUUID}=require("node:crypto");
-const TAB="翻譯工作佇列",OUTPUT="多語翻譯結果";
+const TAB="翻譯工作佇列",OUTPUT="多語翻譯結果",QA_TAB="翻譯QA紀錄";
+const QA_HEADER=["job_id","task_id","input_revision","language_code","model","qa_batches","repair_count","status","verified_at"];
 const HEADER=["job_id","task_id","stage","langs","input_revision","status","created_at","claimed_at","finished_at","message"];
 const OUT_HEADER=["task_id","input_revision","language_code","segment_id","translated_text","job_id","saved_at"];
 const LANG=new Set(["th","es","id","vi","km","hi","ta","ja","ko","bn","ne","lo","my","it","pt"]);
@@ -18,9 +19,9 @@ function parseLanguages(raw){
   throw Error("invalid_translation_languages");
  return uniq;
 }
-function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=now}){
+function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,readGlossary=async()=>[],utcNow=now}){
  async function init(){
-  await ensureTab(TAB,HEADER);await ensureTab(OUTPUT,OUT_HEADER);
+  await ensureTab(TAB,HEADER);await ensureTab(OUTPUT,OUT_HEADER);await ensureTab(QA_TAB,QA_HEADER);
  }
  async function findRows(){await init();return (await get(TAB,"A1:J5000")).slice(1);}
  async function appendStatus(id,stage,state,jobId,progress,message,revision){
@@ -71,11 +72,31 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
    [["running",row[6]||"",utcNow(),"","GitHub Worker 已領取"]]);
   await appendStatus(task,"multi","running",id,1,
    "GitHub Worker 開始翻譯",revision);
+  const segments=final.manuscript.segments.map(x=>({
+    id:x.id,start:x.start,end:x.end,text:x.text
+  }));
+  const glossaryRows=(await readGlossary())||[];
+  const requested=parseLanguages(row[3]);
+  // Legacy "專有名詞庫" column positions are authoritative; only include
+  // English terms actually present in the approved source manuscript.
+  const indexes={th:4,es:5,id:6,vi:7,hi:10,ta:11,ja:12,ko:13,km:14,bn:15,ne:16,lo:17,my:18,it:19,pt:20};
+  const sourceText=segments.map(x=>String(x.text||"")).join(" ").toLocaleLowerCase();
+  const glossary=glossaryRows.slice(0,500).filter(row=>{
+    const en=String(row[3]||"").trim();
+    return en.length>=2 && sourceText.includes(en.toLocaleLowerCase());
+  }).slice(0,120).map(row=>{
+    const fields=["source="+String(row[3]||"")];
+    for(const lang of requested){
+      const value=String(row[indexes[lang]]||"").trim();
+      if(value)fields.push(lang+"="+value);
+    }
+    if(["true","1","yes","y","是"].includes(String(row[8]||"").toLowerCase()))
+      fields.push("LOCKED");
+    return "- "+fields.join(" | ");
+  }).join("\n").slice(0,12000);
   return {ok:true,has_job:true,job:{
-    id,task_id:task,stage:"multi",chunked_upload:true,langs:parseLanguages(row[3]),
-    revision,segments:final.manuscript.segments.map(x=>({
-      id:x.id,start:x.start,end:x.end,text:x.text
-    }))
+    id,task_id:task,stage:"multi",chunked_upload:true,
+    qa_required:true,langs:requested,revision,glossary,segments
   }};
  }
  async function part(p){
@@ -119,6 +140,48 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
   return {ok:true,task_id:task,job_id:id,language:code,
     saved_count:pending.length,added_count:missing.length};
  }
+ async function quality(p){
+  const id=String(p.job_id||""),lang=String(p.language||"");
+  if(!JOB.test(id))throw Error("invalid_job_id");
+  const rows=await findRows(),job=rows.find(r=>r[0]===id);
+  if(!job||job[5]!=="running")throw Error("job_not_running");
+  if(!parseLanguages(job[3]).includes(lang))throw Error("quality_language_not_requested");
+  const revision=String(p.input_revision||"");
+  if(revision!==job[4])throw Error("quality_revision_mismatch");
+  const final=await readFinal(job[1]);
+  if(!final||final.backup_id!==revision)throw Error("final_changed_during_quality");
+  const ids=new Set(final.manuscript.segments.map(s=>String(s.id)));
+  const saved=(await get(OUTPUT,"A1:G50000")).slice(1)
+    .filter(r=>r[5]===id&&r[1]===revision&&r[2]===lang);
+  const unique=new Map();
+  for(const row of saved){
+    const sid=String(row[3]);
+    if(!ids.has(sid)||unique.has(sid)||!String(row[4]||"").trim())
+      throw Error("quality_invalid_or_duplicate_saved_segments");
+    unique.set(sid,row[4]);
+  }
+  if(unique.size!==ids.size)throw Error("quality_translation_not_complete");
+  if(String(p.status)!=="passed"||String(p.unresolved||"0")!=="0")
+    throw Error("quality_has_unresolved_failures");
+  const batches=Number(p.qa_batches),repairs=Number(p.repair_count||0);
+  const model=String(p.model||"");
+  if(!Number.isSafeInteger(batches)||batches<1||
+     !Number.isSafeInteger(repairs)||repairs<0||
+     !/^gemini-[a-z0-9.\-]{2,80}$/.test(model))
+    throw Error("invalid_quality_receipt");
+  const prior=(await get(QA_TAB,"A1:I5000")).slice(1)
+    .find(r=>r[0]===id&&r[2]===revision&&r[3]===lang&&r[7]==="passed");
+  if(prior){
+    if(prior[4]!==model)throw Error("quality_model_conflict");
+    return {ok:true,duplicate:true,job_id:id,language:lang};
+  }
+  await put(QA_TAB,"A:I",[[id,job[1],revision,lang,model,
+    String(batches),String(repairs),"passed",utcNow()]],true);
+  const check=(await get(QA_TAB,"A1:I5000")).slice(1)
+    .some(r=>r[0]===id&&r[2]===revision&&r[3]===lang&&r[7]==="passed");
+  if(!check)throw Error("quality_receipt_not_persisted");
+  return {ok:true,job_id:id,language:lang,qa_passed:true};
+ }
  async function report(p){
   const id=String(p.job_id||"");
   if(!JOB.test(id))throw Error("invalid_job_id");
@@ -139,6 +202,14 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
    return {ok:true,task_id:task,status:"error"};
   }
   if(status!=="done")throw Error("invalid_worker_status");
+  // A source-complete translation is not automatically production ready.
+  // All requested languages must also have passed legacy semantic QA.
+  const receipts=(await get(QA_TAB,"A1:I5000")).slice(1).filter(r=>
+    r[0]===id&&r[1]===task&&r[2]===revision&&r[7]==="passed");
+  for(const lang of langs){
+    if(!receipts.some(r=>r[3]===lang))
+      throw Error("missing_semantic_quality_receipt_"+lang);
+  }
   const ids=final.manuscript.segments.map(x=>String(x.id));
   const results=[];
   if(p.translations){
@@ -214,6 +285,6 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
     last_finished_at:finished.map(r=>String(r[8]||"")).filter(Boolean).sort().at(-1)||""
   };
  }
- return {enqueue,claim,part,report,parseLanguages,ready:init,diagnostics};
+ return {enqueue,claim,part,quality,report,parseLanguages,ready:init,diagnostics};
 }
 module.exports={createTranslationQueue,parseLanguages,HEADER,OUT_HEADER};
