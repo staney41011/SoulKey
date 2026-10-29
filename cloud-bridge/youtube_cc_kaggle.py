@@ -5,6 +5,8 @@ Writes machine-readable result to Kaggle output. No Google Drive credentials,
 GitHub credentials, Bridge Key or editing permissions are passed to Kaggle.
 """
 import json
+import subprocess
+import sys
 from pathlib import Path
 from youtube_cc_worker import fetch_youtube,LANGS
 
@@ -14,6 +16,8 @@ def main():
     langs=list(job.get("languages") or LANGS)
     if not langs or any(x not in LANGS for x in langs):
         raise ValueError("invalid_languages")
+    subprocess.run([sys.executable,"-m","pip","install","-q","yt-dlp"],
+                   check=True,timeout=240)
     captured,missing=fetch_youtube(video,langs)
     if not captured:
         raise RuntimeError("youtube_caption_tracks_unavailable")
