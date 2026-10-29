@@ -134,7 +134,7 @@ def main():
                 print("TTS_WAIT_FOR_QA",task["task_id"],lang,str(error),flush=True)
                 continue
             ready+=1
-            work=Path("/kaggle/working/soulkey-central-tts")/task["task_id"]/lang
+            work=Path(os.environ.get("SOULKEY_TTS_WORKDIR", "./soulkey-central-tts"))/task["task_id"]/lang
             state=produce(drive,sheets,task,lang,final,approved,work)
             if state.startswith("reused_"):
                 continue  # Old verified output does not consume the per-run production budget.
