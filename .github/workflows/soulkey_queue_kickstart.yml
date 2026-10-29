@@ -24,7 +24,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh workflow run soulkey_cc_queue.yml --ref main
-          # CC worker recovery is separate; do not interfere with translation jobs.
-          echo "SOULKEY_CC_DISPATCH_REQUESTED"
-          # CC-only verification: P259-L04 English priority and immediate verified storage.
+          # P259-L01/L02/L03: source-verified Gemini translation, all 15
+          # selected target languages; preserve L02's five completed languages.
+          gh workflow run soulkey_translation_queue.yml --ref main
+          echo "SOULKEY_P259_TRANSLATION_DISPATCH_REQUESTED"
