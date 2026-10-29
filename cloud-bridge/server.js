@@ -5,6 +5,8 @@ const {createDriveReview}=require("./drive-review");
 const {createEnglishFinalBackup,normalizeEnglishFinal}=require("./english-final-backup");
 const {createSheetFinalStore}=require("./sheet-final-store");
 const {createDriveFinalPublisher}=require("./drive-final-publisher");
+const {createTranslationQueue}=require("./translation-queue");
+const {verifyGithubWorker}=require("./github-worker-auth");
 const ID="1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
 const N={tasks:"任務佇列",status:"執行狀態",lang:"語言設定",plans:"語言任務設定",edits:"英文人工定稿"};
 const key=process.env.BRIDGE_KEY||"",source="soulkey-bridge";
@@ -47,6 +49,11 @@ const englishFinalBackup=createEnglishFinalBackup({
 });
 const sheetFinalStore=createSheetFinalStore({get,put,ensureTab:ensureBackupTab});
 driveReview.setSheetFinalLoader(task=>sheetFinalStore.read(task));
+const translationQueue=createTranslationQueue({
+ get,put,ensureTab:ensureBackupTab,
+ readFinal:task=>sheetFinalStore.read(task),
+ taskExists:async id=>(await get(N.tasks,"A1:A5000")).slice(1).some(r=>r[0]===id)
+});
 const driveFinalPublisher=createDriveFinalPublisher({
  resolveFolders:driveReview.resolveFolders,invalidateFolder:driveReview.invalidateFolder,get,put
 });
@@ -132,7 +139,21 @@ async function read(p){const a=p.action;if(a==="review_final_status"){
  if(a==="review_en_draft_status"){const task=String(p.task_id||"");if(!valid(task))return out("review_en_draft_status",{ok:false,error:"invalid_task_id"});const r=await allEdits(task),rid=String(p.request_id||""),at=r.receipts[rid]||"";return out("review_en_draft_status",{ok:true,task_id:task,request_id:rid,committed:!!at,saved_at:at,confirmed_count:Object.keys(r.edits).length,...(p.include_edits==="1"?{edits:r.edits}:{})});}
  return out("bridge_error",{ok:false,error:"not_yet_restored",message:a+" 暫時無法使用，沒有修改資料"});
 }
-async function write(p){if(p.action==="review_en_draft_save")return saveEnglish(p);if(p.action==="review_save" && p.kind==="en")return saveFullEnglishFinal(p);return out(({tasks_upsert:"tasks_saved",language_plan_save:"language_plan_saved",task_reschedule:"task_rescheduled",review_save:"review_saved",run_stage:"run_stage"}[p.action]||"bridge_error"),{ok:false,error:"not_yet_restored",message:"這項寫入尚在修復，沒有修改資料"});}
+async function write(p){
+ if(p.action==="run_stage"){
+  if(p.stage!=="multi")return out("run_stage",{ok:false,task_id:p.task_id||"",
+   stage:p.stage||"",error:"stage_not_restored",
+   message:"目前只恢復各國語言文字翻譯派工；音檔與其他階段尚未接回"});
+  try{return out("run_stage",await translationQueue.enqueue(p));}
+  catch(error){
+   const message=String(error.message||error);
+   return out("run_stage",{ok:false,task_id:p.task_id||"",
+    stage:p.stage||"",error:message,message:"無法建立翻譯工作："+message});
+  }
+ }
+ if(p.action==="review_en_draft_save")return saveEnglish(p);
+ if(p.action==="review_save" && p.kind==="en")return saveFullEnglishFinal(p);
+ return out(({tasks_upsert:"tasks_saved",language_plan_save:"language_plan_saved",task_reschedule:"task_rescheduled",review_save:"review_saved",run_stage:"run_stage"}[p.action]||"bridge_error"),{ok:false,error:"not_yet_restored",message:"這項寫入尚在修復，沒有修改資料"});}
 function send(res,data,status=200,jsonp){if(jsonp&&/^[a-zA-Z_$][\w.$]{0,120}$/.test(jsonp)){res.writeHead(200,{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store"});res.end(jsonp+"("+JSON.stringify(data)+");");return;}res.writeHead(status,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"});res.end(JSON.stringify(data));}
 http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https://staney41011.github.io"){res.setHeader("Access-Control-Allow-Origin",req.headers.origin);res.setHeader("Vary","Origin");res.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");res.setHeader("Access-Control-Allow-Headers","Content-Type");}if(req.method==="OPTIONS"){res.writeHead(204);res.end();return;}
  if(req.method==="GET"){p=Object.fromEntries(new URL(req.url,"http://localhost").searchParams);if(!p.action){send(res,{ok:true,service:"SoulKey Studio Cloud Bridge",message:"bridge-ready"});return;}}
@@ -144,6 +165,24 @@ http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https:/
  if(bridgeAuth.isBlocked(address)){
    send(res,out(p.action==="status_health"?"status_health":"bridge_error",
     {ok:false,error:"rate_limited",message:"登入嘗試過多，請稍後再試"}),429,p.callback);
+   return;
+ }
+ // Signed GitHub OIDC is the sole path for background worker queue access.
+ // Never accept a user-supplied task ID as authentication.
+ if(["worker_job_claim","worker_job_report"].includes(p.action)){
+   try{
+    if(req.method!=="POST")throw Error("worker_post_required");
+    const bearer=String(req.headers.authorization||"").match(/^Bearer (.+)$/i);
+    await verifyGithubWorker(bearer?.[1]);
+    const result=p.action==="worker_job_claim"
+      ? await translationQueue.claim()
+      : await translationQueue.report(p);
+    send(res,out(p.action,result),result.ok===false?409:200);
+   }catch(error){
+    console.error("Worker queue request rejected",String(error.message||error).slice(0,110));
+    send(res,out(p.action,{ok:false,error:"worker_auth_or_queue_failed",
+     message:"GitHub Worker 驗證或中央佇列請求失敗"}),401);
+   }
    return;
  }
  if(!ok(p.bridge_key)){
