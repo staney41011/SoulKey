@@ -42,4 +42,7 @@ const erroneous={completedStep:3,remoteStages:{
 assert.equal(sandbox.nextStageFor(erroneous)?.key,"multi");
 assert.equal(erroneous.completedStep,1);
 assert(app.includes("nextRemote && nextRemote.status===\"running\" ? \"工作執行中\""));
+assert(app.includes("remoteStatusText(remote.status)+remoteProgressText(remote)"));
+assert(app.includes("previousBtn.disabled=task.completedStep < 0 ||"));
+assert(app.includes("The legacy Bridge sets 1% when translation is claimed"));
 console.log("PASS: supplemental translation queued/running/delayed blocks TTS even after stale local completion");
