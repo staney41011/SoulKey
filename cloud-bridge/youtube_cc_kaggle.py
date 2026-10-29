@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 # Kaggle runs only the declared code_file as /kaggle/src/script.py.
 # Copy the extractor implementation in this file; local helper imports vanish.
-LANGS=("en","th","es","id","vi","sd","ta")
+LANGS=("en",)
 
 def strip_vtt(body):
     """Return pure subtitle text without mixing source languages."""
@@ -52,7 +52,7 @@ def blocked_by_youtube(error):
     return ("429" in message or "too many requests" in message or
         "confirm you" in message and "bot" in message)
 
-def pull_caption(url,ytdlp,tries=2):
+def pull_caption(url,ytdlp,tries=1):
     for attempt in range(tries):
         try:
             resp=ytdlp.urlopen(url)
@@ -71,7 +71,7 @@ def fetch_youtube(video_id,languages,cookiefile=None,on_caption=None):
     opts={
       "quiet":True,"no_warnings":True,"skip_download":True,
       "extract_flat":False,"ignoreerrors":False,
-      "noplaylist":True,"retries":3,"extractor_retries":3,
+      "noplaylist":True,"retries":0,"extractor_retries":0,
       "socket_timeout":40
     }
     if cookiefile:
@@ -112,9 +112,9 @@ def main():
     if not isinstance(job,dict):
         raise RuntimeError("kaggle_embedded_cc_job_missing")
     video=str(job["video_id"])
-    langs=list(job.get("languages") or LANGS)
-    if not langs or any(x not in LANGS for x in langs):
-        raise ValueError("invalid_languages")
+    if list(job.get("languages") or ["en"])!=["en"]:
+        raise ValueError("english_only_caption_job")
+    langs=["en"]
     subprocess.run([sys.executable,"-m","pip","install","-q","yt-dlp"],
                    check=True,timeout=240)
     # Update Kaggle's output as soon as English arrives. This output
