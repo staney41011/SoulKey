@@ -17,7 +17,7 @@ BASE=os.environ.get("SOULKEY_BRIDGE_URL","https://soulkey-bridge-214901732194.as
 AUDIENCE="soulkey-bridge-translation-worker-v1"
 GEMINI=os.environ.get("GEMINI_API_KEY","").strip()
 _NLLB_RUNNER=None
-MODEL=os.environ.get("SOULKEY_GEMINI_MODEL","gemini-2.5-flash").strip()
+MODEL=os.environ.get("SOULKEY_GEMINI_MODEL","gemini-3.5-flash-lite").strip()
 LANGS={
  "th":"Thai","es":"Spanish","id":"Indonesian","vi":"Vietnamese",
  "km":"Khmer","hi":"Hindi","ta":"Tamil","ja":"Japanese",
