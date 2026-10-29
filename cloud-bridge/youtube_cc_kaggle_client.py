@@ -43,7 +43,7 @@ def capture(video_id,languages):
         source=(current/"youtube_cc_kaggle.py").read_text(encoding="utf-8")
         (job/"youtube_cc_kaggle.py").write_text(
             "JOB_PAYLOAD = "+json.dumps(job_payload,ensure_ascii=False)+
-            "\\n"+source,
+            "\n"+source,
             encoding="utf-8"
         )
         (job/"kernel-metadata.json").write_text(json.dumps({
