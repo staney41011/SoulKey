@@ -47,6 +47,15 @@ const put=async(name,range,rows,append=false)=>{
  await assert.rejects(()=>queue.report({
   job_id:claim.job.id,status:"done",translations:{th:results.th}
  }),/incomplete_translation_es/);
+ for(const lang of ["th","es"]){
+  const rows=results[lang];
+  await queue.part({job_id:claim.job.id,language:lang,
+    input_revision:final.backup_id,segments:JSON.stringify(rows)});
+  const qa=await queue.quality({job_id:claim.job.id,language:lang,
+    input_revision:final.backup_id,model:"gemini-3.5-flash-lite",
+    status:"passed",unresolved:"0",qa_batches:"1",repair_count:"0"});
+  assert.equal(qa.qa_passed,true);
+ }
  const receipt=await queue.report({job_id:claim.job.id,status:"done",translations:results});
  assert.equal(receipt.ok,true);assert.equal(receipt.segment_count,4);
  assert.equal(sheets["多語翻譯結果"].length,5);
