@@ -1,6 +1,8 @@
 "use strict";
 const http=require("node:http"),{GoogleAuth}=require("google-auth-library");
 const {createBridgeAuth}=require("./auth");
+const {createSheetsRequest}=require("./sheets-request");
+const {loadEnglishFinalSource}=require("./english-final-source");
 const {createDriveReview}=require("./drive-review");
 const {createEnglishFinalBackup,normalizeEnglishFinal}=require("./english-final-backup");
 const {createSheetFinalStore}=require("./sheet-final-store");
@@ -15,7 +17,15 @@ const N={tasks:"任務佇列",status:"執行狀態",lang:"語言設定",plans:"�
 const key=process.env.BRIDGE_KEY||"",source="soulkey-bridge";
 const bridgeAuth=createBridgeAuth({primaryKey:key,legacyHmac:process.env.BRIDGE_LEGACY_HMAC||""});
 const auth=new GoogleAuth({scopes:["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive.readonly"]});
-let client;async function google(method,url,body){client??=await auth.getClient();return(await client.request({method,url:"https://sheets.googleapis.com/v4/spreadsheets/"+ID+((url.startsWith("?")||url.startsWith(":"))?"":"/")+url,data:body,timeout:20000})).data;}
+let client;
+const sheetsRequest=createSheetsRequest({
+ send:async options=>{client??=await auth.getClient();return client.request(options);}
+});
+async function google(method,url,body){
+ const endpoint="https://sheets.googleapis.com/v4/spreadsheets/"+ID+
+  ((url.startsWith("?")||url.startsWith(":"))?"":"/")+url;
+ return (await sheetsRequest({method,url:endpoint,data:body,timeout:20000})).data;
+}
 const range=(sheet,a)=>encodeURIComponent("'"+sheet+"'!"+a);
 async function get(s,a="A1:Z10000"){return(await google("GET","values/"+range(s,a)+"?valueRenderOption=FORMATTED_VALUE")).values||[];}
 async function put(s,a,rows,append=false){return google(append?"POST":"PUT","values/"+range(s,a)+(append?":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS":"?valueInputOption=RAW"),{values:rows,majorDimension:"ROWS"});}
@@ -88,35 +98,18 @@ async function recordVerifiedEnglishStage(taskId,hash,mode){
  ]],true);
 }
 async function saveFullEnglishFinal(p){
- // Never accept third-lesson English pasted under another lesson's ID.
- // The matching, per-task English source must exist in the canonical Drive
- // lesson folder or in this task's verified Sheet Final.
+ // Same-video source check precedes any writes; the central CC verified by
+ // the existing worker is checked before expensive legacy Drive probing.
  const taskId=String(p.task_id||"");
  const manuscript=normalizeEnglishFinal(p);
- let sourceCheck={ok:false};
- try{sourceCheck=await driveReview.review({task_id:taskId,kind:"en"});}
- catch(error){console.warn("English Drive source unavailable; checking verified central CC",String(error.message||error).slice(0,90));}
- let original=sourceCheck.ok&&Array.isArray(sourceCheck.segments)?
-   sourceCheck.segments:[];
- let recoveredCC=null;
- if(!original.length){
-  // The current CC worker writes verified English-only text to the central
-  // Sheet, not Google Drive. A fully saved same-video CC plus the approved
-  // Chinese Final is an authoritative source for human English review.
-  const zh=await chineseFinalStore.read(taskId);
-  const captions=await youtubeCCQueue.manifest(taskId);
-  const cc=(captions.cc_files||[]).find(x=>x.name==="en.transcript.txt"&&
-    x.task_id===taskId&&x.storage==="google-sheet");
-  if(!zh?.manuscript?.segments?.length||!cc)
-   throw Error("english_source_missing_for_this_lesson");
-  if(!p.source_video_id||String(p.source_video_id)!==captions.video_id)
-   throw Error("english_cc_source_video_mismatch");
-  const verified=await youtubeCCQueue.transcript(taskId,cc.job_id,"en");
-  if(!verified.ok||String(verified.content||"").trim().length<200)
-   throw Error("english_cc_source_content_invalid");
-  original=zh.manuscript.segments;
-  recoveredCC=cc;
- }
+ const task=(await get(N.tasks,"A1:F5000")).slice(1).find(r=>r[0]===taskId);
+ if(!task)throw Error("english_final_task_not_found");
+ const targetUrl=String(task[4]||"");
+ const targetVideo=(targetUrl.match(/(?:youtu\.be\/|[?&]v=)([A-Za-z0-9_-]{6,})/)||[])[1]||"";
+ const {original,recoveredCC}=await loadEnglishFinalSource({
+  taskId,sourceVideoId:p.source_video_id,targetVideoId:targetVideo,
+  chineseFinalStore,youtubeCCQueue,driveReview
+ });
  const aligned=recoveredCC?
   (manuscript.segments.length===original.length &&
    manuscript.segments.every(seg=>original.some(row=>
@@ -127,12 +120,6 @@ async function saveFullEnglishFinal(p){
     Math.abs(Number(row.start||0)-seg.start)<2.6 &&
     Number(row.end||row.start||0)>=seg.start));
  if(!aligned)throw Error("english_final_timeline_does_not_match_lesson");
- const task=(await get(N.tasks,"A1:J5000")).slice(1).find(r=>r[0]===String(p.task_id||""));
- const targetUrl=String(task?.[4]||"");
- const targetVideo=(targetUrl.match(/(?:youtu\.be\/|[?&]v=)([A-Za-z0-9_-]{6,})/)||[])[1]||"";
- if(p.source_video_id && targetVideo &&
-    String(p.source_video_id)!==targetVideo)
-  throw Error("english_final_source_video_mismatch");
  const backup=await englishFinalBackup.save(p);
  if(!backup.backup_saved)throw Error("english_final_backup_incomplete");
  if(!driveFinalPublisher.isConfigured()){

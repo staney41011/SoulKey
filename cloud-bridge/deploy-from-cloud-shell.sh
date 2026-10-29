@@ -28,6 +28,8 @@ echo "Running dependency-free regression checks..."
 node --check cloud-bridge/server.js
 node --check cloud-bridge/translation-queue.js
 node --check cloud-bridge/youtube-cc-queue.js
+node cloud-bridge/tests/sheets-request.test.js
+node cloud-bridge/tests/english-final-source.test.js
 node cloud-bridge/tests/central-writes.test.js
 node cloud-bridge/tests/github-worker-auth.test.js
 node cloud-bridge/tests/translation-queue.test.js
