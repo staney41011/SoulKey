@@ -76,6 +76,15 @@ jobs:
           python -m py_compile cloud-bridge/youtube_cc_worker.py
           python -m py_compile cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
           python -m py_compile cloud-bridge/translation_worker.py cloud-bridge/nllb_cpu.py
+          python -m py_compile cloud-bridge/youtube_cc_worker.py cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          cc=Path('cloud-bridge/youtube_cc_kaggle.py').read_text()
+          assert 'from youtube_cc_worker import' not in cc
+          ast.parse('JOB_PAYLOAD = {"video_id":"w7rzYft4MeE","languages":["en"]}\n'+cc)
+          print('CC_KAGGLE_SINGLE_FILE_ENTRYPOINT_OK')
+          PY
           python -m unittest discover -s cloud-bridge/tests -p 'test_translation_oidc_refresh.py' -v
           python -m py_compile cloud-bridge/gemini_quality.py
           python -m unittest discover -s cloud-bridge/tests -p 'test_gemini_quality.py' -v
