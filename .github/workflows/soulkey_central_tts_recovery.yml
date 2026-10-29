@@ -2,6 +2,9 @@ name: SoulKey Central Final -> Legacy Natural TTS Recovery
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/soulkey_central_tts_recovery.yml'
   schedule:
     # CPU only. Never dispatch before the owner Google Drive credentials
     # have been configured and the one-time readiness switch is enabled.
