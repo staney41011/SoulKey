@@ -243,7 +243,7 @@ def main():
                     if complete:raise
                     print("CC_AUTHENTICATED_FETCH_FAILED",
                           type(error).__name__,flush=True)
-        if data is None and os.environ.get("KAGGLE_API_TOKEN"):
+        if not data and os.environ.get("KAGGLE_API_TOKEN"):
             from youtube_cc_kaggle_client import capture
             print("CC_BACKEND=KAGGLE_CPU_ANONYMOUS",flush=True)
             try:
@@ -258,7 +258,7 @@ def main():
                 data,missing=fetch_youtube(job["video_id"],requested,
                     on_caption=persist)
                 print("CC_BACKEND=GITHUB_CPU_ANONYMOUS_FALLBACK",flush=True)
-        elif data is None:
+        elif not data:
             print("CC_BACKEND=GITHUB_CPU_ANONYMOUS",flush=True)
             data,missing=fetch_youtube(job["video_id"],requested,
                 on_caption=persist)
