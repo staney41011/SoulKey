@@ -24,7 +24,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh workflow run soulkey_translation_queue.yml --ref main
+          gh workflow run soulkey_cc_queue.yml --ref main
           # CC worker recovery is separate; do not interfere with translation jobs.
           echo "SOULKEY_QUEUES_DISPATCH_REQUESTED"
           # Recovery: use verified Gemini 3.5 Flash-Lite; preserve P259 old drafts.
