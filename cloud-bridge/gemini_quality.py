@@ -15,6 +15,15 @@ _LEGACY=Path(__file__).resolve().parents[1]/"translation-system"
 if str(_LEGACY) not in sys.path:sys.path.insert(0,str(_LEGACY))
 from gemini_engine import local_language_issue
 
+QA_SCHEMA={"type":"object","properties":{"failures":{"type":"array","items":{
+  "type":"object","properties":{"segment_id":{"type":"integer"},
+     "issue":{"type":"string"}},"required":["segment_id","issue"]}}},
+  "required":["failures"]}
+REPAIR_SCHEMA={"type":"object","properties":{"repairs":{"type":"array","items":{
+  "type":"object","properties":{"id":{"type":"integer"},
+    "text":{"type":"string"}},"required":["id","text"]}}},
+  "required":["repairs"]}
+
 def normalize_unicode_digits(text):
     out = []
     for ch in str(text or ""):
@@ -182,7 +191,7 @@ def _failed_pairs(source,translation,lang,gemini_request):
       "and translated units expressing the same mathematical magnitude. "
       "Never infer outside facts or add ungrounded criticisms.\nDATA:\n"+
       json.dumps(payload,ensure_ascii=False))
-    audit=gemini_request(prompt)
+    audit=gemini_request(prompt,QA_SCHEMA)
     if not isinstance(audit,dict) or not isinstance(audit.get("failures"),list):
         raise ValueError("gemini_semantic_qa_invalid_response")
     semantic={}
@@ -217,7 +226,7 @@ def audit_and_repair(source,results,language,gemini_request,glossary="",max_roun
                "Follow locked terminology in glossary. Return JSON with key repairs "
                "containing exactly one {id,text} per listed segment.\nGlossary:\n"+
                str(glossary)[:12000]+"\nFAILED:\n"+json.dumps(items,ensure_ascii=False))
-            response=gemini_request(prompt)
+            response=gemini_request(prompt,REPAIR_SCHEMA)
             repairs=response.get("repairs") if isinstance(response,dict) else None
             if not isinstance(repairs,list):raise ValueError("gemini_repair_invalid_response")
             idsNeeded=set(failures)
