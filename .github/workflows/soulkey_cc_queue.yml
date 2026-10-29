@@ -26,4 +26,15 @@ jobs:
       - name: Install Kaggle CPU CC runner and source subtitle reader
         run: python -m pip install -q "kaggle>=1.7" "yt-dlp>=2025.1"
       - name: Claim one CC job and store source-bound captions
-        run: python -u cloud-bridge/youtube_cc_worker.py
+        env:
+          # Secret stays on the ephemeral GitHub runner. Never forward to
+          # Kaggle, a workflow artifact, or the Cloud Run request body.
+          YOUTUBE_COOKIES_B64: ${{ secrets.YOUTUBE_COOKIES_B64 }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${YOUTUBE_COOKIES_B64:-}" ]]; then
+            echo "SOULKEY_YOUTUBE_COOKIE_SECRET_PRESENT"
+          else
+            echo "::notice::YOUTUBE_COOKIES_B64 missing; anonymous CC extraction only"
+          fi
+          python -u cloud-bridge/youtube_cc_worker.py
