@@ -25,6 +25,6 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run soulkey_translation_queue.yml --ref main
-          gh workflow run soulkey_cc_queue.yml --ref main
+          # CC worker recovery is separate; do not interfere with translation jobs.
           echo "SOULKEY_QUEUES_DISPATCH_REQUESTED"
-          # Recovery: resume existing P259 queues after expiring OIDC fix (2026-10-29).
+          # Recovery: use verified Gemini 3.5 Flash-Lite; preserve P259 old drafts.
