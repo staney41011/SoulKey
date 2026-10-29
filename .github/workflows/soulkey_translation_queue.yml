@@ -43,12 +43,13 @@ jobs:
 
   capture-cc:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     env:
       SOULKEY_BRIDGE_URL: https://soulkey-bridge-214901732194.asia-east1.run.app
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install YouTube CC reader
-        run: python -m pip install -q "yt-dlp>=2025.1"
+      - name: Install Kaggle CPU CC runner and source subtitle reader
+        run: python -m pip install -q "kaggle>=1.7" "yt-dlp>=2025.1"
       - name: Claim one CC job and store source-bound captions
         run: python -u cloud-bridge/youtube_cc_worker.py
