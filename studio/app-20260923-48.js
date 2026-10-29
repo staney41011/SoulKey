@@ -3895,6 +3895,87 @@ function requestEnglishCloudOverrides(taskId){
     action:"review_en_draft_status",task_id:taskId,include_edits:"1"
   });
 }
+// The new Cloud Run CC queue persists source-verified English in Sheet,
+// while the legacy review_load(en) still looks for Drive en.json. Restore the
+// editor from the existing read-only Bridge endpoints, without re-fetching
+// YouTube, generating AI text, or touching any Chinese Final.
+let englishCcRecoveryPromise=null;
+function readEnglishCcBridge(fields){
+  return new Promise((resolve,reject)=>{
+    if(!jsonpBridgeRequest(fields,{onResult:resolve,onError:reject}))
+      reject(new Error("bridge_not_connected"));
+  });
+}
+async function recoverEnglishCcIntoEditor(taskId){
+  if(englishCcRecoveryPromise?.taskId===taskId)
+    return englishCcRecoveryPromise.promise;
+  const pending=(async()=>{
+    const task=tasks.find(t=>t.id===taskId);
+    if(!task)throw Error("lesson_not_registered");
+    const video=youtubeVideoIdFromUrl(task.url||"");
+    if(!video)throw Error("lesson_video_missing");
+    const status=document.getElementById("en-review-share-state");
+    if(status)status.textContent="正在載入中央已保存的英文 CC 與本堂中文 Final，不重抓 YouTube…";
+    const chinese=[];
+    for(let chunk=0;chunk<30;chunk++){
+      const reply=await readEnglishCcBridge({
+        action:"review_load",task_id:taskId,kind:"zh",chunk_index:chunk
+      });
+      if(!reply?.ok||reply.type!=="review_data"||reply.kind!=="zh"||
+         reply.task_id!==taskId||!Array.isArray(reply.segments))
+        throw Error("中文 Final 來源驗證失敗");
+      chinese.push(...reply.segments);
+      if(!reply.has_more)break;
+      if(chunk===29)throw Error("中文 Final 分頁數量超出限制");
+    }
+    if(!chinese.length)throw Error("找不到本堂中文 Final");
+    const manifest=await readEnglishCcBridge({
+      action:"youtube_capture_files",task_id:taskId
+    });
+    if(!manifest?.ok||manifest.task_id!==taskId||
+       manifest.video_id!==video)throw Error("字幕清單的影片身分不符");
+    const verified=(manifest.cc_files||[]).find(file=>
+      file.name==="en.transcript.txt" &&
+      file.task_id===taskId &&
+      file.storage==="google-sheet" &&
+      /^[0-9a-f-]{36}$/i.test(String(file.job_id||""))
+    );
+    if(!verified)throw Error("中央 Sheet 尚無可使用的本堂英文 CC");
+    const caption=await readEnglishCcBridge({
+      action:"youtube_cc_content",task_id:taskId,
+      job_id:verified.job_id,language:"en"
+    });
+    if(!caption?.ok||caption.task_id!==taskId||
+       caption.lang!=="en"||!String(caption.content||"").trim())
+      throw Error("中央英文 CC 回讀驗證失敗");
+    const mapper=window.SoulKeyEnglishCCAlignment?.alignmentRows;
+    if(typeof mapper!=="function")throw Error("英文 CC 對照模組未載入");
+    const aligned=mapper(chinese,caption.content,{
+      video_id:video,job_id:verified.job_id
+    });
+    if(selectedTaskId!==taskId||currentView!=="en-review" ||
+       englishDraftSavePendingId!==null ||
+       englishDraftSaveQueuedIds.size || englishReviewDirtyIds.size ||
+       currentEnglishReview.length) return;
+    englishCanonicalLoadedTaskId=taskId;
+    renderEnglishReview(aligned);
+    syncEnglishFinalizeButton(task);
+    if(status)status.textContent=
+      "已載入中央英文 CC 原文，共 "+aligned.length+
+      " 個中文對照段落。原 CC 無時間碼，對齊位置為估算；請逐段核對後確認儲存。";
+    requestEnglishCloudOverrides(taskId);
+  })().catch(error=>{
+    if(selectedTaskId!==taskId||currentView!=="en-review"||
+       currentEnglishReview.length)return;
+    const status=document.getElementById("en-review-share-state");
+    if(status)status.textContent=
+      "已保存的英文 CC 尚未載入編輯器："+String(error.message||error).slice(0,160);
+  });
+  englishCcRecoveryPromise={taskId,promise:pending};
+  try{await pending;}finally{
+    if(englishCcRecoveryPromise?.promise===pending)englishCcRecoveryPromise=null;
+  }
+}
 async function openEnglishReview(taskId){
   if(!bridgeAuthenticated){
     setDashboardBridgeState("請先連線控制中心，才能編輯英文定稿。","error");
@@ -4765,7 +4846,7 @@ function bridgeSyncRequestFailed(action,reason){
   }
 }
 
-function jsonpBridgeRequest(fields){
+function jsonpBridgeRequest(fields,options={}){
   const endpoint=bridgeEndpointValue();
   const key=bridgeKeyValue();
 
@@ -4798,7 +4879,8 @@ function jsonpBridgeRequest(fields){
 
   window[callbackName]=(data)=>{
     if(!cleanup()) return;
-    window.dispatchEvent(new MessageEvent("message",{data}));
+    if(typeof options.onResult==="function")options.onResult(data);
+    else window.dispatchEvent(new MessageEvent("message",{data}));
   };
 
   const fail=(reason)=>{
@@ -4814,6 +4896,10 @@ function jsonpBridgeRequest(fields){
       if(syncText){
         syncText.textContent="雲端暫時無法同步："+reason;
       }
+    }
+    if(typeof options.onError==="function"){
+      options.onError(new Error(reason));
+      return;
     }
     bridgeSyncRequestFailed(action,reason);
     if(action==="course_files") courseFilesLoadFailed(String(fields.task_id||""),reason);
@@ -4835,7 +4921,8 @@ function jsonpBridgeRequest(fields){
       body:params.toString(),signal:controller.signal
     }).then(response=>response.json()).then(data=>{
       if(!cleanup())return;
-      window.dispatchEvent(new MessageEvent("message",{data}));
+      if(typeof options.onResult==="function")options.onResult(data);
+      else window.dispatchEvent(new MessageEvent("message",{data}));
     }).catch(error=>fail("Cloud Run 連線失敗："+String(error?.message||error)));
     return true;
   }
@@ -5169,9 +5256,10 @@ window.addEventListener("message",event=>{
           requestEnglishCloudOverrides(data.task_id);
         }else{
           const msg=String(data.message||data.error||"未知錯誤");
-          if(/尚未產生英文稿/.test(msg)){
+          if(/尚未產生英文稿|尚未有.*English CC/.test(msg)){
             const list=document.getElementById("en-review-list");
-            if(list)list.innerHTML='<div class="empty"><b>中文 Final 已保存，英文稿尚未產生。</b><br><br>請先在課程流程完成英文翻譯或擷取英文 CC，再返回這裡進行人工定稿。中文定稿不會被刪除或重跑。</div>';
+            if(list)list.innerHTML='<div class="empty">正在從中央 Google Sheet 讀取已抓取的英文 CC，準備中英對照草稿…</div>';
+            recoverEnglishCcIntoEditor(data.task_id);
           }else{
             showNoEnglishCcFallback(data.task_id || selectedTaskId);
             const status=document.getElementById("en-fallback-status");
