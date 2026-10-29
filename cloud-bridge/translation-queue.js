@@ -62,13 +62,13 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
   const final=await readFinal(task);
   if(!final||final.backup_id!==revision){
    await put(TAB,"F"+(index+2)+":J"+(index+2),
-    [["error",row[7]||"",utcNow(),"英文正式定稿版本已變更，停止舊版本翻譯"]]);
+    [["error",row[6]||"",row[7]||"",utcNow(),"英文正式定稿版本已變更，停止舊版本翻譯"]]);
    await appendStatus(task,"multi","error",id,0,
      "英文正式定稿版本已變更，請重新送出翻譯",revision);
    return {ok:true,has_job:false,invalidated:true};
   }
   await put(TAB,"F"+(index+2)+":J"+(index+2),
-   [["running",utcNow(),"","GitHub Worker 已領取"]]);
+   [["running",row[6]||"",utcNow(),"","GitHub Worker 已領取"]]);
   await appendStatus(task,"multi","running",id,1,
    "GitHub Worker 開始翻譯",revision);
   return {ok:true,has_job:true,job:{
@@ -93,7 +93,7 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
   if(status==="error"){
    const message=String(p.message||"worker_failed").slice(0,300);
    await put(TAB,"F"+(idx+2)+":J"+(idx+2),
-    [["error",job[7]||"",utcNow(),message]]);
+    [["error",job[6]||"",job[7]||"",utcNow(),message]]);
    await appendStatus(task,"multi","error",id,0,message,revision);
    return {ok:true,task_id:task,status:"error"};
   }
@@ -131,7 +131,7 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
   if(results.some(r=>!verified.has(r[2]+":"+r[3])))
    throw Error("translation_results_readback_failed");
   await put(TAB,"F"+(idx+2)+":J"+(idx+2),
-   [["done",job[7]||"",utcNow(),"多語翻譯 "+langs.join(",")+" 完成"]];
+   [["done",job[6]||"",job[7]||"",utcNow(),"多語翻譯 "+langs.join(",")+" 完成"]];
   await appendStatus(task,"multi","done",id,100,
    "中央 Google Sheet 多語翻譯已核對 "+results.length+" 段",revision);
   return {ok:true,task_id:task,status:"done",
