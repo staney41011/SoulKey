@@ -59,7 +59,7 @@ def produce(drive,sheets,task,lang,final,approved,workdir):
         final["revision"],duration,workdir)
     if prior in ("done","needs_review"):
         print("TTS_REUSE_DRIVE",task["task_id"],lang,prior,flush=True)
-        return prior
+        return "reused_"+prior
     run_id=new_run_id(task["task_id"],"tts:"+lang)
     mark_running(task["task_id"],"tts:"+lang,sheets=sheets,
         run_id=run_id,message="中央 QA 已通過；沿用舊版 Natural TTS",progress=0)
@@ -136,6 +136,8 @@ def main():
             ready+=1
             work=Path("/kaggle/working/soulkey-central-tts")/task["task_id"]/lang
             state=produce(drive,sheets,task,lang,final,approved,work)
+            if state.startswith("reused_"):
+                continue  # Old verified output does not consume the per-run production budget.
             if state=="missing":raise RuntimeError("audio_not_delivered")
             if state in ("done","needs_review"):
                 processed+=1
