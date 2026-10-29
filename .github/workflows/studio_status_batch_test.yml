@@ -77,6 +77,7 @@ jobs:
           python -m py_compile cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
           python -m py_compile cloud-bridge/translation_worker.py cloud-bridge/nllb_cpu.py
           python -m py_compile cloud-bridge/youtube_cc_worker.py cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
+          python -m unittest discover -s cloud-bridge/tests -p 'test_youtube_cookie_env.py' -v
           python - <<'PY'
           import ast
           from pathlib import Path
