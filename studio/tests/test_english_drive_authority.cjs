@@ -12,8 +12,10 @@ function method(source,name){
  const next=source.indexOf("\nfunction ",at+8);
  return source.slice(at,next<0?undefined:next);
 }
-assert.match(app,/requestReviewData\(taskId,"en",0\);\s*return;/,
- "Must reconcile Drive after cached English manuscript");
+assert.match(method(app,"openEnglishReview"),/requestReviewData\(taskId,"en",0\)/,
+ "Must require an authenticated lesson-specific Bridge manuscript before allowing English Final");
+assert.doesNotMatch(method(app,"openEnglishReview"),/fetchReviewPayload\(/,
+ "Cached GitHub English may not be shown in a different lesson");
 assert.ok(app.includes("englishReviewDirtyIds.add(Number(item.id))"));
 assert.ok(app.includes("ENGLISH_UNCONFIRMED_BACKUP_PREFIX+selectedTaskId"));
 assert.ok(app.includes("const dirty=new Map(currentEnglishReview"));
