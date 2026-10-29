@@ -23,7 +23,7 @@ class TestQuality(unittest.TestCase):
  def test_no_fake_success(self):
   source=[{"id":1,"text":"42 people joined."}]
   rows=[{"id":1,"text":"Se unieron 24 personas."}]
-  def api(prompt):
+  def api(prompt,schema=None):
    if "FAILED:" in prompt:return {"repairs":[{"id":1,"text":"Se unieron 24 personas."}]}
    return {"failures":[]}
   with self.assertRaisesRegex(ValueError,"unresolved_translation_qa"):
