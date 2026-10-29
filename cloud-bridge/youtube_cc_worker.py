@@ -5,6 +5,7 @@ Preserves original YouTube video ID and never substitutes captions from
 another lesson. No video or audio downloads. Does not require user cookies.
 """
 import json
+import base64
 import os
 import re
 import sys
@@ -35,9 +36,26 @@ def oidc_token():
                       headers={"Authorization":"Bearer "+key})
     if not resp.get("value"):raise RuntimeError("GitHub OIDC token missing")
     return resp["value"]
-def bridge(action,fields,token):
-    return request_json(BASE,{"action":action,**fields},
-      headers={"Authorization":"Bearer "+token},timeout=120)
+def bridge(action,fields,_initial_token):
+    """Never reuse an expired GitHub OIDC token during slow Kaggle extraction."""
+    for attempt in range(2):
+        token=oidc_token()
+        try:
+            return request_json(BASE,{"action":action,**fields},
+              headers={"Authorization":"Bearer "+token},timeout=120)
+        except HTTPError as error:
+            # The bridge intentionally returns a generic error. Log the status
+            # and public error code, never print credentials or JWT values.
+            detail=""
+            try:
+                payload=json.loads(error.read(1000))
+                detail=str(payload.get("error",""))[:100]
+            except Exception:
+                pass
+            print("SOULKEY_CC_BRIDGE_REJECTED",action,"HTTP",error.code,
+                  detail,"attempt",attempt+1,flush=True)
+            if error.code!=401 or attempt:raise
+    raise RuntimeError("cc_worker_bridge_auth_failed")
 def strip_vtt(body):
     """Return pure subtitle text without mixing source languages."""
     if not isinstance(body,str):raise RuntimeError("Invalid caption text")
@@ -114,7 +132,22 @@ def parts(text,size=17000):
             end-=1
         yield text[i:end]
 def main():
+    # Diagnose code/identity drift without disclosing the Bridge Key or JWT.
+    try:
+        status=request_json(BASE,timeout=20)
+        print("CC_BRIDGE_BUILD",str(status.get("build","unknown"))[:50],
+              "capabilities",str(status.get("source_capabilities",[]))[:180],
+              flush=True)
+    except Exception as exc:
+        print("CC_BRIDGE_PING_FAILED",type(exc).__name__,flush=True)
     token=oidc_token()
+    try:
+        claim=json.loads(base64.urlsafe_b64decode(
+            token.split(".")[1]+"="*(-len(token.split(".")[1])%4)))
+        print("CC_WORKFLOW_IDENTITY",
+              str(claim.get("workflow_ref",""))[:140],
+              str(claim.get("event_name",""))[:40],flush=True)
+    except Exception:print("CC_WORKFLOW_IDENTITY_UNREADABLE",flush=True)
     job_reply=bridge("worker_cc_claim",{},token)
     if not job_reply.get("ok"):raise RuntimeError("CC queue claim failed")
     if not job_reply.get("has_job"):
