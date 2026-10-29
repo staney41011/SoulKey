@@ -17,6 +17,7 @@ const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
 let bridgeAuthenticated = false; // true only after verified health AND central tasks are loaded
 let driveOwnerConfigured = false; // requires verified owner OAuth before Drive publishing
+let youtubeCCQueueEnabled = false; // set only by authenticated Cloud Run health
 let firebaseSnapshotReadOnly=false; // verified encrypted Firebase snapshot, NEVER enables mutations
 let youtubeCookiesConfigured = null;
 let reviewYouTubePlayer = null;
@@ -1910,11 +1911,16 @@ function syncYoutubeCaptureModeUi(){
   const status=document.getElementById("youtube-audio-status");
 
   if(audioOptions) audioOptions.hidden=mode!=="audio";
-  if(button) button.textContent=mode==="cc" ? "抓取 CC 字幕" : "抓取音軌";
+  if(button){
+    button.textContent=mode==="cc" ? "抓取 CC 字幕" : "抓取音軌";
+    button.disabled=(mode==="audio"||!youtubeCCQueueEnabled||!!pendingYoutubeCapture);
+  }
   if(status && !/已送出|Kaggle|完成|錯誤|處理中/.test(String(status.textContent||""))){
-    status.textContent=mode==="cc"
-      ? "固定補齊 7 語 CC 純逐字稿；遇到 YouTube 429 會逐語言退避重試。"
-      : "將抓取 YouTube 目前可取得的多語音軌。";
+    status.textContent=mode==="audio"
+      ? "音軌抓取尚未恢復，請先使用 CC 字幕功能；沒有送出任何音軌工作。"
+      : !youtubeCCQueueEnabled
+      ? "Cloud Run 尚未部署 YouTube CC 抓取佇列；目前沒有送出工作。"
+      : "準備抓取本堂可取得的七語 YouTube CC；若某語言不存在，會保留實際取得的字幕。";
   }
 }
 
@@ -1937,6 +1943,14 @@ function runYoutubeAudioGrab(){
   const status=document.getElementById("youtube-audio-status");
   const button=document.getElementById("youtube-audio-run");
   const mode=youtubeCaptureMode();
+  if(mode==="audio"){
+    if(status)status.textContent="音軌抓取尚未恢復，未向 Kaggle 送出任務。";
+    return;
+  }
+  if(!youtubeCCQueueEnabled){
+    if(status)status.textContent="目前 Cloud Run 尚未啟用 CC 抓取佇列；請先部署後端。";
+    return;
+  }
 
   if(!task){
     if(status) status.textContent="請先選擇期數與課程。";
@@ -5674,6 +5688,8 @@ window.addEventListener("message",event=>{
     const syncText=document.getElementById("status-sync-text");
     if(data.ok){
       driveOwnerConfigured=data.drive_owner_configured===true;
+      youtubeCCQueueEnabled=data.youtube_cc_queue_enabled===true;
+      syncYoutubeCaptureModeUi();
       bridgeProtocolVersion=String(data.bridge_protocol||"")==="cloud-recovery"
         ? REQUIRED_BRIDGE_PROTOCOL : Number(data.bridge_protocol||0);
       const protocolOk=bridgeProtocolVersion>=REQUIRED_BRIDGE_PROTOCOL;
