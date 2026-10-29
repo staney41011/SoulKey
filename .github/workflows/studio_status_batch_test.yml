@@ -54,6 +54,8 @@ jobs:
       - name: Validate Cloud Run Bridge read-only helpers
         run: |
           node --check cloud-bridge/server.js
+          node cloud-bridge/tests/sheets-request.test.js
+          node cloud-bridge/tests/english-final-source.test.js
           node --check cloud-bridge/drive-review.js
           node --check cloud-bridge/drive-overview.js
           node cloud-bridge/tests/auth.test.js
