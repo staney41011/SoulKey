@@ -42,6 +42,9 @@ jobs:
           PY
 
   kaggle-environment:
+    # Separate manual check only. Repeated Kaggle kernel pushes can return
+    # 409 Conflict while another legitimate SoulKey kernel is active.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 48
     env:
