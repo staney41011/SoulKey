@@ -205,6 +205,7 @@ const ENGLISH_FINAL_PENDING_PREFIX="soulkey_en_final_pending:";
 let englishFinalizePendingTaskId = "";
 let englishFinalizePriorFinishedAt = "";
 let englishFinalizeWatchdog = null;
+let pendingRunStageRequest=null;
 // A confirmed Drive acknowledgement applies to its own task only.
 const englishFinalizedThisSession = new Set();
 const englishSheetFinalizedThisSession = new Set();
@@ -1173,7 +1174,7 @@ function renderTasks(){
             (!(remoteStageStatus(t,"zh") && ["needs_review","done"].includes(remoteStageStatus(t,"zh").status)) ? "disabled" : "")+
             '>快速流程</button>'+
           '<button class="primary task-next-btn" data-next-task="'+escapeHtml(t.id)+'" '+
-            (complete || !cloudConfirmed || (nextRemote && ["queued","running"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
+            (complete || !cloudConfirmed || pendingRunStageRequest?.taskId===t.id || (nextRemote && ["queued","running"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
             (!cloudConfirmed
               ? "等待雲端同步"
               : complete
@@ -2577,7 +2578,7 @@ function renderTaskDetail(task){
 
   const nextBtn=document.getElementById("detail-next-btn");
   const nextRemote=next ? remoteStageStatus(task,next.key) : null;
-  nextBtn.disabled=!next || !!(nextRemote && ["queued","running"].includes(nextRemote.status));
+  nextBtn.disabled=!next || pendingRunStageRequest?.taskId===task.id || !!(nextRemote && ["queued","running"].includes(nextRemote.status));
   const humanReviewNext=next && next.key==="en-review";
   const zhNeedsReview=next && next.key==="zh" && nextRemote && nextRemote.status==="needs_review";
   nextBtn.textContent=next
@@ -2847,6 +2848,7 @@ function confirmNextStage(taskId){
   if(!ok) return;
 
   const dispatchStage=next.key==="zh" ? "zh" : next.key;
+  pendingRunStageRequest={taskId:task.id,stage:dispatchStage};
   const sent=submitBridgePost({
     action:"run_stage",
     task_id:task.id,
@@ -2856,27 +2858,18 @@ function confirmNextStage(taskId){
   });
 
   if(!sent){
-    alert("尚未設定 Apps Script Web App URL 或 Bridge Key。");
+    pendingRunStageRequest=null;
+    alert("控制中心尚未接受這項派工；沒有建立 Kaggle 工作。");
     return;
   }
 
-  task.status="排隊中："+next.label;
-  task.remoteStages=task.remoteStages||{};
-  task.remoteStages[next.key]={
-    task_id:task.id,
-    stage:next.key,
-    status:"queued",
-    progress:"0",
-    message:"已送出 Kaggle Web Job"
-  };
+  // HTTP request sent is not the same as a GitHub/Kaggle queue receipt.
+  // Wait for the explicit run_stage ACK before marking the lesson queued.
+  task.status="正在核對派工回覆："+next.label;
   save(STORE.tasks,tasks);
   renderTasks();
-
-  if(currentView==="task-detail" && selectedTaskId===task.id){
+  if(currentView==="task-detail" && selectedTaskId===task.id)
     renderTaskDetail(task);
-  }
-
-  window.setTimeout(()=>requestTaskStatuses(),1800);
 }
 function taskAtSchedulePosition(period,lessonNo){
   return tasks.find(t=>
@@ -5358,7 +5351,26 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="run_stage"){
+    const pending=pendingRunStageRequest;
+    pendingRunStageRequest=null;
     if(data.ok){
+      if(pending &&
+         (!data.task_id || String(data.task_id)===pending.taskId) &&
+         (!data.stage || String(data.stage)===pending.stage)){
+        const job=tasks.find(x=>x.id===pending.taskId);
+        if(job){
+          job.status="排隊中："+(workflow.find(x=>x.key===pending.stage)?.label||pending.stage);
+          job.remoteStages=job.remoteStages||{};
+          job.remoteStages[pending.stage]={
+            task_id:job.id,stage:pending.stage,status:"queued",progress:"0",
+            message:"已收到 GitHub/Kaggle 派工回覆"
+          };
+          save(STORE.tasks,tasks);
+          renderTasks();
+          if(currentView==="task-detail"&&selectedTaskId===job.id)
+            renderTaskDetail(job);
+        }
+      }
       const audioStatus=document.getElementById("youtube-audio-status");
       if(
         currentView==="youtube-audio" &&
@@ -5369,7 +5381,18 @@ window.addEventListener("message",event=>{
       }
       requestTaskStatuses();
     }else{
-      alert("Kaggle 工作送出失敗："+(data.message || data.error || "未知錯誤"));
+      if(pending){
+        const job=tasks.find(x=>x.id===pending.taskId);
+        if(job){
+          job.status="派工未成功（英文定稿資料不受影響）";
+          save(STORE.tasks,tasks);
+          renderTasks();
+          if(currentView==="task-detail"&&selectedTaskId===job.id)
+            renderTaskDetail(job);
+        }
+      }
+      alert("多語／音檔工作尚未送出："+(data.message || data.error || "未知錯誤")+
+        "。英文中央定稿仍已保存，沒有啟動或重跑 Kaggle。");
     }
   }
 
