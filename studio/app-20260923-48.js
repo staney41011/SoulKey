@@ -3929,18 +3929,31 @@ async function recoverEnglishCcIntoEditor(taskId){
       if(chunk===29)throw Error("中文 Final 分頁數量超出限制");
     }
     if(!chinese.length)throw Error("找不到本堂中文 Final");
-    const manifest=await readEnglishCcBridge({
+    // Prefer the read-only Sheet manifest. On Cloud Run deployments where
+    // Drive folder lookup is unavailable, obtain the same task's completed CC
+    // job ID from the authenticated status API instead.
+    let manifest=null;
+    try{manifest=await readEnglishCcBridge({
       action:"youtube_capture_files",task_id:taskId
-    });
-    if(!manifest?.ok||manifest.task_id!==taskId||
-       manifest.video_id!==video)throw Error("字幕清單的影片身分不符");
-    const verified=(manifest.cc_files||[]).find(file=>
+    });}catch(_){}
+    if(manifest?.ok && (manifest.task_id!==taskId||
+       manifest.video_id!==video))throw Error("字幕清單的影片身分不符");
+    let verified=(manifest?.cc_files||[]).find(file=>
       file.name==="en.transcript.txt" &&
       file.task_id===taskId &&
       file.storage==="google-sheet" &&
       /^[0-9a-f-]{36}$/i.test(String(file.job_id||""))
     );
-    if(!verified)throw Error("中央 Sheet 尚無可使用的本堂英文 CC");
+    if(!verified){
+      const state=await readEnglishCcBridge({
+        action:"status",task_id:taskId
+      });
+      const ccStage=state?.tasks?.[taskId]?.stages?.cc;
+      if(!state?.ok||ccStage?.status!=="done"||
+         !/^[0-9a-f-]{36}$/i.test(String(ccStage?.run_id||"")))
+        throw Error("中央 Sheet 尚無可使用的本堂英文 CC");
+      verified={job_id:ccStage.run_id};
+    }
     const caption=await readEnglishCcBridge({
       action:"youtube_cc_content",task_id:taskId,
       job_id:verified.job_id,language:"en"
