@@ -1,0 +1,41 @@
+name: SoulKey Translation Queue Worker
+
+on:
+  schedule:
+    # Multi-language text translation runs on GitHub CPU, conserving Kaggle GPU.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/soulkey_translation_queue.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: soulkey-translation-queue
+  cancel-in-progress: false
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      SOULKEY_GEMINI_MODEL: ${{ vars.SOULKEY_GEMINI_MODEL || 'gemini-2.5-flash' }}
+      SOULKEY_BRIDGE_URL: https://soulkey-bridge-214901732194.asia-east1.run.app
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate worker availability
+        shell: bash
+        run: |
+          python -m py_compile cloud-bridge/translation_worker.py
+          if [[ -z "$GEMINI_API_KEY" ]]; then
+            echo "::warning::GEMINI_API_KEY secret is not configured; no real translation is attempted."
+            exit 0
+          fi
+      - name: Claim one queued translation and process
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        shell: bash
+        run: python -u cloud-bridge/translation_worker.py
