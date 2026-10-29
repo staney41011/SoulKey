@@ -554,15 +554,14 @@ function remoteStageStatus(task, stageKey){
 function syncCompletedFromRemote(task){
   normalizeTask(task);
 
-  // 若已完成的步驟後來被最新重跑結果標成 error / stale，
-  // 必須退回該步驟前一關。否則 Studio 會誤以為 multi 已完成，
-  // 直接跳去 TTS，造成舊翻譯檔反覆被使用。
+  // Any newest, non-done remote stage overrides stale local completion.
+  // In particular, a previously done five-language "multi" does NOT mean
+  // the newly running ten-language job is finished. Never unlock TTS early.
   for(let i=0;i<workflow.length;i++){
     const remote=remoteStageStatus(task,workflow[i].key);
     if(
       remote &&
-      (["error","stale"].includes(remote.status) ||
-        (["multi","tts"].includes(workflow[i].key) && remote.status==="needs_review")) &&
+      ["queued","running","delayed","error","stale","needs_review"].includes(remote.status) &&
       i<=task.completedStep
     ){
       task.completedStep=i-1;
@@ -651,8 +650,8 @@ function normalizeRemoteStatus(item){
 function remoteStatusText(status){
   const map={
     pending:"等待執行",
-    queued:"Kaggle 排隊中",
-    running:"Kaggle 執行中",
+    queued:"工作排隊中",
+    running:"工作執行中",
     needs_review:"待人工確認",
     done:"完成",
     error:"執行失敗",
@@ -2622,6 +2621,15 @@ function renderTaskDetail(task){
         '<div><b>現在要進行English CC 定稿</b><span>逐段查看中文 Final 與英文稿（YouTube CC 或 AI 翻譯），修正後同步學習專有名詞的正式英文譯法。</span></div>'+
         '<button class="primary" data-open-en-review-inline="'+escapeHtml(task.id)+'">進入English CC 定稿</button>'+
       '</div>';
+  }else if(currentRemote && ["queued","running","delayed"].includes(currentRemote.status)){
+    const delayed=currentRemote.status==="delayed";
+    document.getElementById("detail-current-body").innerHTML=
+      '<div class="stage-message">'+
+        '<div><b>'+escapeHtml(next.label)+'：'+escapeHtml(remoteStatusText(currentRemote.status))+
+        '</b><span>'+escapeHtml(currentRemote.message||
+          (delayed?"工作長時間未回報；請檢查 GitHub Actions，勿重複派工。":
+          "正在由 Worker 處理；成果回讀驗證完成前，下一步維持鎖定。"))+
+        '</span></div></div>';
   }else{
     document.getElementById("detail-current-body").innerHTML=
       '<div class="stage-message">'+
@@ -2645,7 +2653,7 @@ function renderTaskDetail(task){
   const humanReviewNext=next && next.key==="en-review";
   const zhNeedsReview=next && next.key==="zh" && nextRemote && nextRemote.status==="needs_review";
   nextBtn.textContent=next
-    ? (cloudStageUnavailable(next) ? "此步驟尚未接回" : zhNeedsReview ? "進入：人工中文定稿" : humanReviewNext ? "進入："+next.label : nextRemote && nextRemote.status==="delayed" ? "已派送，待確認" : "執行下一步："+next.label)
+    ? (cloudStageUnavailable(next) ? "此步驟尚未接回" : zhNeedsReview ? "進入：人工中文定稿" : humanReviewNext ? "進入："+next.label : nextRemote && nextRemote.status==="delayed" ? "已派送，待確認" : nextRemote && nextRemote.status==="running" ? "工作執行中" : nextRemote && nextRemote.status==="queued" ? "工作排隊中" : "執行下一步："+next.label)
     : "已全部完成";
   nextBtn.onclick=()=>{
     if(!next) return;
