@@ -16,6 +16,7 @@ from urllib.error import HTTPError, URLError
 BASE=os.environ.get("SOULKEY_BRIDGE_URL","https://soulkey-bridge-214901732194.asia-east1.run.app").rstrip("/")
 AUDIENCE="soulkey-bridge-translation-worker-v1"
 GEMINI=os.environ.get("GEMINI_API_KEY","").strip()
+_NLLB_RUNNER=None
 MODEL=os.environ.get("SOULKEY_GEMINI_MODEL","gemini-2.5-flash").strip()
 LANGS={
  "th":"Thai","es":"Spanish","id":"Indonesian","vi":"Vietnamese",
@@ -81,6 +82,12 @@ def gemini(messages):
     raise RuntimeError("Gemini translation failed: "+str(last)[:160])
 
 def translate(language,segments):
+    global _NLLB_RUNNER
+    if not GEMINI:
+        if _NLLB_RUNNER is None:
+            from nllb_cpu import NllbCPU
+            _NLLB_RUNNER=NllbCPU()
+        return _NLLB_RUNNER.translate(language,segments)
     name=LANGS[language]
     all_rows=[]
     for start in range(0,len(segments),8):
