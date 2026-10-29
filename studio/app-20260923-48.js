@@ -76,7 +76,7 @@ const workflow = [
   {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
 
-const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km","bn","ne","lo","my","it","pt"];
+const YOUTUBE_CC_TARGETS = ["en"]; // Captions only; other languages use the translation pipeline.
 
 function load(key, fallback){
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
