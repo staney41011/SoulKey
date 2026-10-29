@@ -91,7 +91,7 @@ async function saveFullEnglishFinal(p){
  if(!aligned)throw Error("english_final_timeline_does_not_match_lesson");
  const task=(await get(N.tasks,"A1:J5000")).slice(1).find(r=>r[0]===String(p.task_id||""));
  const targetUrl=String(task?.[4]||"");
- const targetVideo=(targetUrl.match(/(?:youtu\\.be\\/|[?&]v=)([A-Za-z0-9_-]{6,})/)||[])[1]||"";
+ const targetVideo=(targetUrl.match(/(?:youtu\.be\/|[?&]v=)([A-Za-z0-9_-]{6,})/)||[])[1]||"";
  if(p.source_video_id && targetVideo &&
     String(p.source_video_id)!==targetVideo)
   throw Error("english_final_source_video_mismatch");
@@ -105,7 +105,6 @@ async function saveFullEnglishFinal(p){
   return {...result,backup_saved:true};
  }
  try{
-  const manuscript=normalizeEnglishFinal(p);
   const result=await driveFinalPublisher.publish(String(p.task_id||""),manuscript);
   await recordVerifiedEnglishStage(String(p.task_id||""),
     backup.backup_id,"drive");
