@@ -23,7 +23,6 @@ jobs:
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-      SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/soulkey-central-tts
       SOULKEY_TTS_PARALLEL_BLOCKS: '2'
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +50,8 @@ jobs:
           ffprobe -version | head -n 1
       - name: Recover one QA-approved language and verify Drive output
         shell: bash
+        env:
+          SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/soulkey-central-tts
         run: |
           python -u translation-system/central_tts_recovery.py \
             --period 259 --max-languages 1
