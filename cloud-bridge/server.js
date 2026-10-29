@@ -177,7 +177,28 @@ async function read(p){const a=p.action;if(a==="review_final_status"){
 }
 if(a==="youtube_cc_content")return youtubeCCQueue.transcript(String(p.task_id||""),
  String(p.job_id||""),String(p.language||""));
-if(a==="course_files")return driveReview.courseFiles(p);if(a==="tts_share_links")return driveReview.ttsShareLinks(p);if(a==="review_load")return driveReview.review(p);if(a==="status_health"){const rows=await get(N.status,"A1:A10000");return out("status_health",{ok:true,sheet:N.status,rows:Math.max(rows.length-1,0),bridge_protocol:"cloud-recovery",sheet_final_enabled:true,chinese_sheet_final_enabled:true,lesson_source_guard:true,translation_queue_enabled:true,youtube_cc_queue_enabled:true,youtube_cc_storage:"google-sheet",translation_worker:"github-actions-oidc",drive_owner_configured:driveFinalPublisher.isConfigured(),youtube_cookies_configured:false,server_time:now()});}
+if(a==="course_files")return driveReview.courseFiles(p);if(a==="tts_share_links")return driveReview.ttsShareLinks(p);if(a==="review_load")return driveReview.review(p);if(a==="status_health"){
+  const rows=await get(N.status,"A1:A10000");
+  const [translationHealth,captureHealth]=await Promise.allSettled([
+    translationQueue.diagnostics(),youtubeCCQueue.ready()
+  ]);
+  const translationReady=translationHealth.status==="fulfilled";
+  const captionReady=captureHealth.status==="fulfilled";
+  return out("status_health",{
+    ok:true,sheet:N.status,rows:Math.max(rows.length-1,0),
+    bridge_protocol:"cloud-recovery",
+    bridge_build:String(process.env.SOULKEY_BUILD_SHA||"unversioned"),
+    sheet_final_enabled:true,chinese_sheet_final_enabled:true,
+    lesson_source_guard:true,
+    translation_queue_enabled:translationReady,
+    translation_queue_diagnostics:translationReady?translationHealth.value:null,
+    youtube_cc_queue_enabled:captionReady,
+    youtube_cc_storage:"google-sheet",
+    translation_worker:"github-actions-oidc-scheduled",
+    drive_owner_configured:driveFinalPublisher.isConfigured(),
+    youtube_cookies_configured:false,server_time:now()
+  });
+ }
  if(a==="tasks_get")return out("tasks_result",{ok:true,tasks:await tasks(),server_time:now()});
  if(a==="language_settings")return out("language_settings",{ok:true,languages:await langs(),server_time:now()});
  if(a==="language_plan_get")return out("language_plan",{ok:true,task_id:p.task_id||"",plan:await plans(String(p.task_id||""))});
@@ -225,7 +246,7 @@ async function write(p){
  return out(({tasks_upsert:"tasks_saved",language_plan_save:"language_plan_saved",task_reschedule:"task_rescheduled",review_save:"review_saved",run_stage:"run_stage"}[p.action]||"bridge_error"),{ok:false,error:"not_yet_restored",message:"這項寫入尚在修復，沒有修改資料"});}
 function send(res,data,status=200,jsonp){if(jsonp&&/^[a-zA-Z_$][\w.$]{0,120}$/.test(jsonp)){res.writeHead(200,{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store"});res.end(jsonp+"("+JSON.stringify(data)+");");return;}res.writeHead(status,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"});res.end(JSON.stringify(data));}
 http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https://staney41011.github.io"){res.setHeader("Access-Control-Allow-Origin",req.headers.origin);res.setHeader("Vary","Origin");res.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");res.setHeader("Access-Control-Allow-Headers","Content-Type");}if(req.method==="OPTIONS"){res.writeHead(204);res.end();return;}
- if(req.method==="GET"){p=Object.fromEntries(new URL(req.url,"http://localhost").searchParams);if(!p.action){send(res,{ok:true,service:"SoulKey Studio Cloud Bridge",message:"bridge-ready"});return;}}
+ if(req.method==="GET"){p=Object.fromEntries(new URL(req.url,"http://localhost").searchParams);if(!p.action){send(res,{ok:true,service:"SoulKey Studio Cloud Bridge",message:"bridge-ready",build:String(process.env.SOULKEY_BUILD_SHA||"unversioned"),source_capabilities:["translation-chunks","youtube-cc-sheet","chinese-sheet-final","english-sheet-final"]});return;}}
  else if(req.method==="POST"){let size=0,buff=[];for await(const part of req){size+=part.length;if(size>1000000)throw Error("payload_too_large");buff.push(part);}p=Object.fromEntries(new URLSearchParams(Buffer.concat(buff).toString("utf8")));}else{send(res,{error:"method_not_allowed"},405);return;}
  // The Google ingress adds the peer and proxy at the end of XFF.
  // Prefer the penultimate peer to avoid trusting a user-supplied first hop.
