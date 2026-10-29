@@ -6,7 +6,8 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "google-auth-library": "^9.15.1"
+    "google-auth-library": "^9.15.1",
+    "jose": "^5.9.6"
   },
   "engines": {
     "node": ">=20"
