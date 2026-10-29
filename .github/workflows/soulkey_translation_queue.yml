@@ -37,6 +37,13 @@ jobs:
         shell: bash
         run: |
           python -m pip install -q "ctranslate2>=4.6,<5" "sentencepiece>=0.2,<1" "huggingface_hub>=0.30,<2"
-      - name: Claim one queued translation and process
+      - name: Recover and process up to three queued lessons sequentially
         shell: bash
-        run: python -u cloud-bridge/translation_worker.py
+        run: |
+          set -euo pipefail
+          # Do not claim jobs in parallel: a completed lesson must be verified
+          # before the next queue item is taken.
+          for lesson in 1 2 3; do
+            echo "SOULKEY_QUEUE_SLOT=$lesson"
+            python -u cloud-bridge/translation_worker.py
+          done
