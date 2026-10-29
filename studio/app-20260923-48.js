@@ -18,6 +18,7 @@ let bridgeClientReady = false;
 let bridgeAuthenticated = false; // true only after verified health AND central tasks are loaded
 let driveOwnerConfigured = false; // requires verified owner OAuth before Drive publishing
 let youtubeCCQueueEnabled = false; // set only by authenticated Cloud Run health
+let bridgeIsCloudRecovery = false;
 let firebaseSnapshotReadOnly=false; // verified encrypted Firebase snapshot, NEVER enables mutations
 let youtubeCookiesConfigured = null;
 let reviewYouTubePlayer = null;
@@ -636,8 +637,12 @@ function normalizeRemoteStatus(item){
     if(Number.isFinite(ts) && Date.now()-ts > 30*60*1000){
       // A stale timestamp is NOT proof of an upstream data change.
       // Reserve "stale" for actual dependency invalidation from backend.
+      copy.original_status=copy.status;
       copy.status="delayed";
-      copy.message=(copy.message ? copy.message+"；" : "")+"超過30分鐘未更新，請先查看 GitHub Actions，勿重複送出";
+      copy.message=(copy.message ? copy.message+"；" : "")+
+        (copy.original_status==="queued"
+         ? "排隊超過30分鐘，GitHub Worker 尚未領取；請檢查 Actions 與 Cloud Run 部署，勿重複派送"
+         : "執行中超過30分鐘未更新；請檢查 Worker 紀錄，勿重複派送");
     }
   }
   return copy;
@@ -652,7 +657,7 @@ function remoteStatusText(status){
     done:"完成",
     error:"執行失敗",
     stale:"上游資料已失效，需檢查",
-    delayed:"長時間未回報，先查Kaggle"
+    delayed:"工作逾時未回報（勿重複派送）"
   };
   return map[status] || status || "";
 }
@@ -1120,6 +1125,10 @@ function openQuickReview(taskId){
   }
 }
 
+function cloudStageUnavailable(stage){
+  return !!(bridgeIsCloudRecovery && stage && (stage.key==="zh" || stage.key==="tts"));
+}
+
 function renderTasks(){
   const el=document.getElementById("task-list");
 
@@ -1145,6 +1154,7 @@ function renderTasks(){
       const remoteActive=activeRemoteStatus(t);
       const nextRemote=next ? remoteStageStatus(t,next.key) : null;
       const failureReason=remoteErrorReason(remoteActive);
+      const stageUnavailable=cloudStageUnavailable(next);
       return '<article class="course-task-row" data-open-task="'+escapeHtml(t.id)+'">'+
         '<div class="course-task-main">'+
           '<div class="course-task-title">'+
@@ -1179,15 +1189,19 @@ function renderTasks(){
             (!(remoteStageStatus(t,"zh") && ["needs_review","done"].includes(remoteStageStatus(t,"zh").status)) ? "disabled" : "")+
             '>快速流程</button>'+
           '<button class="primary task-next-btn" data-next-task="'+escapeHtml(t.id)+'" '+
-            (complete || !cloudConfirmed || pendingRunStageRequest?.taskId===t.id || (nextRemote && ["queued","running"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
+            (complete || stageUnavailable || !cloudConfirmed || pendingRunStageRequest?.taskId===t.id || (nextRemote && ["queued","running","delayed"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
             (!cloudConfirmed
               ? "等待雲端同步"
               : complete
               ? "已完成"
+              : stageUnavailable
+              ? "此步驟待恢復"
               : nextRemote && nextRemote.status==="running"
                 ? "執行中 "+(nextRemote.progress||"")+"%"
                 : nextRemote && nextRemote.status==="queued"
                   ? "排隊中"
+                  : nextRemote && nextRemote.status==="delayed"
+                    ? "已派送，待確認"
                   : nextRemote && nextRemote.status==="error"
                     ? "重新執行"
                     : "執行下一步")+
@@ -2620,11 +2634,11 @@ function renderTaskDetail(task){
 
   const nextBtn=document.getElementById("detail-next-btn");
   const nextRemote=next ? remoteStageStatus(task,next.key) : null;
-  nextBtn.disabled=!next || pendingRunStageRequest?.taskId===task.id || !!(nextRemote && ["queued","running"].includes(nextRemote.status));
+  nextBtn.disabled=!next || cloudStageUnavailable(next) || pendingRunStageRequest?.taskId===task.id || !!(nextRemote && ["queued","running","delayed"].includes(nextRemote.status));
   const humanReviewNext=next && next.key==="en-review";
   const zhNeedsReview=next && next.key==="zh" && nextRemote && nextRemote.status==="needs_review";
   nextBtn.textContent=next
-    ? (zhNeedsReview ? "進入：人工中文定稿" : humanReviewNext ? "進入："+next.label : "執行下一步："+next.label)
+    ? (cloudStageUnavailable(next) ? "此步驟尚未接回" : zhNeedsReview ? "進入：人工中文定稿" : humanReviewNext ? "進入："+next.label : nextRemote && nextRemote.status==="delayed" ? "已派送，待確認" : "執行下一步："+next.label)
     : "已全部完成";
   nextBtn.onclick=()=>{
     if(!next) return;
@@ -2853,6 +2867,15 @@ function confirmNextStage(taskId){
   // now tries bgutil guest PO tokens / anonymous clients first, so missing
   // YOUTUBE_COOKIES_B64 must never block a normal Chinese-stage launch.
   if(next.key==="en-review") return openEnglishReview(task.id);
+  if(cloudStageUnavailable(next)){
+    alert("新 Cloud Run 尚未恢復「"+next.label+"」的正式派送，沒有建立工作；既有稿件不受影響。");
+    return;
+  }
+  if(currentRemote && ["queued","running","delayed"].includes(currentRemote.status)){
+    alert("此課程已派送或尚未回報；請先核對中央佇列與 GitHub Actions，不要重複派送。");
+    requestTaskStatuses();
+    return;
+  }
 
   let langs="";
   if(next.key==="multi"){
@@ -2885,7 +2908,9 @@ function confirmNextStage(taskId){
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
     (retry?"重新執行：":"確定執行下一步驟：")+"\n"+next.label+"？\n\n"+
-    "確認後會送到 GitHub Actions，再啟動 Kaggle Web Worker。完成前下一步會保持鎖定。"
+    (bridgeIsCloudRecovery
+      ? "確認後僅寫入中央翻譯佇列，由 GitHub Actions 排程領取；成果回讀驗證後才算完成。"
+      : "確認後會送到 GitHub Actions，再啟動 Kaggle Web Worker。完成前下一步會保持鎖定。")
   );
   if(!ok) return;
 
@@ -5695,6 +5720,7 @@ window.addEventListener("message",event=>{
     if(data.ok){
       driveOwnerConfigured=data.drive_owner_configured===true;
       youtubeCCQueueEnabled=data.youtube_cc_queue_enabled===true;
+      bridgeIsCloudRecovery=String(data.bridge_protocol||"")==="cloud-recovery";
       syncYoutubeCaptureModeUi();
       bridgeProtocolVersion=String(data.bridge_protocol||"")==="cloud-recovery"
         ? REQUIRED_BRIDGE_PROTOCOL : Number(data.bridge_protocol||0);
