@@ -71,7 +71,7 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
    [["running",row[4]||"",now(),"","GitHub Worker 已領取 CC 抓取工作"]]);
   await appendStatus(row[1],"running",row[0],video,"正在從本堂 YouTube 抓取 CC");
   return {ok:true,has_job:true,job:{id:row[0],task_id:row[1],video_id:video,
-   languages:[...LANGS]}};
+   languages:[...LANGS],progressive_visibility:true}};
  }
  async function part(p){
   const id=String(p.job_id||""),lang=String(p.language||"").trim().toLowerCase();
@@ -99,6 +99,12 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
    throw Error("caption_part_readback_failed");
   return {ok:true,task_id:record[1],language:lang,part_index:index};
  }
+ function completeGroup(g){
+  if(!g||!Number.isSafeInteger(g.count)||g.count<1||g.count>250||
+     g.parts.size!==g.count)return false;
+  return Array.from({length:g.count},(_,i)=>g.parts.get(i)).every(x=>
+    typeof x==="string"&&x.trim().length>0);
+ }
  function grouped(rows,id){
   const groups=new Map();
   for(const r of rows.filter(x=>x[0]===id)){
@@ -122,7 +128,10 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
   const latest=await taskVideo(job[1]);
   if(latest!==job[2])throw Error("cc_source_changed");
   if(p.status==="error"){
-   const reason=String(p.message||"worker_failed").slice(0,280);
+   const complete=[...grouped(await contents(),id)].filter(([,g])=>completeGroup(g));
+   const note=complete.length?
+     "已保存字幕 "+complete.map(([l])=>l).join(",")+"；其餘抓取失敗：" : "";
+   const reason=(note+String(p.message||"worker_failed")).slice(0,280);
    await put(TASK_TAB,"D"+(idx+2)+":I"+(idx+2),
     [["error",job[4]||"",job[5]||"",now(),reason,job[8]||""]]);
    await appendStatus(job[1],"error",id,job[2],reason);
@@ -152,16 +161,21 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
  }
  async function manifest(task){
   const canonical=await taskVideo(task);
-  const entries=(await tasks()).filter(r=>r[1]===task&&r[2]===canonical&&r[3]==="done");
+  const entries=(await tasks()).filter(r=>r[1]===task&&r[2]===canonical&&
+    ["done","running","error"].includes(r[3]));
+  // Prefer a completed capture; nevertheless a fully written language is
+  // trustworthy even when other languages remain running or later fail.
+  entries.sort((a,b)=>Number(b[3]==="done")-Number(a[3]==="done")||
+    String(b[4]).localeCompare(String(a[4])));
   const data=await contents(),cc=[];
   for(const job of entries){
    const groups=grouped(data,job[0]);
    for(const [lang,g] of groups){
-    if(g.parts.size!==g.count)continue;
+    if(!completeGroup(g))continue;
     const name=lang+".transcript.txt";
     if(cc.some(x=>x.name===name))continue;
     cc.push({name,task_id:task,display_name:lang.toUpperCase()+" YouTube CC 純逐字稿",
-     storage:"google-sheet",job_id:job[0],lang,updated_at:job[6],
+     storage:"google-sheet",job_id:job[0],lang,updated_at:job[6]||job[5]||job[4],
      source:"youtube",size:[...g.parts.values()].reduce((sum,x)=>sum+x.length,0)});
    }
   }
@@ -172,10 +186,11 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
  async function transcript(task,jobId,lang){
   if(!JOB.test(String(jobId||""))||!LANGS.has(lang))throw Error("invalid_caption_read");
   const rows=await tasks();
-  const job=rows.find(r=>r[0]===jobId&&r[1]===task&&r[3]==="done");
-  if(!job||job[2]!==await taskVideo(task))throw Error("caption_job_not_finalized_for_lesson");
+  const job=rows.find(r=>r[0]===jobId&&r[1]===task&&
+    ["done","running","error"].includes(r[3]));
+  if(!job||job[2]!==await taskVideo(task))throw Error("caption_job_not_verified_for_lesson");
   const g=grouped(await contents(),jobId).get(lang);
-  if(!g||g.parts.size!==g.count)throw Error("caption_content_not_complete");
+  if(!completeGroup(g))throw Error("caption_content_not_complete");
   return {source:"soulkey-bridge",type:"youtube_cc_content",ok:true,
     task_id:task,lang,name:lang+".transcript.txt",
     content:Array.from({length:g.count},(_,i)=>g.parts.get(i)).join("")};
