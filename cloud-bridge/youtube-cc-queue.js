@@ -160,7 +160,7 @@ function createYoutubeCCQueue({get,put,ensureTab,now=()=>new Date().toISOString(
     if(g.parts.size!==g.count)continue;
     const name=lang+".transcript.txt";
     if(cc.some(x=>x.name===name))continue;
-    cc.push({name,display_name:lang.toUpperCase()+" YouTube CC 純逐字稿",
+    cc.push({name,task_id:task,display_name:lang.toUpperCase()+" YouTube CC 純逐字稿",
      storage:"google-sheet",job_id:job[0],lang,updated_at:job[6],
      source:"youtube",size:[...g.parts.values()].reduce((sum,x)=>sum+x.length,0)});
    }
