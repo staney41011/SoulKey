@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install voice runtime
-        run: python -m pip install -q edge-tts==7.2.8
+        run: python -m pip install -q edge-tts==7.3.1
       - name: Probe all 16 voices on GitHub runner
         run: python -u translation-system/tts_health_audit.py --output-dir "$RUNNER_TEMP/soulkey-voice-health"
       - name: Upload full diagnostic JSON
@@ -83,7 +83,7 @@ jobs:
               "https://github.com/staney41011/SoulKey.git",str(repo)
           ],check=True)
           subprocess.run([
-              sys.executable,"-m","pip","install","-q","edge-tts==7.2.8"
+              sys.executable,"-m","pip","install","-q","edge-tts==7.3.1"
           ],check=True)
           subprocess.run([
               sys.executable,"-u",str(repo/"translation-system/tts_health_audit.py"),
