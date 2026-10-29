@@ -124,7 +124,13 @@ def main():
     jid=job["id"]
     print("CLAIM_CC",jid,job["task_id"],job["video_id"],flush=True)
     try:
-        data,missing=fetch_youtube(job["video_id"],job.get("languages") or LANGS)
+        if os.environ.get("KAGGLE_API_TOKEN"):
+            from youtube_cc_kaggle_client import capture
+            print("CC_BACKEND=KAGGLE_CPU",flush=True)
+            data,missing=capture(job["video_id"],job.get("languages") or LANGS)
+        else:
+            print("CC_BACKEND=GITHUB_CPU_WITHOUT_KAGGLE",flush=True)
+            data,missing=fetch_youtube(job["video_id"],job.get("languages") or LANGS)
         if not data:
             raise RuntimeError("YouTube did not expose any of the seven requested CC languages")
         complete=[]
