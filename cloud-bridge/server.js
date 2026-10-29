@@ -93,7 +93,9 @@ async function saveFullEnglishFinal(p){
  // lesson folder or in this task's verified Sheet Final.
  const taskId=String(p.task_id||"");
  const manuscript=normalizeEnglishFinal(p);
- const sourceCheck=await driveReview.review({task_id:taskId,kind:"en"});
+ let sourceCheck={ok:false};
+ try{sourceCheck=await driveReview.review({task_id:taskId,kind:"en"});}
+ catch(error){console.warn("English Drive source unavailable; checking verified central CC",String(error.message||error).slice(0,90));}
  let original=sourceCheck.ok&&Array.isArray(sourceCheck.segments)?
    sourceCheck.segments:[];
  let recoveredCC=null;
