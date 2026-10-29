@@ -263,7 +263,7 @@ http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https:/
    try{
     if(req.method!=="POST")throw Error("worker_post_required");
     const bearer=String(req.headers.authorization||"").match(/^Bearer (.+)$/i);
-    await verifyGithubWorker(bearer?.[1]);
+    await verifyGithubWorker(bearer?.[1],String(p.action||"").startsWith("worker_cc_")?"cc":"translation");
     let result;
     if(p.action==="worker_job_claim")result=await translationQueue.claim();
     else if(p.action==="worker_job_part")result=await translationQueue.part(p);
