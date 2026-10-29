@@ -196,6 +196,24 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
   return {ok:true,task_id:task,status:"done",
    language_count:langs.length,segment_count:results.length};
  }
- return {enqueue,claim,part,report,parseLanguages};
+ async function diagnostics(){
+  const rows=await findRows();
+  const queued=rows.filter(r=>r[5]==="queued");
+  const running=rows.filter(r=>r[5]==="running");
+  const finished=rows.filter(r=>r[5]==="done"||r[5]==="error");
+  const lastClaim=rows.filter(r=>r[7]).map(r=>String(r[7])).sort().at(-1)||"";
+  const stalled=queued.filter(r=>{
+    const t=Date.parse(String(r[6]||""));
+    return Number.isFinite(t)&&Date.now()-t>15*60*1000;
+  });
+  return {
+    queued_count:queued.length,running_count:running.length,
+    overdue_unclaimed_count:stalled.length,
+    oldest_queued_at:queued.map(r=>String(r[6]||"")).filter(Boolean).sort()[0]||"",
+    last_claimed_at:lastClaim,
+    last_finished_at:finished.map(r=>String(r[8]||"")).filter(Boolean).sort().at(-1)||""
+  };
+ }
+ return {enqueue,claim,part,report,parseLanguages,ready:init,diagnostics};
 }
 module.exports={createTranslationQueue,parseLanguages,HEADER,OUT_HEADER};
