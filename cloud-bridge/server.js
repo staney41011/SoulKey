@@ -91,14 +91,39 @@ async function saveFullEnglishFinal(p){
  // Never accept third-lesson English pasted under another lesson's ID.
  // The matching, per-task English source must exist in the canonical Drive
  // lesson folder or in this task's verified Sheet Final.
- const sourceCheck=await driveReview.review({task_id:String(p.task_id||""),kind:"en"});
- if(!sourceCheck.ok||!Array.isArray(sourceCheck.segments)||!sourceCheck.segments.length)
-  throw Error("english_source_missing_for_this_lesson");
+ const taskId=String(p.task_id||"");
  const manuscript=normalizeEnglishFinal(p);
- const original=sourceCheck.segments;
- const aligned=manuscript.segments.every(seg=>
-  original.some(row=>Math.abs(Number(row.start||0)-seg.start)<2.6 &&
-   Number(row.end||row.start||0)>=seg.start));
+ const sourceCheck=await driveReview.review({task_id:taskId,kind:"en"});
+ let original=sourceCheck.ok&&Array.isArray(sourceCheck.segments)?
+   sourceCheck.segments:[];
+ let recoveredCC=null;
+ if(!original.length){
+  // The current CC worker writes verified English-only text to the central
+  // Sheet, not Google Drive. A fully saved same-video CC plus the approved
+  // Chinese Final is an authoritative source for human English review.
+  const zh=await chineseFinalStore.read(taskId);
+  const captions=await youtubeCCQueue.manifest(taskId);
+  const cc=(captions.cc_files||[]).find(x=>x.name==="en.transcript.txt"&&
+    x.task_id===taskId&&x.storage==="google-sheet");
+  if(!zh?.manuscript?.segments?.length||!cc)
+   throw Error("english_source_missing_for_this_lesson");
+  if(!p.source_video_id||String(p.source_video_id)!==captions.video_id)
+   throw Error("english_cc_source_video_mismatch");
+  const verified=await youtubeCCQueue.transcript(taskId,cc.job_id,"en");
+  if(!verified.ok||String(verified.content||"").trim().length<200)
+   throw Error("english_cc_source_content_invalid");
+  original=zh.manuscript.segments;
+  recoveredCC=cc;
+ }
+ const aligned=recoveredCC?
+  (manuscript.segments.length===original.length &&
+   manuscript.segments.every(seg=>original.some(row=>
+     Number(row.id)===seg.id&&
+     Math.abs(Number(row.start)-seg.start)<2.6&&
+     Math.abs(Number(row.end)-seg.end)<3.6))):
+  manuscript.segments.every(seg=>original.some(row=>
+    Math.abs(Number(row.start||0)-seg.start)<2.6 &&
+    Number(row.end||row.start||0)>=seg.start));
  if(!aligned)throw Error("english_final_timeline_does_not_match_lesson");
  const task=(await get(N.tasks,"A1:J5000")).slice(1).find(r=>r[0]===String(p.task_id||""));
  const targetUrl=String(task?.[4]||"");
