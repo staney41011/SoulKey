@@ -209,6 +209,7 @@ let englishFinalizePendingTaskId = "";
 let englishFinalizePriorFinishedAt = "";
 let englishFinalizeWatchdog = null;
 let pendingRunStageRequest=null;
+let pendingYoutubeCapture=null;
 // A confirmed Drive acknowledgement applies to its own task only.
 const englishFinalizedThisSession = new Set();
 const englishSheetFinalizedThisSession = new Set();
@@ -1733,10 +1734,25 @@ function renderCaptureFileList(containerId,files,emptyText){
         '<b>'+escapeHtml(file.display_name||file.name||"未命名檔案")+'</b>'+
         '<span>'+escapeHtml([size,updated].filter(Boolean).join("・"))+'</span>'+
       '</div>'+
-      '<a href="'+escapeHtml(file.url||"#")+'" target="_blank" rel="noopener">開啟雲端檔案</a>'+
+      (file.storage==="google-sheet"
+        ? '<button class="secondary" type="button" data-cc-download="'+escapeHtml(file.job_id||"")+
+          '" data-cc-task="'+escapeHtml(file.task_id||"")+
+          '" data-cc-lang="'+escapeHtml(file.lang||"")+'">下載中央字幕</button>'
+        : '<a href="'+escapeHtml(file.url||"#")+'" target="_blank" rel="noopener">開啟雲端檔案</a>')+
     '</div>';
   }).join("");
 }
+
+document.addEventListener("click",event=>{
+  const button=event.target.closest("[data-cc-download]");
+  if(!button)return;
+  const fields={
+    action:"youtube_cc_content",task_id:button.dataset.ccTask,
+    job_id:button.dataset.ccDownload,language:button.dataset.ccLang
+  };
+  if(!bridgeClientRequest(fields) && !jsonpBridgeRequest(fields))
+    alert("未能向中央控制中心請求這份字幕，請重新連線後再試。");
+});
 
 function renderYoutubeCaptureFiles(task){
   const payload=task ? youtubeCaptureFilesCache[task.id] : null;
@@ -1799,7 +1815,7 @@ function requestYoutubeCaptureFiles(taskId,force=false){
   youtubeCaptureFilesLoadingTask=id;
   const badge=document.getElementById("youtube-capture-files-state");
   if(badge){
-    badge.textContent="正在讀取 Drive…";
+    badge.textContent="正在讀取中央字幕及 Drive 成果…";
     badge.className="badge";
   }
 
@@ -1963,26 +1979,28 @@ function runYoutubeAudioGrab(){
     payload.langs=langs;
   }
 
-  const sent=submitBridgePost(payload);
-  if(!sent){
-    if(status) status.textContent="YouTube 抓取工作未送出，請重新連線控制中心後再試。";
+  if(pendingYoutubeCapture){
+    if(status)status.textContent="上一次請求還沒收到控制中心回覆，請勿重複送出。";
     return;
   }
-
-  if(button) button.disabled=true;
-  if(status){
-    status.textContent=mode==="cc"
-      ? "已送出｜抓取所有可用 CC 字幕"
-      : "已送出｜"+(langs==="all" ? "抓取全部可用音軌" : "指定音軌語言："+langs);
+  pendingYoutubeCapture={taskId:task.id,mode};
+  if(button)button.disabled=true;
+  if(status)status.textContent="正在等待控制中心確認派工，還沒有啟動任何抓取工作…";
+  const sent=submitBridgePost(payload);
+  if(!sent){
+    pendingYoutubeCapture=null;
+    if(button)button.disabled=false;
+    if(status)status.textContent="抓取工作未送出，請重新連線後再試。";
+    return;
   }
-
-  const stateInfo={key:"working",label:"執行中",detail:"Kaggle 已收到抓取工作，等待處理。"};
-  setCaptureState(mode==="cc"?"cc":"audio",stateInfo);
-
+  const pending=pendingYoutubeCapture;
   window.setTimeout(()=>{
-    if(button) button.disabled=false;
-    requestTaskStatuses();
-  },1800);
+    if(pendingYoutubeCapture===pending){
+      pendingYoutubeCapture=null;
+      if(button)button.disabled=false;
+      if(status)status.textContent="控制中心未回覆是否接收；請先刷新中央任務狀態，不要連續送出。";
+    }
+  },35000);
 }
 
 function stageState(task,index){
@@ -5333,6 +5351,30 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="run_stage"){
+    const youtube=pendingYoutubeCapture;
+    if(youtube && data.stage==="cc" &&
+       (!data.task_id || data.task_id===youtube.taskId)){
+      pendingYoutubeCapture=null;
+      const status=document.getElementById("youtube-audio-status");
+      const button=document.getElementById("youtube-audio-run");
+      if(button)button.disabled=false;
+      if(data.ok){
+        if(status)status.textContent=youtube.mode==="cc"
+          ?"中央佇列已確認，等待 GitHub Actions 抓取本堂可用的七語 CC"
+          :"中央佇列已確認";
+        setCaptureState("cc",{key:"working",label:"已排隊",
+          detail:"只在 Worker 領取後執行；結果儲存在中央 Sheet，Drive 待同步"});
+        requestTaskStatuses();
+      }else{
+        const error=String(data.message||data.error||"功能尚未恢復");
+        if(status)status.textContent="沒有建立 YouTube 抓取工作："+error;
+        setCaptureState(youtube.mode==="cc"?"cc":"audio",
+          {key:"error",label:"未送出",detail:error});
+        alert("YouTube "+(youtube.mode==="cc"?"CC 字幕":"音軌")+
+          "工作沒有送出："+error);
+      }
+      return;
+    }
     const pending=pendingRunStageRequest;
     pendingRunStageRequest=null;
     if(data.ok){
@@ -5378,6 +5420,16 @@ window.addEventListener("message",event=>{
       alert("多語／音檔工作尚未送出："+(data.message || data.error || "未知錯誤")+
         "。英文中央定稿仍已保存，沒有啟動或重跑 Kaggle。");
     }
+  }
+
+  if(data.type==="youtube_cc_content"){
+    if(data.ok && String(data.content||"")){
+      const fileName=String(data.name||"captions.txt").replace(/[^A-Za-z0-9._-]/g,"_");
+      const blob=new Blob([data.content],{type:"text/plain;charset=utf-8"});
+      const link=document.createElement("a"),url=URL.createObjectURL(blob);
+      link.href=url;link.download=fileName;document.body.appendChild(link);link.click();
+      link.remove();window.setTimeout(()=>URL.revokeObjectURL(url),10000);
+    }else alert("字幕未通過本堂來源驗證，無法下載："+(data.message||data.error||"未知錯誤"));
   }
 
   if(data.type==="youtube_capture_files"){
