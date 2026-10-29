@@ -48,6 +48,12 @@ const put=async(name,range,rows,append)=>{
    /caption_part_conflict/);
  await cc.part({job_id:first.job_id,language:"en",part_index:"1",part_count:"2",
    content:"Fourth-lesson English CC part 2"});
+ // English must be available to reviewers without waiting for seven languages.
+ const active=await cc.manifest("P259-L04");
+ assert.equal(active.cc_files.length,1);
+ assert.equal(active.cc_files[0].name,"en.transcript.txt");
+ assert.equal((await cc.transcript("P259-L04",first.job_id,"en")).content,
+   "Fourth-lesson English CC part 1Fourth-lesson English CC part 2");
  const done=await cc.finish({job_id:first.job_id,status:"done",languages:"en"});
  assert(done.ok);assert.equal(done.language_count,1);
  const manifest=await cc.manifest("P259-L04");
@@ -58,7 +64,7 @@ const put=async(name,range,rows,append)=>{
  const doc=await cc.transcript("P259-L04",first.job_id,"en");
  assert.equal(doc.content,"Fourth-lesson English CC part 1Fourth-lesson English CC part 2");
  await assert.rejects(()=>cc.transcript("P259-L03",first.job_id,"en"),
-   /caption_job_not_finalized_for_lesson/);
+   /caption_job_not_verified_for_lesson/);
  await assert.rejects(()=>cc.part({job_id:first.job_id,language:"th",
    part_index:"0",part_count:"1",content:"late data"}),/caption_job_not_running/);
  assert.equal(tables["執行狀態"].at(-1)[2],"done");
