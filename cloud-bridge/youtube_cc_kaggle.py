@@ -86,9 +86,9 @@ def fetch_youtube(video_id,languages):
 
 
 def main():
-    job_file=Path(__file__).resolve().with_name("cc_job.json")
-    if not job_file.is_file():job_file=Path("cc_job.json")
-    job=json.loads(job_file.read_text(encoding="utf-8"))
+    job=globals().get("JOB_PAYLOAD")
+    if not isinstance(job,dict):
+        raise RuntimeError("kaggle_embedded_cc_job_missing")
     video=str(job["video_id"])
     langs=list(job.get("languages") or LANGS)
     if not langs or any(x not in LANGS for x in langs):
