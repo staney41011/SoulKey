@@ -2,7 +2,7 @@
 """GitHub OIDC worker for user-requested public YouTube CC text only.
 
 Preserves original YouTube video ID and never substitutes captions from
-another lesson. No video or audio downloads. Does not require user cookies.
+another lesson. No video or audio downloads. Uses cookies only if explicitly provided via GitHub Actions secret.
 """
 import json
 import base64
@@ -10,6 +10,8 @@ import os
 import re
 import sys
 import time
+import tempfile
+from pathlib import Path
 import urllib.parse
 import urllib.request
 from urllib.error import HTTPError
@@ -100,7 +102,32 @@ def pull_caption(url,ytdlp,tries=4):
             if attempt+1==tries:raise
             print("CAPTION_RETRY",attempt+1,type(error).__name__,flush=True)
             time.sleep(min(35,4*(2**attempt)))
-def fetch_youtube(video_id,languages):
+def temporary_cookiefile(secret,directory):
+    """Decode an authorized Netscape cookie export on the ephemeral runner.
+
+    Never print credentials, persist them to GitHub, or pass them to Kaggle.
+    """
+    raw=str(secret or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("# Netscape HTTP Cookie File") or raw.startswith("# HTTP Cookie File"):
+        decoded=raw
+    else:
+        try:
+            decoded=base64.b64decode("".join(raw.split())+"="*(-len("".join(raw.split()))%4),
+                validate=True).decode("utf-8-sig")
+        except (ValueError,UnicodeError,base64.binascii.Error) as exc:
+            raise RuntimeError("YOUTUBE_COOKIES_B64 invalid base64 or cookie format") from None
+    entries=[line for line in decoded.splitlines() if line and not line.startswith("# ")]
+    if not any(("\tyoutube.com\t" in x or ".youtube.com\t" in x or
+                "\tgoogle.com\t" in x or ".google.com\t" in x) for x in entries):
+        raise RuntimeError("YOUTUBE_COOKIES_B64 contains no recognizable YouTube cookie entries")
+    filename=Path(directory)/"youtube_cookies.txt"
+    filename.write_text(decoded,encoding="utf-8")
+    filename.chmod(0o600)
+    return str(filename)
+
+def fetch_youtube(video_id,languages,cookiefile=None):
     import yt_dlp
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}",video_id):raise RuntimeError("Invalid YouTube video id")
     opts={
@@ -109,6 +136,8 @@ def fetch_youtube(video_id,languages):
       "noplaylist":True,"retries":3,"extractor_retries":3,
       "socket_timeout":40
     }
+    if cookiefile:
+        opts["cookiefile"]=cookiefile
     with yt_dlp.YoutubeDL(opts) as yt:
         info=yt.extract_info("https://www.youtube.com/watch?v="+video_id,download=False)
         if not isinstance(info,dict) or str(info.get("id"))!=video_id:
@@ -158,20 +187,32 @@ def main():
     print("CLAIM_CC",jid,job["task_id"],job["video_id"],flush=True)
     try:
         requested=job.get("languages") or LANGS
-        if os.environ.get("KAGGLE_API_TOKEN"):
+        # Prefer the authenticated GitHub path when the owner has explicitly
+        # provided an export. The cookie file stays on GitHub's temporary disk.
+        # Kaggle never receives browser cookies or the encoded secret.
+        cookies=os.environ.get("YOUTUBE_COOKIES_B64","")
+        data=None;missing=[]
+        if cookies:
+            with tempfile.TemporaryDirectory(prefix="soulkey-cc-auth-") as tmp:
+                cookiefile=temporary_cookiefile(cookies,tmp)
+                print("CC_BACKEND=GITHUB_AUTHENTICATED",flush=True)
+                try:
+                    data,missing=fetch_youtube(job["video_id"],requested,cookiefile=cookiefile)
+                except Exception as error:
+                    print("CC_AUTHENTICATED_FETCH_FAILED",
+                          type(error).__name__,flush=True)
+        if data is None and os.environ.get("KAGGLE_API_TOKEN"):
             from youtube_cc_kaggle_client import capture
-            print("CC_BACKEND=KAGGLE_CPU",flush=True)
+            print("CC_BACKEND=KAGGLE_CPU_ANONYMOUS",flush=True)
             try:
                 data,missing=capture(job["video_id"],requested)
             except Exception as kaggle_exc:
                 print("CC_KAGGLE_FAILED_TRY_GITHUB_CPU",
-                      type(kaggle_exc).__name__,str(kaggle_exc)[:160],flush=True)
-                # The fallback reads public subtitle tracks for the SAME
-                # verified video ID; it does not generate or substitute text.
+                      type(kaggle_exc).__name__,flush=True)
                 data,missing=fetch_youtube(job["video_id"],requested)
-                print("CC_BACKEND=GITHUB_CPU_FALLBACK",flush=True)
-        else:
-            print("CC_BACKEND=GITHUB_CPU_WITHOUT_KAGGLE",flush=True)
+                print("CC_BACKEND=GITHUB_CPU_ANONYMOUS_FALLBACK",flush=True)
+        elif data is None:
+            print("CC_BACKEND=GITHUB_CPU_ANONYMOUS",flush=True)
             data,missing=fetch_youtube(job["video_id"],requested)
         if not data:
             raise RuntimeError("YouTube did not expose any of the seven requested CC languages")
