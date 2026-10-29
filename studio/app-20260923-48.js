@@ -3830,11 +3830,15 @@ async function openEnglishReview(taskId){
     alert("這堂課仍有未確認的英文修改，請先完成確認或複製備份再切換課程。");
     return;
   }
-  if(selectedTaskId!==taskId){
-    // The previous task's English rows must never survive a lesson switch.
-    englishReviewDirtyIds.clear();
-    currentEnglishReview=[];
+  if(selectedTaskId===taskId &&
+     (englishReviewDirtyIds.size||englishDraftSavePendingId!==null)){
+    // Never discard a same-lesson unsaved edit just to refresh its source.
+    showView("en-review");
+    return;
   }
+  if(selectedTaskId!==taskId)englishReviewDirtyIds.clear();
+  // Clear stale rows even when reopening the very same lesson.
+  currentEnglishReview=[];
   englishCanonicalLoadedTaskId="";
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
