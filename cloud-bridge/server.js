@@ -77,6 +77,24 @@ async function recordVerifiedEnglishStage(taskId,hash,mode){
  ]],true);
 }
 async function saveFullEnglishFinal(p){
+ // Never accept third-lesson English pasted under another lesson's ID.
+ // The matching, per-task English source must exist in the canonical Drive
+ // lesson folder or in this task's verified Sheet Final.
+ const sourceCheck=await driveReview.review({task_id:String(p.task_id||""),kind:"en"});
+ if(!sourceCheck.ok||!Array.isArray(sourceCheck.segments)||!sourceCheck.segments.length)
+  throw Error("english_source_missing_for_this_lesson");
+ const manuscript=normalizeEnglishFinal(p);
+ const original=sourceCheck.segments;
+ const aligned=manuscript.segments.every(seg=>
+  original.some(row=>Math.abs(Number(row.start||0)-seg.start)<2.6 &&
+   Number(row.end||row.start||0)>=seg.start));
+ if(!aligned)throw Error("english_final_timeline_does_not_match_lesson");
+ const task=(await get(N.tasks,"A1:J5000")).slice(1).find(r=>r[0]===String(p.task_id||""));
+ const targetUrl=String(task?.[4]||"");
+ const targetVideo=(targetUrl.match(/(?:youtu\\.be\\/|[?&]v=)([A-Za-z0-9_-]{6,})/)||[])[1]||"";
+ if(p.source_video_id && targetVideo &&
+    String(p.source_video_id)!==targetVideo)
+  throw Error("english_final_source_video_mismatch");
  const backup=await englishFinalBackup.save(p);
  if(!backup.backup_saved)throw Error("english_final_backup_incomplete");
  if(!driveFinalPublisher.isConfigured()){
