@@ -101,6 +101,7 @@ jobs:
           node studio/tests/test_english_drive_authority.cjs
           node studio/tests/test_english_lesson_isolation.cjs
           node studio/tests/test_central_english_cc_editable.cjs
+          node studio/tests/test_default_all_languages_manual_optout.cjs
           node studio/tests/test_english_independent_store.cjs
           node studio/tests/test_review_audio_backend.cjs
           node studio/tests/test_language_delivery_layout.cjs
