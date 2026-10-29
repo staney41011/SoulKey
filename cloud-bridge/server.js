@@ -161,11 +161,15 @@ async function read(p){const a=p.action;if(a==="review_final_status"){
  const files=await driveReview.courseFiles(p);
  const groups=Array.isArray(files.groups)?files.groups:[];
  const transcripts=groups.find(g=>g.key==="transcript")?.files||[];
- const audio=groups.find(g=>g.key==="audio")?.files||[];
+ const original=await driveReview.youtubeCaptureFiles(String(p.task_id||""));
  const folder=await driveReview.resolveFolders(String(p.task_id||""));
+ const captions=new Map();
+ for(const file of [...(original.cc_files||[]),...(manifest.cc_files||[])])
+  captions.set(file.name,file);
  return {...manifest,
+  cc_files:[...captions.values()],
   asr_files:transcripts.filter(x=>x.canonical_name==="zh-TW.transcript.txt"),
-  audio_files:audio,
+  audio_files:original.audio_files||[],
   source_folder_url:"https://drive.google.com/drive/folders/"+folder.source,
   transcript_folder_url:"https://drive.google.com/drive/folders/"+folder.transcript,
   audio_folder_url:"https://drive.google.com/drive/folders/"+folder.audio
