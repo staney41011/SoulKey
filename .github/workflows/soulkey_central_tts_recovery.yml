@@ -1,0 +1,94 @@
+name: SoulKey Central Final -> Legacy Natural TTS Recovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'translation-system/central_tts_source.py'
+      - 'translation-system/central_tts_recovery.py'
+      - '.github/workflows/soulkey_central_tts_recovery.yml'
+  schedule:
+    # Deliberately bounded. Each run processes one new/reusable QA-verified
+    # language; avoids consuming the Kaggle CPU quota in a giant parallel run.
+    - cron: '17 */3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-central-natural-tts-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-central-natural-tts-recovery
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify integration source and Kaggle credential
+        run: |
+          python -m py_compile translation-system/central_tts_source.py translation-system/central_tts_recovery.py
+          python -m unittest discover -s translation-system/tests -p 'test_central_tts_source.py' -v
+          if [[ -z "$KAGGLE_API_TOKEN" ]]; then
+            echo "::error::KAGGLE_API_TOKEN unavailable. No work was dispatched."
+            exit 1
+          fi
+      - name: Install Kaggle command
+        run: python -m pip install -q kaggle
+      - name: Prepare private CPU recovery kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="${RUNNER_TEMP}/central-tts"
+          mkdir -p "$DIR"
+          cat >"$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-central-natural-tts-recovery",
+            "title": "SoulKey Central Natural TTS Recovery",
+            "code_file": "central-tts-job.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "dataset_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          JSON
+          cat >"$DIR/central-tts-job.py" <<'PY'
+          import subprocess,sys
+          from pathlib import Path
+          repo=Path("/kaggle/working/SoulKey")
+          subprocess.run(["git","clone","--depth","1",
+            "https://github.com/staney41011/SoulKey.git",str(repo)],check=True)
+          subprocess.run([sys.executable,"-m","pip","install","-q",
+            "google-api-python-client","google-auth-oauthlib","edge-tts==7.3.1"],check=True)
+          subprocess.run([sys.executable,"-u",
+            str(repo/"translation-system/central_tts_recovery.py"),
+            "--period","259","--max-languages","1"],check=True)
+          PY
+      - name: Run one legacy TTS language on Kaggle CPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/central-tts" -t 5400
+          state=unknown
+          for i in $(seq 1 500); do
+            status="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+            if echo "$status" | grep -Eqi 'complete|completed'; then
+              state=complete; break
+            fi
+            if echo "$status" | grep -Eqi 'error|failed|failure|cancel'; then
+              state=error; break
+            fi
+            sleep 10
+          done
+          echo "KAGGLE_TTS_STATE=$state"
+          kaggle kernels logs "$KAGGLE_KERNEL" | tail -n 90 || true
+          test "$state" = complete
