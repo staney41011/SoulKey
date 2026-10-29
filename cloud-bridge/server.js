@@ -7,6 +7,7 @@ const {createSheetFinalStore}=require("./sheet-final-store");
 const {createChineseFinalStore}=require("./chinese-final-store");
 const {createDriveFinalPublisher}=require("./drive-final-publisher");
 const {createTranslationQueue}=require("./translation-queue");
+const {createYoutubeCCQueue}=require("./youtube-cc-queue");
 const {verifyGithubWorker}=require("./github-worker-auth");
 const ID="1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
 const N={tasks:"任務佇列",status:"執行狀態",lang:"語言設定",plans:"語言任務設定",edits:"英文人工定稿"};
@@ -55,6 +56,7 @@ const chineseFinalStore=createChineseFinalStore({
 });
 driveReview.setChineseFinalLoader(task=>chineseFinalStore.read(task));
 driveReview.setSheetFinalLoader(task=>sheetFinalStore.read(task));
+const youtubeCCQueue=createYoutubeCCQueue({get,put,ensureTab:ensureBackupTab});
 const translationQueue=createTranslationQueue({
  get,put,ensureTab:ensureBackupTab,
  readFinal:task=>sheetFinalStore.read(task),
@@ -154,7 +156,24 @@ async function read(p){const a=p.action;if(a==="review_final_status"){
  return out("review_final_status",{ok:true,task_id:task,
   sheet_finalized:!!final,segment_count:final?.manuscript?.segments?.length||0,
   backup_id:final?.backup_id||""});
-}if(a==="drive_owner_probe")return out("drive_owner_probe",{task_id:String(p.task_id||""),...await driveFinalPublisher.probe(String(p.task_id||""))});if(a==="course_files")return driveReview.courseFiles(p);if(a==="tts_share_links")return driveReview.ttsShareLinks(p);if(a==="review_load")return driveReview.review(p);if(a==="status_health"){const rows=await get(N.status,"A1:A10000");return out("status_health",{ok:true,sheet:N.status,rows:Math.max(rows.length-1,0),bridge_protocol:"cloud-recovery",sheet_final_enabled:true,chinese_sheet_final_enabled:true,lesson_source_guard:true,translation_queue_enabled:true,translation_worker:"github-actions-oidc",drive_owner_configured:driveFinalPublisher.isConfigured(),youtube_cookies_configured:false,server_time:now()});}
+}if(a==="drive_owner_probe")return out("drive_owner_probe",{task_id:String(p.task_id||""),...await driveFinalPublisher.probe(String(p.task_id||""))});if(a==="youtube_capture_files"){
+ const manifest=await youtubeCCQueue.manifest(String(p.task_id||""));
+ const files=await driveReview.courseFiles(p);
+ const groups=Array.isArray(files.groups)?files.groups:[];
+ const transcripts=groups.find(g=>g.key==="transcript")?.files||[];
+ const audio=groups.find(g=>g.key==="audio")?.files||[];
+ const folder=await driveReview.resolveFolders(String(p.task_id||""));
+ return {...manifest,
+  asr_files:transcripts.filter(x=>x.canonical_name==="zh-TW.transcript.txt"),
+  audio_files:audio,
+  source_folder_url:"https://drive.google.com/drive/folders/"+folder.source,
+  transcript_folder_url:"https://drive.google.com/drive/folders/"+folder.transcript,
+  audio_folder_url:"https://drive.google.com/drive/folders/"+folder.audio
+ };
+}
+if(a==="youtube_cc_content")return youtubeCCQueue.transcript(String(p.task_id||""),
+ String(p.job_id||""),String(p.language||""));
+if(a==="course_files")return driveReview.courseFiles(p);if(a==="tts_share_links")return driveReview.ttsShareLinks(p);if(a==="review_load")return driveReview.review(p);if(a==="status_health"){const rows=await get(N.status,"A1:A10000");return out("status_health",{ok:true,sheet:N.status,rows:Math.max(rows.length-1,0),bridge_protocol:"cloud-recovery",sheet_final_enabled:true,chinese_sheet_final_enabled:true,lesson_source_guard:true,translation_queue_enabled:true,youtube_cc_queue_enabled:true,youtube_cc_storage:"google-sheet",translation_worker:"github-actions-oidc",drive_owner_configured:driveFinalPublisher.isConfigured(),youtube_cookies_configured:false,server_time:now()});}
  if(a==="tasks_get")return out("tasks_result",{ok:true,tasks:await tasks(),server_time:now()});
  if(a==="language_settings")return out("language_settings",{ok:true,languages:await langs(),server_time:now()});
  if(a==="language_plan_get")return out("language_plan",{ok:true,task_id:p.task_id||"",plan:await plans(String(p.task_id||""))});
@@ -164,6 +183,14 @@ async function read(p){const a=p.action;if(a==="review_final_status"){
 }
 async function write(p){
  if(p.action==="run_stage"){
+  if(p.stage==="cc" && p.lang!=="multi-audio"){
+   try{return out("run_stage",await youtubeCCQueue.enqueue(p));}
+   catch(error){
+    const message=String(error.message||error);
+    return out("run_stage",{ok:false,task_id:p.task_id||"",
+     stage:"cc",error:message,message:"CC 無法加入佇列："+message});
+   }
+  }
   if(p.stage!=="multi")return out("run_stage",{ok:false,task_id:p.task_id||"",
    stage:p.stage||"",error:"stage_not_restored",
    message:"目前只恢復各國語言文字翻譯派工；音檔與其他階段尚未接回"});
@@ -207,14 +234,17 @@ http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https:/
  }
  // Signed GitHub OIDC is the sole path for background worker queue access.
  // Never accept a user-supplied task ID as authentication.
- if(["worker_job_claim","worker_job_report"].includes(p.action)){
+ if(["worker_job_claim","worker_job_report","worker_cc_claim","worker_cc_part","worker_cc_finish"].includes(p.action)){
    try{
     if(req.method!=="POST")throw Error("worker_post_required");
     const bearer=String(req.headers.authorization||"").match(/^Bearer (.+)$/i);
     await verifyGithubWorker(bearer?.[1]);
-    const result=p.action==="worker_job_claim"
-      ? await translationQueue.claim()
-      : await translationQueue.report(p);
+    let result;
+    if(p.action==="worker_job_claim")result=await translationQueue.claim();
+    else if(p.action==="worker_job_report")result=await translationQueue.report(p);
+    else if(p.action==="worker_cc_claim")result=await youtubeCCQueue.claim();
+    else if(p.action==="worker_cc_part")result=await youtubeCCQueue.part(p);
+    else result=await youtubeCCQueue.finish(p);
     send(res,out(p.action,result),result.ok===false?409:200);
    }catch(error){
     console.error("Worker queue request rejected",String(error.message||error).slice(0,110));
@@ -228,7 +258,7 @@ http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https:/
    send(res,out(p.action==="status_health"?"status_health":"bridge_error",{ok:false,error:limited?"rate_limited":"unauthorized",message:limited?"登入嘗試過多，請稍後再試":"Bridge Key 不正確"}),limited?429:401,p.callback);
    return;
  }
- const readActions=new Set(["status_health","tasks_get","language_settings","language_plan_get","status","status_batch","review_en_draft_status","review_load","course_files","tts_share_links","drive_owner_probe","review_final_status"]);
+ const readActions=new Set(["status_health","tasks_get","language_settings","language_plan_get","status","status_batch","review_en_draft_status","review_load","youtube_capture_files","youtube_cc_content","course_files","tts_share_links","drive_owner_probe","review_final_status"]);
  const data=req.method==="GET"||readActions.has(String(p.action||""))?await read(p):await write(p);
  send(res,data,data.ok===false?409:200,p.callback);
  }catch(e){
