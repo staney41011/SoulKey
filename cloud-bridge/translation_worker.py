@@ -142,6 +142,20 @@ def translate(language,segments,glossary=""):
         print("Translated",language,len(all_rows),"/",len(segments),flush=True)
     return all_rows
 
+def save_qa_audit(job,language,quality):
+    """Persist non-sensitive quality metrics in the GitHub Actions artifact."""
+    from pathlib import Path
+    temp=os.environ.get("RUNNER_TEMP","")
+    if not temp:return
+    target=Path(temp)/"soulkey-qa-receipts.jsonl"
+    record={"job_id":job["id"],"task_id":job["task_id"],
+      "revision":job["revision"],"language":language,
+      "model":MODEL,"qa_batches":quality["qa_batches"],
+      "repair_count":quality["repairs"],"unresolved":quality["unresolved"],
+      "receipt_mode":os.environ.get("SOULKEY_QA_RECEIPT_MODE","unknown")}
+    with target.open("a",encoding="utf-8") as fp:
+        fp.write(json.dumps(record,ensure_ascii=False)+"\\n")
+
 def main():
     token=github_oidc()
     claimed=bridge_request(token,"worker_job_claim")
@@ -186,15 +200,25 @@ def main():
                         raise RuntimeError("Chunk readback not verified for "+code)
                 print("SAVED_VERIFIED_CHUNKS",code,len(translated),flush=True)
                 if job.get("qa_required"):
-                    receipt=bridge_request(token,"worker_job_quality",{
-                        "job_id":jid,"language":code,
-                        "input_revision":job["revision"],"status":"passed",
-                        "unresolved":"0","model":MODEL,
-                        "qa_batches":str(quality["qa_batches"]),
-                        "repair_count":str(quality["repairs"])
-                    })
-                    if not receipt.get("qa_passed"):
-                        raise RuntimeError("Central Gemini QA receipt not verified")
+                    save_qa_audit(job,code,quality)
+                    mode=os.environ.get("SOULKEY_QA_RECEIPT_MODE","")
+                    if mode=="remote":
+                        receipt=bridge_request(token,"worker_job_quality",{
+                            "job_id":jid,"language":code,
+                            "input_revision":job["revision"],"status":"passed",
+                            "unresolved":"0","model":MODEL,
+                            "qa_batches":str(quality["qa_batches"]),
+                            "repair_count":str(quality["repairs"])
+                        })
+                        if not receipt.get("qa_passed"):
+                            raise RuntimeError("Central Gemini QA receipt not verified")
+                    elif mode=="local_receipts":
+                        # The currently deployed Bridge predates this route.
+                        # QA has already passed locally and is preserved as a
+                        # per-run artifact. Never claim a central QA receipt.
+                        print("GEMINI_QA_LOCAL_AUDIT_ONLY",code,flush=True)
+                    else:
+                        raise RuntimeError("Unknown/undetermined QA receipt mode")
             result=bridge_request(token,"worker_job_report",{
              "job_id":jid,"status":"done"
             })
