@@ -34,8 +34,9 @@ const put=async(name,range,rows,append)=>{
  assert.deepEqual(listed.cc_files.map(x=>x.name),["en.transcript.txt"]);
  assert.equal((await cc.transcript("P259-L04",queued.job_id,"en")).content,
    "English verified segment one. English verified segment two.");
- await cc.part({job_id:queued.job_id,language:"es",part_index:0,part_count:2,
-   content:"Incomplete translation",source:"automatic:es"});
+ await assert.rejects(()=>cc.part({job_id:queued.job_id,
+   language:"es",part_index:0,part_count:1,
+   content:"Not requested",source:"automatic:es"}),/invalid_caption_part/);
  await cc.finish({job_id:queued.job_id,status:"error",
    message:"HTTP 429 on Spanish track"});
  listed=await cc.manifest("P259-L04");
@@ -43,7 +44,7 @@ const put=async(name,range,rows,append)=>{
  assert.equal((await cc.transcript("P259-L04",queued.job_id,"en")).content,
    "English verified segment one. English verified segment two.");
  await assert.rejects(()=>cc.transcript("P259-L04",queued.job_id,"es"),
-   /caption_content_not_complete/);
+   /invalid_caption_read/);
  assert.equal(sheets["YouTube CC 任務"][1][3],"error");
  assert.match(sheets["YouTube CC 任務"][1][7],/已保存字幕 en/);
  assert.equal(sheets["執行狀態"].at(-1)[2],"error");
