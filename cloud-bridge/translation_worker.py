@@ -199,8 +199,9 @@ def main():
                     if not result.get("ok"):
                         raise RuntimeError("Chunk readback not verified for "+code)
                 print("SAVED_VERIFIED_CHUNKS",code,len(translated),flush=True)
-                if job.get("qa_required"):
+                if GEMINI:
                     save_qa_audit(job,code,quality)
+                if job.get("qa_required"):
                     mode=os.environ.get("SOULKEY_QA_RECEIPT_MODE","")
                     if mode=="remote":
                         receipt=bridge_request(token,"worker_job_quality",{
