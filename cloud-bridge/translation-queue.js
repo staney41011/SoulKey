@@ -78,6 +78,47 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
     }))
   }};
  }
+ async function part(p){
+  const id=String(p.job_id||""),code=String(p.language||"").toLowerCase();
+  if(!JOB.test(id))throw Error("invalid_job_id");
+  const rows=await findRows(),job=rows.find(r=>r[0]===id);
+  if(!job||job[5]!=="running")throw Error("job_not_running");
+  if(!parseLanguages(job[3]).includes(code))throw Error("translation_language_not_requested");
+  const task=job[1],revision=job[4];
+  if(String(p.input_revision||"")!==revision)throw Error("translation_revision_mismatch");
+  const final=await readFinal(task);
+  if(!final||final.backup_id!==revision)throw Error("final_changed_during_translation");
+  const batch=typeof p.segments==="string"?JSON.parse(p.segments):p.segments;
+  if(!Array.isArray(batch)||!batch.length||batch.length>20)
+    throw Error("invalid_translation_chunk");
+  const validIds=new Set(final.manuscript.segments.map(x=>String(x.id)));
+  const unique=new Set(),at=utcNow();
+  const pending=[];
+  for(const item of batch){
+    const segId=String(item?.id??""),value=String(item?.text||"").trim();
+    if(!validIds.has(segId)||unique.has(segId)||!value||value.length>16000)
+      throw Error("invalid_translated_segment_"+code);
+    unique.add(segId);
+    pending.push([task,revision,code,segId,value,id,at]);
+  }
+  const current=(await get(OUTPUT,"A1:G50000")).slice(1);
+  const existing=new Map(current.filter(r=>r[5]===id&&r[1]===revision&&r[2]===code)
+    .map(r=>[String(r[3]),String(r[4]||"")]));
+  for(const row of pending){
+    if(existing.has(row[3])&&existing.get(row[3])!==row[4])
+      throw Error("translation_chunk_conflict_"+code+"_"+row[3]);
+  }
+  const missing=pending.filter(r=>!existing.has(r[3]));
+  if(missing.length)await put(OUTPUT,"A:G",missing,true);
+  const saved=(await get(OUTPUT,"A1:G50000")).slice(1);
+  for(const row of pending){
+    if(!saved.some(r=>r[5]===id&&r[1]===revision&&r[2]===code&&
+      String(r[3])===row[3]&&String(r[4])===row[4]))
+      throw Error("translation_chunk_readback_failed_"+code+"_"+row[3]);
+  }
+  return {ok:true,task_id:task,job_id:id,language:code,
+    saved_count:pending.length,added_count:missing.length};
+ }
  async function report(p){
   const id=String(p.job_id||"");
   if(!JOB.test(id))throw Error("invalid_job_id");
@@ -98,28 +139,46 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
    return {ok:true,task_id:task,status:"error"};
   }
   if(status!=="done")throw Error("invalid_worker_status");
-  const translated=typeof p.translations==="string"?
-    JSON.parse(p.translations):p.translations;
-  if(!translated||typeof translated!=="object"||Array.isArray(translated))
-   throw Error("invalid_translation_payload");
   const ids=final.manuscript.segments.map(x=>String(x.id));
   const results=[];
-  for(const code of langs){
-   const data=translated[code];
-   if(!Array.isArray(data)||data.length!==ids.length)
-    throw Error("incomplete_translation_"+code);
-   const seen=new Map();
-   for(const row of data){
-    const rid=String(row?.id??"");
-    const val=String(row?.text||"").trim();
-    if(!ids.includes(rid)||seen.has(rid)||!val||val.length>16000)
-     throw Error("invalid_translated_segment_"+code);
-    seen.set(rid,val);
-   }
-   for(const segId of ids){
-    if(!seen.has(segId))throw Error("missing_translated_segment_"+code);
-    results.push([task,revision,code,segId,seen.get(segId),id,utcNow()]);
-   }
+  if(p.translations){
+    const translated=typeof p.translations==="string"?
+      JSON.parse(p.translations):p.translations;
+    if(!translated||typeof translated!=="object"||Array.isArray(translated))
+      throw Error("invalid_translation_payload");
+    for(const code of langs){
+      const data=translated[code];
+      if(!Array.isArray(data)||data.length!==ids.length)
+        throw Error("incomplete_translation_"+code);
+      const seen=new Map();
+      for(const row of data){
+        const rid=String(row?.id??""),val=String(row?.text||"").trim();
+        if(!ids.includes(rid)||seen.has(rid)||!val||val.length>16000)
+          throw Error("invalid_translated_segment_"+code);
+        seen.set(rid,val);
+      }
+      for(const segId of ids){
+        if(!seen.has(segId))throw Error("missing_translated_segment_"+code);
+        results.push([task,revision,code,segId,seen.get(segId),id,utcNow()]);
+      }
+    }
+  }else{
+    // Workers upload bounded, readback-verified chunks instead of a giant HTTP body.
+    const saved=(await get(OUTPUT,"A1:G50000")).slice(1)
+      .filter(r=>r[0]===task&&r[1]===revision&&r[5]===id);
+    for(const code of langs){
+      const rows=saved.filter(r=>r[2]===code);
+      const seen=new Map();
+      for(const row of rows){
+        const sid=String(row[3]),value=String(row[4]||"").trim();
+        if(!ids.includes(sid)||!value||seen.has(sid))
+          throw Error("invalid_saved_translation_"+code+"_"+sid);
+        seen.set(sid,value);
+      }
+      if(seen.size!==ids.length)throw Error("incomplete_translation_"+code);
+      for(const sid of ids)
+        results.push([task,revision,code,sid,seen.get(sid),id,utcNow()]);
+    }
   }
   const current=(await get(OUTPUT,"A1:G50000")).slice(1);
   const known=new Set(current.filter(r=>r[5]===id).map(r=>r[2]+":"+r[3]));
@@ -137,6 +196,6 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,utcNow=n
   return {ok:true,task_id:task,status:"done",
    language_count:langs.length,segment_count:results.length};
  }
- return {enqueue,claim,report,parseLanguages};
+ return {enqueue,claim,part,report,parseLanguages};
 }
 module.exports={createTranslationQueue,parseLanguages,HEADER,OUT_HEADER};
