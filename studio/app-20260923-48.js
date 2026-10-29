@@ -5364,7 +5364,9 @@ window.addEventListener("message",event=>{
           job.remoteStages=job.remoteStages||{};
           job.remoteStages[pending.stage]={
             task_id:job.id,stage:pending.stage,status:"queued",progress:"0",
-            message:"已收到 GitHub/Kaggle 派工回覆"
+            message:data.queue_mode==="scheduled-github-actions"
+              ?"已寫入中央翻譯佇列，等待 GitHub CPU Worker 領取"
+              :"已收到 GitHub/Kaggle 派工回覆"
           };
           save(STORE.tasks,tasks);
           renderTasks();
