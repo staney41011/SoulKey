@@ -81,6 +81,42 @@ def bridge_request(_initial_token,action,body=None):
                   type(error).__name__,flush=True)
             time.sleep(3*(attempt+1))
 
+class GeminiResponseError(RuntimeError):
+    """A model response with missing/truncated JSON; shrinking batches is safe."""
+    retry_with_smaller_batch=True
+
+
+def _decode_gemini_response(reply):
+    if not isinstance(reply,dict):
+        raise GeminiResponseError("gemini_response_not_object")
+    candidates=reply.get("candidates") or []
+    if not isinstance(candidates,list) or not candidates:
+        reason=str((reply.get("promptFeedback") or {}).get("blockReason") or "no_candidate")
+        if reason not in ("no_candidate",):
+            raise RuntimeError("Gemini content blocked: "+reason)
+        raise GeminiResponseError("gemini_no_candidates")
+    candidate=candidates[0]
+    if not isinstance(candidate,dict):
+        raise GeminiResponseError("gemini_candidate_not_object")
+    reason=str(candidate.get("finishReason") or "")
+    if reason in ("SAFETY","PROHIBITED_CONTENT","SPII","RECITATION","BLOCKLIST"):
+        raise RuntimeError("Gemini content blocked: "+reason)
+    content=candidate.get("content") or {}
+    parts=content.get("parts") if isinstance(content,dict) else None
+    if not isinstance(parts,list) or not parts:
+        raise GeminiResponseError("gemini_missing_parts:"+str(reason or "unknown"))
+    value="".join(str(part.get("text") or "") for part in parts
+                  if isinstance(part,dict)).strip()
+    if not value:
+        raise GeminiResponseError("gemini_empty_text:"+str(reason or "unknown"))
+    if reason=="MAX_TOKENS":
+        raise GeminiResponseError("gemini_max_tokens")
+    try:
+        return json.loads(value)
+    except (ValueError,TypeError):
+        raise GeminiResponseError("gemini_invalid_json:"+str(reason or "unknown")) from None
+
+
 def gemini(messages,schema=None):
     if not GEMINI:raise RuntimeError("GEMINI_API_KEY repository secret is missing")
     url="https://generativelanguage.googleapis.com/v1beta/models/"+MODEL+":generateContent"
@@ -93,16 +129,20 @@ def gemini(messages,schema=None):
     for attempt in range(5):
         try:
             r=json_http(url,payload,{"x-goog-api-key":GEMINI},timeout=170)
-            parts=r["candidates"][0]["content"]["parts"]
-            text="".join(x.get("text","") for x in parts)
-            if not text:raise RuntimeError("Gemini produced no text")
-            return json.loads(text)
+            return _decode_gemini_response(r)
         except HTTPError as exc:
             last=RuntimeError("Gemini HTTP "+str(exc.code))
             if exc.code not in (429,500,502,503,504):break
-        except (KeyError,ValueError,RuntimeError,URLError,OSError) as exc:
+        except GeminiResponseError as exc:
+            last=exc
+        except RuntimeError as exc:
+            # Safety/policy blocks are not automatically retried or reduced.
+            raise
+        except (KeyError,ValueError,URLError,OSError) as exc:
             last=exc
         if attempt<4:time.sleep(min(45,5*(2**attempt)))
+    if isinstance(last,GeminiResponseError):
+        raise GeminiResponseError("Gemini translation failed: "+str(last)[:160])
     raise RuntimeError("Gemini translation failed: "+str(last)[:160])
 
 def translate(language,segments,glossary=""):
@@ -113,41 +153,53 @@ def translate(language,segments,glossary=""):
             _NLLB_RUNNER=NllbCPU()
         return _NLLB_RUNNER.translate(language,segments)
     name=LANGS[language]
-    all_rows=[]
-    for start in range(0,len(segments),8):
-        chunk=segments[start:start+8]
+    def translate_chunk(chunk):
         prompt=(
-          "Translate each item from an English manually reviewed spiritual lecture "
-          "into natural, accurate "+name+". Keep all meaning, terminology, names "
-          "and tone. Do not summarize, merge, omit, or introduce content. "
-          "Return only JSON object with array 'segments', each with the identical "
-          "integer 'id' and its translated 'text'. Exactly one translated "
-          "item per source item. Preserve segment IDs and order. "
-          "If a spiritual or religious term is ambiguous, translate conservatively. "
-          "Respect the following source-grounded glossary and any LOCKED target "
-          "terms. Do not invent translations when glossary targets are blank.\n"
-          "GLOSSARY:\n"+str(glossary)[:12000]+"\n\n"+
-          json.dumps({"segments":[{"id":x["id"],"text":x["text"]} for x in chunk]},
-                     ensure_ascii=False)
+              "Translate each item from an English manually reviewed spiritual lecture "
+              "into natural, accurate "+name+". Keep all meaning, terminology, names "
+              "and tone. Do not summarize, merge, omit, or introduce content. "
+              "Return only JSON object with array 'segments', each with the identical "
+              "integer 'id' and its translated 'text'. Exactly one translated "
+              "item per source item. Preserve segment IDs and order. "
+              "If a spiritual or religious term is ambiguous, translate conservatively. "
+              "Respect the following source-grounded glossary and any LOCKED target "
+              "terms. Do not invent translations when glossary targets are blank.\n"
+              "GLOSSARY:\n"+str(glossary)[:12000]+"\n\n"+
+              json.dumps({"segments":[{"id":x["id"],"text":x["text"]} for x in chunk]},
+                         ensure_ascii=False)
         )
         schema={"type":"object","properties":{"segments":{"type":"array","items":{
-          "type":"object","properties":{"id":{"type":"integer"},
-            "text":{"type":"string"}},"required":["id","text"]}}},"required":["segments"]}
-        data=gemini(prompt,schema)
-        rows=data.get("segments") if isinstance(data,dict) else data
-        if not isinstance(rows,list) or len(rows)!=len(chunk):
-            raise RuntimeError("Translated segment count mismatch for "+language)
-        mapping={}
-        for item in rows:
-            if not isinstance(item,dict):raise RuntimeError("Invalid item")
-            sid=int(item.get("id",-1))
-            txt=str(item.get("text","")).strip()
-            if sid in mapping or not txt or len(txt)>16000:
-                raise RuntimeError("Invalid or duplicate translation for "+language)
-            mapping[sid]=txt
-        if set(mapping)!=set(x["id"] for x in chunk):
-            raise RuntimeError("Translation IDs do not match source for "+language)
-        all_rows.extend({"id":x["id"],"text":mapping[x["id"]]} for x in chunk)
+              "type":"object","properties":{"id":{"type":"integer"},
+                "text":{"type":"string"}},"required":["id","text"]}}},"required":["segments"]}
+    
+        try:
+            data=gemini(prompt,schema)
+            rows=data.get("segments") if isinstance(data,dict) else data
+            if not isinstance(rows,list) or len(rows)!=len(chunk):
+                raise GeminiResponseError("translated_segment_count_mismatch")
+            mapping={}
+            for item in rows:
+                if not isinstance(item,dict):
+                    raise GeminiResponseError("translated_item_invalid")
+                try:sid=int(item.get("id",-1))
+                except (TypeError,ValueError):
+                    raise GeminiResponseError("translated_id_invalid")
+                txt=str(item.get("text","")).strip()
+                if sid in mapping or not txt or len(txt)>16000:
+                    raise GeminiResponseError("translated_text_or_id_invalid")
+                mapping[sid]=txt
+            if set(mapping)!=set(x["id"] for x in chunk):
+                raise GeminiResponseError("translated_ids_do_not_match_source")
+            return [{"id":x["id"],"text":mapping[x["id"]]} for x in chunk]
+        except GeminiResponseError:
+            if len(chunk)==1:raise
+            midpoint=len(chunk)//2
+            print("GEMINI_ADAPTIVE_SPLIT",language,len(chunk),
+                  midpoint,len(chunk)-midpoint,flush=True)
+            return translate_chunk(chunk[:midpoint])+translate_chunk(chunk[midpoint:])
+    all_rows=[]
+    for start in range(0,len(segments),8):
+        all_rows.extend(translate_chunk(segments[start:start+8]))
         print("Translated",language,len(all_rows),"/",len(segments),flush=True)
     return all_rows
 

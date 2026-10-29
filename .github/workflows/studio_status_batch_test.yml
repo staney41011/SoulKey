@@ -54,6 +54,7 @@ jobs:
       - name: Validate Cloud Run Bridge read-only helpers
         run: |
           node --check cloud-bridge/server.js
+          python -m unittest discover -s cloud-bridge/tests -p 'test_gemini_response_recovery.py' -v
           node cloud-bridge/tests/sheets-request.test.js
           node cloud-bridge/tests/english-final-source.test.js
           node --check cloud-bridge/drive-review.js

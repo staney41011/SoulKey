@@ -204,6 +204,21 @@ def _failed_pairs(source,translation,lang,gemini_request):
        for key in (local.keys()|semantic.keys())}
     return merged,len(local),len(semantic)
 
+def _failed_pairs_adaptive(source,translation,lang,gemini_request):
+    try:
+        return _failed_pairs(source,translation,lang,gemini_request)
+    except RuntimeError as exc:
+        if not getattr(exc,"retry_with_smaller_batch",False) or len(source)<2:
+            raise
+        middle=len(source)//2
+        left=source[:middle];right=source[middle:]
+        l=_failed_pairs_adaptive(left,translation,lang,gemini_request)
+        r=_failed_pairs_adaptive(right,translation,lang,gemini_request)
+        merged=dict(l[0])
+        merged.update(r[0])
+        return merged,l[1]+r[1],l[2]+r[2]
+
+
 def audit_and_repair(source,results,language,gemini_request,glossary="",max_rounds=4):
     """Semantic + local QA; only failed pairs repaired. Never publish unresolved QA."""
     translated=_normalize(source,results)
@@ -212,7 +227,7 @@ def audit_and_repair(source,results,language,gemini_request,glossary="",max_roun
         batch=source[start:start+8]
         ids={str(item["id"]) for item in batch}
         view={sid:translated[sid] for sid in ids}
-        failures,localCount,semanticCount=_failed_pairs(batch,view,language,gemini_request)
+        failures,localCount,semanticCount=_failed_pairs_adaptive(batch,view,language,gemini_request)
         qaBatches+=1
         for roundNo in range(1,max_rounds+1):
             if not failures:break
@@ -240,7 +255,7 @@ def audit_and_repair(source,results,language,gemini_request,glossary="",max_roun
             if set(got)!=idsNeeded:raise ValueError("gemini_repair_incomplete")
             view.update(got)
             seenRepairs+=len(got)
-            failures,localCount,semanticCount=_failed_pairs(batch,view,language,gemini_request)
+            failures,localCount,semanticCount=_failed_pairs_adaptive(batch,view,language,gemini_request)
             qaBatches+=1
         if failures:
             raise ValueError("unresolved_translation_qa_"+language+"_"+
