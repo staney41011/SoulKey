@@ -238,13 +238,14 @@ http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https:/
  }
  // Signed GitHub OIDC is the sole path for background worker queue access.
  // Never accept a user-supplied task ID as authentication.
- if(["worker_job_claim","worker_job_report","worker_cc_claim","worker_cc_part","worker_cc_finish"].includes(p.action)){
+ if(["worker_job_claim","worker_job_part","worker_job_report","worker_cc_claim","worker_cc_part","worker_cc_finish"].includes(p.action)){
    try{
     if(req.method!=="POST")throw Error("worker_post_required");
     const bearer=String(req.headers.authorization||"").match(/^Bearer (.+)$/i);
     await verifyGithubWorker(bearer?.[1]);
     let result;
     if(p.action==="worker_job_claim")result=await translationQueue.claim();
+    else if(p.action==="worker_job_part")result=await translationQueue.part(p);
     else if(p.action==="worker_job_report")result=await translationQueue.report(p);
     else if(p.action==="worker_cc_claim")result=await youtubeCCQueue.claim();
     else if(p.action==="worker_cc_part")result=await youtubeCCQueue.part(p);
