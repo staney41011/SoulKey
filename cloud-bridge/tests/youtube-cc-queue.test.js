@@ -3,7 +3,7 @@ const assert=require("node:assert/strict");
 const {createYoutubeCCQueue,videoId,TASK_HEAD,CONTENT_HEAD}=require("../youtube-cc-queue");
 const tables={
  "任務佇列":[["task_id","period","lesson","title","url"],
-    ["P259-L03","259","第3堂","","https://youtu.be/ThirdABC12"],
+    ["P259-L03","259","第3堂","","https://youtu.be/ThirdABC123"],
     ["P259-L04","259","第4堂","","https://youtu.be/FourthABC12"]],
  "執行狀態":[["task_id","stage","status"]]
 };
@@ -21,7 +21,7 @@ const put=async(name,range,rows,append)=>{
 };
 (async()=>{
  assert.equal(videoId("https://youtu.be/FourthABC12"),"FourthABC12");
- assert.equal(videoId("https://youtube.com/watch?v=ThirdABC12&t=60"),"ThirdABC12");
+ assert.equal(videoId("https://youtube.com/watch?v=ThirdABC123&t=60"),"ThirdABC123");
  const cc=createYoutubeCCQueue({get,put,ensureTab,
    now:()=>"2026-10-29T11:11:00.000Z"});
  await assert.rejects(()=>cc.enqueue({task_id:"P259-L05",stage:"cc"}),/task_not_registered/);
