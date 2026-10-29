@@ -34,7 +34,7 @@ const put=async(name,range,rows,append)=>{
  const claim=await cc.claim();
  assert.equal(claim.job.task_id,"P259-L04");
  assert.equal(claim.job.video_id,"FourthABC12");
- assert(claim.job.languages.includes("sd")&&claim.job.languages.includes("ta"));
+ assert.deepEqual(claim.job.languages,["en"]);
  await cc.part({job_id:first.job_id,language:"en",part_index:"0",part_count:"2",
      content:"Fourth-lesson English CC part 1",source:"automatic:en"});
  await assert.rejects(()=>cc.finish({
