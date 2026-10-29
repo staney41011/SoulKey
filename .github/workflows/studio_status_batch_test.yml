@@ -73,11 +73,13 @@ jobs:
           node cloud-bridge/tests/translation-chunk.test.js
           node --check cloud-bridge/youtube-cc-queue.js
           node cloud-bridge/tests/youtube-cc-queue.test.js
+          node cloud-bridge/tests/youtube-cc-progressive.test.js
           python -m py_compile cloud-bridge/youtube_cc_worker.py
           python -m py_compile cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
           python -m py_compile cloud-bridge/translation_worker.py cloud-bridge/nllb_cpu.py
           python -m py_compile cloud-bridge/youtube_cc_worker.py cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
           python -m unittest discover -s cloud-bridge/tests -p 'test_youtube_cookie_env.py' -v
+          python -m unittest discover -s cloud-bridge/tests -p 'test_cc_english_first.py' -v
           python - <<'PY'
           import ast
           from pathlib import Path
