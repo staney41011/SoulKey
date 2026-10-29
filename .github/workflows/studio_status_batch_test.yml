@@ -64,6 +64,8 @@ jobs:
           node cloud-bridge/tests/sheet-final-store.test.js
           node --check cloud-bridge/chinese-final-store.js
           node cloud-bridge/tests/chinese-final-store.test.js
+          node --check cloud-bridge/central-writes.js
+          node cloud-bridge/tests/central-writes.test.js
           node --check cloud-bridge/translation-queue.js
           node --check cloud-bridge/github-worker-auth.js
           node cloud-bridge/tests/translation-queue.test.js
