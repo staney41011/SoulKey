@@ -2068,10 +2068,10 @@ function stageState(task,index){
 function normalizedLanguagePlan(task){
   const current=Array.isArray(task.languagePlan) ? task.languagePlan : [];
   const byCode=Object.fromEntries(current.map(x=>[x.language_code || x.code,x]));
-  // Brand-new lessons default to all currently enabled languages. Existing lesson plans
-  // remain opt-in for newly added languages: never silently rerun old lessons.
+  // Only a lesson without a saved plan defaults to ALL supported languages.
+  // Once the user has saved a plan, explicit false choices always win and
+  // any new language defaults off until manually selected.
   const newLessonPlan=current.length===0;
-  const defaultSixLanguages=new Set(["en","es","th","id","km","vi"]);
 
   return languageSettings.map(lang=>{
     const saved=byCode[lang.code] || {};
@@ -2079,9 +2079,9 @@ function normalizedLanguagePlan(task){
     return {
       language_code:lang.code,
       language_name:lang.name,
-      transcript_enabled:english ? true : (Object.prototype.hasOwnProperty.call(saved,"transcript_enabled") ? !!saved.transcript_enabled : (newLessonPlan&&defaultSixLanguages.has(lang.code))),
+      transcript_enabled:english ? true : (Object.prototype.hasOwnProperty.call(saved,"transcript_enabled") ? !!saved.transcript_enabled : newLessonPlan),
       transcript_source:english ? "human" : (saved.transcript_source || "ai"),
-      audio_enabled:Object.prototype.hasOwnProperty.call(saved,"audio_enabled") ? !!saved.audio_enabled : (newLessonPlan&&defaultSixLanguages.has(lang.code)),
+      audio_enabled:Object.prototype.hasOwnProperty.call(saved,"audio_enabled") ? !!saved.audio_enabled : newLessonPlan,
       audio_source:saved.audio_source || "tts"
     };
   });
