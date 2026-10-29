@@ -74,7 +74,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          python -m pip install --disable-pip-version-check -q edge-tts==7.2.8
+          python -m pip install --disable-pip-version-check -q edge-tts==7.3.1
           python -u translation-system/tests/tts_full_cpu_live_smoke.py \
             --output-dir "$RUNNER_TEMP/soulkey-edge-cpu-full"
       - name: Validate Github CPU split routing and FIFO wait queue
