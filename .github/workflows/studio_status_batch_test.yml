@@ -74,6 +74,7 @@ jobs:
           node cloud-bridge/tests/github-worker-auth.test.js
           node cloud-bridge/tests/translation-queue.test.js
           node cloud-bridge/tests/translation-chunk.test.js
+          node cloud-bridge/tests/translation-resume.test.js
           node --check cloud-bridge/youtube-cc-queue.js
           node cloud-bridge/tests/youtube-cc-queue.test.js
           node cloud-bridge/tests/youtube-cc-progressive.test.js

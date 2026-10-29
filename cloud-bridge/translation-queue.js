@@ -19,6 +19,35 @@ function parseLanguages(raw){
   throw Error("invalid_translation_languages");
  return uniq;
 }
+// A previous job's language is reusable ONLY after it has a matching QA
+// receipt and a complete, unique set of source-bound segment IDs.
+function verifiedLanguages({task,revision,languages,ids,outputs,receipts}){
+ const verified=new Map();
+ const allowed=new Set(ids.map(String));
+ for(const code of languages){
+  const proof=receipts.filter(r=>r[1]===task && r[2]===revision &&
+    r[3]===code && r[7]==="passed").reverse();
+  for(const item of proof){
+   const rows=outputs.filter(r=>r[0]===task && r[1]===revision &&
+     r[2]===code && r[5]===item[0]);
+   const seen=new Map();
+   let valid=true;
+   for(const row of rows){
+    const sid=String(row[3]),text=String(row[4]||"").trim();
+    if(!allowed.has(sid)||seen.has(sid)||!text){valid=false;break;}
+    seen.set(sid,text);
+   }
+   if(valid && seen.size===allowed.size){
+    verified.set(code,{job_id:item[0],segments:ids.map(id=>({
+      id:String(id),text:seen.get(String(id))
+    }))});
+    break;
+   }
+  }
+ }
+ return verified;
+}
+
 function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,readGlossary=async()=>[],utcNow=now}){
  async function init(){
   await ensureTab(TAB,HEADER);await ensureTab(OUTPUT,OUT_HEADER);await ensureTab(QA_TAB,QA_HEADER);
@@ -79,8 +108,31 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,readGlos
  }
  async function claim(){
   const rows=await findRows();
-  const index=rows.findIndex(r=>r[5]==="queued");
-  if(index<0)return {ok:true,has_job:false};
+  let index=rows.findIndex(r=>r[5]==="queued");
+  if(index<0){
+   // Legacy-style bounded automatic recovery. Do not reopen a completed job
+   // or run an unlimited retry loop when external API daily quota is exhausted.
+   for(let i=rows.length-1;i>=0;i--){
+    const failed=rows[i];
+    if(failed[5]!=="error")continue;
+    const key=r=>r[1]===failed[1]&&r[3]===failed[3]&&r[4]===failed[4];
+    const matching=rows.filter(key);
+    if(matching.length>=4 || matching.some(r=>r[5]==="done"||
+      r[5]==="queued"||r[5]==="running"))continue;
+    if(matching.at(-1)!==failed)continue;
+    const at=Date.parse(String(failed[8]||failed[6]||""));
+    const isQuota=/429|quota|rate.limit/i.test(String(failed[9]||""));
+    const cooldown=isQuota?6*60*60*1000:45*60*1000;
+    if(!Number.isFinite(at)||Date.now()-at<cooldown)continue;
+    const newId=randomUUID(),created=utcNow();
+    await put(TAB,"A:J",[[newId,failed[1],"multi",failed[3],failed[4],
+      "queued",created,"","","自動恢復失敗翻譯，僅重做未通過 QA 的語言"]],true);
+    await appendStatus(failed[1],"multi","queued",newId,0,
+      "已建立來源相同的安全恢復工作，保留歷史 QA 成果",failed[4]);
+    return {ok:true,has_job:false,recovery_queued:true,job_id:newId};
+   }
+   return {ok:true,has_job:false};
+  }
   const row=rows[index],id=row[0],task=row[1],revision=row[4];
   const final=await readFinal(task);
   if(!final||final.backup_id!==revision){
@@ -116,10 +168,14 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,readGlos
       fields.push("LOCKED");
     return "- "+fields.join(" | ");
   }).join("\n").slice(0,12000);
-  const priorQa=(await get(QA_TAB,"A1:I5000")).slice(1).filter(r=>
-    r[0]===id&&r[1]===task&&r[2]===revision&&r[7]==="passed");
-  const completedLanguages=priorQa.map(r=>String(r[3]))
-    .filter(code=>requested.includes(code));
+  const [allQa,allOutput]=await Promise.all([
+   get(QA_TAB,"A1:I5000"),get(OUTPUT,"A1:G50000")
+  ]);
+  const approved=verifiedLanguages({
+   task,revision,languages:requested,ids:segments.map(x=>String(x.id)),
+   outputs:allOutput.slice(1),receipts:allQa.slice(1)
+  });
+  const completedLanguages=[...approved.keys()];
   return {ok:true,has_job:true,job:{
     id,task_id:task,stage:"multi",chunked_upload:true,
     qa_required:true,qa_completed_languages:completedLanguages,
@@ -137,7 +193,9 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,readGlos
   const final=await readFinal(task);
   if(!final||final.backup_id!==revision)throw Error("final_changed_during_translation");
   const batch=typeof p.segments==="string"?JSON.parse(p.segments):p.segments;
-  if(!Array.isArray(batch)||!batch.length||batch.length>20)
+  // Whole-language idempotent upload replaces dozens of 8-row uploads:
+  // each old upload performed four quota-consuming Sheet reads.
+  if(!Array.isArray(batch)||!batch.length||batch.length>2000)
     throw Error("invalid_translation_chunk");
   const validIds=new Set(final.manuscript.segments.map(x=>String(x.id)));
   const unique=new Set(),at=utcNow();
@@ -229,64 +287,24 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,readGlos
    return {ok:true,task_id:task,status:"error"};
   }
   if(status!=="done")throw Error("invalid_worker_status");
-  // A source-complete translation is not automatically production ready.
-  // All requested languages must also have passed legacy semantic QA.
-  const receipts=(await get(QA_TAB,"A1:I5000")).slice(1).filter(r=>
-    r[0]===id&&r[1]===task&&r[2]===revision&&r[7]==="passed");
-  for(const lang of langs){
-    if(!receipts.some(r=>r[3]===lang))
-      throw Error("missing_semantic_quality_receipt_"+lang);
-  }
+  // Require fully QA-verified inputs. Reuse complete past-job languages rather
+  // than re-translating after one other language hit Gemini/Sheets quota.
   const ids=final.manuscript.segments.map(x=>String(x.id));
+  const [receipts,outputs]=await Promise.all([
+    get(QA_TAB,"A1:I5000"),get(OUTPUT,"A1:G50000")
+  ]);
+  const approved=verifiedLanguages({
+    task,revision,languages:langs,ids,
+    outputs:outputs.slice(1),receipts:receipts.slice(1)
+  });
+  for(const lang of langs)
+    if(!approved.has(lang))throw Error("missing_semantic_quality_receipt_"+lang);
   const results=[];
-  if(p.translations){
-    const translated=typeof p.translations==="string"?
-      JSON.parse(p.translations):p.translations;
-    if(!translated||typeof translated!=="object"||Array.isArray(translated))
-      throw Error("invalid_translation_payload");
-    for(const code of langs){
-      const data=translated[code];
-      if(!Array.isArray(data)||data.length!==ids.length)
-        throw Error("incomplete_translation_"+code);
-      const seen=new Map();
-      for(const row of data){
-        const rid=String(row?.id??""),val=String(row?.text||"").trim();
-        if(!ids.includes(rid)||seen.has(rid)||!val||val.length>16000)
-          throw Error("invalid_translated_segment_"+code);
-        seen.set(rid,val);
-      }
-      for(const segId of ids){
-        if(!seen.has(segId))throw Error("missing_translated_segment_"+code);
-        results.push([task,revision,code,segId,seen.get(segId),id,utcNow()]);
-      }
-    }
-  }else{
-    // Workers upload bounded, readback-verified chunks instead of a giant HTTP body.
-    const saved=(await get(OUTPUT,"A1:G50000")).slice(1)
-      .filter(r=>r[0]===task&&r[1]===revision&&r[5]===id);
-    for(const code of langs){
-      const rows=saved.filter(r=>r[2]===code);
-      const seen=new Map();
-      for(const row of rows){
-        const sid=String(row[3]),value=String(row[4]||"").trim();
-        if(!ids.includes(sid)||!value||seen.has(sid))
-          throw Error("invalid_saved_translation_"+code+"_"+sid);
-        seen.set(sid,value);
-      }
-      if(seen.size!==ids.length)throw Error("incomplete_translation_"+code);
-      for(const sid of ids)
-        results.push([task,revision,code,sid,seen.get(sid),id,utcNow()]);
-    }
+  for(const code of langs){
+    const source=approved.get(code);
+    for(const part of source.segments)
+      results.push([task,revision,code,part.id,part.text,source.job_id,utcNow()]);
   }
-  const current=(await get(OUTPUT,"A1:G50000")).slice(1);
-  const known=new Set(current.filter(r=>r[5]===id).map(r=>r[2]+":"+r[3]));
-  const missing=results.filter(r=>!known.has(r[2]+":"+r[3]));
-  if(missing.length)await put(OUTPUT,"A:G",missing,true);
-  const saved=(await get(OUTPUT,"A1:G50000")).slice(1);
-  const verified=new Set(saved.filter(r=>r[5]===id&&r[1]===revision)
-   .map(r=>r[2]+":"+r[3]));
-  if(results.some(r=>!verified.has(r[2]+":"+r[3])))
-   throw Error("translation_results_readback_failed");
   await put(TAB,"F"+(idx+2)+":J"+(idx+2),
    [["done",job[6]||"",job[7]||"",utcNow(),"多語翻譯 "+langs.join(",")+" 完成"]]);
   await appendStatus(task,"multi","done",id,100,
@@ -314,4 +332,4 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,readGlos
  }
  return {enqueue,claim,part,quality,report,parseLanguages,ready:init,diagnostics};
 }
-module.exports={createTranslationQueue,parseLanguages,HEADER,OUT_HEADER};
+module.exports={createTranslationQueue,parseLanguages,HEADER,OUT_HEADER,verifiedLanguages};
