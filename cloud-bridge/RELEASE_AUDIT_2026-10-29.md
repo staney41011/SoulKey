@@ -12,6 +12,9 @@ Audit date: 2026-10-29. Source of truth: `staney41011/SoulKey`, current Google S
 - `多語翻譯結果` has its header but no verified new-architecture translation rows.
 - Before redeployment, there are no `YouTube CC 任務` and `YouTube CC 成果` tabs.
 - P259-L04 has its Chinese stage, but the English draft/review is unresolved.
+- The former Studio 'rollback previous stage' changed only browser localStorage, leaving
+  central course status unchanged. This is now explicitly blocked under Cloud Run;
+  old local rollback badges are reconciled against the central record on sync.
 - Older periods used the legacy GitHub/Kaggle worker route and have recorded
   actual `running`, `done` and TTS histories. The new backend is not function-complete.
 
@@ -39,6 +42,7 @@ Audit date: 2026-10-29. Source of truth: `staney41011/SoulKey`, current Google S
 |---|---|---|
 | Existing task/lesson status read | Implemented | Refresh all P253–P259 cards, same state as Sheet |
 | Course creation and language settings | Source repaired | Deploy then create a disposable new lesson and save/read back |
+| Automatic YouTube lesson title and lecturer metadata | **Not fully restored** | New central task creation preserves URLs but does not run the legacy metadata enrichment |
 | Chinese original ASR/polish dispatch | **Not restored** in Cloud Run | Port safe legacy GitHub/Kaggle dispatch before using on a new lesson |
 | Chinese incremental draft sync to GitHub | **Not restored** | Central draft recovery and readback |
 | Chinese formal Final save to central Sheet | Implemented | Save, re-open, preserve ID/timing/source |
