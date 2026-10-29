@@ -66,7 +66,7 @@ const put=async(name,range,rows,append)=>{
  await assert.rejects(()=>cc.transcript("P259-L03",first.job_id,"en"),
    /caption_job_not_verified_for_lesson/);
  await assert.rejects(()=>cc.part({job_id:first.job_id,language:"th",
-   part_index:"0",part_count:"1",content:"late data"}),/caption_job_not_running/);
+   part_index:"0",part_count:"1",content:"late data"}),/invalid_caption_part/);
  assert.equal(tables["執行狀態"].at(-1)[2],"done");
  console.log("PASS: YouTube fourth-lesson CC only; true queue ACK; no audio fake; exact task/video ID; verified parts");
 })().catch(e=>{console.error(e);process.exitCode=1});
