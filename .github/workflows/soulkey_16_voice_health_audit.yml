@@ -1,6 +1,10 @@
 name: SoulKey 16-Voice Health Audit
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/soulkey_16_voice_health_audit.yml
   workflow_dispatch:
 
 permissions:
