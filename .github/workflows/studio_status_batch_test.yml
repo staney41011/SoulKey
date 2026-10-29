@@ -11,6 +11,7 @@ on:
       - studio/tests/test_tts_share_message.cjs
       - studio/tests/test_english_draft_save_receipt.cjs
       - studio/tests/test_english_drive_authority.cjs
+      - studio/tests/test_english_lesson_isolation.cjs
       - studio/tests/test_english_independent_store.cjs
       - studio/tests/test_review_audio_backend.cjs
       - studio/styles.css
@@ -28,6 +29,7 @@ on:
       - studio/tests/test_tts_share_message.cjs
       - studio/tests/test_english_draft_save_receipt.cjs
       - studio/tests/test_english_drive_authority.cjs
+      - studio/tests/test_english_lesson_isolation.cjs
       - studio/tests/test_english_independent_store.cjs
       - studio/tests/test_review_audio_backend.cjs
       - studio/styles.css
@@ -60,6 +62,8 @@ jobs:
           node cloud-bridge/tests/english-final-backup.test.js
           node --check cloud-bridge/sheet-final-store.js
           node cloud-bridge/tests/sheet-final-store.test.js
+          node --check cloud-bridge/chinese-final-store.js
+          node cloud-bridge/tests/chinese-final-store.test.js
           node --check cloud-bridge/translation-queue.js
           node --check cloud-bridge/github-worker-auth.js
           node cloud-bridge/tests/translation-queue.test.js
@@ -72,6 +76,7 @@ jobs:
           node studio/tests/test_tts_share_message.cjs
           node studio/tests/test_english_draft_save_receipt.cjs
           node studio/tests/test_english_drive_authority.cjs
+          node studio/tests/test_english_lesson_isolation.cjs
           node studio/tests/test_english_independent_store.cjs
           node studio/tests/test_review_audio_backend.cjs
           node studio/tests/test_language_delivery_layout.cjs
@@ -82,7 +87,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261029-multi-queue-v7" in html
+          assert "app-20260923-48.js?v=20261029-isolation-v8" in html
           assert "tts-share-message.js?v=20261028-length-audit-v1" in html
           assert "id=\"tts-share-copy\"" in html
           assert html.index("tts-share-message.js?v=") < html.index("language-delivery.js?v=") < html.index("app-20260923-48.js?v=")
