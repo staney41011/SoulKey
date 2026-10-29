@@ -43,6 +43,28 @@ function createTranslationQueue({get,put,ensureTab,readFinal,taskExists,readGlos
   if(existing)return {ok:true,duplicate:true,task_id:id,stage,job_id:existing[0],
     status:existing[5],queue_mode:"scheduled-github-actions",
     message:"同一版本翻譯已在中央佇列，沒有重複派工"};
+  // Resume only when every previously saved chunk has a passing QA receipt.
+  // Otherwise start a separate job and retain the prior partial rows as
+  // evidence; never overwrite unverified translations from a failed attempt.
+  const failed=rows.filter(r=>r[1]===id&&r[2]===stage&&
+    r[3]===languages.join(",")&&r[4]===revision&&r[5]==="error").at(-1);
+  if(failed){
+    const previouslyWritten=(await get(OUTPUT,"A1:G50000")).slice(1)
+      .filter(r=>r[5]===failed[0]&&r[1]===revision);
+    const receipts=(await get(QA_TAB,"A1:I5000")).slice(1)
+      .filter(r=>r[0]===failed[0]&&r[2]===revision&&r[7]==="passed");
+    const approved=new Set(receipts.map(r=>String(r[3])));
+    const unsafePartial=previouslyWritten.some(r=>!approved.has(String(r[2])));
+    if(!unsafePartial){
+      const failedIndex=rows.indexOf(failed);
+      await put(TAB,"F"+(failedIndex+2)+":J"+(failedIndex+2),
+        [["queued",failed[6]||utcNow(),"","","原工作安全恢復；保留已通過 QA 的語言"]]);
+      await appendStatus(id,stage,"queued",failed[0],0,
+        "原工作已安全重新排隊，來源與 QA 完整性保留",revision);
+      return {ok:true,resumed:true,task_id:id,stage,job_id:failed[0],
+        status:"queued",queue_mode:"scheduled-github-actions"};
+    }
+  }
   const jobId=randomUUID(),at=utcNow();
   await put(TAB,"A:J",[[jobId,id,stage,languages.join(","),revision,
    "queued",at,"","","等待 GitHub Actions 定期領取"]],true);
