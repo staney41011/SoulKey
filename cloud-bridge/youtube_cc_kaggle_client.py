@@ -37,10 +37,13 @@ def capture(video_id,languages):
         root=Path(base)
         job=root/"job";job.mkdir()
         result_dir=root/"results";result_dir.mkdir()
-        shutil.copy(current/"youtube_cc_worker.py",job/"youtube_cc_worker.py")
-        shutil.copy(current/"youtube_cc_kaggle.py",job/"youtube_cc_kaggle.py")
-        (job/"cc_job.json").write_text(
-            json.dumps({"video_id":video_id,"languages":langs},ensure_ascii=False),
+        # Kaggle publishes only code_file. Embed the validated, public
+        # video ID and selected languages in that file. No keys are embedded.
+        job_payload={"video_id":video_id,"languages":langs}
+        source=(current/"youtube_cc_kaggle.py").read_text(encoding="utf-8")
+        (job/"youtube_cc_kaggle.py").write_text(
+            "JOB_PAYLOAD = "+json.dumps(job_payload,ensure_ascii=False)+
+            "\\n"+source,
             encoding="utf-8"
         )
         (job/"kernel-metadata.json").write_text(json.dumps({
