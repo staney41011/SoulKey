@@ -37,14 +37,14 @@ def check_ids(source,rows):
 class Gemma:
     def __init__(self):
         import torch,kagglehub
-        from transformers import AutoProcessor,AutoModelForCausalLM,BitsAndBytesConfig
+        from transformers import AutoProcessor,AutoModelForMultimodalLM,BitsAndBytesConfig
         if not torch.cuda.is_available():raise RuntimeError("Gemma4 requires Kaggle GPU")
         print("GEMMA4_MODEL",MODEL_ID,flush=True)
         path=kagglehub.model_download(MODEL_ID)
         self.proc=AutoProcessor.from_pretrained(path)
         quant=BitsAndBytesConfig(load_in_4bit=True,bnb_4bit_quant_type="nf4",
                                   bnb_4bit_compute_dtype=torch.float16)
-        self.model=AutoModelForCausalLM.from_pretrained(path,device_map="auto",
+        self.model=AutoModelForMultimodalLM.from_pretrained(path,device_map="auto",
                   dtype=torch.float16,quantization_config=quant).eval()
         self.torch=torch
         print("GEMMA4_LOADED",flush=True)
