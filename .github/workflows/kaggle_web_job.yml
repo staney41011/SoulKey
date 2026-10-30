@@ -63,6 +63,37 @@ jobs:
           SOULKEY_PREFLIGHT_BRIDGE_URL: ${{ inputs.bridge_url }}
         run: python -u translation-system/bridge_runtime_preflight.py
 
+      # The preflight intentionally aborts stale runs before wasting Kaggle
+      # GPU time. While the nonce still exists, report a real error to Studio
+      # and release the per-task dispatch lease rather than leaving "running".
+      - name: Report rejected runtime preflight to original Studio
+        if: ${{ failure() && steps.runtime_preflight.outcome == 'failure' }}
+        env:
+          SOULKEY_PREFLIGHT_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
+          SOULKEY_PREFLIGHT_BRIDGE_URL: ${{ inputs.bridge_url }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,os,urllib.parse,urllib.request
+          data=urllib.parse.urlencode({
+              "action":"worker_report",
+              "nonce":os.environ["SOULKEY_PREFLIGHT_RUNTIME_NONCE"],
+              "status":"error",
+              "message":"授權檢查未通過，Kaggle 未啟動；請由 SoulKey Studio 重新派送新工作。"
+          }).encode("utf-8")
+          try:
+              request=urllib.request.Request(
+                  os.environ["SOULKEY_PREFLIGHT_BRIDGE_URL"],
+                  data=data,method="POST")
+              with urllib.request.urlopen(request,timeout=20) as response:
+                  receipt=json.loads(response.read(8192).decode("utf-8"))
+              print("SOULKEY_PREFLIGHT_STATUS_REPORTED",
+                    "yes" if receipt.get("ok") else "unconfirmed")
+          except Exception as exc:
+              print("SOULKEY_PREFLIGHT_STATUS_UNCONFIRMED",
+                    type(exc).__name__)
+          PY
+
       - name: Install Kaggle CLI
         run: |
           python -m pip install --upgrade pip
