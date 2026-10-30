@@ -6,8 +6,8 @@ const root=path.resolve(__dirname,"..");
 const script=fs.readFileSync(path.join(root,"app-20260923-48.js"),"utf8");
 const config=fs.readFileSync(path.join(root,"config.js"),"utf8");
 const sections=[
-  script.split("function startP259RescueAudio(){",2)[1]?.split('document.getElementById("p259-rescue-start")',1)[0],
-  script.split("function startP259RescueTranslation(){",2)[1]?.split('document.getElementById("p259-translation-start")',1)[0]
+  script.split("function startP259RescueAudio(){",2)[1]?.split('document.getElementById("p259-rescue-start")?.addEventListener',1)[0],
+  script.split("function startP259RescueTranslation(){",2)[1]?.split('document.getElementById("p259-translation-start")?.addEventListener',1)[0]
 ];
 assert.equal(sections.length,2);
 for(const section of sections){
