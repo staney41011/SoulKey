@@ -73,7 +73,7 @@ class Gemma:
                 root=extracted.resolve()
                 for member in archive.getmembers():
                     target=(extracted/member.name).resolve()
-                    if not target.is_relative_to(root) or member.issym() or member.islnk():
+                    if not target.is_relative_to(root):
                         raise RuntimeError("Unsafe upstream archive member")
                 archive.extractall(extracted,filter="data")
             found=list(extracted.rglob("llama-server"))
