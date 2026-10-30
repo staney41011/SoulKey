@@ -38,7 +38,7 @@ subprocess.run(["git","clone","--depth","1",
     "https://github.com/staney41011/SoulKey.git",str(root)],check=True)
 subprocess.run([sys.executable,"-m","pip","install","-q",
     "-r",str(root/"translation-system/requirements-gemini.txt"),
-    "transformers>=5.10.1","accelerate","bitsandbytes","kagglehub"],check=True)
+    "huggingface_hub"],check=True)
 sys.path.insert(0,str(root/"translation-system"))
 from p259_gemma4_kaggle import Gemma,translate,repair
 out={"task_id":job["task_id"],"revision":job["revision"],
@@ -74,12 +74,12 @@ def safe_call(args,**kw):
 def private_kernel(job):
     encoded=base64.b64encode(json.dumps(job,ensure_ascii=False).encode("utf-8")).decode("ascii")
     root=Path(tempfile.mkdtemp(prefix="p259-gemma-private-"))
-    metadata={"id":KERNEL,"title":"Soulkey P259 Gemma4 Private Relay",
+    metadata={"id":KERNEL,"title":"Soulkey P259 Gemma4 Relay",
         "code_file":"p259_gemma_private.py",
         "language":"python","kernel_type":"script","is_private":True,
         "enable_gpu":True,"enable_internet":True,
         "kernel_sources":["cwlmrcsir/translate-system"],
-        "model_sources":[MODEL]}
+        "model_sources":[]}
     (root/"kernel-metadata.json").write_text(json.dumps(metadata,indent=2),encoding="utf-8")
     (root/"p259_gemma_private.py").write_text(KAGGLE_PY.replace("__JOB_BASE64__",repr(encoded)),encoding="utf-8")
     return root
@@ -95,6 +95,9 @@ def run_kernel(job):
             check=subprocess.run(["kaggle","kernels","status",KERNEL],
                 text=True,capture_output=True,timeout=45)
             value=(check.stdout+"\n"+check.stderr).upper()
+            if check.returncode!=0 or "CANNOT ACCESS KERNEL" in value:
+                raise RuntimeError("Kaggle relay slug or kernel access invalid: "+
+                                   value[-350:])
             if "COMPLETE" in value:
                 status="COMPLETE";break
             if any(word in value for word in ("ERROR","FAILED","CANCELLED")):
