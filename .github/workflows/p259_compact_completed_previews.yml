@@ -1,0 +1,116 @@
+name: P259 Compact Completed Audio Preview Artifacts
+on:
+  workflow_run:
+    workflows: ['P259 Verified Text to Natural Edge Audio Preview Artifacts']
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compact:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.id == 41048498342 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        lesson: [P259-L01, P259-L02, P259-L03]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Fetch per-lesson Edge preview artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LESSON: ${{ matrix.lesson }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/full"
+          gh run download 41048498342 --repo "$GH_REPO" \
+            --name "p259-preview-$LESSON-41048498342" \
+            --dir "$RUNNER_TEMP/full"
+      - name: Keep only reviewed MP3s and tiny receipts in at-most-two-language packages
+        env:
+          LESSON: ${{ matrix.lesson }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,shutil
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])
+          src=root/"full"
+          r=json.loads((src/"preview_receipts.json").read_text())
+          lesson=os.environ["LESSON"]
+          assert r["lesson"]==lesson
+          items=sorted(r["outputs"].items())
+          if not items:raise RuntimeError("no_completed_preview_audio")
+          for i in range(0,len(items),2):
+              folder=root/"compact"/("part"+str(i//2+1))
+              folder.mkdir(parents=True,exist_ok=True)
+              for lang,detail in items[i:i+2]:
+                  assert detail["official_drive_status"]=="NOT_VERIFIED_PREVIEW_ONLY"
+                  sound=src/detail["file"]
+                  assert sound.stat().st_size>100000
+                  shutil.copy2(sound,folder/sound.name)
+                  manifest=src/(lesson+"_"+lang+"_preview_manifest.json")
+                  if manifest.exists():shutil.copy2(manifest,folder/manifest.name)
+              (folder/"preview_receipts.json").write_text(
+                json.dumps({"lesson":lesson,"status":"PREVIEW_ONLY",
+                  "outputs":dict(items[i:i+2])},ensure_ascii=False,indent=2))
+              total=sum(f.stat().st_size for f in folder.iterdir())
+              if total>95_000_000:raise RuntimeError("bundle_above_drive_connector_limit")
+              print("P259_COMPACT_BUNDLE",lesson,i//2+1,total,flush=True)
+          PY
+      - name: Upload compact preview part 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-approved-preview-part1-${{ github.run_id }}
+          path: ${{ runner.temp }}/compact/part1/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Upload compact preview part 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-approved-preview-part2-${{ github.run_id }}
+          path: ${{ runner.temp }}/compact/part2/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Upload compact preview part 3
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-approved-preview-part3-${{ github.run_id }}
+          path: ${{ runner.temp }}/compact/part3/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Upload compact preview part 4
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-approved-preview-part4-${{ github.run_id }}
+          path: ${{ runner.temp }}/compact/part4/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Upload compact preview part 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-approved-preview-part5-${{ github.run_id }}
+          path: ${{ runner.temp }}/compact/part5/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Upload compact preview part 6
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-approved-preview-part6-${{ github.run_id }}
+          path: ${{ runner.temp }}/compact/part6/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Upload compact preview part 7
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-approved-preview-part7-${{ github.run_id }}
+          path: ${{ runner.temp }}/compact/part7/
+          if-no-files-found: ignore
+          retention-days: 30
+
