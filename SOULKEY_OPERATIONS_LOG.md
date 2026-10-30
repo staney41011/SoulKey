@@ -164,3 +164,12 @@
 - 中央 Sheet `翻譯工作佇列` **F13:F15** 舊 Gemini `queued` 已改為 `gemma4`（J13:J15 說明接手），未刪除紀錄、不改為假 `done`；未取得正式成果前不宣稱完成。現有 GitHub Gemini worker 對 P259 的後續舊佇列重試設有 Gemini API 禁用保護（`cloud-bridge/translation_worker.py` + `soulkey_translation_queue.yml`），其他期數未切換。
 - 17:04 中央 QA 查到 P259 **24/60 非英語 passed**（L01 6、L02 13、L03 5、L04 0），主要由之前 Gemini 工作者完成；**不能歸功 Gemma**。已驗證正式 MP3 最後基線仍是 11/64，沒有 Gemma 4 新文稿／新音檔交付證據。
 - **解除真正阻礙的安全下一步**：由帳戶持有人在上方 Kaggle Notebook 網頁開啟 Edit → Add-ons → Secrets，授權已存在的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN` 給該 Notebook，接著用 Kaggle 網頁 Save & Run All（**不是**再用 GitHub `kernels push`）。勿把 Secrets 內容貼入聊天、GitHub 原始碼、Kaggle 程式碼或 Logs。完成後以 Kaggle 記錄及中央 Sheet / Drive readback 實際驗收。
+
+
+### 2026-10-30 17:19（台灣）｜已勾選 Kaggle Secrets，API 重送仍無法帶入
+
+- 使用者已在 Kaggle Notebook 啟用三項 Google OAuth Secrets；不要求重新勾選。
+- 已重跑 [Gemma4 派工 #41031483823 attempt 2](https://github.com/staney41011/SoulKey/actions/runs/41031483823)。GitHub 僅成功提交新 Kaggle 版本。
+- [Runtime status #41031073162](https://github.com/staney41011/SoulKey/actions/runs/41031073162) 追查後，Kaggle kernel 從 RUNNING 轉成 ERROR，仍於 GOOGLE_CLIENT_ID 讀取失敗；沒有任何新增的 Gemma 文稿或音檔驗收證據。
+- 根因：Kaggle CLI kernels push 不會把 Notebook 網頁已授權的 Secrets 附掛至新的 API 派工版本。已核對 Kaggle CLI 文件及官方討論，禁止把憑證字串寫入 GitHub / Notebook 原始碼。
+- 唯一尚需使用者執行的操作：在 [同一個 Kaggle Notebook](https://www.kaggle.com/code/cwlmrcsir/soulkey-p259-gemma4-translation) 開啟 Edit，保留 GPU，按 Save Version → Save & Run All。**不要再由 GitHub API push**，以免再產出未附 Secrets 的版本。之後核對 Kaggle 真正 Log、中央 Sheet、Drive。
