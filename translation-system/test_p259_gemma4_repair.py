@@ -60,4 +60,45 @@ class Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"gemma4_unresolved_qa_ja_58"):
                 m.repair(g,"ja",SRC,TARGET)
 
+    def test_semantic_pass_cache_rechecks_changed_translation_only(self):
+        class Reviewer:
+            def __init__(self):
+                self.requests=[]
+            def json(self,prompt,limit=0):
+                self.requests.append(prompt)
+                return {"failures":[]}
+        source=[
+            {"id":58,"text":"Please protect the precious teachings."},
+            {"id":59,"text":"And care for your neighbors."},
+        ]
+        initial=[
+            {"id":58,"text":"大切な教えを守ってください。"},
+            {"id":59,"text":"隣人を大切にしましょう。"},
+        ]
+        changed=[
+            initial[0],
+            {"id":59,"text":"近所の人々を思いやりましょう。"},
+        ]
+        g=Reviewer()
+        cache=set()
+        with patch.object(m,"local_issues",return_value=[]):
+            self.assertEqual(m.qa(g,"ja",source,initial,cache),{})
+            self.assertEqual(len(g.requests),1)
+            self.assertEqual(m.qa(g,"ja",source,initial,cache),{})
+            self.assertEqual(len(g.requests),1)
+            self.assertEqual(m.qa(g,"ja",source,changed,cache),{})
+        self.assertEqual(len(g.requests),2)
+        self.assertIn('"id": 59',g.requests[-1])
+        self.assertNotIn('"id": 58',g.requests[-1])
+
+    def test_cached_semantic_pass_cannot_bypass_hard_number_check(self):
+        g=FakeGemma("accurate")
+        source=[{"id":58,"text":"There are 25 people."}]
+        translations=[{"id":58,"text":"25人がいます。"}]
+        cache={(58,"25人がいます。")}
+        with patch.object(m,"local_issues",return_value=["missing_number:25"]):
+            self.assertEqual(m.qa(g,"ja",source,translations,cache),
+                             {58:["missing_number:25"]})
+        self.assertEqual(g.requests,[])
+
 if __name__=="__main__":unittest.main(verbosity=2)
