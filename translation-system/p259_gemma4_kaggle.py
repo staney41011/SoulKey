@@ -95,7 +95,8 @@ class Gemma:
         logfile=(base/"llama-server.log").open("w",encoding="utf-8")
         cmd=[str(binary),"-m",str(file),
             "--host","127.0.0.1","--port",str(self.port),"-ngl","99",
-            "-c","8192","-t","4","--parallel","1"]
+            "-c","8192","-t","4","--parallel","1","--jinja",
+            "--chat-template-kwargs",'{"enable_thinking":false}']
         env=dict(os.environ)
         env["LD_LIBRARY_PATH"]=str(bindir)+os.pathsep+env.get("LD_LIBRARY_PATH","")
         self.proc=subprocess.Popen(cmd,stdout=logfile,
@@ -126,7 +127,11 @@ class Gemma:
                 {"role":"user","content":request}
               ],
               "temperature":0,"max_tokens":limit,
-              "response_format":{"type":"json_object"}}
+              "chat_template_kwargs":{"enable_thinking":False},
+              # llama.cpp's response_format path can allow a thought prefix
+              # even with thinking disabled (upstream issue #30256). Apply
+              # the direct JSON grammar, whose first token must be an object.
+              "grammar":(HERE/"json_output.gbnf").read_text(encoding="utf-8")}
         req=urllib.request.Request(
           "http://127.0.0.1:"+str(self.port)+"/v1/chat/completions",
           data=json.dumps(body,ensure_ascii=False).encode("utf-8"),
@@ -139,8 +144,16 @@ class Gemma:
                                str(error.code)) from error
         options=data.get("choices") or []
         if not options:raise RuntimeError("Gemma4 local completion missing choices")
-        content=(options[0].get("message") or {}).get("content") or ""
-        return parse_json(content)
+        choice=options[0]
+        content=(choice.get("message") or {}).get("content") or ""
+        if choice.get("finish_reason")=="length":
+            raise ValueError("gemma_json_truncated")
+        try:return parse_json(content)
+        except ValueError as error:
+            # Record a useful diagnostic without printing lecture manuscripts
+            # or private reasoning into GitHub/Kaggle logs.
+            raise ValueError("gemma_json_invalid:finish_reason="+
+                str(choice.get("finish_reason"))+":characters="+str(len(content))) from error
 
 def translate(gemma,lang,english):
     def batch(rows):

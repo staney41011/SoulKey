@@ -43,6 +43,40 @@ def same_segments(a,b):
     return canonical(a)==canonical(b)
 
 
+def publish_readable_finals(drive,folder,name,final,workdir):
+    from google_io import find_file,download_drive_file,upload_or_replace_file
+    def timestamp(seconds):
+        ms=max(0,round(float(seconds)*1000))
+        h,ms=divmod(ms,3600000);m,ms=divmod(ms,60000);s,ms=divmod(ms,1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+    rows=final["segments"]
+    files={"txt":"\n".join(x["text"] for x in rows)+"\n",
+           "srt":"\n\n".join(f"{i}\n{timestamp(x['start'])} --> {timestamp(x['end'])}\n{x['text']}"
+                                 for i,x in enumerate(rows,1))+"\n"}
+    for ext,text in files.items():
+        label=name[:-5]+"."+ext
+        target=Path(workdir)/label;blob=text.encode("utf-8")
+        existing=find_file(drive,folder,label)
+        if existing:
+            prior=Path(workdir)/(label+".previous")
+            download_drive_file(drive,existing["id"],prior)
+            if prior.read_bytes()==blob:continue
+            digest=hashlib.sha256(prior.read_bytes()).hexdigest()
+            archive=label+".revision-"+digest
+            saved=upload_or_replace_file(drive,folder,prior,archive)
+            check=Path(workdir)/archive
+            download_drive_file(drive,saved["id"],check)
+            if check.read_bytes()!=prior.read_bytes():raise RuntimeError("readable_final_archive_readback_failed")
+            current=Path(workdir)/(label+".latest")
+            download_drive_file(drive,existing["id"],current)
+            if current.read_bytes()!=prior.read_bytes():raise RuntimeError("readable_final_changed_during_sync")
+        target.write_bytes(blob)
+        saved=upload_or_replace_file(drive,folder,target,label)
+        check=Path(workdir)/(label+".readback")
+        download_drive_file(drive,saved["id"],check)
+        if check.read_bytes()!=blob:raise RuntimeError("readable_final_readback_failed")
+
+
 def sync_finals(task_id,kinds,workdir,drive=None,sheets=None):
     from config import SPREADSHEET_ID,TASK_SHEET_RANGE
     from google_io import (build_google_services,read_values,find_file,
@@ -77,7 +111,9 @@ def sync_finals(task_id,kinds,workdir,drive=None,sheets=None):
             old=json.loads(previous.read_text(encoding="utf-8"))
             if old.get("task_id") and old["task_id"]!=task_id:
                 raise RuntimeError("drive_final_task_mismatch")
-            if same_segments(old,final):continue
+            if same_segments(old,final):
+                publish_readable_finals(drive,folder,name,final,workdir)
+                continue
             # Human revisions retain the exact source IDs and time anchors.
             a=[(x["id"],float(x["start"]),float(x["end"])) for x in old.get("segments",[])]
             b=[(x["id"],float(x["start"]),float(x["end"])) for x in final["segments"]]
@@ -103,4 +139,5 @@ def sync_finals(task_id,kinds,workdir,drive=None,sheets=None):
         download_drive_file(drive,saved["id"],receipt)
         observed=json.loads(receipt.read_text(encoding="utf-8"))
         if not same_segments(observed,final):raise RuntimeError("central_final_drive_readback_failed")
+        publish_readable_finals(drive,folder,name,final,workdir)
         print("CENTRAL_HUMAN_FINAL_DRIVE_VERIFIED",task_id,kind,final["central_revision"],flush=True)

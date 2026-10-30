@@ -1,5 +1,16 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-30 20:17（台灣）｜PR #28 已部署、舊授權配音實際恢復；Gemma JSON 修復驗證中
+
+- [PR #28](https://github.com/staney41011/SoulKey/pull/28) 已合併，主線 `ad3d42d7fc6b8a7f13b6f57502554f1ca1486892`。修復提交的 Studio、MVP、語意/數字、CPU 音訊組裝等檢查全部通過。原站 Pages [#41053433262](https://github.com/staney41011/SoulKey/actions/runs/41053433262) 成功；瀏覽器 DOM 已確認 `bridge-routing.js` 及 `app-20260923-48.js?v=20261030-legacy-workflow-v5` 載入。
+- 保留原 Kaggle 授權輸入，重新執行 [#41002147166 attempt 3](https://github.com/staney41011/SoulKey/actions/runs/41002147166)。20:11:34 中央 `tts running`，**20:15:41 P259-L01 印尼文 `tts:id done`**，Worker 回報「正式 MP3/WAV 與 manifest 已上傳 Drive 並校驗」。這是新的單語交付回讀紀錄，不是64組全部完成。Drive connector 的檔名搜尋尚未取到該檔，未提供猜測音檔連結。
+- [Gemma relay #41047898408](https://github.com/staney41011/SoulKey/actions/runs/41047898408) 的真實模型已在 T4 載入（`GEMMA4_QAT_12B_READY`），但義大利文、葡萄牙文均 `gemma_json_invalid`，結果0 passed，中央 QA 仍24/60。新的診斷只下載結果 JSON，避免把整個 GGUF 和 repo 抓回 GitHub。
+- [PR #29](https://github.com/staney41011/SoulKey/pull/29) 明確停用 Gemma thinking，偵測 token 截斷、保留不含講稿的解析原因；合成公開句子的 [真實 T4 JSON/QA smoke #41053619551](https://github.com/staney41011/SoulKey/actions/runs/41053619551) 正在執行，此時不能稱已通過。
+- 中央 Final 同步補齊可讀 TXT/SRT；不同內容先保存舊檔版本並回讀，不只更新 JSON。新增「JSON 已存在但 TXT/SRT 缺失」測試。未登入獨立校稿頁不再送出空金鑰寫入。
+- 完整授權 ASR→人工定稿→全部多語→正式音檔的整期驗收仍未完成。既有授權 job 有時效，後續如果明確回報 nonce_expired，應由原 Studio 建立新的合法工作；不可取用 log 中的敏感資料繞過授權。
+
+---
+
 ## 2026-10-30 20:03（台灣）｜恢復 10/28 前流程並接回中央定稿（修復驗收中）
 
 - 舊版基準：`efcf6903d09d1cc64ec18598def64e225a2d1280`（10/27），已保留在 `recovery/pre-20261028-working-baseline`。本次不回退中央 Sheet／Drive 資料。

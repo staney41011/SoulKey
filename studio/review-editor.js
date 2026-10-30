@@ -683,6 +683,10 @@ function applyReviewPayload(loaded){
 }
 
 function submit(fields){
+  if(!bridgeKeyValue()){
+    setStatus("請先回工作台輸入原本的 6 碼，再開啟校稿頁","error");
+    return false;
+  }
   if(!BRIDGE_ENDPOINT){
     setStatus("後端連線不存在","error");
     return false;
