@@ -26,14 +26,22 @@
       : config.bridgeEndpoint||"").trim();
   }
   function protocol(value){return value==="cloud-recovery"?9:Number(value)||0;}
+  function statusTime(value){
+    const text=String(value||"").trim();
+    // The original Apps Script writes Asia/Taipei wall-clock timestamps.
+    // Cloud Run returns those unchanged alongside ISO UTC worker timestamps.
+    // Interpret the original format explicitly, independent of browser zone.
+    return Date.parse(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(text)
+      ? text.replace(" ","T")+"+08:00" : text);
+  }
   function dispatchReceipt(pending,status){
     if(!pending || !status || !status.run_id)return false;
     if(!["queued","running","done","needs_review","error"].includes(status.status))return false;
-    const at=Date.parse(status.updated_at||status.started_at||"");
+    const at=statusTime(status.updated_at||status.started_at||"");
     return String(status.run_id)!==String(pending.previousRunId||"") &&
       Number.isFinite(at) && at>=pending.submittedAt-2000;
   }
-  const api={usesLegacy,endpoint,protocol,dispatchReceipt};
+  const api={usesLegacy,endpoint,protocol,statusTime,dispatchReceipt};
   // Read-only legacy operations use google.script.run. Short shared keys must
   // never be placed in JSONP URLs. Keep one request in flight for correlation
   // with the original, unmodified Apps Script response contract.

@@ -137,7 +137,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261030-legacy-workflow-v5" in html
+          assert "app-20260923-48.js?v=20261030-legacy-workflow-v6" in html
           assert html.index("bridge-routing.js?v=") < html.index("app-20260923-48.js?v=")
           assert "english-cc-alignment.js?v=20261029-central-cc-restore-v1" in html
           assert "tts-share-message.js?v=20261028-length-audit-v1" in html
