@@ -31,6 +31,13 @@ jobs:
           import p259_gemma4_relay as m
           assert m.KERNEL.startswith("cwlmrcsir/")
           assert m.QA_COMPAT_MODEL.startswith("gemini-compat-gemma4-")
+          assert m.safe_failure_summary(
+              "ValueError: gemma4_unresolved_qa_pt_12,19","pt"
+          ) == "unresolved_segment_ids=12,19"
+          assert "confidential" not in m.safe_failure_summary(
+              "RuntimeError: confidential lecture data","pt"
+          )
+          assert m.safe_failure_summary("bad confidential data","pt") == "failure_class=unclassified"
           work=m.private_kernel({"task_id":"P259-L01","revision":"demo","segments":[],"langs":[]})
           metadata=json.loads((work/"kernel-metadata.json").read_text())
           source=(work/"p259_gemma_private.py").read_text()
