@@ -90,11 +90,20 @@ jobs:
           if [[ "$INPUT_EXPORT_ONLY" == "true" ]]; then flags+=(--export-only); fi
           python -u translation-system/central_tts_recovery.py "${flags[@]}" \
             2>&1 | tee "$RUNNER_TEMP/p259-official-drive-delivery.log"
+      - name: Recheck four lessons and strict 64/64 Drive acceptance
+        if: success()
+        shell: bash
+        env:
+          P259_AUDIT_OUTPUT: ${{ runner.temp }}/p259-delivery-acceptance.json
+        run: |
+          python -u translation-system/p259_delivery_audit.py
       - name: Preserve non-secret delivery proof and failed language receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: p259-final-drive-receipts-${{ github.run_id }}
-          path: ${{ runner.temp }}/p259-official-drive-delivery.log
+          path: |
+            ${{ runner.temp }}/p259-official-drive-delivery.log
+            ${{ runner.temp }}/p259-delivery-acceptance.json
           if-no-files-found: ignore
           retention-days: 30
