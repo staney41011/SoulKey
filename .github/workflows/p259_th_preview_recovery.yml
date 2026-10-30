@@ -1,0 +1,28 @@
+name: P259 L02 Thai Natural Preview Recovery
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/p259_th_preview_recovery.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Edge TTS
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q -r translation-system/requirements-gemini.txt 'edge-tts==7.3.1' google-auth-oauthlib
+      - name: Retry Thai only from approved manuscript
+        run: python -u translation-system/p259_offline_tts_artifact.py --lesson P259-L02 --lang th --output "$RUNNER_TEMP/thai"
+      - name: Archive Thai preview receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-thai-preview
+          path: ${{ runner.temp }}/thai/P259-L02/
+          if-no-files-found: error
