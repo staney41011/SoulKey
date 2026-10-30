@@ -32,7 +32,6 @@ jobs:
       SOULKEY_BRIDGE_URL: https://soulkey-bridge-214901732194.asia-east1.run.app
       SOULKEY_CLOUD_RUN_OIDC_REFRESH: '1'
       SOULKEY_TTS_PARALLEL_BLOCKS: '1'
-      SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/p259-final-tts
       INPUT_MAX_LANGUAGES: ${{ inputs.max_languages || '2' }}
       INPUT_EXPORT_ONLY: ${{ inputs.export_only || false }}
     steps:
@@ -75,6 +74,8 @@ jobs:
           PY
       - name: Deliver current-SHA-approved manuscripts and bounded Edge TTS
         shell: bash
+        env:
+          SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/p259-final-tts
         run: |
           set -euo pipefail
           MAX="$INPUT_MAX_LANGUAGES"
