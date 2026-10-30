@@ -101,4 +101,20 @@ class Tests(unittest.TestCase):
                              {58:["missing_number:25"]})
         self.assertEqual(g.requests,[])
 
+    def test_neutral_numbers_and_punctuation_do_not_deadlock_qa(self):
+        # Numeric-only subtitle fragments are correct even when unchanged.
+        for segment in ["2026", "7.", "...", "1,200"]:
+            with self.subTest(segment=segment):
+                self.assertNotIn("empty_or_english_copy",
+                                 m.local_issues(segment,segment,"pt"))
+
+    def test_real_english_sentence_cannot_be_reused_as_translation(self):
+        for language in ["pt","it","ja"]:
+            with self.subTest(language=language):
+                self.assertIn("empty_or_english_copy",
+                              m.local_issues("We should be kind.","We should be kind.",language))
+
+    def test_blank_target_still_fails(self):
+        self.assertIn("empty_or_english_copy",m.local_issues("2026","","pt"))
+
 if __name__=="__main__":unittest.main(verbosity=2)
