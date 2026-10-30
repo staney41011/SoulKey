@@ -47,6 +47,22 @@ jobs:
       KAGGLE_KERNEL: cwlmrcsir/soulkey-gpu-worker
 
     steps:
+      - uses: actions/checkout@v4
+
+      # GitHub re-run uses the ORIGINAL nonce. A prior 8-hour nonce can
+      # expire while Kaggle is synthesizing audio, causing Drive writes to
+      # fail after GPU time is consumed. Check original Apps Script first.
+      - name: Verify fresh original Apps Script runtime before Kaggle
+        id: runtime_preflight
+        env:
+          SOULKEY_PREFLIGHT_TASK_ID: ${{ inputs.task_id }}
+          SOULKEY_PREFLIGHT_STAGE: ${{ inputs.stage }}
+          SOULKEY_PREFLIGHT_LANG: ${{ inputs.lang }}
+          SOULKEY_PREFLIGHT_LANGS: ${{ inputs.langs }}
+          SOULKEY_PREFLIGHT_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
+          SOULKEY_PREFLIGHT_BRIDGE_URL: ${{ inputs.bridge_url }}
+        run: python -u translation-system/bridge_runtime_preflight.py
+
       - name: Install Kaggle CLI
         run: |
           python -m pip install --upgrade pip
@@ -339,7 +355,7 @@ jobs:
           echo "Kaggle final status: $FINAL_STATUS"
 
       - name: Download Kaggle log
-        if: always()
+        if: always() && steps.runtime_preflight.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -362,7 +378,7 @@ jobs:
           fi
 
       - name: Report Kaggle failure to Bridge
-        if: always() && steps.wait_job.outputs.final_status != 'COMPLETE'
+        if: always() && steps.runtime_preflight.outcome == 'success' && steps.wait_job.outputs.final_status != 'COMPLETE'
         shell: bash
         env:
           JOB_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
@@ -381,6 +397,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ "${{ steps.runtime_preflight.outcome }}" != "success" ]; then
+            echo "Kaggle was deliberately NOT launched: legacy Apps Script nonce requires a NEW Studio dispatch."
+            exit 1
+          fi
           if [ "${{ steps.wait_job.outputs.final_status }}" != "COMPLETE" ]; then
             echo "Kaggle job failed: ${{ steps.wait_job.outputs.final_status }}"
             exit 1
