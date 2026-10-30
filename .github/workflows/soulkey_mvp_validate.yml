@@ -29,6 +29,7 @@ jobs:
           node studio/tests/test_review_editor_central_save.cjs
           python -m unittest discover -s translation-system/tests -p test_central_final_sync.py -v
           python translation-system/tests/test_central_tts_recovery_plan.py
+          python translation-system/tests/test_gemma_queue_continuation.py
 
       - name: Python syntax
         run: |

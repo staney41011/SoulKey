@@ -4,6 +4,7 @@ name: P259 One-Shot Translation Queue Kickstart
 # Never permit push-origin JWTs to claim protected Cloud Run jobs.
 on:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/p259_translation_kickstart.yml'
   workflow_dispatch:
@@ -28,6 +29,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh workflow run soulkey_translation_queue.yml --repo "$GH_REPO" --ref main
-          echo "P259_GEMMA4_12B_QAT_PREBUILT_CUDA_12_8_DISPATCH_SUBMITTED"
+          gh workflow run soulkey_translation_queue.yml --repo "$GH_REPO" --ref main -f remaining_runs=12
+          echo "P259_GEMMA4_DIRECT_JSON_GRAMMAR_BOUNDED_QUEUE_DISPATCH_SUBMITTED"
           echo "P259 Gemma4 local GPU; verify Cloud Run QA receipts and Drive, not green workflow status."

@@ -1,5 +1,16 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-30 20:37（台灣）｜JSON 修復已通過真實 GPU 並部署；接續整批佇列
+
+- [PR #29](https://github.com/staney41011/SoulKey/pull/29) 已合併至 `ff613c62ce109836e70a374805fa5987abb09003`。舊 response_format 路徑即使停用 thinking，仍可能開啟 thought 前綴（llama.cpp上游 #30256）；改直接 GBNF JSON 文法，並保留完整 IDs、數字、語意 QA。
+- **真實 T4 驗收通過**：[直接文法 smoke #41055234586](https://github.com/staney41011/SoulKey/actions/runs/41055234586)，`GEMMA_GPU_JSON_VERIFIED passed=[it,pt], failures={}`。先前單獨關閉 thinking 的 [#41053619551](https://github.com/staney41011/SoulKey/actions/runs/41053619551) 亦通過；這兩個是公開合成小樣本，不能算第259期全文 QA 成果。
+- 已獨立讀回 Drive 第1堂印尼文正式 [MP3](https://drive.google.com/file/d/1gRtxye7zGBlRxH6yVv6M0tiYX2d40kE9/view?usp=drivesdk)，29,814,573 bytes；manifest `edge-natural-v2 / done / 59 segments`、英文 revision `2bc74709...`，MP3 MD5 `954ff340861800a7a07169423423ccc0`，WAV 89,440,152 bytes／MD5 `30774a271535a55feb43415d159259eb`。20:18:15 第1堂越南文亦有新的正式交付驗證；印地語是 needs_review 試聽，不混入正式數。
+- Queue worker 接有上限的 workflow_dispatch 連續領取：每次只領一個中央工作，保留 source revision／已通過 QA；沒有工作即停止；剩餘次數每次減一、最多20，失敗語言保留 error 並允許下一個獨立工作。首輪12次續接，含起始共最多13批，涵蓋目前分批待譯工作。沿用舊程式本身的排程/手動派工，沒有另建外部服務。
+- Kaggle 私有 worker 接回中央已篩選的專有名詞／LOCKED 用語；只傳文稿與術語，Google憑證不進這條 relay。既有 Apps Script→Kaggle 正式配音仍沿原授權運作。
+- 後續必看：正式翻譯 queue 的新 run ID、實際 QA 增加、Drive文稿與MP3。不能用公開小樣本或連續派工設定推定64/64交付；目前翻譯 QA 最後讀回仍24/60。
+
+---
+
 ## 2026-10-30 20:17（台灣）｜PR #28 已部署、舊授權配音實際恢復；Gemma JSON 修復驗證中
 
 - [PR #28](https://github.com/staney41011/SoulKey/pull/28) 已合併，主線 `ad3d42d7fc6b8a7f13b6f57502554f1ca1486892`。修復提交的 Studio、MVP、語意/數字、CPU 音訊組裝等檢查全部通過。原站 Pages [#41053433262](https://github.com/staney41011/SoulKey/actions/runs/41053433262) 成功；瀏覽器 DOM 已確認 `bridge-routing.js` 及 `app-20260923-48.js?v=20261030-legacy-workflow-v5` 載入。

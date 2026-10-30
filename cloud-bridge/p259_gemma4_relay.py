@@ -46,7 +46,7 @@ out={"task_id":job["task_id"],"revision":job["revision"],
      "model":"gemma-4-12b-it-kaggle-localqa","results":{},"failures":{}}
 target=Path("/kaggle/working/p259_gemma4_result.json")
 source=[{"id":int(s["id"]),"text":str(s["text"])} for s in job["segments"]]
-gemma=Gemma()
+gemma=Gemma(glossary=job.get("glossary",""))
 for lang in job["langs"]:
     if lang in job.get("qa_completed_languages",[]):
         print("GEMMA4_SKIP_EXISTING_QA",job["task_id"],lang,flush=True)
@@ -143,6 +143,12 @@ def checked_output(job,data):
     return done
 
 def main():
+    def continuation(available):
+        output=os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with open(output,"a",encoding="utf-8") as stream:
+                stream.write("has_job="+("true" if available else "false")+"\n")
+    continuation(False)
     if not os.getenv("KAGGLE_API_TOKEN"):
         raise RuntimeError("KAGGLE_API_TOKEN missing in protected GitHub Actions secrets")
     oidc=github_oidc()
@@ -150,9 +156,11 @@ def main():
     if not claim.get("ok"):
         raise RuntimeError("Cloud Run rejected authenticated worker claim")
     if not claim.get("has_job"):
+        continuation(bool(claim.get("recovery_queued")))
         print("P259_GEMMA4_NO_QUEUED_JOB",flush=True)
         return 0
     job=claim["job"]
+    continuation(True)
     jid=job["id"]
     print("P259_GEMMA4_JOB_CLAIMED",jid,job["task_id"],job["langs"],flush=True)
     try:
