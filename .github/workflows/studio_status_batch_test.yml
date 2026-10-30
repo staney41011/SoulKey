@@ -19,6 +19,8 @@ on:
       - studio/tests/test_status_batch_all_periods.cjs
       - studio/tests/test_p259_legacy_rescue_gate.cjs
       - studio/tests/test_p259_ios_top_level_dispatch.cjs
+      - bridge/apps-script/tests/firebase-status-mirror.test.cjs
+      - bridge/apps-script/Code.gs
       - translation-system/central_manuscript_export.py
       - translation-system/central_tts_recovery.py
       - translation-system/tests/test_central_manuscript_export.py
@@ -42,6 +44,8 @@ on:
       - studio/tests/test_status_batch_all_periods.cjs
       - studio/tests/test_p259_legacy_rescue_gate.cjs
       - studio/tests/test_p259_ios_top_level_dispatch.cjs
+      - bridge/apps-script/tests/firebase-status-mirror.test.cjs
+      - bridge/apps-script/Code.gs
       - translation-system/central_manuscript_export.py
       - translation-system/central_tts_recovery.py
       - translation-system/tests/test_central_manuscript_export.py
@@ -66,6 +70,7 @@ jobs:
           node studio/tests/test_p259_legacy_rescue_gate.cjs
           node studio/tests/test_p259_ios_top_level_dispatch.cjs
           node studio/tests/test_ios_control_login_split.cjs
+          node bridge/apps-script/tests/firebase-status-mirror.test.cjs
           node --check studio/tts-share-message.js
           node --check studio/language-delivery.js
       - name: Validate Cloud Run Bridge read-only helpers
