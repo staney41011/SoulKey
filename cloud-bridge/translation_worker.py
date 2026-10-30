@@ -218,6 +218,7 @@ def save_qa_audit(job,language,quality):
         fp.write(json.dumps(record,ensure_ascii=False)+"\\n")
 
 def main():
+    global MODEL
     token=github_oidc()
     claimed=bridge_request(token,"worker_job_claim")
     if not claimed.get("ok"):raise RuntimeError("Could not claim queue task")
@@ -225,6 +226,13 @@ def main():
         print("SoulKey translation queue: no work pending",flush=True)
         return
     job=claimed["job"]
+    # P259 recovery only: use a separately quota-limited supported model.
+    # Preserve the existing source revision, QA gates and all other periods.
+    if job.get("task_id") in {"P259-L01","P259-L02","P259-L03","P259-L04"}:
+        override=os.environ.get("SOULKEY_P259_GEMINI_MODEL","").strip()
+        if override in {"gemini-3.1-flash-lite","gemini-3.5-flash-lite"}:
+            MODEL=override
+            print("SOULKEY_P259_GEMINI_MODEL",MODEL,flush=True)
     jid=job["id"]; print("CLAIMED JOB",jid,job["task_id"],job["langs"],flush=True)
     try:
         if job.get("stage")!="multi":raise RuntimeError("Unsupported stage")
