@@ -353,7 +353,8 @@ def main():
             os.environ["GEMINI_API_KEY"] = gemini_api_key
             print("[RUNTIME] Gemini API Key：Apps Script 已提供", flush=True)
         elif needs_gemini and not (
-            args.stage == "en" and args.lang == "cc-refresh"
+            (args.stage == "en" and args.lang == "cc-refresh")
+            or (args.stage == "tts" and args.lang == "central4")
         ):
             raise RuntimeError(
                 "Apps Script 尚未設定 GEMINI_API_KEY；"
@@ -602,7 +603,8 @@ def main():
         # new URL was checked. Guard every downstream consumer as well:
         # no translations or TTS from unverified source timestamps.
         if args.stage in {"polish", "vernacular", "en", "multi", "tts", "finish"} and not (
-            args.stage == "en" and args.lang == "cc-refresh"
+            (args.stage == "en" and args.lang == "cc-refresh")
+            or (args.stage == "tts" and args.lang == "central4")
         ):
             try:
                 verify_asr_source_revision()
@@ -725,6 +727,25 @@ def main():
                 "--task-id", args.task_id,
                 "--langs", translate_langs,
             ]
+
+        elif args.stage == "tts" and args.lang == "central4":
+            # Emergency restoration: use the old Natural TTS/Drive engine, but
+            # read the existing SHA-verified central English Final and Gemini QA.
+            # Avoid Gemini translation calls and legacy Drive Final preflights;
+            # many current P259 English Finals are still in the central Sheet.
+            if args.task_id != "P259-L01":
+                raise RuntimeError("central4_requires_P259-L01_dispatch_anchor")
+            print("[P259-RESCUE] Authentic old Kaggle+Apps Script Bridge; "
+                  "recover all four lessons, source-verified languages only", flush=True)
+            run([sys.executable, "-m", "pip", "install", "-q",
+                 "edge-tts==7.3.1"])
+            run([sys.executable, "-u",
+                 str(system_dir / "central_tts_recovery.py"),
+                 "--period", "259", "--max-languages", "64"])
+            report(args.bridge_url, args.runtime_nonce, "needs_review",
+                   "已核對中央英文定稿及各語言 QA，恢復可用音檔；"
+                   "仍需檢查每語言 tts:<lang> 和 Drive MP3，未完成語言繼續等待翻譯")
+            cmd = None
 
         elif args.stage == "tts":
             requested_audio_langs = [
