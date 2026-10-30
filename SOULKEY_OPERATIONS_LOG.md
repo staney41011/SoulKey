@@ -13,6 +13,13 @@
 - 正式翻譯完成需驗證 `翻譯QA紀錄` 真正增加與 Drive TXT/SRT/JSON，之後再用已授權的 Kaggle CPU Natural TTS 校驗 MP3/WAV/manifest；該步驟此時**尚未交付新成果**。
 - 遠端 Desktop Commander 月額度已達上限（連線仍在），本輪沒有嘗試重連或重置 OAuth。切勿重派相同來源造成互蓋或稱宣傳 run 成功等於 64 音檔完成。
 
+### 15:30 實際執行續報
+
+- [GitHub 正式翻譯 run #41020040604](https://github.com/staney41011/SoulKey/actions/runs/41020040604) 成功由原本禁止的 push 改由合法 workflow_dispatch 啟動，Sheet 第2堂翻譯工作已顯示 `running`。
+- 第2堂 **柬埔寨文 km 新增 `翻譯QA紀錄 status=passed`**，合計非英語 AI QA 從 **10/60 → 11/60**；此時仍未完成 Drive TXT / MP3 讀回驗收。
+- 另已派送 [P259 Kaggle Natural TTS run #41020375986](https://github.com/staney41011/SoulKey/actions/runs/41020375986)，Kaggle API 提交 `Kernel version 2 successfully pushed`，當下讀到 `KernelWorkerStatus.QUEUED`。**GitHub job 成功僅指 kernel 已提交，不代表配音輸出成功**。請查 Kaggle `COMPLETE` 和 `TTS_DRIVE_VERIFIED` 後再計算新增 MP3；缺來源或 OAuth 失敗不能變成虛假的 done。
+- 音檔入口：[Kaggle SoulKey P259 Natural TTS](https://www.kaggle.com/code/cwlmrcsir/soulkey-p259-natural-tts-emergency)。保留原 Google OAuth/Sheet/Drive 檔案；勿因救援啟動而重複派相同批次。
+
 ---
 
 
