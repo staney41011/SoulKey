@@ -35,7 +35,7 @@ jobs:
           metadata=json.loads((work/"kernel-metadata.json").read_text())
           source=(work/"p259_gemma_private.py").read_text()
           assert metadata["is_private"] and metadata["enable_gpu"]
-          assert m.MODEL in metadata["model_sources"]
+          assert metadata["model_sources"] == []
           assert "GOOGLE_REFRESH_TOKEN" not in source and "KAGGLE_API_TOKEN" not in source
           assert "p259_gemma4_result.json" in source
           compile(source,str(work/"p259_gemma_private.py"),"exec")
