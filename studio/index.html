@@ -157,6 +157,15 @@
           <div class="pipeline" id="pipeline"></div>
         </div>
 
+        <div class="panel" id="p259-rescue-panel" hidden>
+          <div class="panel-head">
+            <div><p class="eyebrow">P259 · KAGGLE RESCUE</p><h3>第259期四堂課｜立即恢復配音</h3></div>
+          </div>
+          <p class="muted block-copy">使用既有英文人工定稿、已通過 QA 的各語言文稿及舊版 Natural TTS 快取。一次派工涵蓋四堂課；尚未通過 QA 的語言不會亂配音，已完成的音檔不會重複產生。</p>
+          <button class="primary" id="p259-rescue-start" type="button">啟動四堂課已驗證語言配音（Kaggle）</button>
+          <p class="muted" id="p259-rescue-status" role="status" aria-live="polite">先連線原 Apps Script 控制中心；成功派工後請核對 Google Drive 正式音檔。</p>
+        </div>
+
         <div class="panel">
           <div class="panel-head period-head">
             <div><p class="eyebrow">COURSES</p><h3>課程任務</h3></div>
@@ -821,11 +830,11 @@
     </form>
   </dialog>
 
-  <script src="./config.js?v=20260922-34"></script>
+  <script src="./config.js?v=20261030-legacy-kaggle-reconnect-v1"></script>
   <script src="./bridge-pair.js?v=20261028-secure-pair-v1"></script>
   <script src="./tts-share-message.js?v=20261028-length-audit-v1"></script>
   <script src="./language-delivery.js?v=20261020-review-preview-v2"></script>
   <script src="./english-cc-alignment.js?v=20261029-central-cc-restore-v1"></script>
-  <script src="./app-20260923-48.js?v=20261029-translation-stage-blocks-tts-v3"></script>
+  <script src="./app-20260923-48.js?v=20261030-legacy-kaggle-rescue-v1"></script>
 </body>
 </html>
