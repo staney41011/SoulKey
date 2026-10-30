@@ -48,6 +48,14 @@ def validate_runtime(payload: object, task_id: str, stage: str,
         raise PreflightError("runtime_nonce_invalid_or_expired")
     if payload.get("task_id") != task_id or payload.get("stage") != stage:
         raise PreflightError("runtime_task_or_stage_mismatch")
+    # This is the same protocol required by the original web_job_worker.
+    # A stale Apps Script deployment must be rejected before reserving GPU.
+    try:
+        protocol = int(payload.get("bridge_protocol") or 0)
+    except (ValueError, TypeError):
+        protocol = 0
+    if protocol < 9:
+        raise PreflightError("apps_script_bridge_protocol_too_old")
     if not isinstance(payload.get("google_access_token"), str) or not payload["google_access_token"]:
         raise PreflightError("runtime_google_oauth_unavailable")
     try:
