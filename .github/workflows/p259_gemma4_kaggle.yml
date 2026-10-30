@@ -41,7 +41,7 @@ jobs:
           cat > "$ROOT/kernel-metadata.json" <<'JSON'
           {
             "id": "cwlmrcsir/soulkey-p259-gemma4-translation",
-            "title": "SoulKey P259 Gemma 4 Local Translation",
+            "title": "Soulkey P259 Gemma4 Translation",
             "code_file": "p259_gemma4_translation.py",
             "language": "python",
             "kernel_type": "script",
@@ -49,7 +49,7 @@ jobs:
             "enable_gpu": true,
             "enable_internet": true,
             "kernel_sources": ["cwlmrcsir/translate-system"],
-            "model_sources": ["google/gemma-4/transformers/gemma-4-12b-it"]
+            "model_sources": ["google/gemma-4/transformers/gemma-4-12b-it/1"]
           }
           JSON
           cat > "$ROOT/p259_gemma4_translation.py" <<'PY'
