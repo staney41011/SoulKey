@@ -225,6 +225,9 @@ jobs:
             if [[ "$STAGE" == "batch" ]]; then
               echo "Launching Kaggle batch with NvidiaTeslaT4 accelerator; timeout=14400s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
+            elif [[ "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ]]; then
+              echo "Launching P259 four-lesson Kaggle CPU recovery; timeout=14400s"
+              kaggle kernels push -p "$DIR" -t 14400
             elif [[ "$STAGE" =~ ^(zh|asr)$ ]]; then
               echo "Launching Kaggle with NvidiaTeslaT4 accelerator; timeout=7200s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 7200
@@ -234,7 +237,7 @@ jobs:
             fi
 
             ATTEMPT_STATUS="UNKNOWN"
-            if [[ "$STAGE" == "batch" ]]; then
+            if [[ "$STAGE" == "batch" || ( "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ) ]]; then
               POLL_LIMIT=1440
             else
               POLL_LIMIT=720
