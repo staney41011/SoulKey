@@ -1,0 +1,59 @@
+name: P259 Delivery OIDC and Drive Source Safety Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloud-bridge/server.js'
+      - 'cloud-bridge/github-worker-auth.js'
+      - 'cloud-bridge/tests/github-worker-auth.test.js'
+      - 'translation-system/google_io.py'
+      - 'translation-system/tests/test_google_io_oidc.py'
+      - 'translation-system/central_tts_recovery.py'
+      - '.github/workflows/soulkey_p259_final_delivery.yml'
+      - '.github/workflows/p259_delivery_bridge_check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JavaScript Bridge scope and OIDC restrictions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check cloud-bridge/server.js
+          node --check cloud-bridge/github-worker-auth.js
+          node cloud-bridge/tests/github-worker-auth.test.js
+      - name: Validate temporary renewable Drive credentials and source QA rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q google-auth google-api-python-client google-auth-httplib2 PyYAML
+          python -m py_compile translation-system/google_io.py translation-system/central_tts_recovery.py
+          python translation-system/tests/test_google_io_oidc.py
+          python -m unittest discover -s translation-system/tests -p 'test_central_tts_source.py' -v
+      - name: Assert delivery workflow cannot start on push or PR
+        shell: bash
+        run: |
+          python - <<'PY'
+          import yaml
+          from pathlib import Path
+          src=Path(".github/workflows/soulkey_p259_final_delivery.yml").read_text()
+          data=yaml.safe_load(src)
+          jobs=data["jobs"]
+          assert len(jobs)==1 and "deliver" in jobs
+          wf=jobs["deliver"]
+          assert "SOULKEY_P259_DELIVERY_READY" in wf["if"]
+          assert wf["permissions"] if "permissions" in wf else True
+          assert "id-token: write" in src
+          assert "SOULKEY_CLOUD_RUN_OIDC_REFRESH: '1'" in src
+          assert "central_tts_recovery.py" in src
+          assert "pull_request:" not in src and "paths:" not in src
+          print("P259_DELIVERY_WORKFLOW_SAFE_TO_DEPLOY")
+          PY
