@@ -41,6 +41,24 @@ jobs:
           python translation-system/tests/test_google_io_oidc.py
           python translation-system/tests/test_p259_duration_source.py
           python -m unittest discover -s translation-system/tests -p 'test_central_tts_source.py' -v
+      - name: Check deployed Cloud Run build without credentials
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request
+          url="https://soulkey-bridge-214901732194.asia-east1.run.app/"
+          try:
+              with urllib.request.urlopen(url,timeout=20) as resp:
+                  data=json.loads(resp.read().decode("utf-8"))
+              assert data.get("message")=="bridge-ready"
+              build=str(data.get("build") or "unknown")
+              if build!=os.environ.get("GITHUB_SHA"):
+                  print("P259_DELIVERY_CLOUD_RUN_STILL_NEEDS_AUTHORIZED_DEPLOY",build)
+              else:
+                  print("P259_DELIVERY_CLOUD_RUN_BUILD_MATCHES_GITHUB")
+          except Exception as exc:
+              print("P259_DELIVERY_DEPLOY_STATUS_UNVERIFIED",type(exc).__name__)
+          PY
       - name: Assert delivery workflow cannot start on push or PR
         shell: bash
         run: |
