@@ -9,8 +9,8 @@ const STORE = {
 const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
-// Central reads and final saves use the new store. Operations implemented by
-// the original service keep their authenticated Apps Script -> Kaggle route.
+// The old Apps Script handles every authorized read/write and Kaggle dispatch.
+// Firebase is an additive control-center display; Sheet/Drive stay authoritative.
 const LEGACY_KAGGLE_ENDPOINT = String(cfg.legacyKaggleBridgeEndpoint || "").trim();
 const STATUS_POLL_MS = 30000;
 const REQUIRED_BRIDGE_PROTOCOL = 9;
@@ -4970,20 +4970,11 @@ function jsonpBridgeRequest(fields,options={}){
     return legacyBridgeRead(fields,options);
   }
 
-  // Apps Script does not return CORS response headers for 6-digit POSTs.
-  // Use its existing google.script.run iframe bridge instead; never expose
-  // the Bridge Key in JSONP URL query strings or GitHub source/logs.
+  // With the 10/28 working Apps Script primary Bridge, all server actions
+  // use the authenticated google.script.run iframe path.  Keep the 6-digit
+  // Bridge Key out of URL query strings, including read callbacks.
   if(isAppsScriptBridge()){
-    if(typeof options.onResult==="function" || typeof options.onError==="function"){
-      if(typeof options.onError==="function")
-        options.onError(new Error("此舊版 Bridge 不提供 Cloud Run 專用回呼"));
-      return false;
-    }
-    if(!bridgeClientReady){
-      initBridgeClient();
-      return false;
-    }
-    return bridgeClientRequest(fields);
+    return legacyBridgeRead(fields,options);
   }
 
   const callbackName="__soulkey_jsonp_"+Date.now()+"_"+Math.random().toString(36).slice(2);
