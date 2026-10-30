@@ -111,6 +111,8 @@ def main():
     ap.add_argument("--task-id",default="")
     ap.add_argument("--lang",default="")
     ap.add_argument("--max-languages",type=int,default=1)
+    ap.add_argument("--export-only",action="store_true",
+                    help="Publish verified central TXT/SRT/JSON without starting TTS")
     args=ap.parse_args()
     if args.max_languages<1 or args.max_languages>64:
         raise SystemExit("max_languages_out_of_bounds")
@@ -121,7 +123,8 @@ def main():
     translations=get("多語翻譯結果!A2:G50000")
     qa=get("翻譯QA紀錄!A2:I5000")
     plans=get("語言任務設定!A2:J5000")
-    processed=0;ready=0;failures=0
+    from central_manuscript_export import publish_manuscript
+    processed=0;ready=0;failures=0;exported=0;export_errors=0
     for task in ready_tasks(sheets,args.period,args.task_id):
         try:final=verified_english_final(task["task_id"],index,backups)
         except SourceNotReady as error:
@@ -135,6 +138,17 @@ def main():
                 continue
             ready+=1
             work=Path(os.environ.get("SOULKEY_TTS_WORKDIR", "./soulkey-central-tts"))/task["task_id"]/lang
+            try:
+                publish_manuscript(drive,sheets,task,lang,final,approved,work/"manuscripts")
+                exported+=1
+            except Exception as error:
+                export_errors+=1
+                print("MANUSCRIPT_EXPORT_FAILED",task["task_id"],lang,
+                      type(error).__name__,str(error)[:300],flush=True)
+                # Never hide a manuscript mismatch behind a green TTS job.
+                continue
+            if args.export_only:
+                continue
             try:
                 state=produce(drive,sheets,task,lang,final,approved,work)
             except Exception as error:
@@ -151,8 +165,11 @@ def main():
                     print("TTS_RECOVERY_LIMIT_REACHED",processed,flush=True)
                     return
     print("TTS_RECOVERY_COMPLETE",processed,"ready_sources",ready,
-          "failed_languages",failures,flush=True)
-    if failures and not processed:
+          "failed_languages",failures,"exported_manuscripts",exported,
+          "manuscript_export_errors",export_errors,flush=True)
+    if export_errors:
+        raise SystemExit("verified_manuscript_export_incomplete")
+    if failures and not processed and not args.export_only:
         raise SystemExit("all_production_attempts_failed")
 
 if __name__=="__main__":
