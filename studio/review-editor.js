@@ -44,6 +44,7 @@ let driveFallbackTotal=0;
 let englishBaseRequests={};
 let legacyDraftBatchRequests=0;
 let englishAligned=null; // separate English sentence-paired draft
+let englishDriveLoaded=false;
 
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??"")
@@ -387,7 +388,13 @@ function updateEnglishSummary(){
   const available=groups.filter(x=>String(x.en_text||"").trim()).length;
   const changed=groups.filter(x=>String(x.en_text||"").trim()!==String(x.source_en||"").trim()).length;
   $("english-summary").textContent=
-    "English CC "+available+" / "+groups.length+" 句・人工修改 "+changed+" 句";
+    (payload?.en_finalized_at?"英文定稿 ":"English CC ")+available+" / "+groups.length+" 句・人工修改 "+changed+" 句";
+
+  if(payload?.en_finalized_at){
+    $("cc-notice").className="cc-notice card ok";
+    $("cc-notice").textContent="已載入既有英文人工定稿，可直接選擇輸出語言。";
+    return;
+  }
 
   const hasEnglishCc=payload?.english_cc_available===true ||
     groups.some(x=>String(x.source_en||"").trim());
@@ -1090,6 +1097,7 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="review_data"){
+    if(data.task_id && String(data.task_id)!==taskId) return;
     if(!data.ok){
       if(data.kind==="en"){
         // English may legitimately not exist before Chinese Final. Keep the
@@ -1141,17 +1149,6 @@ window.addEventListener("message",event=>{
 
     if(data.kind==="en"){
       const rows=Array.isArray(data.segments)?data.segments:[];
-      const byId=new Map(rows.map(x=>[Number(x.id),x]));
-      segments=segments.map(item=>{
-        const row=byId.get(Number(item.id));
-        if(!row) return item;
-        return {
-          ...item,
-          source_en:String(item.source_en||""),
-          en_text:String(row.en||item.en_text||item.source_en||"")
-        };
-      });
-
       // A successful English Drive response proves zh-TW.final.json exists,
       // because the Bridge refuses to return English review data otherwise.
       // Preserve that fact when GitHub cache is temporarily unavailable so a
@@ -1160,11 +1157,34 @@ window.addEventListener("message",event=>{
       if(!payload.zh_finalized_at){
         payload.zh_finalized_at="drive-final";
       }
-
-      if(!englishAligned) renderEn();
+      // English Final and Chinese ASR IDs describe different paragraph sets.
+      // Keep the authenticated English rows and their time-aligned Chinese;
+      // joining 59 English passages onto 449 ASR IDs silently loses content.
+      if(!dirty){
+        englishDriveLoaded=true;
+        englishAligned=rows.map((row,index)=>({
+          ...row,
+          id:Number(row.id??index),
+          text:String(row.original??row.text??""),
+          source_en:String(row.source_en??""),
+          en_text:String(row.en??row.en_text??row.source_en??""),
+          en_confirmed:row.en_confirmed===true,
+          zh_ids:Array.isArray(row.ids)?row.ids.map(Number):[]
+        }));
+        payload.en_finalized_at=String(data.finalized_at||"");
+        if(!payload.en_finalized_at) restoreEnglishDraftEdits(englishAligned).catch(()=>{
+          setStatus("Drive 英文稿已載入；逐句修改回讀失敗，請重新整理核對","error");
+        });
+      }
+      $("finalize-zh").disabled=true;
       $("finalize-en").disabled=!!payload.en_finalized_at;
-      if(requestedStepNumber===2) setStep(2);
-      setStatus("GitHub 快取缺少・已由 Google Drive 恢復中英文稿","ok");
+      $("finish-workflow").disabled=!payload.en_finalized_at;
+      renderZh();
+      renderEn();
+      setStep(requestedStepNumber||(payload.en_finalized_at?3:2));
+      setStatus(dirty?"已讀取 Drive；保留此裝置尚未儲存的修改":
+        payload.en_finalized_at?"已由 Google Drive 恢復中英文人工定稿":
+        "GitHub 快取缺少・已由 Google Drive 恢復中英文稿","ok");
       return;
     }
   }
@@ -1309,10 +1329,22 @@ async function fastReviewJson(kind){
   }));
 }
 
+async function restoreEnglishDraftEdits(alignedRows){
+  const saved=await centralReviewRequest({action:"review_en_draft_status",task_id:taskId,include_edits:"1"});
+  if(!saved.ok || dirty || payload?.en_finalized_at || englishAligned!==alignedRows) return;
+  for(const row of alignedRows){
+    const edit=saved.edits?.[String(row.id)];
+    if(edit){row.en_text=String(edit.en_text);row.en_confirmed=true;
+      englishBaseRequests[String(row.id)]=String(edit.request_id||"");}
+  }
+  renderEn();
+}
+
 async function loadAlignedEnglish(force=false){
-  if(!payload?.zh_finalized_at || (englishAligned && !force)) return;
+  if(!payload?.zh_finalized_at || englishDriveLoaded || (englishAligned && !force)) return;
   try{
     const aligned=await fastReviewJson("en");
+    if(englishDriveLoaded) return;
     if(!aligned.segments?.length) return;
     // Do not overwrite a newer unsaved English edit from this device.
     if(dirty && Array.isArray(englishAligned) && englishAligned.length) return;
@@ -1321,21 +1353,14 @@ async function loadAlignedEnglish(force=false){
       source_en:String(x.source_en||""),
       en_text:String(x.en_text||x.source_en||"")
     }));
-    const saved=await centralReviewRequest({action:"review_en_draft_status",task_id:taskId,include_edits:"1"});
-    if(saved.ok && !dirty){
-      for(const row of englishAligned){
-        const edit=saved.edits?.[String(row.id)];
-        if(edit){row.en_text=String(edit.en_text);row.en_confirmed=true;
-          englishBaseRequests[String(row.id)]=String(edit.request_id||"");}
-      }
-    }
     if(aligned.en_finalized_at){
       payload.en_finalized_at=String(aligned.en_finalized_at);
       $("finalize-en").disabled=true;
       $("finish-workflow").disabled=false;
     }
+    if(!payload.en_finalized_at) await restoreEnglishDraftEdits(englishAligned);
     renderEn();
-    if(requestedStepNumber===2) setStep(2);
+    setStep(requestedStepNumber||(payload.en_finalized_at?3:2));
     setStatus("中英段落已按中文 Final 時間軸對齊","ok");
   }catch(_){
     // Legacy lessons without an English cache retain the Drive fallback.
@@ -1354,10 +1379,7 @@ async function loadReview(){
     if(loaded?.segments?.length){
       applyReviewPayload(loaded);
       loadAlignedEnglish();
-      const hasEnglish=(loaded.segments||[]).some(
-        x=>String(x.en_text||x.source_en||"").trim()
-      );
-      if(!hasEnglish && loaded.zh_finalized_at){
+      if(loaded.zh_finalized_at){
         requestDriveReview("en",0);
       }
       return;
