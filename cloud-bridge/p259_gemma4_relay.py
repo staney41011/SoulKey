@@ -54,7 +54,7 @@ for lang in job["langs"]:
     try:
         proposed=translate(gemma,lang,source)
         rows,rounds,repairs=repair(gemma,lang,source,proposed)
-        out["results"][lang]={"segments":rows,"qa_batches":rounds,
+        out["results"][lang]={"segments":rows,"qa_batches":rounds*((len(source)+5)//6),
             "repair_count":repairs,"unresolved":0,"status":"passed"}
         print("GEMMA4_LOCAL_QA_PASSED",job["task_id"],lang,len(rows),flush=True)
     except Exception as exc:
