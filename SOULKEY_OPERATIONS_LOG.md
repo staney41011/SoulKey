@@ -196,3 +196,13 @@
 - [重新派工 GitHub run #41038849680](https://github.com/staney41011/SoulKey/actions/runs/41038849680) 已啟動；[Kaggle Notebook](https://www.kaggle.com/code/cwlmrcsir/soulkey-p259-gemma4-relay) 於約 18:11 台灣時間回報 **KernelWorkerStatus.RUNNING**，這只表示已在運行，**尚未證實 GGUF 模型載入、當堂翻譯完成、Cloud Run QA passed 或 Drive 檔案交付**。
 - 其他阻礙：GitHub Actions 並沒有受保護 Google OAuth 三項 Secrets；原 [Drive/Edge TTS 直接救援 #41036554143](https://github.com/staney41011/SoulKey/actions/runs/41036554143) 在前置授權檢查安全失敗。Cloud Run 授權目前僅有 Drive readonly，不能假稱它可直接上傳 MP3。要完成四堂 64 組音檔，仍需恢復現有 Apps Script Bridge 的授權配音路徑，或由使用者正式設定適用的受保護憑證，不能把配音自動完成當作已成功。
 - 舊的「P259 Secure Gemma4 Relay Static Check」在切換成 Hugging Face GGUF 後仍驗證過時的 Kaggle model_sources 掛載，該 CI 已失敗，並非運行 GGUF 模型的實測錯誤；需更新測試。
+
+
+### 2026-10-30 19:46（台灣）｜第259期四堂加速交付／實際成果（非全部完成）
+
+- 重新核對中央 Sheet：四份人工 English Final 已確認；非英文 QA passed **24/60**（L01 6、L02 13、L03 5、L04 0），至此仍未觀察到新的 Gemma QA passed。
+- Kaggle GGUF 現況：前版 T4 GPU 成功辨識，但 1100 秒從零編譯 llama.cpp 逾時。新版本採用官方 [llama.cpp b11988 CUDA12.8 預編譯](https://github.com/ggml-org/llama.cpp/releases/download/b11988/llama-b11988-bin-ubuntu-cuda-12.8-x64.tar.gz)；首次解壓被過嚴的 symlink 安全檢查誤擋，已修正並重派。後續 [GitHub #41047898408](https://github.com/staney41011/SoulKey/actions/runs/41047898408) 持續執行，尚無完整模型推論或中央 QA 交付證據。缺漏 36 組翻譯仍以 Cloud Run OIDC → 私有 Kaggle 模型安全續跑；不向 Kaggle 傳送 Google OAuth 密鑰。
+- 另外新增 [28組來源核對的 Natural Edge TTS 預覽輸入](translation-system/p259_approved_audio_source.json)（L01 7、L02 14、L03 6、L04 1，包含四份英文 Final）。[四堂獨立配音 Workflow #41048498342](https://github.com/staney41011/SoulKey/actions/runs/41048498342) 已啟動；缺漏語言仍須等本地翻譯 QA 通過才可加入配音，不允許臆測翻譯。
+- **第一個已驗證成果**：L04 英文 Edge TTS MP3 23,506,220 bytes、來源 English Final SHA \`17354f093b3719df30fcd4e87c9943f3dfc9485c89b8dc5ca0c8255648354eb7\`，GH [L04 產物 #41048498342](https://github.com/staney41011/SoulKey/actions/runs/41048498342) 成功。已將大 Zip 重包為 22,362,606 bytes，經已連接的 Google Drive 上傳並移至第259期總資料夾 [試聽包（非正式）](https://drive.google.com/file/d/1haZ8MNHCeYLeQNqilcEdbsOkoB7j5TBB/view)，Drive list_folder readback 確認存在。**此為試聽版，不能計為已驗證原片長度的正式 MP3。**
+- 既有官方正式文稿/音檔基線依前次實際核對仍為 **14/64 與 11/64**；未因 GH 工作綠燈或新試聽 ZIP 增加為正式完成。除第4堂英文試聽之外，其他三堂配音還在獨立執行，保留缺漏及失敗審核紀錄。
+- 已新增 [配音完成後壓縮小包的工作](.github/workflows/p259_compact_completed_previews.yml)，各包預期低於 Google Drive 單次 connector 100MB 下載限制，以免不能移交 Drive。需等待來源 GH 完成並以實際 artifact／Drive readback 驗收；這不是四堂已完成的宣告。
