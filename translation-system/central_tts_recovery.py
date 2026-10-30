@@ -24,7 +24,8 @@ def ready_tasks(sheets,period,only_task):
 def approved_plan_rows(rows,task):
     result=[]
     for row in rows:
-        if len(row)<7 or row[0]!=task or str(row[5]).upper()!="TRUE":continue
+        if (len(row)<7 or row[0]!=task or str(row[5]).upper()!="TRUE"
+                or str(row[6]).strip().lower()!="tts"):continue
         lang=str(row[1]).lower().strip()
         if lang not in result:result.append(lang)
     return result
@@ -110,10 +111,12 @@ def main():
     ap.add_argument("--period",type=int,default=259)
     ap.add_argument("--task-id",default="")
     ap.add_argument("--lang",default="")
+    ap.add_argument("--langs",default="",help="Restrict to explicitly requested TTS languages")
     ap.add_argument("--max-languages",type=int,default=1)
     ap.add_argument("--export-only",action="store_true",
                     help="Publish verified central TXT/SRT/JSON without starting TTS")
     args=ap.parse_args()
+    requested={x.strip() for x in args.langs.split(",") if x.strip()}
     if args.max_languages<1 or args.max_languages>64:
         raise SystemExit("max_languages_out_of_bounds")
     drive,sheets=build_google_services()
@@ -132,6 +135,7 @@ def main():
             continue
         for lang in approved_plan_rows(plans,task["task_id"]):
             if args.lang and args.lang!=lang:continue
+            if requested and lang not in requested:continue
             try:approved=verified_translation(task["task_id"],lang,final,translations,qa)
             except SourceNotReady as error:
                 print("TTS_WAIT_FOR_QA",task["task_id"],lang,str(error),flush=True)

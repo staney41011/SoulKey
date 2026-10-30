@@ -35,6 +35,7 @@ permissions:
 
 concurrency:
   group: soulkey-kaggle-web-worker
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -112,7 +113,7 @@ jobs:
           stage = os.environ["JOB_STAGE"].strip()
           lang = os.environ["JOB_LANG"].strip()
           gpu_stages = {"zh", "asr", "batch"}
-          p259_gemma4 = stage == "multi" and os.environ["JOB_TASK_ID"].strip() in {"P259-L01","P259-L02","P259-L03","P259-L04"}
+          p259_gemma4 = (stage == "multi" or (stage == "finish" and bool(os.environ["JOB_LANGS"].strip()))) and os.environ["JOB_TASK_ID"].strip() in {"P259-L01","P259-L02","P259-L03","P259-L04"}
           needs_gpu = stage in gpu_stages or p259_gemma4
 
           # Rebind every run to the dedicated GPU-only kernel. Do not preserve
@@ -134,7 +135,10 @@ jobs:
           meta["kernel_sources"] = ["cwlmrcsir/translate-system"]
           meta["dataset_sources"] = []
           meta["competition_sources"] = []
-          meta["model_sources"] = ["google/gemma-4/transformers/gemma-4-12b-it/1"] if p259_gemma4 else []
+          # Gemma loads the public GGUF in the worker. Kaggle API submissions
+          # cannot attach a newly gated model interactively; that obsolete
+          # attachment rejected the job before our existing OAuth ran.
+          meta["model_sources"] = []
 
           meta_path.write_text(
               json.dumps(meta, ensure_ascii=False, indent=2),
@@ -228,7 +232,7 @@ jobs:
             if [[ "$STAGE" == "batch" ]]; then
               echo "Launching Kaggle batch with NvidiaTeslaT4 accelerator; timeout=14400s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
-            elif [[ "$STAGE" == "multi" && "$TASK_ID" =~ ^P259-L0[1-4]$ ]]; then
+            elif [[ "$TASK_ID" =~ ^P259-L0[1-4]$ ]] && python -c 'import json,sys;sys.exit(not json.load(open(sys.argv[1])).get("enable_gpu"))' "$DIR/kernel-metadata.json"; then
               echo "Launching P259 Gemma4 GPU with existing Bridge OAuth; timeout=14400s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
             elif [[ "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ]]; then
@@ -243,7 +247,7 @@ jobs:
             fi
 
             ATTEMPT_STATUS="UNKNOWN"
-            if [[ "$STAGE" == "batch" || ( "$STAGE" == "multi" && "$TASK_ID" =~ ^P259-L0[1-4]$ ) || ( "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ) ]]; then
+            if [[ "$STAGE" == "batch" || ( "$STAGE" =~ ^(multi|finish)$ && "$TASK_ID" =~ ^P259-L0[1-4]$ ) || ( "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ) ]]; then
               POLL_LIMIT=1440
             else
               POLL_LIMIT=720

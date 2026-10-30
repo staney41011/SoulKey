@@ -242,9 +242,12 @@ def run():
     parser=argparse.ArgumentParser()
     parser.add_argument("--period",type=int,default=259)
     parser.add_argument("--task-id",default="")
+    parser.add_argument("--langs",default="",help="Only requested, enabled AI translation languages")
     parser.add_argument("--max-new-languages",type=int,default=60)
     parser.add_argument("--self-test",action="store_true")
     opts=parser.parse_args()
+    requested={x.strip() for x in opts.langs.split(",") if x.strip()}
+    if requested-set(LANGS):raise SystemExit("Unsupported requested translation language")
     if opts.self_test:
         assert parse_json('Example {"segments":[{"id":1,"text":"hello"}]}')["segments"][0]["id"]==1
         assert check_ids([{"id":2},{"id":3}],[{"id":3,"text":"b"},{"id":2,"text":"a"}])[0]["id"]==2
@@ -271,8 +274,15 @@ def run():
             len(r)>=7 and r[0]==task["task_id"] and r[1] in LANGS
             and str(r[3]).upper()=="TRUE" and str(r[4]).lower()=="ai"))
         for lang in langs:
-            try:verified_translation(task["task_id"],lang,final,trans,receipts)
+            if requested and lang not in requested:continue
+            try:
+                existing=verified_translation(task["task_id"],lang,final,trans,receipts)
             except SourceNotReady:remaining.append((task,final,lang))
+            else:
+                # A passed central row is not yet a Drive manuscript. Publish
+                # it even when this language does not request an audio file.
+                work=Path("/kaggle/working/gemma4-p259")/task["task_id"]/lang/"reuse"
+                publish_manuscript(drive,sheets,task,lang,final,existing,work)
     print("GEMMA4_P259_PENDING_LANGUAGES",len(remaining),flush=True)
     if not remaining:return
     gemma=Gemma()
@@ -306,7 +316,7 @@ def run():
                    checked_by_id[str(s["id"])],job,now] for s in final["segments"]]
             append_verify(sheets,"多語翻譯結果",rows)
             proof=[[job,task["task_id"],final["revision"],lang,
-                "gemma-4-12b-it-local-gemma-qa",str(batches),str(repair_count),
+                "gemma-4-12b-it-local-gemma-qa",str(batches*((len(source)+5)//6)),str(repair_count),
                 "passed",now]]
             append_verify(sheets,"翻譯QA紀錄",proof)
             approved=verified_translation(task["task_id"],lang,final,rows,proof)
@@ -322,6 +332,12 @@ def run():
                  type(exc).__name__,str(exc)[:300],flush=True)
         print("GEMMA4_P259_PROGRESS",passed,failed,flush=True)
     print("GEMMA4_P259_COMPLETE_THIS_RUN",passed,failed,flush=True)
-    if failed:raise SystemExit(2)
+    latest_trans=read("多語翻譯結果!A2:G50000")
+    latest_qa=read("翻譯QA紀錄!A2:I5000")
+    incomplete=0
+    for task,final,lang in remaining:
+        try:verified_translation(task["task_id"],lang,final,latest_trans,latest_qa)
+        except SourceNotReady:incomplete+=1
+    if failed or incomplete:raise SystemExit(2)
 
 if __name__=="__main__":run()

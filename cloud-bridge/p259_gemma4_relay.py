@@ -109,7 +109,11 @@ def run_kernel(job):
             raise RuntimeError("Kaggle private Gemma4 run status "+status)
         output=Path(os.environ.get("RUNNER_TEMP","/tmp"))/"p259-gemma-results"
         output.mkdir(parents=True,exist_ok=True)
-        safe_call(["kaggle","kernels","output",KERNEL,"-p",str(output)],timeout=180)
+        # The working directory also contains the GGUF weights and cloned
+        # repository. Download only the validated result, never gigabytes of
+        # model cache just to read a few kilobytes of translation/QA receipts.
+        safe_call(["kaggle","kernels","output",KERNEL,"-p",str(output),
+                   "--file-pattern",r"(^|/)p259_gemma4_result\.json$"],timeout=180)
         matches=list(output.rglob(RESULT_NAME))
         if len(matches)!=1:raise RuntimeError("Kaggle result JSON missing or duplicated")
         return json.loads(matches[0].read_text(encoding="utf-8"))
