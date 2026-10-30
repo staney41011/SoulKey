@@ -1,0 +1,40 @@
+name: P259 Verified Manuscript Recovery Bundles
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/p259_approved_manuscripts_bundle.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export exact source-revision approved manuscripts without Google credentials
+        run: python -u translation-system/p259_export_approved_bundles.py
+      - name: Upload P259-L01 approved transcripts
+        uses: actions/upload-artifact@v4
+        with:
+          name: P259-L01-approved-manuscripts
+          path: /tmp/p259-verified-manuscript-bundles/P259-L01-approved-manuscripts.zip
+          retention-days: 30
+      - name: Upload P259-L02 approved transcripts
+        uses: actions/upload-artifact@v4
+        with:
+          name: P259-L02-approved-manuscripts
+          path: /tmp/p259-verified-manuscript-bundles/P259-L02-approved-manuscripts.zip
+          retention-days: 30
+      - name: Upload P259-L03 approved transcripts
+        uses: actions/upload-artifact@v4
+        with:
+          name: P259-L03-approved-manuscripts
+          path: /tmp/p259-verified-manuscript-bundles/P259-L03-approved-manuscripts.zip
+          retention-days: 30
+      - name: Upload P259-L04 approved transcripts
+        uses: actions/upload-artifact@v4
+        with:
+          name: P259-L04-approved-manuscripts
+          path: /tmp/p259-verified-manuscript-bundles/P259-L04-approved-manuscripts.zip
+          retention-days: 30
