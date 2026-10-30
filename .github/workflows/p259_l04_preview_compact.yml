@@ -1,0 +1,45 @@
+name: P259 L04 Compact English Preview for Drive
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/p259_l04_preview_compact.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Read existing QA-backed P259-L04 preview artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/full" "$RUNNER_TEMP/compact"
+          gh run download 41048498342 --repo "$GH_REPO" \
+            --name "p259-preview-P259-L04-41048498342" \
+            --dir "$RUNNER_TEMP/full"
+          cp "$RUNNER_TEMP/full/P259-L04_en_PREVIEW.mp3" "$RUNNER_TEMP/compact/"
+          cp "$RUNNER_TEMP/full/preview_receipts.json" "$RUNNER_TEMP/compact/"
+          cp "$RUNNER_TEMP/full/P259-L04_en_preview_manifest.json" "$RUNNER_TEMP/compact/"
+          python - <<'PY'
+          import json,os,pathlib
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])/"compact"
+          r=json.loads((d/"preview_receipts.json").read_text())
+          assert r["lesson"]=="P259-L04" and r["outputs"]["en"]["official_drive_status"]=="NOT_VERIFIED_PREVIEW_ONLY"
+          assert (d/"P259-L04_en_PREVIEW.mp3").stat().st_size>1000000
+          print("P259_L04_VERIFIED_COMPACT_PREVIEW",flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p259-L04-English-preview-compact
+          path: ${{ runner.temp }}/compact/
+          retention-days: 30
