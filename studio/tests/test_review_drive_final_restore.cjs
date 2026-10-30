@@ -36,6 +36,12 @@ async function main(){
   final.englishGroups().forEach((row,i)=>{assert.equal(row.en_text,"Human final "+i);assert.equal(row.text,"人工中文段落 "+i);});
   assert.equal(final.segments.length,449);assert.equal(final.englishDriveLoaded,true);
 
+  const linked=setup();linked.requestedStepNumber=2;linked.receive(finalData);
+  assert.equal(linked.currentStep,2,"An explicit English share link must still open step two");
+  const unfinalized=setup();unfinalized.requestedStepNumber=3;
+  unfinalized.receive({...finalData,finalized_at:""});
+  assert.equal(unfinalized.currentStep,2,"An output link cannot bypass English draft finalization");
+
   const draft=setup();draft.payload.en_finalized_at="stale-cache-final";
   draft.receive({...finalData,finalized_at:"",segments:[{id:20,en:"",source_en:"Original CC",original:"中文",ids:[4,5]}]});
   await new Promise(resolve=>setImmediate(resolve));

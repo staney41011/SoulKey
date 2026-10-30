@@ -676,7 +676,7 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('.zh-review-media-bar.floating-video', styles)
         self.assertIn('const requestedStep=String(params.get("step")', review)
         self.assertIn("en:2", review)
-        self.assertIn("if(requestedStepNumber===2) setStep(2)", review)
+        self.assertIn("setStep(requestedStepNumber||(payload.en_finalized_at?3:2))", review)
 
     def test_course_file_overview_can_collapse_and_remember_state(self):
         app = read("studio/app-20260923-48.js")
