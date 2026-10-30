@@ -1,90 +1,22 @@
-name: P259 Gemma 4 Kaggle GPU Translation
+name: P259 Legacy Direct Kaggle Gemma4 Disabled
 
-# P259 only. Uses Kaggle 4-bit Gemma 4 IT, never Gemini API.
+# The earlier standalone Kaggle kernels push does not provide SoulKey Bridge
+# OAuth runtime credentials. Never launch P259 from this workflow.
+# The supported production route is Studio -> Apps Script Bridge -> Kaggle Web Job
+# with stage=multi, lang=central4, task_id=P259-L01.
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/p259_gemma4_kaggle.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: soulkey-p259-gemma4-kaggle
-  cancel-in-progress: false
-
 jobs:
-  submit:
+  explain:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KAGGLE_KERNEL: cwlmrcsir/soulkey-p259-gemma4-translation
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-      - name: Validate Gemma 4 worker and Kaggle authorization
-        shell: bash
+      - name: Explicitly reject obsolete secret-less Kaggle launch
         run: |
-          set -euo pipefail
-          [[ -n "$KAGGLE_API_TOKEN" ]] || { echo "::error::Missing KAGGLE_API_TOKEN"; exit 1; }
-          python -m py_compile translation-system/p259_gemma4_kaggle.py
-          python translation-system/p259_gemma4_kaggle.py --self-test
-          python -m pip install -q kaggle
-      - name: Submit Gemma 4 12B (4-bit) GPU inference to Kaggle
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="$RUNNER_TEMP/p259-gemma4-kaggle"
-          mkdir -p "$ROOT"
-          cat > "$ROOT/kernel-metadata.json" <<'JSON'
-          {
-            "id": "cwlmrcsir/soulkey-p259-gemma4-translation",
-            "title": "Soulkey P259 Gemma4 Translation",
-            "code_file": "p259_gemma4_translation.py",
-            "language": "python",
-            "kernel_type": "script",
-            "is_private": true,
-            "enable_gpu": true,
-            "enable_internet": true,
-            "kernel_sources": ["cwlmrcsir/translate-system"],
-            "model_sources": ["google/gemma-4/transformers/gemma-4-12b-it/1"]
-          }
-          JSON
-          cat > "$ROOT/p259_gemma4_translation.py" <<'PY'
-          import os, subprocess, sys
-          from pathlib import Path
-          root=Path("/kaggle/working/SoulKey")
-          if not root.exists():
-              subprocess.run(["git","clone","--depth","1",
-                  "https://github.com/staney41011/SoulKey.git",str(root)],check=True)
-          subprocess.run([sys.executable,"-m","pip","install","-q","-U",
-              "-r",str(root/"translation-system/requirements-gemini.txt"),
-              "transformers","accelerate","bitsandbytes","kagglehub",
-              "google-auth-oauthlib"],check=True)
-          print("P259_GEMMA4_START: GPU translation, zero Gemini API",flush=True)
-          cmd=[sys.executable,"-u",str(root/"translation-system/p259_gemma4_kaggle.py"),
-               "--period","259","--max-new-languages","60"]
-          code=subprocess.run(cmd,cwd=str(root/"translation-system")).returncode
-          print("P259_GEMMA4_TRANSLATION_EXIT",code,flush=True)
-          # Verified Central -> Natural Edge TTS path has no Gemini dependency.
-          print("P259_GEMMA4_REUSE_EDGE_TTS",flush=True)
-          subprocess.run([sys.executable,"-m","pip","install","-q",
-                          "edge-tts==7.3.1"],check=True)
-          audio_cmd=[sys.executable,"-u",
-              str(root/"translation-system/central_tts_recovery.py"),
-              "--period","259","--max-languages","64"]
-          tts_code=subprocess.run(audio_cmd,cwd=str(root/"translation-system")).returncode
-          print("P259_GEMMA4_TTS_EXIT",tts_code,flush=True)
-          if code and code!=2:raise SystemExit(code)
-          if tts_code:raise SystemExit(tts_code)
-          PY
-          kaggle kernels push -p "$ROOT" -t 14400
-          echo "P259_GEMMA4_KAGGLE_SUBMITTED (submission is NOT proof of file delivery)"
-      - name: Display Kaggle submission status (not finished outputs)
-        if: always()
-        shell: bash
-        run: |
-          kaggle kernels status "$KAGGLE_KERNEL" || true
-          kaggle kernels logs "$KAGGLE_KERNEL" 2>&1 | tail -60 || true
+          echo "::error::Obsolete direct Kaggle Gemma4 workflow is disabled because it cannot obtain authorized Google OAuth runtime."
+          echo "Use SoulKey Studio > 第259期四堂課補譯 to launch through the existing Apps Script Bridge."
+          exit 1
