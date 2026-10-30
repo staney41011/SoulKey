@@ -7,7 +7,7 @@ const {createDriveReview}=require("./drive-review");
 const {createEnglishFinalBackup,normalizeEnglishFinal}=require("./english-final-backup");
 const {createSheetFinalStore}=require("./sheet-final-store");
 const {createChineseFinalStore}=require("./chinese-final-store");
-const {createDriveFinalPublisher}=require("./drive-final-publisher");
+const {createDriveFinalPublisher,ownerAuth}=require("./drive-final-publisher");
 const {createTranslationQueue}=require("./translation-queue");
 const {createYoutubeCCQueue}=require("./youtube-cc-queue");
 const {createCentralWrites}=require("./central-writes");
@@ -85,7 +85,10 @@ async function verifiedP259DeliveryRuntime(){
  // Never issue a Drive access token based on Bridge Key or anonymous GET.
  // This helper is reachable only after strict dedicated GitHub OIDC validation.
  const courseIds=["P259-L01","P259-L02","P259-L03","P259-L04"];
- const appClient=await auth.getClient();
+ // Prefer the existing owner's refreshable OAuth, preserving the original
+ // working Drive ownership model. If absent, use the Cloud Run service
+ // identity, which must separately be granted Editor on these folders.
+ const appClient=ownerAuth() || await auth.getClient();
  for(const task of courseIds){
   const folders=await driveReview.resolveFolders(task);
   for(const kind of ["translation","audio"]){
