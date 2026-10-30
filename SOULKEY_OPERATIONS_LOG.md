@@ -13,6 +13,12 @@
 - 正式翻譯完成需驗證 `翻譯QA紀錄` 真正增加與 Drive TXT/SRT/JSON，之後再用已授權的 Kaggle CPU Natural TTS 校驗 MP3/WAV/manifest；該步驟此時**尚未交付新成果**。
 - 遠端 Desktop Commander 月額度已達上限（連線仍在），本輪沒有嘗試重連或重置 OAuth。切勿重派相同來源造成互蓋或稱宣傳 run 成功等於 64 音檔完成。
 
+### 15:33 QA 再次核對
+
+- 中央 `翻譯QA紀錄` 共有 **13 個非英文 passed**：在原 10 語之外，第2堂新增 `km`、`bn`、`ne`。這 3 語尚未在 Drive `02_翻譯稿` 發現正式 TXT，也沒有新的正式 MP3；須等 Kaggle 核實上傳後才能累計成果。
+- [翻譯 worker #41020040604](https://github.com/staney41011/SoulKey/actions/runs/41020040604) 仍在執行，對應 P259-L02 `running`，其餘五筆 `queued`。
+- [Kaggle TTS 工作 #41020375986](https://github.com/staney41011/SoulKey/actions/runs/41020375986) 顯示 GitHub `success`，但 GitHub 紀錄僅證實 `KernelWorkerStatus.QUEUED`；無 Kaggle 實際結果或 Drive 新 MP3 的證明，因此**不增加正式配音計數**。
+
 ### 15:30 實際執行續報
 
 - [GitHub 正式翻譯 run #41020040604](https://github.com/staney41011/SoulKey/actions/runs/41020040604) 成功由原本禁止的 push 改由合法 workflow_dispatch 啟動，Sheet 第2堂翻譯工作已顯示 `running`。
