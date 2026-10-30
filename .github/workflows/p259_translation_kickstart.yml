@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Dispatch authorized central translation queue exactly once
+      - name: Dispatch authorized P259 OIDC-to-Kaggle Gemma4 queue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -30,4 +30,4 @@ jobs:
           set -euo pipefail
           gh workflow run soulkey_translation_queue.yml --repo "$GH_REPO" --ref main
           echo "P259_TRANSLATION_WORKFLOW_DISPATCH_SUBMITTED"
-          echo "This launches translation only. Check QA receipts and Drive before claiming delivery."
+          echo "P259 Gemma4 local GPU; verify Cloud Run QA receipts and Drive, not green workflow status."
