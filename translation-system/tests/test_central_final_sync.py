@@ -59,6 +59,13 @@ class FinalSyncTests(unittest.TestCase):
         self.assertEqual(len(archive),1)
         self.assertEqual(json.loads(files[archive[0]]),old)
         self.assertEqual(json.loads(files["en.final.json"])["segments"],SEGMENTS)
+        self.assertEqual(files["en.final.txt"],b"Human revision\n")
+        self.assertIn(b"00:00:00,000 --> 00:00:12,000",files["en.final.srt"])
+
+    def test_matching_json_still_recovers_missing_readable_files(self):
+        files,_=self.run_sync({"task_id":TASK,"kind":"en","segments":SEGMENTS})
+        self.assertEqual(files["en.final.txt"],b"Human revision\n")
+        self.assertIn("en.final.srt",files)
 
     def test_legacy_only_final_is_unchanged(self):
         old={"segments":[{**SEGMENTS[0],"text":"Legacy remains"}]}
