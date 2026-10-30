@@ -184,3 +184,15 @@
 - `studio/app-20260923-48.js` 第259期四堂補譯救援按鈕確認文字更新為 Gemma4，原使用者操作入口不更動，無須重部署 Apps Script。
 - **測試**：[GitHub P259 Gemma4 Bridge Integration Check #41035224870](https://github.com/staney41011/SoulKey/actions/runs/41035224870) 已成功（`py_compile`、純函數 self-test、Bridge OAuth 接線、GPU/模型版本一致性）。這是靜態／離線整合測試，**不是 Kaggle GPU 實際模型載入與翻譯交付驗收**。
 - **下一個必需動作**：由已登入 Studio 的使用者按一次「第259期四堂課補譯」啟動原 Apps Script Bridge 的新 runtime nonce，GitHub 才能取得有效短效 Google Token；不可重用舊 nonce、不可從 log 挖取憑證、不可再用獨立 `p259_gemma4_kaggle.yml` 的失敗型直接派工。確認 GitHub Kaggle Web Job 的新 run ID、Kaggle 真正 log，以及中央 Sheet `翻譯QA紀錄` 和 Drive 的新增 TXT/SRT/JSON/正式 MP3 才能宣告交付。
+
+
+### 2026-10-30 18:12（台灣）｜四堂缺漏 36 語：GitHub OIDC → 私有 Kaggle Gemma4 12B
+
+- 第259期英文 Final 四堂 SHA 未改，原有 24/60 個非英文 QA passed、14/64 正式文稿、11/64 正式 MP3 保留。
+- 第259期剩餘 36 個語言集合已按課程拆成 13 組，寫入中央 Sheet「翻譯工作佇列」第16至28列，依序先 L02 it/pt、再 L01、L03、L04。每組最多 3 語；沒有改寫已通過 QA 的內容。
+- 新的 [P259 Kaggle Gemma4 relay](cloud-bridge/p259_gemma4_relay.py) 使用 [正式 OIDC Worker](.github/workflows/soulkey_translation_queue.yml) 先經既有 Cloud Run 的 worker_job_claim 取得英文人工 Final 與來源 revision；只把講稿與 glossary 放入**私人** Kaggle kernel，**不放 Google 密碼、Gemini Key 或 OAuth token**。GitHub 透過短效 OIDC 將 Kaggle 的本地 QA 翻譯寫回 Cloud Run，並確認語言完整與來源版次才記 passed。部署中 Cloud Run QA 模型欄正規式仍只接受 gemini-*，暫用明示的兼容傳輸標籤 gemini-compat-gemma4-12b-it-localqa，**實際執行 Gemma4 而非 Gemini**，此欄須日後同步修改服務端 schema 才能恢復原生 model provenance。
+- [第一次 OIDC run #41037581687](https://github.com/staney41011/SoulKey/actions/runs/41037581687) 成功從中央領取 L02 it/pt，但 Kaggle model attachment 被平台拒絕，實際 kernel 名稱也被 title slug 改成 private-relay；已用專用 workflow 正式取消舊 run 並將同一工作安全復歸 queued，未寫任何假 QA。
+- 已改用 Google 官方公開 [Gemma 4 12B QAT GGUF](https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf) 由 Kaggle 網路直接下載，於 GPU 上編譯 llama.cpp 本地推論，不再要求互動式 Kaggle 模型附掛。
+- [重新派工 GitHub run #41038849680](https://github.com/staney41011/SoulKey/actions/runs/41038849680) 已啟動；[Kaggle Notebook](https://www.kaggle.com/code/cwlmrcsir/soulkey-p259-gemma4-relay) 於約 18:11 台灣時間回報 **KernelWorkerStatus.RUNNING**，這只表示已在運行，**尚未證實 GGUF 模型載入、當堂翻譯完成、Cloud Run QA passed 或 Drive 檔案交付**。
+- 其他阻礙：GitHub Actions 並沒有受保護 Google OAuth 三項 Secrets；原 [Drive/Edge TTS 直接救援 #41036554143](https://github.com/staney41011/SoulKey/actions/runs/41036554143) 在前置授權檢查安全失敗。Cloud Run 授權目前僅有 Drive readonly，不能假稱它可直接上傳 MP3。要完成四堂 64 組音檔，仍需恢復現有 Apps Script Bridge 的授權配音路徑，或由使用者正式設定適用的受保護憑證，不能把配音自動完成當作已成功。
+- 舊的「P259 Secure Gemma4 Relay Static Check」在切換成 Hugging Face GGUF 後仍驗證過時的 Kaggle model_sources 掛載，該 CI 已失敗，並非運行 GGUF 模型的實測錯誤；需更新測試。
