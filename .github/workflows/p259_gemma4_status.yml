@@ -3,7 +3,7 @@ name: P259 Gemma4 Secure Relay Runtime Status
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/restore-legacy-workflow-on-central-store]
     paths: ['.github/workflows/p259_gemma4_status.yml']
   workflow_dispatch:
 
@@ -30,4 +30,15 @@ jobs:
           kaggle kernels status cwlmrcsir/soulkey-p259-gemma4-private-relay || true
           echo "=== P259 GEMMA4 KAGGLE LOGS ==="
           kaggle kernels logs "$KERNEL" 2>&1 | tail -200 || true
+          kaggle kernels output "$KERNEL" -p "$RUNNER_TEMP/gemma-result-diagnostic" --file-pattern '(^|/)p259_gemma4_result\.json$' || true
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          for path in (Path(os.environ["RUNNER_TEMP"])/"gemma-result-diagnostic").rglob("p259_gemma4_result.json"):
+              data=json.loads(path.read_text())
+              print("GEMMA_RESULT_DIAGNOSTIC",json.dumps({
+                  "task_id":data.get("task_id"),
+                  "passed_languages":list(data.get("results",{})),
+                  "failures":data.get("failures",{})},ensure_ascii=False))
+          PY
           echo "NOTE: queued/submitted != verified Sheet/Drive delivery."
