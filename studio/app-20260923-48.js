@@ -4745,6 +4745,41 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   }
 });
 
+// iOS Safari may permit the owner-authorized Apps Script as a top-level
+// navigation while blocking the same service in a third-party hidden iframe.
+// A top-level POST keeps the six-digit Bridge Key out of URLs and address logs.
+// Do not call this outside a direct user gesture; opening a tab is deliberate.
+function useTopLevelP259LegacyDispatch(fields){
+  return /iPad|iPhone|iPod/i.test(navigator.userAgent||"") &&
+    fields?.action==="run_stage" && fields?.lang==="central4" &&
+    (fields?.stage==="tts" || fields?.stage==="multi");
+}
+
+function submitP259LegacyTopLevelForm(endpoint,key,fields){
+  const form=document.createElement("form");
+  form.method="POST";
+  form.action=endpoint;
+  form.target="_blank";
+  form.rel="noopener noreferrer";
+  form.style.display="none";
+  for(const [name,value] of Object.entries({...fields,bridge_key:key})){
+    const input=document.createElement("input");
+    input.type="hidden";
+    input.name=name;
+    input.value=String(value ?? "");
+    form.appendChild(input);
+  }
+  document.body.appendChild(form);
+  try{
+    form.submit();
+    return true; // POST initiated, not a server ACK or GitHub success.
+  }catch(_){
+    return false;
+  }finally{
+    window.setTimeout(()=>form.remove(),1000);
+  }
+}
+
 function submitBridgePost(fields){
   const legacyMachineJob=fields?.action==="run_stage" && fields?.stage!=="cc";
   const endpoint=legacyMachineJob ? LEGACY_KAGGLE_ENDPOINT : bridgeEndpointValue();
@@ -4774,6 +4809,13 @@ function submitBridgePost(fields){
       );
       return false;
     }
+  }
+
+  // On iPhone use owner-authorized top-level Google navigation, not a
+  // third-party iframe. The old Bridge still controls GitHub/Kaggle, and no
+  // credential or permanent token is exposed to the page URL.
+  if(legacyMachineJob && useTopLevelP259LegacyDispatch(fields)){
+    return submitP259LegacyTopLevelForm(endpoint,key,fields);
   }
 
   // Machine jobs use a private form POST to the existing Apps Script web app.
@@ -6273,16 +6315,21 @@ function startP259RescueAudio(){
   if(btn)btn.disabled=true;
   const rescueWarning=window.setTimeout(()=>{
     if(p259RescueSending && status)status.textContent=
-      "尚未收到 Apps Script 派工回覆。已確認舊部署對匿名檢測回傳 HTTP 403；請勿重複按，先檢查原 Web App 存取權與部署版本。";
+      "尚未收到派工確認。你已證實原 Apps Script 在 Safari 可以直接開啟（Bridge v9）；請確認是否出現 Google 獨立分頁，並以 GitHub Actions 新工作為準。";
   },25000);
   if(status)status.textContent="正在透過舊 Apps Script Bridge 派送 Kaggle；尚未代表音檔完成…";
   const sent=submitBridgePost({
     action:"run_stage",task_id:"P259-L01",stage:"tts",lang:"central4",langs:""
   });
+  if(sent && useTopLevelP259LegacyDispatch({action:"run_stage",lang:"central4",stage:"tts"})){
+    window.clearTimeout(rescueWarning);
+    if(status)status.textContent="已用 Google 獨立分頁提交配音請求；獨立頁可能只顯示 SoulKey response，尚不代表 GitHub/Kaggle 已接收。請返回此頁核對執行紀錄，不要重複按。";
+    window.setTimeout(()=>requestTaskStatuses(),15000);
+  }
   if(!sent){
     p259RescueSending=false;
     if(btn)btn.disabled=false;
-    if(status)status.textContent="Apps Script 尚未接受派工。外部檢測 HTTP 403，請檢查原 Web App 是否允許任何人存取。";
+    if(status)status.textContent="Google 獨立分頁派工未能送出；沒有確認 Kaggle 已啟動。";
     return;
   }
   window.setTimeout(()=>{
@@ -6290,7 +6337,7 @@ function startP259RescueAudio(){
     window.clearTimeout(rescueWarning);
     p259RescueSending=false;
     if(btn)btn.disabled=false;
-    if(status)status.textContent="派工未收到確認；舊 Apps Script 公開檢測為 HTTP 403。請先修正 Web App 存取權；勿立刻重複按。";
+    if(status)status.textContent="尚未取得 GitHub 派工確認。Safari 獨立分頁若顯示 SoulKey response，只代表已開啟回覆頁；請先核對 GitHub Actions，勿重複按。";
   },120000);
 }
 document.getElementById("p259-rescue-start")?.addEventListener("click",startP259RescueAudio);
@@ -6313,16 +6360,21 @@ function startP259RescueTranslation(){
   if(btn)btn.disabled=true;
   const translationWarning=window.setTimeout(()=>{
     if(p259TranslationSending && status)status.textContent=
-      "尚未收到 Apps Script 補譯派工確認。原部署對匿名檢測回傳 HTTP 403；不要重複按，先檢查部署權限。";
+      "尚未收到補譯確認。原 Apps Script 已在 Safari 顯示 bridge-ready；請檢查 Google 獨立分頁及 GitHub 是否新增工作，勿連續重按。";
   },25000);
   if(status)status.textContent="正在請原 Apps Script 控制中心派送四堂課 Kaggle 補譯，等待確認…";
   const sent=submitBridgePost({
     action:"run_stage",task_id:"P259-L01",stage:"multi",lang:"central4",langs:""
   });
+  if(sent && useTopLevelP259LegacyDispatch({action:"run_stage",lang:"central4",stage:"multi"})){
+    window.clearTimeout(translationWarning);
+    if(status)status.textContent="已用 Google 獨立分頁提交四堂課補譯請求；請返回核對 GitHub 新工作，尚不代表翻譯完成，勿重複按。";
+    window.setTimeout(()=>requestTaskStatuses(),15000);
+  }
   if(!sent){
     p259TranslationSending=false;
     if(btn)btn.disabled=false;
-    if(status)status.textContent="Apps Script 尚未接受補譯派工。外部檢測 HTTP 403，請檢查部署權限。";
+    if(status)status.textContent="Google 獨立分頁補譯未能送出；沒有確認 Kaggle 已啟動。";
     return;
   }
   window.setTimeout(()=>{
@@ -6330,7 +6382,7 @@ function startP259RescueTranslation(){
     window.clearTimeout(translationWarning);
     p259TranslationSending=false;
     if(btn)btn.disabled=false;
-    if(status)status.textContent="補譯派工未收到確認；舊 Apps Script 公開檢測為 HTTP 403。請檢查 Web App 部署權限；勿重複按。";
+    if(status)status.textContent="尚未取得補譯派工確認。請以 GitHub Actions 的新工作為準；不代表 Gemini 已成功翻譯。";
   },120000);
 }
 document.getElementById("p259-translation-start")?.addEventListener("click",startP259RescueTranslation);
