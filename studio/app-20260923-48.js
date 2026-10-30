@@ -6271,6 +6271,10 @@ function startP259RescueAudio(){
   if(!window.confirm("第 259 期四堂課：以既有英文定稿、已通過 QA 的翻譯先產生配音；未完成 QA 的語言繼續保留等待。確認送至舊版 Kaggle？"))return;
   p259RescueSending=true;
   if(btn)btn.disabled=true;
+  const rescueWarning=window.setTimeout(()=>{
+    if(p259RescueSending && status)status.textContent=
+      "尚未收到 Apps Script 派工回覆。已確認舊部署對匿名檢測回傳 HTTP 403；請勿重複按，先檢查原 Web App 存取權與部署版本。";
+  },25000);
   if(status)status.textContent="正在透過舊 Apps Script Bridge 派送 Kaggle；尚未代表音檔完成…";
   const sent=submitBridgePost({
     action:"run_stage",task_id:"P259-L01",stage:"tts",lang:"central4",langs:""
@@ -6278,14 +6282,15 @@ function startP259RescueAudio(){
   if(!sent){
     p259RescueSending=false;
     if(btn)btn.disabled=false;
-    if(status)status.textContent="Bridge 未接受派工；不代表已啟動 Kaggle。";
+    if(status)status.textContent="Apps Script 尚未接受派工。外部檢測 HTTP 403，請檢查原 Web App 是否允許任何人存取。";
     return;
   }
   window.setTimeout(()=>{
     if(!p259RescueSending)return;
+    window.clearTimeout(rescueWarning);
     p259RescueSending=false;
     if(btn)btn.disabled=false;
-    if(status)status.textContent="派工回覆逾時，請先檢查 GitHub Actions 與中央執行狀態，勿立刻重複按。";
+    if(status)status.textContent="派工未收到確認；舊 Apps Script 公開檢測為 HTTP 403。請先修正 Web App 存取權；勿立刻重複按。";
   },120000);
 }
 document.getElementById("p259-rescue-start")?.addEventListener("click",startP259RescueAudio);
@@ -6306,6 +6311,10 @@ function startP259RescueTranslation(){
   if(!window.confirm("補譯第259期四堂課尚未完成的15種 AI 語言。保留所有人工英文定稿與既有QA；Gemini 429時會保留進度，不會冒充完成。確認啟動原 Kaggle？"))return;
   p259TranslationSending=true;
   if(btn)btn.disabled=true;
+  const translationWarning=window.setTimeout(()=>{
+    if(p259TranslationSending && status)status.textContent=
+      "尚未收到 Apps Script 補譯派工確認。原部署對匿名檢測回傳 HTTP 403；不要重複按，先檢查部署權限。";
+  },25000);
   if(status)status.textContent="正在請原 Apps Script 控制中心派送四堂課 Kaggle 補譯，等待確認…";
   const sent=submitBridgePost({
     action:"run_stage",task_id:"P259-L01",stage:"multi",lang:"central4",langs:""
@@ -6313,14 +6322,15 @@ function startP259RescueTranslation(){
   if(!sent){
     p259TranslationSending=false;
     if(btn)btn.disabled=false;
-    if(status)status.textContent="控制中心未接受派工，沒有啟動 Kaggle。";
+    if(status)status.textContent="Apps Script 尚未接受補譯派工。外部檢測 HTTP 403，請檢查部署權限。";
     return;
   }
   window.setTimeout(()=>{
     if(!p259TranslationSending)return;
+    window.clearTimeout(translationWarning);
     p259TranslationSending=false;
     if(btn)btn.disabled=false;
-    if(status)status.textContent="回覆逾時；請先確認 GitHub / Kaggle 狀態，勿重複派工。";
+    if(status)status.textContent="補譯派工未收到確認；舊 Apps Script 公開檢測為 HTTP 403。請檢查 Web App 部署權限；勿重複按。";
   },120000);
 }
 document.getElementById("p259-translation-start")?.addEventListener("click",startP259RescueTranslation);
