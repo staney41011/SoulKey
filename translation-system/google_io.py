@@ -59,55 +59,6 @@ class BridgeCredentials(Credentials):
         self.expiry = datetime.utcnow() + timedelta(minutes=45)
         print("[Google] SoulKey Bridge OAuth token 已自動更新", flush=True)
 
-class CloudRunOIDCCredentials(Credentials):
-    """Google Drive/Sheets token refreshed via repo+workflow-bound GitHub OIDC.
-
-    GitHub receives only temporary credentials for the *authorized* P259
-    delivery workflow. No OAuth refresh secret is stored in GitHub/Kaggle.
-    """
-    def __init__(self,bridge_url: str):
-        if not str(bridge_url or "").startswith("https://"):
-            raise RuntimeError("P259 Cloud Run HTTPS URL missing")
-        super().__init__(token=None)
-        self._bridge_url=bridge_url
-
-    def refresh(self,request):
-        # Re-mint the GitHub OIDC JWT on every token renewal. It expires within
-        # minutes and cannot be reused for a lengthy lecture TTS run.
-        oidc_url=os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL","").strip()
-        bearer=os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN","").strip()
-        if not oidc_url or not bearer:
-            raise RuntimeError("P259 delivery requires GitHub Actions OIDC permission")
-        target=oidc_url+("&" if "?" in oidc_url else "?") + urllib.parse.urlencode({
-            "audience":"soulkey-bridge-translation-worker-v1"
-        })
-        identity_req=urllib.request.Request(
-            target,headers={"Authorization":"Bearer "+bearer,"Accept":"application/json"}
-        )
-        with urllib.request.urlopen(identity_req,timeout=30) as response:
-            identity=json.loads(response.read().decode("utf-8"))
-        identity_token=str(identity.get("value") or "")
-        if not identity_token:
-            raise RuntimeError("GitHub OIDC minting failed")
-        data=urllib.parse.urlencode({"action":"worker_drive_runtime"}).encode("utf-8")
-        bridge_req=urllib.request.Request(
-            self._bridge_url,method="POST",data=data,
-            headers={"Authorization":"Bearer "+identity_token,
-                     "Content-Type":"application/x-www-form-urlencoded",
-                     "Accept":"application/json"})
-        with urllib.request.urlopen(bridge_req,timeout=130) as response:
-            reply=json.loads(response.read().decode("utf-8"))
-        if not reply.get("ok"):
-            raise RuntimeError("P259 Drive delivery permission check failed: "+
-                               str(reply.get("error") or "bridge_not_ready"))
-        token=str(reply.get("google_access_token") or "").strip()
-        if not token:
-            raise RuntimeError("P259 Drive bridge returned no temporary token")
-        self.token=token
-        self.expiry=datetime.utcnow()+timedelta(seconds=min(2700,int(reply.get("expires_in") or 2700)))
-        print("[Google] P259 repo-bound OIDC Drive permission renewed",flush=True)
-
-
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
@@ -135,10 +86,7 @@ def get_secret(name: str, required: bool = True):
 def build_google_services():
     access_token = os.environ.get("GOOGLE_ACCESS_TOKEN", "").strip()
 
-    if os.environ.get("SOULKEY_CLOUD_RUN_OIDC_REFRESH")=="1":
-        creds=CloudRunOIDCCredentials(os.environ.get("SOULKEY_BRIDGE_URL","").strip())
-        creds.refresh(Request())
-    elif access_token:
+    if access_token:
         print("[Google] 使用 SoulKey Bridge 提供的短效 OAuth access token")
         bridge_url = os.environ.get("SOULKEY_BRIDGE_URL", "").strip()
         runtime_nonce = os.environ.get("SOULKEY_RUNTIME_NONCE", "").strip()
