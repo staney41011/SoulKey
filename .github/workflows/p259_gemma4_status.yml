@@ -41,4 +41,7 @@ jobs:
                   "passed_languages":list(data.get("results",{})),
                   "failures":data.get("failures",{})},ensure_ascii=False))
           PY
+          echo "=== ISOLATED JSON GPU SMOKE ==="
+          kaggle kernels status cwlmrcsir/soulkey-gemma-json-smoke || true
+          kaggle kernels logs cwlmrcsir/soulkey-gemma-json-smoke 2>&1 | tail -80 || true
           echo "NOTE: queued/submitted != verified Sheet/Drive delivery."
