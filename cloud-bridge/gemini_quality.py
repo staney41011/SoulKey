@@ -122,8 +122,11 @@ def translated_number_issues(english,target,lang):
         return _locale_number_issues(english, target)
     normalized=normalize_unicode_digits(target)
     numbers=re.findall(r"\d+(?:\.\d+)?",english)
+    # Never use substring membership: English "2" must NOT be satisfied
+    # by target "12", nor 2026 by 12026, nor 2.5 by 12.5.
+    observed_numbers=set(re.findall(r"\d+(?:\.\d+)?",normalized))
     if lang not in {"ja","ko"}:
-        return [f"missing_number:{v}" for v in numbers if v not in normalized]
+        return [f"missing_number:{v}" for v in numbers if v not in observed_numbers]
 
     localized=[
         (float(digits.replace(",",""))*_CJK_UNITS[unit],digits,unit)
@@ -143,14 +146,14 @@ def translated_number_issues(english,target,lang):
                         for amount,_,_ in localized)
             if not correct:
                 issues.append(f"incorrect_number_scale:{number} {unit}")
-        elif number not in normalized:
+        elif number not in observed_numbers:
             issues.append(f"missing_number:{number}")
     # Validate every other literal number, but exempt numbers whose value has
     # already been checked after conversion to local units.
     plain=[x for x in re.finditer(r"\d+(?:\.\d+)?",english)
            if x.start() not in covered]
     for item in plain:
-        if item.group() not in normalized:
+        if item.group() not in observed_numbers:
             issues.append(f"missing_number:{item.group()}")
     return issues
 
