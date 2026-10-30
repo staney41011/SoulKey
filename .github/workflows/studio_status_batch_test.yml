@@ -19,6 +19,9 @@ on:
       - studio/tests/test_status_batch_all_periods.cjs
       - studio/tests/test_p259_legacy_rescue_gate.cjs
       - studio/tests/test_p259_ios_top_level_dispatch.cjs
+      - translation-system/central_manuscript_export.py
+      - translation-system/central_tts_recovery.py
+      - translation-system/tests/test_central_manuscript_export.py
       - .github/workflows/studio_status_batch_test.yml
   push:
     branches: [main]
@@ -39,6 +42,9 @@ on:
       - studio/tests/test_status_batch_all_periods.cjs
       - studio/tests/test_p259_legacy_rescue_gate.cjs
       - studio/tests/test_p259_ios_top_level_dispatch.cjs
+      - translation-system/central_manuscript_export.py
+      - translation-system/central_tts_recovery.py
+      - translation-system/tests/test_central_manuscript_export.py
       - .github/workflows/studio_status_batch_test.yml
 
 permissions:
@@ -63,6 +69,8 @@ jobs:
           node --check cloud-bridge/server.js
           python -m unittest discover -s cloud-bridge/tests -p 'test_gemini_response_recovery.py' -v
           python -m unittest discover -s translation-system/tests -p 'test_central_tts_source.py' -v
+          python -m unittest discover -s translation-system/tests -p 'test_central_manuscript_export.py' -v
+          python -m py_compile translation-system/central_manuscript_export.py translation-system/central_tts_recovery.py
           node cloud-bridge/tests/sheets-request.test.js
           node cloud-bridge/tests/english-final-source.test.js
           node --check cloud-bridge/drive-review.js
