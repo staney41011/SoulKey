@@ -8,7 +8,7 @@ sys.path[:0]=[str(HERE),str(HERE.parent/"cloud-bridge")]
 LANGS={"th":"Thai","es":"Spanish","id":"Indonesian","vi":"Vietnamese",
  "hi":"Hindi","ta":"Tamil","ja":"Japanese","ko":"Korean","km":"Khmer",
  "bn":"Bengali","ne":"Nepali","lo":"Lao","my":"Burmese","it":"Italian","pt":"Portuguese"}
-MODEL_ID=os.environ.get("SOULKEY_GEMMA4_KAGGLE_MODEL","google/gemma-4/transformers/gemma-4-12b-it")
+MODEL_ID=os.environ.get("SOULKEY_GEMMA4_KAGGLE_MODEL","google/gemma-4/transformers/gemma-4-12b-it/1")
 
 def parse_json(text):
     text=str(text).strip()
@@ -52,9 +52,11 @@ class Gemma:
         p=self.proc
         messages=[{"role":"system","content":"Precise multilingual translator and reviewer. Follow all JSON output instructions."},
                   {"role":"user","content":request}]
-        chat=p.apply_chat_template(messages,tokenize=False,
-                                   add_generation_prompt=True,enable_thinking=False)
-        inputs=p(text=chat,return_tensors="pt").to(self.model.device)
+        # Official Gemma4 processor interface: tokenized chat template
+        # returns multimodal-compatible model inputs (not manual string render).
+        inputs=p.apply_chat_template(messages,tokenize=True,
+                  return_dict=True,return_tensors="pt",
+                  add_generation_prompt=True,enable_thinking=False).to(self.model.device)
         n=inputs["input_ids"].shape[-1]
         with self.torch.inference_mode():
             out=self.model.generate(**inputs,max_new_tokens=limit,
