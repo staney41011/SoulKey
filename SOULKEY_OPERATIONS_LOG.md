@@ -154,3 +154,13 @@
 - **每次接手**：先看本文件，接著核對最新 GitHub run / Sheet / Drive，不能直接拿本文件的歷史數字宣稱「現在」。
 - **現存歷史文件**：[`cloud-bridge/RECOVERY_2026-10-30.md`](cloud-bridge/RECOVERY_2026-10-30.md) 是早期狀態快照；[`cloud-bridge/RELEASE_AUDIT_2026-10-29.md`](cloud-bridge/RELEASE_AUDIT_2026-10-29.md) 是遷移缺失稽核；[`translation-system/WORKFLOW_REQUIREMENTS.md`](translation-system/WORKFLOW_REQUIREMENTS.md) 是規格。三者不能取代本頁的 259 期最新操作日誌。
 - **隱私／安全**：不記錄六碼 Bridge Key、GitHub PAT、OAuth refresh token、Cookie、私人授權連結或任何完整秘密。只記錄可供授權人員查核的程式與 run/工作表參照。
+
+
+## 2026-10-30 17:08（台灣）｜第259期由 Gemini 切換 Kaggle Gemma 4
+
+- 使用者要求直接切換，不再等待 Gemini API 限流。已新增 [Gemma4 翻譯／本地語意 QA 與分語言 Drive 寫回](translation-system/p259_gemma4_kaggle.py)，來源限定 P259 四堂人工英文 Final、保留 SHA 來源核對與已通過的舊 QA。模型預設官方 Kaggle `google/gemma-4/transformers/gemma-4-12b-it`、4-bit GPU；此模式不發出 Gemini API 呼叫。
+- [GitHub Gemma4 Kaggle 派工流程](.github/workflows/p259_gemma4_kaggle.yml)：首次 [#41030385258](https://github.com/staney41011/SoulKey/actions/runs/41030385258) 因 Kaggle `model_sources` 未帶版本號被拒，已修正為 `.../1`。第二次 [#41030516253](https://github.com/staney41011/SoulKey/actions/runs/41030516253) 成功推出 Kaggle Notebook v1；這僅是成功提交，不是完成翻譯。
+- [Kaggle Notebook](https://www.kaggle.com/code/cwlmrcsir/soulkey-p259-gemma4-translation) **已實際執行但在 Google OAuth 前置檢查失敗**：`RuntimeError: 找不到 Secret: GOOGLE_CLIENT_ID`，翻譯未啟動、沒有任何 Gemma 4 交付成果。從 [read-only Kaggle 狀態查詢 #41031073162](https://github.com/staney41011/SoulKey/actions/runs/41031073162) 的實際 kernel log 驗證。重點：Kaggle API `kernels push` 不會附掛 Notebook UI 的 Secrets（Kaggle CLI 仍無自動指定 Secret 功能）；不要再次誤報「已在跑」。
+- 中央 Sheet `翻譯工作佇列` **F13:F15** 舊 Gemini `queued` 已改為 `gemma4`（J13:J15 說明接手），未刪除紀錄、不改為假 `done`；未取得正式成果前不宣稱完成。現有 GitHub Gemini worker 對 P259 的後續舊佇列重試設有 Gemini API 禁用保護（`cloud-bridge/translation_worker.py` + `soulkey_translation_queue.yml`），其他期數未切換。
+- 17:04 中央 QA 查到 P259 **24/60 非英語 passed**（L01 6、L02 13、L03 5、L04 0），主要由之前 Gemini 工作者完成；**不能歸功 Gemma**。已驗證正式 MP3 最後基線仍是 11/64，沒有 Gemma 4 新文稿／新音檔交付證據。
+- **解除真正阻礙的安全下一步**：由帳戶持有人在上方 Kaggle Notebook 網頁開啟 Edit → Add-ons → Secrets，授權已存在的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN` 給該 Notebook，接著用 Kaggle 網頁 Save & Run All（**不是**再用 GitHub `kernels push`）。勿把 Secrets 內容貼入聊天、GitHub 原始碼、Kaggle 程式碼或 Logs。完成後以 Kaggle 記錄及中央 Sheet / Drive readback 實際驗收。
