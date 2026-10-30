@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """P259 Gemma 4 on Kaggle GPU; no Gemini API. Verified human English Final only."""
-import argparse,json,os,re,sys,uuid
+import argparse,json,os,re,sys,uuid,time
 from datetime import datetime,timezone
 from pathlib import Path
 HERE=Path(__file__).resolve().parent
@@ -196,8 +196,13 @@ def run():
     if not remaining:return
     gemma=Gemma()
     passed=failed=0
+    # Leave substantial Kaggle time for producing verified Edge TTS audio.
+    deadline=time.monotonic()+int(os.environ.get("SOULKEY_GEMMA4_TRANSLATION_BUDGET_SECONDS","9000"))
     for task,final,lang in remaining:
         if passed>=opts.max_new_languages:break
+        if time.monotonic()>=deadline:
+            print("GEMMA4_P259_TRANSLATION_TIME_BUDGET_REACHED; resume remaining languages next run",flush=True)
+            break
         work=Path("/kaggle/working/gemma4-p259")/task["task_id"]/lang
         work.mkdir(parents=True,exist_ok=True)
         try:
