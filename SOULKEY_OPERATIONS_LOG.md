@@ -281,3 +281,13 @@
 - [L02 Thai 單語預覽重試 #41061359807](https://github.com/staney41011/SoulKey/actions/runs/41061359807) 在 Edge block43 `No audio was received` 失敗；第一次試聽批次 block17 失敗，屬不穩定上游 Edge TTS。既有 L02 Thai 正式 MP3/WAV + Manifest 應優先沿用，暫勿無限重配。
 - L04 `00_來源資訊` 資料夾目前為空，其他三堂均有原始 `來源資訊.json` 含精確 duration（L01 1941s、L02 1799s、L03 1813s）。L04 缺原始影片長度的可驗證資訊，不能把英文自然試聽 MP3 當正式 MP3。
 - GitHub [Gemma4 整合測試 #41062204407](https://github.com/staney41011/SoulKey/actions/runs/41062204407) 成功，新版 QA 長句重譯 5 輪已編入主分支；當前 [翻譯工作 #41061398456](https://github.com/staney41011/SoulKey/actions/runs/41061398456) 正在執行 L02 it/pt，下一組 L01 ja/ko/km 已根據修復重新排隊；截至最新 Sheet QA 仍24/60 非英文 passed。
+
+
+### 2026-10-30 22:50（台灣）｜第259期直接修復 QA 誤判、TTS 空音與佇列跨語綑綁
+
+- 正式修訂 `translation-system/p259_gemma4_kaggle.py`：五輪翻譯修復後的 **語意疑似誤判** 可做逐句獨立 Gemma 判讀；確定的語言錯誤、數字不符、重複文字、英文照抄仍嚴格擋下；不因 GitHub workflow success 冒稱語言通過。
+- `translation-system/test_p259_gemma4_repair.py` 新增五種離線 regression tests：正常成功、獨立核准語意誤判、硬性錯誤不可放行、uncertain 不可放行、material_issue 不可放行。由 [Gemma4 Bridge Integration Check #41073727928](https://github.com/staney41011/SoulKey/actions/runs/41073727928) 在 GitHub 全數測試通過。
+- `translation-system/natural_tts_edge.py` 對 Edge TTS 的 No audio was received 採六次新的相同語音請求與遞增冷卻，403 不再無謂重試，不以靜音偷補發話段。新的 [P259-L02 泰文單語試聽 #41074221474](https://github.com/staney41011/SoulKey/actions/runs/41074221474) 已真正進入音訊生成步驟；尚需等待 artifact 驗收，不能算正式音檔。
+- 已把先前失敗的 **L02 it、L01 ko/km/bn/ne/lo** 六組拆為單語重試工作，寫進中央「翻譯工作佇列」並回讀確認；來源英文 SHA 不變。
+- 再把 L03/L04 尚未領取的八筆多語合批拆分，保留原八筆成單語並增列16筆。**中央回讀驗證31筆 queued 全為單一語言，且沒有重複 queued language**（L03十語、L04十五語、L02一語、L01五語）。正在執行中的原批次沒有修改。
+- 目前實際中央 QA 為 **26/60 非英文**，不是 60/60；正式 Drive 文稿、MP3 尚未驗收增加。本次代表已完成可靠性修復及進行單語重試，**不是四堂64份正式文稿/64組音訊完成**。
