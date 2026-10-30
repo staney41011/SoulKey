@@ -32,6 +32,7 @@ const MACHINE_STAGES = [
 ];
 const RUNTIME_TTL_MS = 8 * 60 * 60 * 1000;
 const BRIDGE_PROTOCOL_VERSION = 9;
+const BRIDGE_CLIENT_TRANSPORT = "top-postmessage-v1";
 
 function doGet(e) {
   const view = String((e && e.parameter && e.parameter.view) || "").trim();
@@ -80,7 +81,8 @@ function doGet(e) {
     message: "bridge-ready",
     status_sheet: STATUS_SHEET_NAME,
     web_job_workflow: WORKFLOW_WEB_JOB,
-    bridge_protocol: BRIDGE_PROTOCOL_VERSION
+    bridge_protocol: BRIDGE_PROTOCOL_VERSION,
+    bridge_client_transport: BRIDGE_CLIENT_TRANSPORT
   });
 }
 
@@ -417,6 +419,7 @@ function doPost(e) {
         rows: Math.max(0, sheet.getLastRow() - 1),
         youtube_cookies_configured: !!props.getProperty("YOUTUBE_COOKIES_B64"),
         bridge_protocol: BRIDGE_PROTOCOL_VERSION,
+        bridge_client_transport: BRIDGE_CLIENT_TRANSPORT,
         server_time: new Date().toISOString()
       });
     }
@@ -504,6 +507,7 @@ function bridgeRequest(request) {
         rows: Math.max(0, sheet.getLastRow() - 1),
         youtube_cookies_configured: !!props.getProperty("YOUTUBE_COOKIES_B64"),
         bridge_protocol: BRIDGE_PROTOCOL_VERSION,
+        bridge_client_transport: BRIDGE_CLIENT_TRANSPORT,
         server_time: new Date().toISOString()
       };
     }
@@ -5443,6 +5447,9 @@ function bridgeClientHtml_() {
 (function(){
   function send(payload){
     try { window.parent.postMessage(payload, "*"); } catch (e) {}
+    // HtmlService adds a sandbox iframe inside the Apps Script wrapper.
+    // The Studio is the top window when embedded, not the immediate parent.
+    try { window.top.postMessage(payload, "https://staney41011.github.io"); } catch (e) {}
   }
 
   send({source: "soulkey-bridge-client", type: "ready"});
