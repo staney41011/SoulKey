@@ -70,7 +70,7 @@ async def synthesize_block(
     pitch: str,
     output_mp3: Path,
     boundary_path: Path,
-    attempts: int = 4,
+    attempts: int = 6,
 ):
     # An upstream translation segment can contain only punctuation (e.g. ".").
     # Edge returns "No audio was received" for this non-spoken input.
@@ -157,6 +157,12 @@ async def synthesize_block(
             # wait than transient socket/network failures.
             if ("429" in str(exc) and "Handshake" in type(exc).__name__):
                 await asyncio.sleep(15 * attempt)
+            elif "No audio was received" in str(exc):
+                # Edge sometimes returns zero audio for otherwise valid,
+                # previously QA-approved lecture text. Retry exactly the
+                # same content with a fresh connection after a longer wait;
+                # never substitute silence for actual spoken words.
+                await asyncio.sleep(min(45, 5 * attempt))
             else:
                 await asyncio.sleep(min(8, 2 ** attempt))
 
