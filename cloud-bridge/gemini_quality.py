@@ -58,9 +58,9 @@ _CJK_UNITS = {
 # the thousands separator. Numeric QA must compare values, not substrings:
 # 2.5 == 2,5, but 2.5 != 12,5 or 25.
 _LOCALE_SOURCE_NUMBER = re.compile(
-    r"(?<![\\w])(?:\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)(?![\\w])"
+    r"(?<![\w])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![\w])"
 )
-_LOCALE_TARGET_NUMBER = re.compile(r"(?<![\\w])\\d+(?:[.,]\\d+)*(?![\\w])")
+_LOCALE_TARGET_NUMBER = re.compile(r"(?<![\w])\d+(?:[.,]\d+)*(?![\w])")
 
 
 def _decimal_localized_number(token):
