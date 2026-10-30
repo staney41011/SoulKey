@@ -170,6 +170,17 @@ def main():
             raise RuntimeError("Cloud Run verified per-language QA capability required")
         if any(lang not in LANGUAGES for lang in job.get("langs",[])):
             raise RuntimeError("Unsupported Gemma4 language")
+        # Cloud Run has already verified complete source IDs and QA receipts
+        # across jobs. Do not start a new 12B GPU kernel when all requested
+        # languages are already present for the exact Final revision.
+        if set(job["langs"]).issubset(set(job.get("qa_completed_languages",[]))):
+            receipt=bridge_request(oidc,"worker_job_report",{
+                "job_id":jid,"status":"done"})
+            if not receipt.get("ok"):
+                raise RuntimeError("Previously approved P259 source not marked done")
+            print("GEMMA4_CROSS_JOB_QA_REUSED_NO_GPU",job["task_id"],
+                  ",".join(job["langs"]),flush=True)
+            return 0
         result=run_kernel(job)
         approved=checked_output(job,result)
         for lang,entry in result.get("results",{}).items():
