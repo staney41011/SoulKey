@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: soulkey-gemma-json-smoke
+  group: soulkey-gemma-json-grammar-smoke
   cancel-in-progress: false
 jobs:
   gpu-json:
@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 25
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KERNEL: cwlmrcsir/soulkey-gemma-json-smoke
+      KERNEL: cwlmrcsir/soulkey-gemma-json-grammar-smoke
     steps:
       - name: Install Kaggle CLI
         run: python -m pip install -q kaggle
@@ -42,7 +42,7 @@ jobs:
           '''.replace("__SHA__",repr(os.environ["GITHUB_SHA"]))
           (root/"smoke.py").write_text(code)
           (root/"kernel-metadata.json").write_text(json.dumps({
-            "id":os.environ["KERNEL"],"title":"Soulkey Gemma Json Smoke",
+            "id":os.environ["KERNEL"],"title":"Soulkey Gemma Json Grammar Smoke",
             "code_file":"smoke.py","language":"python","kernel_type":"script",
             "is_private":True,"enable_gpu":True,"enable_internet":True,
             "dataset_sources":[],"competition_sources":[],"kernel_sources":[],"model_sources":[]}))

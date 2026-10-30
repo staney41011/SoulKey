@@ -128,7 +128,10 @@ class Gemma:
               ],
               "temperature":0,"max_tokens":limit,
               "chat_template_kwargs":{"enable_thinking":False},
-              "response_format":{"type":"json_object"}}
+              # llama.cpp's response_format path can allow a thought prefix
+              # even with thinking disabled (upstream issue #30256). Apply
+              # the direct JSON grammar, whose first token must be an object.
+              "grammar":(HERE/"json_output.gbnf").read_text(encoding="utf-8")}
         req=urllib.request.Request(
           "http://127.0.0.1:"+str(self.port)+"/v1/chat/completions",
           data=json.dumps(body,ensure_ascii=False).encode("utf-8"),
