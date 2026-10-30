@@ -35,33 +35,89 @@ def check_ids(source,rows):
     return [{"id":sid,"text":found[sid]} for sid in expected]
 
 class Gemma:
+    """Gemma 4 12B on Kaggle GPU, using Google's public QAT 4-bit GGUF.
+
+    The older Kaggle model registry path cannot attach newly requested models
+    in non-interactive kernels. Download public Apache-2.0 weights directly
+    from Hugging Face; no API key, Google OAuth, or model-source attachment.
+    """
     def __init__(self):
-        import torch,kagglehub
-        from transformers import AutoProcessor,AutoModelForMultimodalLM,BitsAndBytesConfig
-        if not torch.cuda.is_available():raise RuntimeError("Gemma4 requires Kaggle GPU")
-        print("GEMMA4_MODEL",MODEL_ID,flush=True)
-        path=kagglehub.model_download(MODEL_ID)
-        self.proc=AutoProcessor.from_pretrained(path)
-        quant=BitsAndBytesConfig(load_in_4bit=True,bnb_4bit_quant_type="nf4",
-                                  bnb_4bit_compute_dtype=torch.float16)
-        self.model=AutoModelForMultimodalLM.from_pretrained(path,device_map="auto",
-                  dtype=torch.float16,quantization_config=quant).eval()
-        self.torch=torch
-        print("GEMMA4_LOADED",flush=True)
+        import subprocess
+        import time
+        import urllib.request
+        from pathlib import Path
+        import torch
+        if not torch.cuda.is_available():
+            raise RuntimeError("Gemma4 GGUF requires a real Kaggle GPU")
+        print("GEMMA4_GGUF_GPU",torch.cuda.get_device_name(0),flush=True)
+        base=Path("/kaggle/working/gemma4-local")
+        base.mkdir(parents=True,exist_ok=True)
+        source=base/"llama.cpp"
+        build=source/"build"
+        if not source.exists():
+            subprocess.run(["git","clone","--depth","1",
+                "https://github.com/ggml-org/llama.cpp.git",str(source)],
+                check=True,timeout=300)
+        subprocess.run(["cmake","-S",str(source),"-B",str(build),
+            "-DGGML_CUDA=ON","-DLLAMA_BUILD_SERVER=ON",
+            "-DLLAMA_BUILD_TESTS=OFF","-DLLAMA_BUILD_EXAMPLES=OFF",
+            "-DCMAKE_BUILD_TYPE=Release"],check=True,timeout=300)
+        subprocess.run(["cmake","--build",str(build),"-j","4",
+            "--target","llama-server"],check=True,timeout=1100)
+        from huggingface_hub import hf_hub_download
+        repo="google/gemma-4-12B-it-qat-q4_0-gguf"
+        filename="gemma-4-12b-it-qat-q4_0.gguf"
+        print("GEMMA4_PUBLIC_QAT_DOWNLOAD",repo,flush=True)
+        file=hf_hub_download(repo_id=repo,filename=filename,
+            local_dir=str(base/"model"))
+        self.port=8099
+        logfile=(base/"llama-server.log").open("w",encoding="utf-8")
+        cmd=[str(build/"bin"/"llama-server"),"-m",str(file),
+            "--host","127.0.0.1","--port",str(self.port),"-ngl","99",
+            "-c","8192","-t","4","--parallel","1"]
+        self.proc=subprocess.Popen(cmd,stdout=logfile,
+            stderr=subprocess.STDOUT)
+        deadline=time.monotonic()+240
+        while time.monotonic()<deadline:
+            if self.proc.poll() is not None:
+                raise RuntimeError("Gemma4 llama-server exited: "+
+                    (base/"llama-server.log").read_text(encoding="utf-8")[-1200:])
+            try:
+                with urllib.request.urlopen(
+                    "http://127.0.0.1:"+str(self.port)+"/health",timeout=5
+                ) as response:
+                    data=response.read().decode("utf-8")
+                if "ok" in data or "ready" in data or "slots" in data:
+                    print("GEMMA4_QAT_12B_READY",flush=True)
+                    return
+            except Exception:
+                pass
+            time.sleep(3)
+        raise RuntimeError("Gemma4 llama-server GPU initialization timed out")
     def json(self,request,limit=2000):
-        p=self.proc
-        messages=[{"role":"system","content":"Precise multilingual translator and reviewer. Follow all JSON output instructions."},
-                  {"role":"user","content":request}]
-        # Official Gemma4 processor interface: tokenized chat template
-        # returns multimodal-compatible model inputs (not manual string render).
-        inputs=p.apply_chat_template(messages,tokenize=True,
-                  return_dict=True,return_tensors="pt",
-                  add_generation_prompt=True,enable_thinking=False).to(self.model.device)
-        n=inputs["input_ids"].shape[-1]
-        with self.torch.inference_mode():
-            out=self.model.generate(**inputs,max_new_tokens=limit,
-                       do_sample=False,pad_token_id=p.tokenizer.eos_token_id)
-        return parse_json(p.decode(out[0][n:],skip_special_tokens=True))
+        import urllib.request
+        from urllib.error import HTTPError
+        body={"model":"gemma-4-12b-it-qat-q4_0",
+              "messages":[
+                {"role":"system","content":"Return precise, complete JSON for the requested translation or semantic review. No markdown."},
+                {"role":"user","content":request}
+              ],
+              "temperature":0,"max_tokens":limit,
+              "response_format":{"type":"json_object"}}
+        req=urllib.request.Request(
+          "http://127.0.0.1:"+str(self.port)+"/v1/chat/completions",
+          data=json.dumps(body,ensure_ascii=False).encode("utf-8"),
+          headers={"Content-Type":"application/json"},method="POST")
+        try:
+            with urllib.request.urlopen(req,timeout=450) as response:
+                data=json.load(response)
+        except HTTPError as error:
+            raise RuntimeError("Gemma4 local inference HTTP "+
+                               str(error.code)) from error
+        options=data.get("choices") or []
+        if not options:raise RuntimeError("Gemma4 local completion missing choices")
+        content=(options[0].get("message") or {}).get("content") or ""
+        return parse_json(content)
 
 def translate(gemma,lang,english):
     def batch(rows):
