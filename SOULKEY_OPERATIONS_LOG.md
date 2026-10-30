@@ -1,5 +1,15 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-31｜Kaggle 舊映像 ABI 不符已定位；正式文稿實際增加到34組
+
+- 第一個新授權 [#41103810894](https://github.com/staney41011/SoulKey/actions/runs/41103810894) 已實際在Kaggle執行：T4 GPU存在、四堂Final同步成功，30個已過QA語言逐一匯出／讀回Drive文稿。Drive重新盤點三種格式完整且非空：L01 **10**、L02 **15**、L03 **7**、L04 **2**，共 **34/64組文稿**。正式MP3仍 **18/64**、試聽5組；QA仍 **30/60**。英文人工定稿4組已包括在34組文稿內，不重複列為AI QA。
+- 02:11補譯啟動失敗：官方 `llama-server` 需要 `GLIBC_2.38 / GLIBCXX_3.4.32`，既有專用kernel從 `kernels pull -m` 帶回舊 `docker_image` digest，造成舊Ubuntu系統映像一直被沿用。這不是Google授權失效，也不是JSON文法或翻譯QA問題；新Gemma語言尚未產生。
+- 依Kaggle官方CLI已驗證的metadata介面，P259 Gemma任務移除舊digest，明確設定 `docker_image_pinning_type=latest`。保持同一私人kernel、原Notebook資料來源、T4、Bridge短效授權；不恢復任何GCP worker。其他工作不擅自改寫當次拉取的映像設定。
+- 模型下載前新增30秒內的原生執行檔ABI檢查，失敗時明確指出工作映像不相容，不等到下載權重後才退出。4項測試實際執行workflow的metadata產生程式，覆蓋舊映像移除、非Gemma工作保留、成功／失敗ABI probe；10項Gemma修復與數字QA測試通過。
+- [校稿PR #34](https://github.com/staney41011/SoulKey/pull/34) 全部CI通過，已合併 `6bb4a3b3d14497684fb1759077f72448066e426c`。61項pipeline合約與21個Studio測試通過；明確 `?step=en` 仍開英文步驟、草稿不能用 `?step=output` 跳過人工定稿。新映像需在正式合併後由原Studio建立新工作，讓GitHub採用更新後的workflow；不能rerun舊workflow便假設metadata也會更新，更不能把靜態檢查算成真實GPU成功。
+
+---
+
 ## 2026-10-31 02:10（台灣）｜原 Bridge 第67版已部署，真實登入與新 Kaggle 派工成功
 
 - 原 Apps Script 專案 `SoulKey Studio Bridge` 的既有公開部署已更新至 **67版**（02:03）。保留原 `/exec` 網址、原六碼、Script Properties、執行身分與存取範圍；沒有建立替代控制中心。以線上原始碼177,240字元為基礎，只新增框架回傳與可核對的健康欄位，沒有整份覆蓋使用者線上的修訂。
@@ -173,9 +183,9 @@
 
 1. **正在救援**：第 259 期 P259-L01～P259-L04，4 堂 × 16 語 = **64 份目標語言文稿 + 64 組目標配音**。16 語：`en, th, es, id, vi, hi, ta, ja, ko, km, bn, ne, lo, my, it, pt`。
 2. **嚴禁把 GitHub 派工成功當作 Kaggle 或音檔交付**。分層判斷：Studio POST → Apps Script 驗證 → GitHub Workflow Dispatch → Kaggle Worker 執行 → 該語完整翻譯 QA / TTS → Google Drive 非空檔案及 manifest readback → Sheet status。
-3. **現行真實工作**：[Kaggle Web Job #41103810894](https://github.com/staney41011/SoulKey/actions/runs/41103810894)，2026-10-31 02:05（Asia/Taipei）由原Studio建立新授權；原#41002147166已過期，禁止重跑舊nonce。
-4. **中央新紀錄**：`P259-L01 / multi / queued / 41103810894`；後續 `multi / running / web-job_eidS9Rrm / 02:05:41`。新工作在Kaggle本地跑Gemma4補譯與QA，之後只為已核可來源執行正式配音。
-5. **交付最後快照**：QA **30/60**、文稿 **24/64**、正式MP3 **18/64**、試聽 **5組**；4組英文人工Final另計。須讀回新的QA、Drive檔案與manifest才增加數量。
+3. **最近授權工作**：[Kaggle Web Job #41103810894](https://github.com/staney41011/SoulKey/actions/runs/41103810894)，2026-10-31 02:05（Asia/Taipei）由原Studio建立新授權。第一次執行因舊映像ABI不符失敗，修正合併後須由原Studio新派工作，避免rerun沿用舊workflow；原#41002147166已過期，禁止重跑舊nonce。
+4. **中央紀錄**：本次 `multi / running / web-job_eidS9Rrm / 02:05:41`，02:11明確error。新派工須重新讀回run ID與開始紀錄，不得聲稱翻譯在失敗後仍執行中。
+5. **交付最後快照**：QA **30/60**、完整文稿 **34/64**、正式MP3 **18/64**、試聽 **5組**；文稿包含4組英文人工Final。須讀回新的QA、Drive檔案與manifest才增加數量。
 6. **注意**：四個GCP workflow已實際disabled，沒有排程或Cloud Run接手。部分語言仍可能需要QA複核；保留既有成果與來源revision，不降低QA或將試聽版標成正式音檔。
 7. **安全**：不重設使用者 Google OAuth、原六碼 Bridge Key、Apps Script Script Properties、Drive 既有檔案；不要把 token、金鑰放入此文件、PR、前端或 Sheet。不要未確認工作狀態就再次派送相同救援。
 
