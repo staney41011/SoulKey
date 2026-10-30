@@ -19,9 +19,7 @@ async function verifyGithubWorker(token,kind="translation"){
    ? "staney41011/SoulKey/.github/workflows/soulkey_cc_queue.yml@"
    : kind==="translation"
      ? "staney41011/SoulKey/.github/workflows/soulkey_translation_queue.yml@"
-     : kind==="delivery"
-       ? "staney41011/SoulKey/.github/workflows/soulkey_p259_final_delivery.yml@"
-       : "";
+     : "";
  if(!expected||!payload.workflow_ref.startsWith(expected))
   throw Error("github_worker_wrong_workflow_lane");
  return true;
