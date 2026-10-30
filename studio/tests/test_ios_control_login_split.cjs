@@ -4,18 +4,21 @@ const root=path.resolve(__dirname,"../..");
 const config=fs.readFileSync(path.join(root,"studio/config.js"),"utf8");
 const app=fs.readFileSync(path.join(root,"studio/app-20260923-48.js"),"utf8");
 const html=fs.readFileSync(path.join(root,"studio/index.html"),"utf8");
-// iOS Safari must not depend on an Apps Script embedded iframe for the
-// first login or task list. Keep the six-digit key in Cloud Run POST bodies.
-assert.match(config,/bridgeEndpoint: "https:\/\/soulkey-bridge-[^"]+run\.app"/);
-assert.match(config,/legacyKaggleBridgeEndpoint: "https:\/\/script\.google\.com\/macros\/s\/[^"]+\/exec"/);
-assert.match(app,/const LEGACY_KAGGLE_ENDPOINT = String\(cfg\.legacyKaggleBridgeEndpoint/);
-assert.match(app,/const legacyMachineJob=fields\?\.action==="run_stage" &&/);
-assert.match(app,/const endpoint=window\.SoulKeyBridgeRoutes\.endpoint\(cfg,fields\)/);
-assert.match(app,/if\(key\.length===6\)\{/);
-assert.match(app,/body:params\.toString\(\),signal:controller\.signal/);
+const routing=fs.readFileSync(path.join(root,"studio/bridge-routing.js"),"utf8");
+// Restoration contract: old Apps Script is the primary read/write controller.
+// Firebase augments status only; Cloud Run must not be required for login.
+const match=config.match(/bridgeEndpoint: "(https:\/\/script\.google\.com\/macros\/s\/[^"]+\/exec)"/);
+assert(match,"Primary Studio Bridge must be Apps Script");
+assert(config.includes('legacyKaggleBridgeEndpoint: "'+match[1]+'"'),
+  "Kaggle dispatch must use the same original Apps Script URL");
+assert.match(config,/mode: "legacy-firebase"/);
+assert.match(config,/firebaseHostingUrl: "https:\/\/soulkey-control-2026\.web\.app\/"/);
+assert.match(app,/if\(isAppsScriptBridge\(\)\) initBridgeClient\(\)/);
+assert.match(app,/if\(isAppsScriptBridge\(\)\)\{\s*return legacyBridgeRead\(fields,options\);/);
+assert.match(app,/function useTopLevelP259LegacyDispatch\(fields\)/);
 assert.match(app,/form\.method="POST";/);
 assert.match(app,/form\.action=endpoint;/);
-assert.match(app,/if\(isAppsScriptBridge\(\)\) initBridgeClient\(\)/);
+assert.match(routing,/google\.script\.run/);
 assert.match(html,/id="p259-rescue-start"/);
 assert.match(html,/id="p259-translation-start"/);
-console.log("PASS: iPhone login uses stable Cloud Run POST; actual machine jobs use old Apps Script/Kaggle POST");
+console.log("PASS: Studio Apps Script primary, authenticated iframe reads, iOS Kaggle POST and Firebase additive");
