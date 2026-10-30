@@ -30,6 +30,10 @@ class CentralPlanTests(unittest.TestCase):
         ]
         self.assertEqual(approved_plan_rows(rows, "P259-L04"), ["ja"])
 
+    def test_human_recordings_do_not_start_tts(self):
+        rows=[["P259-L04","en","English","TRUE","human","TRUE","human"]]
+        self.assertEqual(approved_plan_rows(rows,"P259-L04"),[])
+
 
 if __name__ == "__main__":
     unittest.main()

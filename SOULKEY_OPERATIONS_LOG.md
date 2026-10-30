@@ -1,5 +1,20 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-30 20:03（台灣）｜恢復 10/28 前流程並接回中央定稿（修復驗收中）
+
+- 舊版基準：`efcf6903d09d1cc64ec18598def64e225a2d1280`（10/27），已保留在 `recovery/pre-20261028-working-baseline`。本次不回退中央 Sheet／Drive 資料。
+- 原因：新控制中心未實作完整舊 action，但介面仍向它送出；`cloudStageUnavailable` 又無條件鎖住中文／TTS。獨立校稿頁把 `cloud-recovery` 轉成 NaN、使用無法取得 JSON ACK 的 iframe 儲存，且英文快照缺新版逐句確認欄位。
+- 修復：共用 `studio/bridge-routing.js`，中央讀取／Final／逐句確認繼續用新服務；中文、AI 英文、多語、TTS、finish、原課表／快取／檔名操作走既有 Apps Script → GitHub → Kaggle。iOS 所有機器階段走原已驗證的頂層 POST，並依新的中央 run ID／時間回讀確認；不把送出表單當作成功。
+- 獨立校稿頁：Final 改中央 CORS POST、正確處理協定與回覆；英文確認每批最多25句，核對 base request ID，衝突不覆蓋，遺失 ACK 後回讀同一 request receipt。最終輸出先保存語言設定，再派原 `run_stage/finish`，避開只認 Drive en.final.json 的舊前置檢查。
+- 舊 Worker 讀新資料：`central_final_sync.py` 以中央 SHA／task／段落驗證同步人工作稿 JSON；較舊 Drive JSON 先保存並回讀版本檔才更新；不同課堂、失效 SHA、中文時間軸衝突均拒絕。沒有中央 Final 的歷史課程照舊運作。
+- 第259期：移除 Kaggle 舊的 model attachment；GGUF 由原 worker 下載。一般配音與 finish 均讀中央正確版本／已通過 QA 的語言，不觸發舊 Gemini 重譯。尊重單堂／語言勾選與真人錄音；已通過 QA 的文稿即使不配音亦同步到 Drive；未通過 QA 不標記 multi done。
+- 已完成離線驗證：61項 pipeline contracts、18項中央來源／文稿／定稿測試、6項原片來源檢查、32個 JavaScript 測試程式（含中央確認、遺失 ACK、跨裝置衝突及既有 Cloud Bridge helpers）；相關 Python／JS／workflow 語法檢查。線上 CI 與實際授權工作另行記錄。
+- 實際阻礙：本環境沒有已登入 Studio／Google 的瀏覽器；Desktop Commander 已回報本月額度用完，依工具指示不重連。未接觸／重設原六碼、OAuth、Kaggle secrets。尚未完成新的真實 ASR→人工定稿→翻譯→正式 Drive MP3 閉環，不能以離線測試或 GitHub 綠燈宣稱全部恢復。
+- 最近真實來源讀回仍是四份獨立英文 Final、24/60非英語 QA passed；先前11/64正式 MP3基線不得當作最新掃描。既有 relay／preview 執行中的成果需以新查詢逐一驗收。
+- 回退：僅回退本次修復 commit 的程式；若回到10/27整版請先核對中央 Final 差異。舊人工作稿 JSON 的 revision 檔不可刪除。
+
+---
+
 ## 2026-10-30 15:26（台灣）｜第259期四堂 64 文稿／64 配音續跑：實際驗收、GitHub 自動授權派工
 
 > 這是實際執行記錄，**不是已完成 64/64 的宣告**。以 Google Drive 上正式檔案及來源 SHA/QA/manifest 讀回為最終標準。

@@ -37,8 +37,11 @@ let saveRevisionInFlight=0;
 let autoSaveTimer=null;
 let currentStep=1;
 let finishQueued=false;
+let finishPending=null;
+let finishTarget="";
 let driveFallbackZh=[];
 let driveFallbackTotal=0;
+let englishBaseRequests={};
 let englishAligned=null; // separate English sentence-paired draft
 
 const $=id=>document.getElementById(id);
@@ -585,6 +588,21 @@ function bridgeKeyValue(){
 function jsonpBridgeRequest(fields){
   const key=bridgeKeyValue();
   if(!BRIDGE_ENDPOINT || !key) return false;
+  if(window.SoulKeyBridgeRoutes.usesLegacy(fields)){
+    return window.SoulKeyBridgeRoutes.readLegacy(cfg,key,fields,{
+      onError:error=>setStatus(error.message,"error")
+    });
+  }
+  if(!/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT)){
+    fetch(BRIDGE_ENDPOINT,{
+      method:"POST",mode:"cors",cache:"no-store",
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:new URLSearchParams({...fields,bridge_key:key})
+    }).then(response=>response.json()).then(data=>{
+      window.dispatchEvent(new MessageEvent("message",{data}));
+    }).catch(()=>setStatus("控制中心讀取失敗，編輯內容仍保留在此裝置","error"));
+    return true;
+  }
 
   const callbackName="__soulkey_review_jsonp_"+Date.now()+"_"+Math.random().toString(36).slice(2);
   const script=document.createElement("script");
@@ -688,6 +706,29 @@ function submit(fields){
       return false;
     }
   }
+  // Finalize into the new authoritative central store. Keep the old editor's
+  // response names so the review flow advances only after verified readback.
+  const finalTypes={review_share_finalize:"zh",review_share_finalize_en:"en"};
+  const finalKind=finalTypes[fields.action];
+  const outgoing=finalKind ? {...fields,action:"review_save",kind:finalKind,
+    source_video_id:videoId} : fields;
+  const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,outgoing);
+  if(!endpoint){setStatus("原有服務連線尚未設定","error");return false;}
+  if(!/^https:\/\/script\.google\.com\//.test(endpoint)){
+    fetch(endpoint,{
+      method:"POST",mode:"cors",cache:"no-store",
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:new URLSearchParams({...outgoing,bridge_key:bridgeKeyValue()})
+    }).then(response=>response.json()).then(result=>{
+      const data=finalKind ? {...result,type:finalKind==="zh"
+        ?"review_share_finalized":"review_share_en_finalized"} : result;
+      window.dispatchEvent(new MessageEvent("message",{data}));
+    }).catch(()=>{
+      if(finalKind)$(finalKind==="zh"?"finalize-zh":"finalize-en").disabled=false;
+      setStatus("儲存未確認，內容仍保留在此裝置，請重試","error");
+    });
+    return true;
+  }
   const target="soulkey-share-"+Date.now()+"-"+Math.random().toString(36).slice(2);
   const frame=document.createElement("iframe");
   frame.name=target;
@@ -696,11 +737,11 @@ function submit(fields){
 
   const form=document.createElement("form");
   form.method="POST";
-  form.action=BRIDGE_ENDPOINT;
-  form.target=target;
+  form.action=endpoint;
+  form.target=fields.action==="run_stage" && finishTarget ? finishTarget : target;
   form.style.display="none";
   const authenticatedFields={
-    ...fields,
+    ...outgoing,
     bridge_key:bridgeKeyValue()
   };
   for(const [name,value] of Object.entries(authenticatedFields)){
@@ -716,8 +757,56 @@ function submit(fields){
   setTimeout(()=>{
     form.remove();
     frame.remove();
-  },10000);
+  },180000);
   return true;
+}
+
+async function centralReviewRequest(fields){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),45000);
+  try{
+    const response=await fetch(BRIDGE_ENDPOINT,{
+      method:"POST",mode:"cors",cache:"no-store",signal:controller.signal,
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:new URLSearchParams({...fields,bridge_key:bridgeKeyValue()})
+    });
+    return await response.json();
+  }finally{clearTimeout(timer);}
+}
+
+async function saveCentralEnglishDraft(editPayload){
+  const rows=editPayload.segments.filter(x=>x.en_confirmed===true);
+  if(!rows.length)throw new Error("請先確認至少一句英文，再儲存");
+  const current=await centralReviewRequest({action:"review_en_draft_status",task_id:taskId,include_edits:"1"});
+  if(!current.ok)throw new Error(current.message||current.error||"無法核對英文版本");
+  for(const row of rows){
+    const server=current.edits?.[String(row.id)];
+    if(server && String(server.request_id)!==String(englishBaseRequests[String(row.id)]||"") &&
+       String(server.en_text)!==String(row.en_text))
+      throw new Error("這句英文已由其他裝置更新，請保留本機修改並重新載入："+row.id);
+  }
+  for(let offset=0;offset<rows.length;offset+=25){
+    const part=rows.slice(offset,offset+25);
+    const requestId=Date.now()+"-"+offset+"-"+Math.random().toString(36).slice(2);
+    const batch={...editPayload,save_request_id:requestId,
+      confirmed_segment_ids:part.map(x=>x.id),segments:part.map(x=>({...x,
+        base_request_id:String(current.edits?.[String(x.id)]?.request_id||"")}))};
+    let result;
+    try{
+      result=await centralReviewRequest({action:"review_en_draft_save",task_id:taskId,
+        payload_json:JSON.stringify(batch)});
+    }catch(error){
+      // A lost ACK may follow a committed write. Confirm the same request ID
+      // before permitting a later attempt with a different revision.
+      const receipt=await centralReviewRequest({action:"review_en_draft_status",task_id:taskId,request_id:requestId});
+      if(!receipt.ok||!receipt.committed)throw error;
+      result={ok:true};
+    }
+    if(!result.ok)throw new Error(result.message||result.error||"英文儲存未確認");
+    for(const row of part)englishBaseRequests[String(row.id)]=requestId;
+  }
+  return {source:"soulkey-bridge",type:"english_review_draft_saved",ok:true,
+    task_id:taskId,storage:"google-sheet"};
 }
 
 function requestDraftSave(reason="manual"){
@@ -757,8 +846,17 @@ function requestDraftSave(reason="manual"){
       en_confirmed:x.en_confirmed===true
     }))
   }:currentPayload();
+  if(englishMode){
+    saveCentralEnglishDraft(editPayload).then(data=>{
+      window.dispatchEvent(new MessageEvent("message",{data}));
+    }).catch(error=>window.dispatchEvent(new MessageEvent("message",{data:{
+      source:"soulkey-bridge",type:"english_review_draft_saved",ok:false,
+      task_id:taskId,message:error.message
+    }})));
+    return;
+  }
   const sent=submit({
-    action:englishMode?"review_en_draft_save":"review_share_draft_save",
+    action:"review_share_draft_save",
     task_id:taskId,
     payload_json:JSON.stringify(editPayload)
   });
@@ -879,19 +977,55 @@ function finishWorkflow(){
 
   $("finish-workflow").disabled=true;
   setStatus("送出最終輸出工作…","working");
-  submit({
-    action:"review_finish",
-    task_id:taskId,
-    plan_json:JSON.stringify(plan)
+  if(/iPad|iPhone|iPod/i.test(navigator.userAgent||"")){
+    finishTarget="soulkey-finish-"+Date.now();
+    window.open("about:blank",finishTarget);
+  }
+  const translateLangs=extra.map(x=>x.language_code);
+  const audioLangs=audio.map(x=>x.language_code);
+  finishPending={submittedAt:Date.now(),previousRunId:"",translateLangs,audioLangs};
+  fetch(BRIDGE_ENDPOINT,{
+    method:"POST",mode:"cors",cache:"no-store",
+    headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+    body:new URLSearchParams({action:"language_plan_save",task_id:taskId,
+      plan_json:JSON.stringify(plan),bridge_key:bridgeKeyValue()})
+  }).then(response=>response.json()).then(result=>{
+    if(!result.ok)throw new Error(result.message||result.error||"語言設定未儲存");
+    const sent=submit({action:"run_stage",task_id:taskId,stage:"finish",
+      langs:translateLangs.join(","),lang:audioLangs.join(",")});
+    if(!sent)throw new Error("派工未送出");
+    setStatus("請求已送出，等待中央派工確認…","working");
+    for(const wait of [3000,8000,15000,30000,60000])
+      window.setTimeout(()=>jsonpBridgeRequest({action:"status",task_id:taskId}),wait);
+  }).catch(error=>{
+    finishPending=null;$("finish-workflow").disabled=false;
+    setStatus(error.message,"error");
   });
 }
 
 window.addEventListener("message",event=>{
   const data=event.data||{};
   if(data.source!=="soulkey-bridge") return;
+  if(finishPending && data.type==="status_result" && data.ok){
+    const state=data.tasks?.[taskId]?.stages?.finish;
+    if(window.SoulKeyBridgeRoutes.dispatchReceipt(finishPending,state)){
+      window.dispatchEvent(new MessageEvent("message",{data:{
+        source:"soulkey-bridge",type:"run_stage",ok:true,task_id:taskId,
+        stage:"finish",run_id:state.run_id
+      }}));
+    }
+  }
+  if(finishPending && data.type==="run_stage" && data.task_id===taskId && data.stage==="finish"){
+    const pending=finishPending;finishPending=null;
+    window.dispatchEvent(new MessageEvent("message",{data:{...data,
+      type:"review_finish_queued",translate_langs:pending.translateLangs,
+      audio_langs:pending.audioLangs,
+      message:data.ok?"中央已確認 Kaggle 派工；完成後請核對文稿及音檔":data.message
+    }}));
+  }
 
   if(data.type==="status_health" && data.ok){
-    bridgeProtocolVersion=Number(data.bridge_protocol||0);
+    bridgeProtocolVersion=window.SoulKeyBridgeRoutes.protocol(data.bridge_protocol);
     if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
       setStatus(
         "控制中心版本過舊（v"+bridgeProtocolVersion+"）；可讀取 Drive，但已停用寫入與送出工作，請重新部署 Code.gs。",
@@ -1009,7 +1143,7 @@ window.addEventListener("message",event=>{
       lastSavedRevision=Math.max(lastSavedRevision,saveRevisionInFlight);
       dirty=revision>lastSavedRevision;
       setStatus(
-        saveQueued?"前一批已同步・繼續同步最新修改…":"已同步到 GitHub",
+        saveQueued?"前一批已同步・繼續同步最新修改…":data.storage==="google-sheet"?"英文已寫入中央表並回讀驗證":"已同步到 GitHub",
         saveQueued?"working":"ok"
       );
       if(saveQueued){
@@ -1152,6 +1286,14 @@ async function loadAlignedEnglish(force=false){
       source_en:String(x.source_en||""),
       en_text:String(x.en_text||x.source_en||"")
     }));
+    const saved=await centralReviewRequest({action:"review_en_draft_status",task_id:taskId,include_edits:"1"});
+    if(saved.ok && !dirty){
+      for(const row of englishAligned){
+        const edit=saved.edits?.[String(row.id)];
+        if(edit){row.en_text=String(edit.en_text);row.en_confirmed=true;
+          englishBaseRequests[String(row.id)]=String(edit.request_id||"");}
+      }
+    }
     if(aligned.en_finalized_at){
       payload.en_finalized_at=String(aligned.en_finalized_at);
       $("finalize-en").disabled=true;

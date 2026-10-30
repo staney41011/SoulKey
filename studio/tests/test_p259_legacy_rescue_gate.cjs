@@ -22,5 +22,5 @@ for(const section of sections){
 }
 assert(config.includes("legacyKaggleBridgeEndpoint:"));
 assert(config.includes('bridgeEndpoint: "https://soulkey-bridge-'));
-assert(script.includes('const endpoint=legacyMachineJob ? LEGACY_KAGGLE_ENDPOINT : bridgeEndpointValue()'));
+assert(script.includes('const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,fields)'));
 console.log("PASS: verified Cloud Run login can dispatch four-lesson jobs to original Kaggle Apps Script");

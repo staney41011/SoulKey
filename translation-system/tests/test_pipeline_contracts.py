@@ -122,7 +122,10 @@ class PipelineContracts(unittest.TestCase):
                 action,
             )
         self.assertIn('action:"review_cache_seed"', app)
-        self.assertIn('action:"review_finish"', quick)
+        # New central Finals need not already exist in legacy Drive. Save the
+        # plan centrally, then use the original authenticated machine dispatch.
+        self.assertIn('action:"language_plan_save"', quick)
+        self.assertIn('action:"run_stage",task_id:taskId,stage:"finish"', quick)
 
     def test_formal_drive_naming_preserves_canonical_lookups(self):
         naming = read("translation-system/drive_naming.py")

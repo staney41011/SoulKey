@@ -9,8 +9,8 @@ const STORE = {
 const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
-// Stable authenticated central reads use Cloud Run; only machine execution
-// goes through the original Apps Script -> GitHub Actions -> Kaggle bridge.
+// Central reads and final saves use the new store. Operations implemented by
+// the original service keep their authenticated Apps Script -> Kaggle route.
 const LEGACY_KAGGLE_ENDPOINT = String(cfg.legacyKaggleBridgeEndpoint || "").trim();
 const STATUS_POLL_MS = 30000;
 const REQUIRED_BRIDGE_PROTOCOL = 9;
@@ -1152,7 +1152,9 @@ function openQuickReview(taskId){
 }
 
 function cloudStageUnavailable(stage){
-  return !!(bridgeIsCloudRecovery && stage && (stage.key==="zh" || stage.key==="tts"));
+  return !!(bridgeIsCloudRecovery && stage &&
+    window.SoulKeyBridgeRoutes?.usesLegacy({action:"run_stage",stage:stage.key}) &&
+    !LEGACY_KAGGLE_ENDPOINT);
 }
 
 function renderTasks(){
@@ -2954,14 +2956,13 @@ function confirmNextStage(taskId){
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
     (retry?"重新執行：":"確定執行下一步驟：")+"\n"+next.label+"？\n\n"+
-    (bridgeIsCloudRecovery
-      ? "確認後僅寫入中央翻譯佇列，由 GitHub Actions 排程領取；成果回讀驗證後才算完成。"
-      : "確認後會送到 GitHub Actions，再啟動 Kaggle Web Worker。完成前下一步會保持鎖定。")
+    "確認後會送到 GitHub Actions，再啟動 Kaggle。文稿及音檔寫回並驗證後才算完成。"
   );
   if(!ok) return;
 
   const dispatchStage=next.key==="zh" ? "zh" : next.key;
-  pendingRunStageRequest={taskId:task.id,stage:dispatchStage};
+  pendingRunStageRequest={taskId:task.id,stage:dispatchStage,
+    submittedAt:Date.now(),previousRunId:String(currentRemote?.run_id||"")};
   const sent=submitBridgePost({
     action:"run_stage",
     task_id:task.id,
@@ -4751,8 +4752,7 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
 // Do not call this outside a direct user gesture; opening a tab is deliberate.
 function useTopLevelP259LegacyDispatch(fields){
   return /iPad|iPhone|iPod/i.test(navigator.userAgent||"") &&
-    fields?.action==="run_stage" && fields?.lang==="central4" &&
-    (fields?.stage==="tts" || fields?.stage==="multi");
+    fields?.action==="run_stage";
 }
 
 function submitP259LegacyTopLevelForm(endpoint,key,fields){
@@ -4781,8 +4781,9 @@ function submitP259LegacyTopLevelForm(endpoint,key,fields){
 }
 
 function submitBridgePost(fields){
-  const legacyMachineJob=fields?.action==="run_stage" && fields?.stage!=="cc";
-  const endpoint=legacyMachineJob ? LEGACY_KAGGLE_ENDPOINT : bridgeEndpointValue();
+  const legacyMachineJob=fields?.action==="run_stage" &&
+    (fields?.stage!=="cc" || fields?.lang==="multi-audio");
+  const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,fields);
   if(legacyMachineJob && !endpoint){
     const status=document.getElementById("p259-rescue-status");
     if(status)status.textContent="原 Apps Script Kaggle Bridge 尚未設定，沒有送出任務。";
@@ -4815,7 +4816,17 @@ function submitBridgePost(fields){
   // third-party iframe. The old Bridge still controls GitHub/Kaggle, and no
   // credential or permanent token is exposed to the page URL.
   if(legacyMachineJob && useTopLevelP259LegacyDispatch(fields)){
-    return submitP259LegacyTopLevelForm(endpoint,key,fields);
+    const sent=submitP259LegacyTopLevelForm(endpoint,key,fields);
+    if(sent){
+      if(!pendingRunStageRequest){
+        const task=tasks.find(x=>x.id===fields.task_id);
+        pendingRunStageRequest={taskId:fields.task_id,stage:fields.stage,
+          submittedAt:Date.now(),previousRunId:String(remoteStageStatus(task,fields.stage)?.run_id||"")};
+      }
+      for(const wait of [3000,8000,15000,30000,60000])
+        window.setTimeout(()=>requestTaskStatuses(),wait);
+    }
+    return sent;
   }
 
   // Machine jobs use a private form POST to the existing Apps Script web app.
@@ -4945,11 +4956,19 @@ function bridgeSyncRequestFailed(action,reason){
   }
 }
 
+function legacyBridgeRead(fields,options={}){
+  if(firebaseSnapshotReadOnly)return false;
+  return window.SoulKeyBridgeRoutes.readLegacy(cfg,bridgeKeyValue(),fields,options);
+}
+
 function jsonpBridgeRequest(fields,options={}){
   const endpoint=bridgeEndpointValue();
   const key=bridgeKeyValue();
 
   if(!endpoint || !key) return false;
+  if(window.SoulKeyBridgeRoutes.usesLegacy(fields)){
+    return legacyBridgeRead(fields,options);
+  }
 
   // Apps Script does not return CORS response headers for 6-digit POSTs.
   // Use its existing google.script.run iframe bridge instead; never expose
@@ -5656,7 +5675,8 @@ window.addEventListener("message",event=>{
       return;
     }
     const pending=pendingRunStageRequest;
-    pendingRunStageRequest=null;
+    if(pending && (!data.task_id || data.task_id===pending.taskId) &&
+       (!data.stage || data.stage===pending.stage))pendingRunStageRequest=null;
     if(data.ok){
       if(pending &&
          (!data.task_id || String(data.task_id)===pending.taskId) &&
@@ -5892,6 +5912,14 @@ window.addEventListener("message",event=>{
 
   if(data.type==="status_result"){
     if(data.ok){
+      const pending=pendingRunStageRequest;
+      const received=pending && data.tasks?.[pending.taskId]?.stages?.[pending.stage];
+      if(window.SoulKeyBridgeRoutes.dispatchReceipt(pending,received)){
+        window.dispatchEvent(new MessageEvent("message",{data:{
+          source:"soulkey-bridge",type:"run_stage",ok:true,
+          task_id:pending.taskId,stage:pending.stage,run_id:received.run_id
+        }}));
+      }
       applyRemoteStatuses(data);
     }else{
       const syncState=document.getElementById("status-sync-state");
@@ -5957,8 +5985,7 @@ window.addEventListener("message",event=>{
       youtubeCCQueueEnabled=data.youtube_cc_queue_enabled===true;
       bridgeIsCloudRecovery=String(data.bridge_protocol||"")==="cloud-recovery";
       syncYoutubeCaptureModeUi();
-      bridgeProtocolVersion=String(data.bridge_protocol||"")==="cloud-recovery"
-        ? REQUIRED_BRIDGE_PROTOCOL : Number(data.bridge_protocol||0);
+      bridgeProtocolVersion=window.SoulKeyBridgeRoutes.protocol(data.bridge_protocol);
       const protocolOk=bridgeProtocolVersion>=REQUIRED_BRIDGE_PROTOCOL;
       if(syncState){
         syncState.textContent=protocolOk ? "狀態表已連線" : "控制中心版本過舊";

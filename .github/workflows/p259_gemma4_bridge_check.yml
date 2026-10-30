@@ -41,8 +41,9 @@ jobs:
           assert 'central_tts_recovery.py' in scoped
           assert 'gemini_multi_production_runner.py' not in scoped
           assert 'require_gpu_runtime("gemma4")' in scoped
-          assert 'p259_gemma4 = stage == "multi"' in wf
-          assert 'gemma-4-12b-it/1' in wf and 'gemma-4-12b-it/1' in gem
+          assert 'p259_gemma4 = (stage == "multi"' in wf
+          assert 'meta["model_sources"] = []' in wf
+          assert 'huggingface_hub' in scoped and '--langs' in scoped
           assert 'Gemini API' not in scoped or 'No Kaggle Secrets' in scoped
           print("P259_GEMMA4_BRIDGE_INTEGRATION_CHECK_OK")
           PY

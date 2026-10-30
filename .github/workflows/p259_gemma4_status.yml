@@ -1,4 +1,5 @@
 name: P259 Gemma4 Secure Relay Runtime Status
+# Read-only status inspection after restoring the original Studio workflow.
 
 on:
   push:
