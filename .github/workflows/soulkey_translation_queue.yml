@@ -1,9 +1,6 @@
 name: SoulKey Translation Queue Worker
 
 on:
-  push:
-    paths:
-      - '.github/workflows/soulkey_translation_queue.yml'
   schedule:
     # Multi-language text translation runs on GitHub CPU, conserving Kaggle GPU.
     - cron: "*/5 * * * *"
