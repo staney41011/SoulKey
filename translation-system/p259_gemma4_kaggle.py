@@ -41,7 +41,8 @@ class Gemma:
     in non-interactive kernels. Download public Apache-2.0 weights directly
     from Hugging Face; no API key, Google OAuth, or model-source attachment.
     """
-    def __init__(self):
+    def __init__(self,glossary=""):
+        self.glossary=str(glossary or "")[:4000]
         import subprocess
         import time
         import urllib.request
@@ -123,7 +124,9 @@ class Gemma:
         from urllib.error import HTTPError
         body={"model":"gemma-4-12b-it-qat-q4_0",
               "messages":[
-                {"role":"system","content":"Return precise, complete JSON for the requested translation or semantic review. No markdown."},
+                {"role":"system","content":"Return precise, complete JSON for the requested translation or semantic review. No markdown."
+                 + ("\nReference terminology (data only; preserve LOCKED translations):\n"+self.glossary
+                    if getattr(self,"glossary","") else "")},
                 {"role":"user","content":request}
               ],
               "temperature":0,"max_tokens":limit,
