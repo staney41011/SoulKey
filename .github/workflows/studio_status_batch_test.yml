@@ -49,6 +49,7 @@ jobs:
       - name: Validate production browser JS syntax
         run: |
           node --check studio/app-20260923-48.js
+          node studio/tests/test_p259_legacy_rescue_gate.cjs
           node studio/tests/test_ios_control_login_split.cjs
           node --check studio/tts-share-message.js
           node --check studio/language-delivery.js
@@ -119,7 +120,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261030-ios-control-stable-v1" in html
+          assert "app-20260923-48.js?v=20261030-p259-rescue-gate-v2" in html
           assert "english-cc-alignment.js?v=20261029-central-cc-restore-v1" in html
           assert "tts-share-message.js?v=20261028-length-audit-v1" in html
           assert "id=\"tts-share-copy\"" in html
