@@ -14,12 +14,13 @@ def main():
     ap.add_argument("--lesson",required=True,choices=[f"P259-L{x:02d}" for x in range(1,5)])
     ap.add_argument("--input",default=str(Path(__file__).with_name("p259_approved_audio_source.json")))
     ap.add_argument("--output",default="/tmp/p259-natural-preview")
+    ap.add_argument("--lang",default="",help="Optional single approved language for targeted recovery")
     args=ap.parse_args()
     from tts_runner import render_natural_language
     from natural_tts_config import NATURAL_TTS_PROFILES
     p=json.loads(Path(args.input).read_text(encoding="utf-8"))
     if p.get("period")!=259:raise ValueError("input_not_P259")
-    targets=[x for x in p["tasks"] if x["task_id"]==args.lesson]
+    targets=[x for x in p["tasks"] if x["task_id"]==args.lesson and (not args.lang or x["lang"]==args.lang)]
     if not targets:raise ValueError("lesson_missing_from_approved_input")
     dest=Path(args.output)/args.lesson
     dest.mkdir(parents=True,exist_ok=True)
