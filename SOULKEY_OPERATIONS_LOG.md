@@ -291,3 +291,17 @@
 - 已把先前失敗的 **L02 it、L01 ko/km/bn/ne/lo** 六組拆為單語重試工作，寫進中央「翻譯工作佇列」並回讀確認；來源英文 SHA 不變。
 - 再把 L03/L04 尚未領取的八筆多語合批拆分，保留原八筆成單語並增列16筆。**中央回讀驗證31筆 queued 全為單一語言，且沒有重複 queued language**（L03十語、L04十五語、L02一語、L01五語）。正在執行中的原批次沒有修改。
 - 目前實際中央 QA 為 **26/60 非英文**，不是 60/60；正式 Drive 文稿、MP3 尚未驗收增加。本次代表已完成可靠性修復及進行單語重試，**不是四堂64份正式文稿/64組音訊完成**。
+
+
+### 2026-10-30 23:15（台灣）｜四堂完整交付：新 GitHub OIDC → 原 Natural TTS → 正式 Drive 接線
+
+**已實際寫入 GitHub main 的程式，不等於已部署 Cloud Run。**
+
+- 新增 `cloud-bridge/server.js` 專用 `worker_drive_runtime`：只有 GitHub main 的 [soulkey_p259_final_delivery.yml](.github/workflows/soulkey_p259_final_delivery.yml) 工作經 repo+ref+event+workflow-restricted OIDC 才能取得短效 Google token；先對第259期四堂翻譯稿和音檔的八個資料夾驗證 canAddChildren。優先沿用**原有 Cloud Run 保護的 owner OAuth**，如果不存在才使用具 Editor 權限的 Cloud Run service identity；不向 Kaggle 傳送任何 Google token/refresh secret。
+- 新增 `CloudRunOIDCCredentials` 在 `translation-system/google_io.py`，GitHub Actions 每次 token 過期可重新取得 repo OIDC，讓既有 `central_tts_recovery.py`、`central_manuscript_export.py`、`tts_runner.py` 直接使用源版本／翻譯 QA 查核、正式字幕與 Natural Edge 配音及 Drive MD5/內容回讀。
+- 新增 [soulkey_p259_final_delivery.yml](.github/workflows/soulkey_p259_final_delivery.yml) 定時／手動正式交付：每輪最多1、2、4組新音檔，既有文稿/音檔核可項會沿用；定時工作由 `SOULKEY_P259_DELIVERY_READY=true` **安全閘門**控制，尚未在雲端授權成功前不應開啟。
+- 新增 `p259_source_duration_restore.py`：第4堂僅在影片 URL 與重新查證 YouTube ID 完全一致、有效取得原片長度時，才寫入 source_info.json 並回讀；失敗不假定視頻時長。新增 `p259_delivery_audit.py`，嚴格檢查4×16來源 SHA、QA、Drive JSON/TXT/SRT bytes、正式 MP3/WAV/manifest SHA/MD5+片長。未滿全部64不得回報完成。
+- 新增 CI [P259 Delivery OIDC and Drive Source Safety Check #41078497715](https://github.com/staney41011/SoulKey/actions/runs/41078497715) **success**，涵蓋 OIDC 認證隔離、短效刷新與拒絕錯誤權限、原始 YouTube ID、定稿來源、程式編譯與工作安全閘門。新 [Gemma4 relay 靜態測試 #41078827942](https://github.com/staney41011/SoulKey/actions/runs/41078827942) **success**；翻譯已通過 QA 語言將跨工作沿用，避免再浪費一次 GPU。
+- **已確認真正阻礙**：[CI #41078123942](https://github.com/staney41011/SoulKey/actions/runs/41078123942) 從 GCP Cloud Run 的公開版本端點讀回部署的 **舊 SHA `7ad3d5af3936bb989aeef70f92169c08c26cd5a9`**，不是新的 main 交付版；GitHub 程式提交並不部署 GCP。Remote Desktop Commander 遠端呼叫餘額 **0%**，本回合沒有 GCP 管理權限，不得宣稱已部署或已完成正式寫回。
+- 一次性部署命令已在 [cloud-bridge/README.md](cloud-bridge/README.md)：使用既有已登入 Google Cloud Shell 的 SoulKey Git checkout 執行 `git pull --ff-only && bash cloud-bridge/deploy-from-cloud-shell.sh`，保留現有 Bridge Key/OAuth 設定，部署後驗證 build SHA，確定 Drive Owner OAuth 或 Cloud Run SA 對第259期八個文字/音檔資料夾具 Editor；再手動執行新交付 workflow **export_only=true** 一輪核對文稿是否真的寫回；確認後設置 GitHub Actions Variable `SOULKEY_P259_DELIVERY_READY=true` 啟用每兩小時定時正式輸出。
+- 截至本回合最後核對，中央**非英文 QA 已由26提升至28/60**（四份英文 Final 已核可，餘32非英文）；24／64 正式文稿與18／64正式 MP3是先前最後一次「實際正式資料夾逐檔」核對數字，本回合尚無新的正式檔案回讀，因此不得宣稱已提高。新正式交付工作在 GCP 部署/權限驗證前尚不可運作。
