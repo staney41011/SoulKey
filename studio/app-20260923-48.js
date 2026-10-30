@@ -6259,7 +6259,7 @@ function startP259RescueAudio(){
   const btn=document.getElementById("p259-rescue-start");
   const needed=["P259-L01","P259-L02","P259-L03","P259-L04"];
   if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL ||
-      !isAppsScriptBridge() || firebaseSnapshotReadOnly ||
+      !LEGACY_KAGGLE_ENDPOINT || firebaseSnapshotReadOnly ||
       !needed.every(id=>confirmedRemoteTaskIds.has(id))){
     if(status) status.textContent="尚未完成原 Apps Script Bridge 驗證，或四堂課尚未全部載入；沒有派工。";
     return;
@@ -6294,7 +6294,7 @@ function startP259RescueTranslation(){
   const btn=document.getElementById("p259-translation-start");
   const needed=["P259-L01","P259-L02","P259-L03","P259-L04"];
   if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL ||
-      !isAppsScriptBridge() || firebaseSnapshotReadOnly ||
+      !LEGACY_KAGGLE_ENDPOINT || firebaseSnapshotReadOnly ||
       !needed.every(id=>confirmedRemoteTaskIds.has(id))){
     if(status)status.textContent="原 Apps Script 尚未驗證或四堂任務尚未載入；沒有派工。";
     return;
