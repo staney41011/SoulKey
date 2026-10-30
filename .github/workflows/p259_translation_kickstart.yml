@@ -1,0 +1,33 @@
+name: P259 One-Shot Translation Queue Kickstart
+
+# Dispatch the real worker under its verified workflow_dispatch OIDC event.
+# Never permit push-origin JWTs to claim protected Cloud Run jobs.
+on:
+  push:
+    paths:
+      - '.github/workflows/p259_translation_kickstart.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: soulkey-p259-one-shot-translation-kickstart
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch authorized central translation queue exactly once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run soulkey_translation_queue.yml --repo "$GH_REPO" --ref main
+          echo "P259_TRANSLATION_WORKFLOW_DISPATCH_SUBMITTED"
+          echo "This launches translation only. Check QA receipts and Drive before claiming delivery."
