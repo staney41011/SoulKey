@@ -15,6 +15,7 @@ let bridgeProtocolVersion = 0;
 const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache").replace(/\/$/,"");
 const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
+let bridgeClientInitializing = false;
 let bridgeAuthenticated = false; // true only after verified health AND central tasks are loaded
 let driveOwnerConfigured = false; // requires verified owner OAuth before Drive publishing
 let youtubeCCQueueEnabled = false; // set only by authenticated Cloud Run health
@@ -4834,6 +4835,7 @@ function submitBridgePost(fields){
 }
 
 function initBridgeClient(){
+  if(bridgeClientInitializing || bridgeClientReady) return;
   const frame=document.getElementById("soulkey-status-bridge");
   if(!frame) return;
 
@@ -4842,6 +4844,8 @@ function initBridgeClient(){
   if(!endpoint) return;
 
   bridgeClientReady=false;
+  bridgeClientInitializing=true;
+  window.setTimeout(()=>{bridgeClientInitializing=false;},20000);
   const sep=endpoint.includes("?") ? "&" : "?";
   frame.src=endpoint+sep+"view=client&v=20260920-13";
 }
@@ -5117,6 +5121,7 @@ window.addEventListener("message",event=>{
   const data=event.data || {};
 
   if(data.source==="soulkey-bridge-client" && data.type==="ready"){
+    bridgeClientInitializing=false;
     bridgeClientReady=true;
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
