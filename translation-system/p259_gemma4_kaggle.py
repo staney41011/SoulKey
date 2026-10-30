@@ -192,7 +192,12 @@ def local_issues(source,target,lang):
     if re.search(r"(.{3,20}?)\1{7,}",target,re.S):issues.append("repeated_text")
     return list(dict.fromkeys(issues))
 
-def qa(gemma,lang,source,translation):
+def qa(gemma,lang,source,translation,semantic_pass_cache=None):
+    """Recheck all hard rules; reuse semantic passes only for unchanged text.
+
+    Cache lifetime is exactly one repair() call for one task, language and
+    English revision. Changed candidates always get a fresh semantic review.
+    """
     dest={int(x["id"]):x["text"] for x in translation}
     errors={}
     for item in source:
@@ -202,6 +207,11 @@ def qa(gemma,lang,source,translation):
     # Semantic QA is performed by local Gemma, not a paid/rate-limited API.
     for i in range(0,len(source),6):
         part=source[i:i+6]
+        if semantic_pass_cache is not None:
+            part=[x for x in part if
+                  (int(x["id"]),dest[int(x["id"])]) not in semantic_pass_cache]
+        if not part:
+            continue
         pairs=[{"id":x["id"],"english":x["text"],
                 "translation":dest[int(x["id"])]} for x in part]
         prompt=("Inspect "+LANGS[lang]+" translations versus their English source. "
@@ -214,19 +224,29 @@ def qa(gemma,lang,source,translation):
         fail=answer.get("failures") if isinstance(answer,dict) else None
         if not isinstance(fail,list):raise ValueError("local_gemma_qa_invalid")
         legal={int(x["id"]) for x in part}
+        flagged=set()
         for item in fail:
             sid=int(item.get("id",item.get("segment_id",-1)))
             if sid not in legal:raise ValueError("local_gemma_qa_unknown_id")
             issue=str(item.get("issue") or "").strip()
-            if issue:errors.setdefault(sid,[]).append(issue[:200])
+            if issue:
+                flagged.add(sid)
+                errors.setdefault(sid,[]).append(issue[:200])
+        if semantic_pass_cache is not None:
+            for item in part:
+                sid=int(item["id"])
+                if sid not in flagged:
+                    semantic_pass_cache.add((sid,dest[sid]))
     return errors
 
 def repair(gemma,lang,source,translated):
     originals={int(x["id"]):x["text"] for x in source}
     current={int(x["id"]):x["text"] for x in translated}
     repairs=0
+    semantic_pass_cache=set()
     for round_no in range(5):
-        failures=qa(gemma,lang,source,[{"id":i,"text":t} for i,t in current.items()])
+        failures=qa(gemma,lang,source,[{"id":i,"text":t} for i,t in current.items()],
+                    semantic_pass_cache=semantic_pass_cache)
         if not failures:
             return [{"id":x["id"],"text":current[int(x["id"])]} for x in source],round_no+1,repairs
         if round_no==4:break
