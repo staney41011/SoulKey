@@ -599,12 +599,23 @@ def main():
                     flush=True,
                 )
 
+        # P259 has SHA-verified central English Finals, but some legacy Drive
+        # en.final.json files were never synchronized by the new Cloud Bridge.
+        # Restore only missing files from exact central revisions before multi.
+        central_p259 = args.task_id in {
+            "P259-L01", "P259-L02", "P259-L03", "P259-L04"
+        }
+        if args.stage == "multi" and central_p259 and args.lang != "central4":
+            run([sys.executable, str(system_dir / "central_english_sync.py"),
+                 "--task-id", args.task_id])
+
         # A human may have finalized a pre-reupload transcript before the
         # new URL was checked. Guard every downstream consumer as well:
         # no translations or TTS from unverified source timestamps.
         if args.stage in {"polish", "vernacular", "en", "multi", "tts", "finish"} and not (
             (args.stage == "en" and args.lang == "cc-refresh")
             or (args.stage == "tts" and args.lang == "central4")
+            or (args.stage == "multi" and central_p259)
         ):
             try:
                 verify_asr_source_revision()
@@ -714,6 +725,30 @@ def main():
                 "--task-id", args.task_id,
                 "--stage", "en",
             ]
+
+        elif args.stage == "multi" and args.lang == "central4":
+            if args.task_id != "P259-L01":
+                raise RuntimeError("central4_requires_P259-L01_dispatch_anchor")
+            requested = "th,es,id,vi,hi,ta,ja,ko,km,bn,ne,lo,my,it,pt"
+            delivered = 0
+            failures = []
+            for index in range(1, 5):
+                lesson = f"P259-L{index:02d}"
+                try:
+                    run([sys.executable, str(system_dir / "central_english_sync.py"),
+                         "--task-id", lesson])
+                    run([sys.executable, str(system_dir / "gemini_multi_production_runner.py"),
+                         "--task-id", lesson, "--langs", requested])
+                    delivered += 1
+                except subprocess.CalledProcessError as error:
+                    failures.append(lesson)
+                    print("[P259-MULTI-RETRY-LATER]", lesson, error, flush=True)
+            report(args.bridge_url, args.runtime_nonce, "needs_review",
+                   "四堂課 Gemini 翻譯嘗試；本次已完成課程數="
+                   + str(delivered) + "；失敗待補=" + ",".join(failures))
+            if delivered == 0:
+                raise RuntimeError("P259_GEMINI_TRANSLATION_NOT_YET_AVAILABLE")
+            cmd = None
 
         elif args.stage == "multi":
             translate_langs = ",".join(
