@@ -24,7 +24,7 @@ def ready_tasks(sheets,period,only_task):
 def approved_plan_rows(rows,task):
     result=[]
     for row in rows:
-        if len(row)<7 or row[0]!=task or str(row[6]).upper()!="TRUE":continue
+        if len(row)<7 or row[0]!=task or str(row[5]).upper()!="TRUE":continue
         lang=str(row[1]).lower().strip()
         if lang not in result:result.append(lang)
     return result
@@ -112,7 +112,7 @@ def main():
     ap.add_argument("--lang",default="")
     ap.add_argument("--max-languages",type=int,default=1)
     args=ap.parse_args()
-    if args.max_languages<1 or args.max_languages>4:
+    if args.max_languages<1 or args.max_languages>64:
         raise SystemExit("max_languages_out_of_bounds")
     drive,sheets=build_google_services()
     get=lambda range_:read_values(sheets,SPREADSHEET_ID,range_)
@@ -121,7 +121,7 @@ def main():
     translations=get("多語翻譯結果!A2:G50000")
     qa=get("翻譯QA紀錄!A2:I5000")
     plans=get("語言任務設定!A2:J5000")
-    processed=0;ready=0
+    processed=0;ready=0;failures=0
     for task in ready_tasks(sheets,args.period,args.task_id):
         try:final=verified_english_final(task["task_id"],index,backups)
         except SourceNotReady as error:
@@ -135,7 +135,13 @@ def main():
                 continue
             ready+=1
             work=Path(os.environ.get("SOULKEY_TTS_WORKDIR", "./soulkey-central-tts"))/task["task_id"]/lang
-            state=produce(drive,sheets,task,lang,final,approved,work)
+            try:
+                state=produce(drive,sheets,task,lang,final,approved,work)
+            except Exception as error:
+                failures+=1
+                print("TTS_RECOVERY_LANGUAGE_FAILED",task["task_id"],lang,
+                      type(error).__name__,str(error)[:300],flush=True)
+                continue  # Other three lessons and approved languages must continue.
             if state.startswith("reused_"):
                 continue  # Old verified output does not consume the per-run production budget.
             if state=="missing":raise RuntimeError("audio_not_delivered")
@@ -144,7 +150,10 @@ def main():
                 if processed>=args.max_languages:
                     print("TTS_RECOVERY_LIMIT_REACHED",processed,flush=True)
                     return
-    print("TTS_RECOVERY_COMPLETE",processed,"ready_sources",ready,flush=True)
+    print("TTS_RECOVERY_COMPLETE",processed,"ready_sources",ready,
+          "failed_languages",failures,flush=True)
+    if failures and not processed:
+        raise SystemExit("all_production_attempts_failed")
 
 if __name__=="__main__":
     main()

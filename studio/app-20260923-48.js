@@ -15,6 +15,7 @@ let bridgeProtocolVersion = 0;
 const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache").replace(/\/$/,"");
 const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
+let bridgeClientInitializing = false;
 let bridgeAuthenticated = false; // true only after verified health AND central tasks are loaded
 let driveOwnerConfigured = false; // requires verified owner OAuth before Drive publishing
 let youtubeCCQueueEnabled = false; // set only by authenticated Cloud Run health
@@ -211,6 +212,7 @@ let englishFinalizePendingTaskId = "";
 let englishFinalizePriorFinishedAt = "";
 let englishFinalizeWatchdog = null;
 let pendingRunStageRequest=null;
+let p259RescueSending=false;
 let pendingYoutubeCapture=null;
 // A confirmed Drive acknowledgement applies to its own task only.
 const englishFinalizedThisSession = new Set();
@@ -262,6 +264,10 @@ function bridgeKeyValue(){
 
 function bridgeEndpointValue(){
   return BRIDGE_ENDPOINT;
+}
+
+function isAppsScriptBridge(){
+  return /^https:\/\/script\.google\.com\/macros\/s\//.test(bridgeEndpointValue());
 }
 
 function setDashboardBridgeState(message,state="idle"){
@@ -345,6 +351,7 @@ async function restoreFirebaseSnapshot(){
 
 function syncStudioNow(){
   firebaseSnapshotReadOnly=false;
+  if(isAppsScriptBridge() && !bridgeClientReady) initBridgeClient();
   const key=bridgeKeyValue();
   if(!BRIDGE_ENDPOINT){
     setDashboardBridgeState("系統尚未設定 Cloud Run 橋樑網址。","error");
@@ -1147,6 +1154,8 @@ function renderTasks(){
   const el=document.getElementById("task-list");
 
   renderPeriodSelector();
+  const rescuePanel=document.getElementById("p259-rescue-panel");
+  if(rescuePanel) rescuePanel.hidden=Number(selectedPeriod)!==259;
 
   if(!bridgeAuthenticated){
     el.innerHTML='<div class="empty">請先連線控制中心並完成驗證；未連線時禁止建立或修改課程。</div>';
@@ -4826,6 +4835,7 @@ function submitBridgePost(fields){
 }
 
 function initBridgeClient(){
+  if(bridgeClientInitializing || bridgeClientReady) return;
   const frame=document.getElementById("soulkey-status-bridge");
   if(!frame) return;
 
@@ -4834,6 +4844,8 @@ function initBridgeClient(){
   if(!endpoint) return;
 
   bridgeClientReady=false;
+  bridgeClientInitializing=true;
+  window.setTimeout(()=>{bridgeClientInitializing=false;},20000);
   const sep=endpoint.includes("?") ? "&" : "?";
   frame.src=endpoint+sep+"view=client&v=20260920-13";
 }
@@ -4883,6 +4895,22 @@ function jsonpBridgeRequest(fields,options={}){
   const key=bridgeKeyValue();
 
   if(!endpoint || !key) return false;
+
+  // Apps Script does not return CORS response headers for 6-digit POSTs.
+  // Use its existing google.script.run iframe bridge instead; never expose
+  // the Bridge Key in JSONP URL query strings or GitHub source/logs.
+  if(isAppsScriptBridge()){
+    if(typeof options.onResult==="function" || typeof options.onError==="function"){
+      if(typeof options.onError==="function")
+        options.onError(new Error("此舊版 Bridge 不提供 Cloud Run 專用回呼"));
+      return false;
+    }
+    if(!bridgeClientReady){
+      initBridgeClient();
+      return false;
+    }
+    return bridgeClientRequest(fields);
+  }
 
   const callbackName="__soulkey_jsonp_"+Date.now()+"_"+Math.random().toString(36).slice(2);
   const script=document.createElement("script");
@@ -5093,6 +5121,7 @@ window.addEventListener("message",event=>{
   const data=event.data || {};
 
   if(data.source==="soulkey-bridge-client" && data.type==="ready"){
+    bridgeClientInitializing=false;
     bridgeClientReady=true;
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
@@ -5529,6 +5558,15 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="run_stage"){
+    if(p259RescueSending && String(data.task_id||"")==="P259-L01" && data.stage==="tts"){
+      p259RescueSending=false;
+      const btn=document.getElementById("p259-rescue-start");
+      const out=document.getElementById("p259-rescue-status");
+      if(btn) btn.disabled=false;
+      if(out) out.textContent=data.ok
+        ? "已收到 Kaggle 配音派工確認；會驗證四堂課已通過 QA 的語言，請至音檔資料夾確認成果。"
+        : "配音未派送："+String(data.message||data.error||"未知錯誤");
+    }
     const youtube=pendingYoutubeCapture;
     if(youtube && data.stage==="cc" &&
        (!data.task_id || data.task_id===youtube.taskId)){
@@ -6092,8 +6130,10 @@ function setBridgeStatus(message, state="idle"){
 }
 
 function initBridgePanel(){
-  // 舊版曾把 URL 寫進 localStorage，v23 起固定使用 config.js，避免舊網址干擾同步。
+  // Restore the original server-managed Apps Script Bridge. No user tokens
+  // or permanent Google credentials are stored in the frontend.
   localStorage.removeItem(BRIDGE_ENDPOINT_KEY);
+  if(isAppsScriptBridge()) initBridgeClient();
 
   const dashboardKey=document.getElementById("dashboard-bridge-key");
   const connectButton=document.getElementById("dashboard-bridge-connect");
@@ -6188,6 +6228,45 @@ async function pingBackend(){
     document.getElementById("backend-text").textContent="後端離線";
   }
 }
+
+
+// One authenticated dispatch covers all four P259 lessons. The worker reads
+// central source revisions and per-language QA before writing any audio.
+function startP259RescueAudio(){
+  const status=document.getElementById("p259-rescue-status");
+  const btn=document.getElementById("p259-rescue-start");
+  const needed=["P259-L01","P259-L02","P259-L03","P259-L04"];
+  if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL ||
+      !isAppsScriptBridge() || firebaseSnapshotReadOnly ||
+      !needed.every(id=>confirmedRemoteTaskIds.has(id))){
+    if(status) status.textContent="尚未完成原 Apps Script Bridge 驗證，或四堂課尚未全部載入；沒有派工。";
+    return;
+  }
+  if(p259RescueSending){
+    if(status) status.textContent="上一筆配音派工尚未確認，請勿重複送出。";
+    return;
+  }
+  if(!window.confirm("第 259 期四堂課：以既有英文定稿、已通過 QA 的翻譯先產生配音；未完成 QA 的語言繼續保留等待。確認送至舊版 Kaggle？"))return;
+  p259RescueSending=true;
+  if(btn)btn.disabled=true;
+  if(status)status.textContent="正在透過舊 Apps Script Bridge 派送 Kaggle；尚未代表音檔完成…";
+  const sent=submitBridgePost({
+    action:"run_stage",task_id:"P259-L01",stage:"tts",lang:"central4",langs:""
+  });
+  if(!sent){
+    p259RescueSending=false;
+    if(btn)btn.disabled=false;
+    if(status)status.textContent="Bridge 未接受派工；不代表已啟動 Kaggle。";
+    return;
+  }
+  window.setTimeout(()=>{
+    if(!p259RescueSending)return;
+    p259RescueSending=false;
+    if(btn)btn.disabled=false;
+    if(status)status.textContent="派工回覆逾時，請先檢查 GitHub Actions 與中央執行狀態，勿立刻重複按。";
+  },120000);
+}
+document.getElementById("p259-rescue-start")?.addEventListener("click",startP259RescueAudio);
 
 updateTaskCodes();
 renderPipeline();
