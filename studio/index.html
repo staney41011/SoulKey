@@ -167,10 +167,9 @@
           <p class="muted" id="p259-rescue-status" role="status" aria-live="polite">先連線原 Apps Script 控制中心；成功派工後請核對 Google Drive 正式音檔。</p>
           <p class="muted" id="p259-translation-status" role="status" aria-live="polite">補譯依 Gemini 可用配額執行；429 會保留現有成果，不代表翻譯已完成。</p>
           <details class="muted" id="p259-bridge-access-help">
-            <summary>派工未回報／Apps Script 403：查看原 Web App 修復方式</summary>
-            <p>原 Apps Script 網址已從外部測得 HTTP 403（拒絕存取）。這不代表 Kaggle 正在執行。</p>
-            <p>到 <a href="https://script.google.com/home/projects" target="_blank" rel="noopener noreferrer">Google Apps Script 專案</a> → 開啟原 SoulKey Bridge →「部署」→「管理部署作業」→ 編輯 Web App：執行身分「我」、存取權「任何人」→ 新版本 → 部署。保留原六碼及 GitHub Token，不要公開這些憑證，也不必重建資料。</p>
-            <p>若組織政策禁止設為「任何人」，不要強制變更；需要改用經授權的伺服器端派工通道。</p>
+            <summary>iPhone 派工說明及查看 GitHub 實際工作</summary>
+            <p>原 Apps Script 已在 Safari 直接開啟並顯示 bridge-ready（協定 v9），網址及授權設定不需重建。先前 GitHub 匿名探測得到 403，不能據此判定你的登入環境無法使用。</p>
+            <p>iPhone 按下救援後，會以 Google 獨立分頁用 POST 提交（六碼不會出現在網址）。分頁可能僅顯示「SoulKey response」；這不代表派工成功。返回本頁後，請到 <a href="https://github.com/staney41011/SoulKey/actions/workflows/kaggle_web_job.yml" target="_blank" rel="noopener noreferrer">GitHub「Kaggle Web Job」執行紀錄</a> 檢查是否新增工作。沒有新工作時，先不要重複按。</p>
           </details>
         </div>
 
@@ -843,6 +842,6 @@
   <script src="./tts-share-message.js?v=20261028-length-audit-v1"></script>
   <script src="./language-delivery.js?v=20261020-review-preview-v2"></script>
   <script src="./english-cc-alignment.js?v=20261029-central-cc-restore-v1"></script>
-  <script src="./app-20260923-48.js?v=20261030-p259-bridge-403-v3"></script>
+  <script src="./app-20260923-48.js?v=20261030-ios-top-level-dispatch-v4"></script>
 </body>
 </html>
