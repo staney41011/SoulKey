@@ -1,5 +1,20 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+
+## 2026-10-31｜依最新指示停用 GCP，接回原 Apps Script／Kaggle
+
+- 使用者明確要求日後不再使用 GCP。以中途修改後的 main `13cd8a425f29a37710ccf8873d73e54bc3ec1a1f` 為基礎；保留新加的數字 QA、短句檢查、敏感錯誤遮罩與 runtime preflight，沒有套回之前未提交的舊工作目錄。
+- 正式入口固定原 Apps Script，模式 `legacy-kaggle`。保留原六碼、Sheets、Drive、GitHub 及 Kaggle。主站移除 Firebase 備援入口；RTDB 鏡像程式移至 archive，正式 Apps Script 不再呼叫，manifest 移除 Firebase／email 額外 scopes。既有雲端專案與資料沒有刪除。
+- 舊 Cloud Run 翻譯、CC、kickstart 及 capability probe 工作停止排程，移除 OIDC 與網路操作；原 Python worker main 直接拒絕啟動，Cloud Shell 部署腳本也停止。新增一次性退役工作，合併後停用這四個舊 workflow 並取消其執行中的協調工作；保留私人 Kaggle 產物與所有歷史記錄。**需核對退役工作結果才可稱已實際停用。**
+- 修復切回舊入口後的實際斷點：主介面英文逐句儲存改原表單 POST＋Drive request receipt；獨立校稿頁保留原 Final action，讀取一律 authenticated iframe，英文寫入等待正確 task/request 回執。53句分三批時，前25句回執不會提早宣告整批完成。最後輸出先核實語言設定，再使用原 `review_finish`，不再向 Apps Script 等待不存在的 CORS JSON。
+- YouTube CC／原音軌抓取接回原 Bridge → Kaggle，不再依賴 Cloud Run capability flag；iOS CC 也沿用原頂層 POST。中文定稿的舊版 ACK 可正常完成介面流程；移除過時的 Cloud Run 配額／部署提示。
+- 保護後續人工修訂：較新的 Drive Final 經 task／kind／段落／帶時區時間核對後，以 SHA-256、分塊內容回讀及 append-only 索引寫回 Sheet。舊備存不刪；Drive 或中央版本在過程中改變即中止。四堂救援也會先同步各堂 Final。無法判定先後的不同稿件保留並要求核對，不覆蓋。
+- 本地驗證：31個現行 JavaScript 測試程式、61項 pipeline contracts、6項中央同步、5項新舊 Final 保護、3項歷史 relay／退役檢查、新增無GCP及舊服務回執測試通過；Python／JS 語法檢查通過。線上 CI、Pages 與真實授權派工另待讀回，不能把程式提交當作正式64組完成。
+- 01:13（台灣）最新 Sheet 讀回：P259 非英文 QA **30/60**，包括新增 L04 緬甸文。四份英文人工 Final 另計；沒有在這次尚未重新掃描 Drive 前沿用舊數字宣稱音檔增加。其餘翻譯、正式文稿／配音及需要試聽的項目仍待完成。
+- 原12:18派工的 runtime 已超過8小時；禁止再重跑該 nonce，保留現有 preflight。新工作須從原 Studio 建立新的合法授權，無須重設六碼或把憑證交給 GitHub/GCP。GitHub 更新 Code.gs **不會自動更新已部署的 Apps Script**；Apps Script 部分的部署與測試必須如實區分。
+
+---
+
 ## 2026-10-30 20:54（台灣）｜修復跨時區的派工回執與逾時判讀
 
 - 發現並修正：原 Apps Script 的 `yyyy-MM-dd HH:mm:ss` 是台灣時間，Cloud Run 原樣回傳；瀏覽器若在 UTC／其他時區用 Date.parse 直接解讀，舊 `finish done` 可能被當成新派工回執，執行逾時提示也會錯位。

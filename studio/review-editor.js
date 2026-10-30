@@ -42,6 +42,7 @@ let finishTarget="";
 let driveFallbackZh=[];
 let driveFallbackTotal=0;
 let englishBaseRequests={};
+let legacyDraftBatchRequests=0;
 let englishAligned=null; // separate English sentence-paired draft
 
 const $=id=>document.getElementById(id);
@@ -588,7 +589,8 @@ function bridgeKeyValue(){
 function jsonpBridgeRequest(fields){
   const key=bridgeKeyValue();
   if(!BRIDGE_ENDPOINT || !key) return false;
-  if(window.SoulKeyBridgeRoutes.usesLegacy(fields)){
+  if(/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT) ||
+     window.SoulKeyBridgeRoutes.usesLegacy(fields)){
     return window.SoulKeyBridgeRoutes.readLegacy(cfg,key,fields,{
       onError:error=>setStatus(error.message,"error")
     });
@@ -714,7 +716,7 @@ function submit(fields){
   // response names so the review flow advances only after verified readback.
   const finalTypes={review_share_finalize:"zh",review_share_finalize_en:"en"};
   const finalKind=finalTypes[fields.action];
-  const outgoing=finalKind ? {...fields,action:"review_save",kind:finalKind,
+  const outgoing=finalKind && !/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT) ? {...fields,action:"review_save",kind:finalKind,
     source_video_id:videoId} : fields;
   const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,outgoing);
   if(!endpoint){setStatus("原有服務連線尚未設定","error");return false;}
@@ -742,7 +744,7 @@ function submit(fields){
   const form=document.createElement("form");
   form.method="POST";
   form.action=endpoint;
-  form.target=fields.action==="run_stage" && finishTarget ? finishTarget : target;
+  form.target=["run_stage","review_finish"].includes(fields.action) && finishTarget ? finishTarget : target;
   form.style.display="none";
   const authenticatedFields={
     ...outgoing,
@@ -766,6 +768,36 @@ function submit(fields){
 }
 
 async function centralReviewRequest(fields){
+  if(/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT)){
+    const expected={review_en_draft_save:"english_review_draft_saved",
+      language_plan_save:"language_plan_saved"}[fields.action];
+    if(!expected)return new Promise((resolve,reject)=>{
+      if(!window.SoulKeyBridgeRoutes.readLegacy(cfg,bridgeKeyValue(),fields,
+        {onResult:resolve,onError:reject}))reject(new Error("原服務尚未連線"));
+    });
+    return new Promise((resolve,reject)=>{
+      const requestId=fields.action==="review_en_draft_save"
+        ? String(JSON.parse(fields.payload_json||"{}").save_request_id||""):"";
+      const tracksDraft=fields.action==="review_en_draft_save";
+      if(tracksDraft)legacyDraftBatchRequests++;
+      let settled=false;
+      const cleanup=()=>{
+        if(settled)return;settled=true;
+        clearTimeout(timer);window.removeEventListener("message",receive);
+        if(tracksDraft)legacyDraftBatchRequests--;
+      };
+      const receive=event=>{
+        const data=event.data||{};
+        if(data.source!=="soulkey-bridge"||data.type!==expected||
+           String(data.task_id||"")!==String(fields.task_id||""))return;
+        if(requestId&&String(data.request_id||"")!==requestId)return;
+        cleanup();resolve(data);
+      };
+      const timer=setTimeout(()=>{cleanup();reject(new Error("原服務儲存回執逾時，請核對後重試"));},90000);
+      window.addEventListener("message",receive);
+      if(!submit(fields)){cleanup();reject(new Error("原服務儲存未送出"));}
+    });
+  }
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),45000);
   try{
@@ -988,15 +1020,13 @@ function finishWorkflow(){
   const translateLangs=extra.map(x=>x.language_code);
   const audioLangs=audio.map(x=>x.language_code);
   finishPending={submittedAt:Date.now(),previousRunId:"",translateLangs,audioLangs};
-  fetch(BRIDGE_ENDPOINT,{
-    method:"POST",mode:"cors",cache:"no-store",
-    headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-    body:new URLSearchParams({action:"language_plan_save",task_id:taskId,
-      plan_json:JSON.stringify(plan),bridge_key:bridgeKeyValue()})
-  }).then(response=>response.json()).then(result=>{
+  centralReviewRequest({action:"language_plan_save",task_id:taskId,
+    plan_json:JSON.stringify(plan)}).then(result=>{
     if(!result.ok)throw new Error(result.message||result.error||"語言設定未儲存");
-    const sent=submit({action:"run_stage",task_id:taskId,stage:"finish",
-      langs:translateLangs.join(","),lang:audioLangs.join(",")});
+    const sent=submit(/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT)
+      ? {action:"review_finish",task_id:taskId,plan_json:JSON.stringify(plan)}
+      : {action:"run_stage",task_id:taskId,stage:"finish",
+         langs:translateLangs.join(","),lang:audioLangs.join(",")});
     if(!sent)throw new Error("派工未送出");
     setStatus("請求已送出，等待中央派工確認…","working");
     for(const wait of [3000,8000,15000,30000,60000])
@@ -1139,8 +1169,9 @@ window.addEventListener("message",event=>{
     }
   }
 
-  if(data.type==="review_share_draft_saved" ||
-     data.type==="english_review_draft_saved"){
+  if((data.type==="review_share_draft_saved" ||
+      data.type==="english_review_draft_saved") &&
+     !(data.type==="english_review_draft_saved" && legacyDraftBatchRequests>0)){
     saveInFlight=false;
     $("save-draft").disabled=false;
     if(data.ok){

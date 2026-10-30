@@ -1,98 +1,19 @@
 name: SoulKey Translation Queue Worker
-
+# Retired: use the original Apps Script -> Kaggle Web Job. No GCP calls.
 on:
-  schedule:
-    # GitHub coordinates the queue; P259 model inference runs on Kaggle GPU.
-    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       remaining_runs:
-        description: Bounded continuation count; stop when no job remains
         type: number
-        required: false
         default: 0
+        required: false
 
 permissions:
   contents: read
-  id-token: write
-  actions: write
-
-concurrency:
-  group: soulkey-translation-queue
-  queue: max
-  cancel-in-progress: false
 
 jobs:
-  translate:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
-    env:
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      SOULKEY_GEMINI_MODEL: gemini-3.5-flash-lite
-      SOULKEY_P259_GEMINI_MODEL: gemini-3.1-flash-lite
-      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      SOULKEY_P259_PRIMARY_ENGINE: gemma4
-      SOULKEY_BRIDGE_URL: https://soulkey-bridge-214901732194.asia-east1.run.app
+    timeout-minutes: 1
     steps:
-      - uses: actions/checkout@v4
-      - name: Validate worker availability
-        shell: bash
-        run: |
-          python -m py_compile cloud-bridge/translation_worker.py
-          python -m py_compile cloud-bridge/nllb_cpu.py
-          if [[ "$SOULKEY_P259_PRIMARY_ENGINE" == "gemma4" ]]; then
-            [[ -n "$KAGGLE_API_TOKEN" ]] || { echo "::error::KAGGLE_API_TOKEN missing"; exit 1; }
-            python -m py_compile cloud-bridge/p259_gemma4_relay.py translation-system/p259_gemma4_kaggle.py
-            echo "P259_GEMMA4_RELAY_AUTH_READY"
-          elif [[ -z "$GEMINI_API_KEY" ]]; then
-            echo "::error::GEMINI_API_KEY is not available for non-P259 jobs."
-            exit 1
-          fi
-          echo "SOULKEY_GEMINI_SECRET_PRESENT"
-          echo "SOULKEY_GEMINI_MODEL=$SOULKEY_GEMINI_MODEL"
-      - name: Detect live QA bridge capabilities
-        shell: bash
-        run: python -u cloud-bridge/check_worker_capabilities.py
-      - name: Install Kaggle CLI for credential-free Gemma4 compute
-        if: env.SOULKEY_P259_PRIMARY_ENGINE == 'gemma4'
-        shell: bash
-        run: python -m pip install -q kaggle
-      - name: Run one secure OIDC -> Kaggle Gemma4 job and verify central QA
-        id: relay
-        if: env.SOULKEY_P259_PRIMARY_ENGINE == 'gemma4'
-        shell: bash
-        run: python -u cloud-bridge/p259_gemma4_relay.py
-      - name: Continue remaining verified jobs within the requested bound
-        if: ${{ !cancelled() && steps.relay.outputs.has_job == 'true' && inputs.remaining_runs > 0 }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          REMAINING: ${{ inputs.remaining_runs }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$REMAINING" =~ ^[0-9]+$ ]] || exit 1
-          [[ "$REMAINING" -le 20 ]] || exit 1
-          NEXT=$((REMAINING - 1))
-          gh workflow run soulkey_translation_queue.yml --repo "$GH_REPO" --ref main -f remaining_runs="$NEXT"
-          echo "P259_VERIFIED_QUEUE_CONTINUATION_SUBMITTED remaining=$NEXT"
-      - name: Legacy non-P259 Gemini queue
-        if: env.SOULKEY_P259_PRIMARY_ENGINE != 'gemma4'
-        shell: bash
-        run: |
-          set -euo pipefail
-          failures=0
-          for slot in 1 2 3; do
-            if ! python -u cloud-bridge/translation_worker.py; then
-              failures=$((failures+1))
-            fi
-          done
-          if [ "$failures" -gt 0 ]; then exit 1; fi
-      - name: Preserve Gemini QA audit receipts (no manuscripts or secrets)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gemini-qa-audit-${{ github.run_id }}
-          path: ${{ runner.temp }}/soulkey-qa-receipts.jsonl
-          if-no-files-found: ignore
-          retention-days: 30
+      - run: echo 'GCP worker retired. Start a fresh authorized job from SoulKey Studio.'

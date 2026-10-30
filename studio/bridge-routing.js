@@ -21,9 +21,12 @@
     return legacy.has(String(fields?.action||""));
   }
   function endpoint(config,fields){
-    return String(usesLegacy(fields)
+    const target=String(usesLegacy(fields)
       ? config.legacyKaggleBridgeEndpoint||config.bridgeEndpoint||""
       : config.bridgeEndpoint||"").trim();
+    if(config.mode==="legacy-kaggle" &&
+       !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(target))return "";
+    return target;
   }
   function protocol(value){return value==="cloud-recovery"?9:Number(value)||0;}
   function statusTime(value){

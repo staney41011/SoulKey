@@ -30,7 +30,8 @@ def central_final(task_id, kind, index, backups):
         if data.get("task_id")!=task_id or data.get("kind")!=kind:raise ValueError()
         segments=_segments(data.get("segments"))
         if len(segments)!=int(latest[2]):raise ValueError()
-        return {**data,"segments":segments,"central_revision":revision}
+        return {**data,"segments":segments,"central_revision":revision,
+                "central_finalized_at":str(latest[3]) if len(latest)>3 else str(data.get("finalized_at") or "")}
     except (IndexError,KeyError,TypeError,ValueError) as error:
         raise SourceNotReady("central_final_invalid:"+task_id+":"+kind) from error
 
@@ -112,6 +113,19 @@ def sync_finals(task_id,kinds,workdir,drive=None,sheets=None):
             if old.get("task_id") and old["task_id"]!=task_id:
                 raise RuntimeError("drive_final_task_mismatch")
             if same_segments(old,final):
+                publish_readable_finals(drive,folder,name,final,workdir)
+                continue
+            # The original Apps Script saves human Finals to Drive. After
+            # retiring the cloud writer, a newer human edit must never be
+            # overwritten with the old Sheet revision on the next Kaggle run.
+            from legacy_final_import import newer_legacy_final,publish_legacy_final
+            candidate=newer_legacy_final(task_id,kind,old,final)
+            if candidate:
+                def unchanged():
+                    check=Path(workdir)/(name+".import-check")
+                    download_drive_file(drive,existing["id"],check)
+                    return check.read_bytes()==previous.read_bytes()
+                final=publish_legacy_final(task_id,kind,candidate,final,sheets,unchanged)
                 publish_readable_finals(drive,folder,name,final,workdir)
                 continue
             # Human revisions retain the exact source IDs and time anchors.

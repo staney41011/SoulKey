@@ -21,7 +21,7 @@ let bridgeClientReady = false;
 let bridgeClientInitializing = false;
 let bridgeAuthenticated = false; // true only after verified health AND central tasks are loaded
 let driveOwnerConfigured = false; // requires verified owner OAuth before Drive publishing
-let youtubeCCQueueEnabled = false; // set only by authenticated Cloud Run health
+let youtubeCCQueueEnabled = false; // authenticated original Bridge supports Kaggle CC/audio
 let bridgeIsCloudRecovery = false;
 let firebaseSnapshotReadOnly=false; // verified encrypted Firebase snapshot, NEVER enables mutations
 let youtubeCookiesConfigured = null;
@@ -295,6 +295,7 @@ function setDashboardBridgeState(message,state="idle"){
 }
 
 async function restoreFirebaseSnapshot(){
+  if(!cfg.firebaseHostingUrl)return false;
   const input=document.getElementById("dashboard-firebase-key");
   const button=document.getElementById("dashboard-firebase-connect");
   const message=document.getElementById("dashboard-firebase-message");
@@ -652,7 +653,7 @@ function normalizeRemoteStatus(item){
       copy.status="delayed";
       copy.message=(copy.message ? copy.message+"；" : "")+
         (copy.original_status==="queued"
-         ? "排隊超過30分鐘，GitHub Worker 尚未領取；請檢查 Actions 與 Cloud Run 部署，勿重複派送"
+         ? "排隊超過30分鐘，GitHub Worker 尚未領取；請檢查 Actions 與原控制中心，勿重複派送"
          : "執行中超過30分鐘未更新；請檢查 Worker 紀錄，勿重複派送");
     }
   }
@@ -1226,7 +1227,7 @@ function renderTasks(){
               : stageUnavailable
               ? "此步驟待恢復"
               : nextRemote && nextRemote.status==="running"
-                ? "執行中 "+(nextRemote.progress||"")+"%"
+                ? "執行中"+remoteProgressText(nextRemote)
                 : nextRemote && nextRemote.status==="queued"
                   ? "排隊中"
                   : nextRemote && nextRemote.status==="delayed"
@@ -1962,14 +1963,13 @@ function syncYoutubeCaptureModeUi(){
   if(audioOptions) audioOptions.hidden=mode!=="audio";
   if(button){
     button.textContent=mode==="cc" ? "抓取 CC 字幕" : "抓取音軌";
-    button.disabled=(mode==="audio"||!youtubeCCQueueEnabled||!!pendingYoutubeCapture);
+    button.disabled=(!youtubeCCQueueEnabled||!!pendingYoutubeCapture);
   }
   if(status && !/已送出|Kaggle|完成|錯誤|處理中/.test(String(status.textContent||""))){
-    status.textContent=mode==="audio"
-      ? "音軌抓取尚未恢復，請先使用 CC 字幕功能；沒有送出任何音軌工作。"
-      : !youtubeCCQueueEnabled
-      ? "Cloud Run 尚未部署 YouTube CC 抓取佇列；目前沒有送出工作。"
-      : "準備抓取本堂可取得的七語 YouTube CC；若某語言不存在，會保留實際取得的字幕。";
+    status.textContent=!youtubeCCQueueEnabled
+      ? "請先連線原控制中心，再送出抓取工作。"
+      : mode==="audio" ? "由 Kaggle 抓取所選可用音軌，保留實際來源。"
+      : "由 Kaggle 抓取本堂可取得的 YouTube 原始 CC，只回報實際取得的字幕。";
   }
 }
 
@@ -1992,12 +1992,8 @@ function runYoutubeAudioGrab(){
   const status=document.getElementById("youtube-audio-status");
   const button=document.getElementById("youtube-audio-run");
   const mode=youtubeCaptureMode();
-  if(mode==="audio"){
-    if(status)status.textContent="音軌抓取尚未恢復，未向 Kaggle 送出任務。";
-    return;
-  }
   if(!youtubeCCQueueEnabled){
-    if(status)status.textContent="目前 Cloud Run 尚未啟用 CC 抓取佇列；請先部署後端。";
+    if(status)status.textContent="請先連線原控制中心，再送出抓取工作。";
     return;
   }
 
@@ -3459,7 +3455,7 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
     "確定中文逐字稿已人工確認完成並定稿？\n"+
-    "系統會先存到本堂中央 Google Sheet 並回讀驗證，Drive 另行同步。"
+    "系統會存到本堂 Google Drive，保留人工定稿與時間軸。"
   );
   if(!ok) return;
 
@@ -4418,6 +4414,12 @@ function saveEnglishReviewDraft(confirmedId){
   // on retries so an interrupted response can never create a second edit.
   // The receipt polls are only a fallback if the POST ACK is lost.
   const send=async()=>{
+    if(isAppsScriptBridge()){
+      // The original server responds with an HTML postMessage receipt.
+      submitBridgePost({action:"review_en_draft_save",task_id:currentId,
+        payload_json:JSON.stringify(compactPayload)});
+      return;
+    }
     for(let attempt=0;attempt<3;attempt++){
       if(!stillPending())return;
       if(attempt)await new Promise(resolve=>
@@ -4689,7 +4691,7 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
     "確定英文稿已人工確認完成並定稿？\n"+
-    "系統會先驗證中央 Google Sheet 正式定稿；Drive 另行同步。"
+    "系統會存到本堂 Google Drive，並保留原有定稿紀錄。"
   );
   if(!ok) return;
 
@@ -4709,7 +4711,7 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
         backup_saved:false,queued_at:new Date().toISOString()}));
   }catch(_){}
   if(state) state.textContent=
-    "正在提交英文全文。Drive 正式儲存尚未恢復時，系統只會雲端備存，不會假裝定稿完成。";
+    "正在提交英文全文；收到原服務的儲存回執後，才會進入下一步。";
   englishFinalizePendingTaskId=task.id;
   englishFinalizePriorFinishedAt=String(
     remoteStageStatus(task,"en-review")?.finished_at || ""
@@ -4782,7 +4784,7 @@ function submitP259LegacyTopLevelForm(endpoint,key,fields){
 
 function submitBridgePost(fields){
   const legacyMachineJob=fields?.action==="run_stage" &&
-    (fields?.stage!=="cc" || fields?.lang==="multi-audio");
+    (isAppsScriptBridge() || fields?.stage!=="cc" || fields?.lang==="multi-audio");
   const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,fields);
   if(legacyMachineJob && !endpoint){
     const status=document.getElementById("p259-rescue-status");
@@ -5537,12 +5539,14 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="review_saved"){
-    if(data.kind==="zh" && data.ok && data.sheet_finalized &&
+    if(data.kind==="zh" && data.ok && (data.sheet_finalized || isAppsScriptBridge()) &&
        zhFinalPendingTaskId===String(data.task_id||"")){
       const id=zhFinalPendingTaskId;
       zhFinalPendingTaskId="";
       setZhFinalizeEnabled(true);
-      setZhReviewLoadState("本堂中文定稿已存中央 Sheet 並回讀驗證；Drive 待同步","ok");
+      setZhReviewLoadState(isAppsScriptBridge()
+        ? "本堂中文人工定稿已寫入 Google Drive，可在檔案總覽核對"
+        : "本堂中文定稿已存中央 Sheet 並回讀驗證；Drive 待同步","ok");
       const task=tasks.find(x=>x.id===id);
       if(task){
         task.zh_review="完成";
@@ -5973,7 +5977,9 @@ window.addEventListener("message",event=>{
     const syncText=document.getElementById("status-sync-text");
     if(data.ok){
       driveOwnerConfigured=data.drive_owner_configured===true;
-      youtubeCCQueueEnabled=data.youtube_cc_queue_enabled===true;
+      youtubeCCQueueEnabled=(isAppsScriptBridge() &&
+        window.SoulKeyBridgeRoutes.protocol(data.bridge_protocol)>=REQUIRED_BRIDGE_PROTOCOL) ||
+        data.youtube_cc_queue_enabled===true;
       bridgeIsCloudRecovery=String(data.bridge_protocol||"")==="cloud-recovery";
       syncYoutubeCaptureModeUi();
       bridgeProtocolVersion=window.SoulKeyBridgeRoutes.protocol(data.bridge_protocol);

@@ -11,8 +11,8 @@ const match=config.match(/bridgeEndpoint: "(https:\/\/script\.google\.com\/macro
 assert(match,"Primary Studio Bridge must be Apps Script");
 assert(config.includes('legacyKaggleBridgeEndpoint: "'+match[1]+'"'),
   "Kaggle dispatch must use the same original Apps Script URL");
-assert.match(config,/mode: "legacy-firebase"/);
-assert.match(config,/firebaseHostingUrl: "https:\/\/soulkey-control-2026\.web\.app\/"/);
+assert.match(config,/mode: "legacy-kaggle"/);
+assert.match(config,/firebaseHostingUrl: ""/);
 assert.match(app,/if\(isAppsScriptBridge\(\)\) initBridgeClient\(\)/);
 assert.match(app,/if\(isAppsScriptBridge\(\)\)\{\s*return legacyBridgeRead\(fields,options\);/);
 assert.match(app,/function useTopLevelP259LegacyDispatch\(fields\)/);
@@ -21,4 +21,4 @@ assert.match(app,/form\.action=endpoint;/);
 assert.match(routing,/google\.script\.run/);
 assert.match(html,/id="p259-rescue-start"/);
 assert.match(html,/id="p259-translation-start"/);
-console.log("PASS: Studio Apps Script primary, authenticated iframe reads, iOS Kaggle POST and Firebase additive");
+console.log("PASS: Studio Apps Script primary, authenticated iframe reads, iOS Kaggle POST and no GCP dependency");

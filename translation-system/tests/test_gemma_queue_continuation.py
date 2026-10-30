@@ -30,12 +30,12 @@ class ContinuationTests(unittest.TestCase):
                 scope["continuation"](True)
             self.assertEqual(output.read_text().splitlines(),["has_job=false","has_job=true"])
 
-    def test_dispatch_has_hard_bound_and_does_not_repeat_empty_queue(self):
+    def test_retired_gcp_queue_cannot_launch_or_schedule(self):
         text=(ROOT/".github/workflows/soulkey_translation_queue.yml").read_text()
-        self.assertIn("steps.relay.outputs.has_job == 'true'",text)
-        self.assertIn("inputs.remaining_runs > 0",text)
-        self.assertIn('[[ "$REMAINING" -le 20 ]]',text)
-        self.assertIn("NEXT=$((REMAINING - 1))",text)
+        self.assertNotIn("schedule:",text)
+        self.assertNotIn("run.app",text)
+        self.assertNotIn("p259_gemma4_relay.py",text)
+        self.assertIn("GCP worker retired",text)
 
 
 if __name__=="__main__":unittest.main()

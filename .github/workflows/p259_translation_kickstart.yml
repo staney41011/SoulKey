@@ -1,34 +1,14 @@
 name: P259 One-Shot Translation Queue Kickstart
-
-# Dispatch the real worker under its verified workflow_dispatch OIDC event.
-# Never permit push-origin JWTs to claim protected Cloud Run jobs.
+# Retired: use the original Apps Script -> Kaggle Web Job. No GCP calls.
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/p259_translation_kickstart.yml'
   workflow_dispatch:
 
 permissions:
-  actions: write
   contents: read
 
-concurrency:
-  group: soulkey-p259-one-shot-translation-kickstart
-  cancel-in-progress: false
-
 jobs:
-  dispatch:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 1
     steps:
-      - name: Dispatch authorized P259 OIDC-to-Kaggle Gemma4 queue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh workflow run soulkey_translation_queue.yml --repo "$GH_REPO" --ref main -f remaining_runs=12
-          echo "P259_GEMMA4_DIRECT_JSON_GRAMMAR_BOUNDED_QUEUE_DISPATCH_SUBMITTED"
-          echo "P259 Gemma4 local GPU; verify Cloud Run QA receipts and Drive, not green workflow status."
+      - run: echo 'GCP worker retired. Start a fresh authorized job from SoulKey Studio.'

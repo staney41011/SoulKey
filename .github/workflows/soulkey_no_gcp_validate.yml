@@ -1,0 +1,17 @@
+name: SoulKey no-GCP production contracts
+on:
+  push:
+    paths: ['studio/**', 'bridge/apps-script/**', '.github/workflows/**', 'translation-system/central_final_sync.py', 'translation-system/legacy_final_import.py']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: node studio/tests/test_no_gcp_production.cjs
+      - run: node studio/tests/test_review_editor_legacy_transport.cjs
+      - run: python -m unittest discover -s translation-system/tests -p 'test_central_final_sync.py' -v
+      - run: python -m unittest discover -s translation-system/tests -p 'test_legacy_final_import.py' -v

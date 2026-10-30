@@ -219,6 +219,7 @@ def save_qa_audit(job,language,quality):
 
 def main():
     global MODEL
+    raise RuntimeError("retired_gcp_worker_use_original_apps_script_kaggle")
     token=github_oidc()
     claimed=bridge_request(token,"worker_job_claim")
     if not claimed.get("ok"):raise RuntimeError("Could not claim queue task")

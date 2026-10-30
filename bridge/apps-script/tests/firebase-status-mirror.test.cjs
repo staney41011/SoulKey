@@ -1,9 +1,9 @@
 "use strict";
 const assert=require("node:assert/strict");
 const fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
-const file=path.join(__dirname,"..","Code.gs");
+const file=path.join(__dirname,"..","archive","firebase-status-mirror.js");
 const s=fs.readFileSync(file,"utf8");
-const a=s.indexOf("function firebaseStatusMirror_("),b=s.indexOf("\nfunction nowText_()",a);
+const a=s.indexOf("function firebaseStatusMirror_("),b=s.length;
 assert(a>=0&&b>a,"Firebase mirror must be present in original Apps Script");
 const src=s.slice(a,b);
 function ctx(props={},reply=200){

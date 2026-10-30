@@ -1,40 +1,14 @@
 name: SoulKey YouTube CC Queue Worker
-
+# Retired: use the original Apps Script -> Kaggle Web Job. No GCP calls.
 on:
-  schedule:
-    # Dedicated lane: long multilingual translation must not delay caption capture.
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
-
-concurrency:
-  group: soulkey-youtube-cc-queue
-  cancel-in-progress: false
 
 jobs:
-  capture-cc:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
-    env:
-      SOULKEY_BRIDGE_URL: https://soulkey-bridge-214901732194.asia-east1.run.app
-      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    timeout-minutes: 1
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Kaggle CPU CC runner and source subtitle reader
-        run: python -m pip install -q "kaggle>=1.7" "yt-dlp>=2025.1"
-      - name: Claim one CC job and store source-bound captions
-        env:
-          # Secret stays on the ephemeral GitHub runner. Never forward to
-          # Kaggle, a workflow artifact, or the Cloud Run request body.
-          YOUTUBE_COOKIES_B64: ${{ secrets.YOUTUBE_COOKIES_B64 }}
-        run: |
-          set -euo pipefail
-          if [[ -n "${YOUTUBE_COOKIES_B64:-}" ]]; then
-            echo "SOULKEY_YOUTUBE_COOKIE_SECRET_PRESENT"
-          else
-            echo "::notice::YOUTUBE_COOKIES_B64 missing; anonymous CC extraction only"
-          fi
-          python -u cloud-bridge/youtube_cc_worker.py
+      - run: echo 'GCP worker retired. Start a fresh authorized job from SoulKey Studio.'

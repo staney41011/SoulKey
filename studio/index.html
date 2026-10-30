@@ -126,16 +126,6 @@
             </label>
             <button class="primary" id="dashboard-bridge-connect" type="button">連線控制中心</button>
             <span class="badge" id="dashboard-bridge-state">尚未連線</span>
-            <a href="https://soulkey-control-2026.web.app/" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;justify-content:center;padding:12px 18px;border-radius:12px;background:#e8ecf7;color:#314c8d;text-decoration:none;font-weight:750">Firebase 備援課程總覽</a>
-          <div style="width:100%;padding:14px;margin-top:12px;border:1px solid #c4cee8;border-radius:15px;background:#f3f6ff">
-            <div style="font-weight:750;margin-bottom:7px">Firebase 備援：在原 SoulKey 網頁直接開啟課程</div>
-            <p class="muted" style="margin:3px 0 10px;font-size:13px">Google Apps Script 暫時拒絕存取時，可使用 Firebase 專用存取碼讀取原課程清單（唯讀，不會執行或改寫）。</p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <input id="dashboard-firebase-key" type="password" autocomplete="off" placeholder="Firebase 專用存取碼" style="flex:1;min-width:155px;padding:10px 12px;border:1px solid #b6c0d5;border-radius:10px">
-              <button type="button" id="dashboard-firebase-connect" style="padding:10px 15px;border-radius:10px;background:#40569f;color:#fff;font-weight:750;border:0">恢復課程總覽</button>
-            </div>
-            <div id="dashboard-firebase-message" role="status" style="font-size:13px;margin-top:8px;color:#53618a"></div>
-          </div>
           </div>
           <div class="dashboard-bridge-message" id="dashboard-bridge-message">
             Bridge Key 只保留在目前瀏覽器分頁，不會寫入 GitHub。
@@ -165,7 +155,7 @@
           <button class="primary" id="p259-rescue-start" type="button">啟動四堂課已驗證語言配音（Kaggle）</button>
           <button class="ghost" id="p259-translation-start" type="button" style="margin-left:8px">接續補齊四堂課未完成的語言翻譯</button>
           <p class="muted" id="p259-rescue-status" role="status" aria-live="polite">先連線原 Apps Script 控制中心；成功派工後請核對 Google Drive 正式音檔。</p>
-          <p class="muted" id="p259-translation-status" role="status" aria-live="polite">補譯依 Gemini 可用配額執行；429 會保留現有成果，不代表翻譯已完成。</p>
+          <p class="muted" id="p259-translation-status" role="status" aria-live="polite">補譯會保留既有成果；每種語言通過檢查後，才可製作正式音檔。</p>
           <details class="muted" id="p259-bridge-access-help">
             <summary>iPhone 派工說明及查看 GitHub 實際工作</summary>
             <p>原 Apps Script 已在 Safari 直接開啟並顯示 bridge-ready（協定 v9），網址及授權設定不需重建。先前 GitHub 匿名探測得到 403，不能據此判定你的登入環境無法使用。</p>
@@ -837,12 +827,12 @@
     </form>
   </dialog>
 
-  <script src="./bridge-routing.js?v=20261030-legacy-firebase-v1"></script>
-  <script src="./config.js?v=20261030-legacy-firebase-v1"></script>
+  <script src="./bridge-routing.js?v=20261031-no-gcp-v1"></script>
+  <script src="./config.js?v=20261031-no-gcp-v1"></script>
   <script src="./bridge-pair.js?v=20261028-secure-pair-v1"></script>
   <script src="./tts-share-message.js?v=20261028-length-audit-v1"></script>
   <script src="./language-delivery.js?v=20261020-review-preview-v2"></script>
   <script src="./english-cc-alignment.js?v=20261029-central-cc-restore-v1"></script>
-  <script src="./app-20260923-48.js?v=20261030-legacy-firebase-v1"></script>
+  <script src="./app-20260923-48.js?v=20261031-no-gcp-v1"></script>
 </body>
 </html>
