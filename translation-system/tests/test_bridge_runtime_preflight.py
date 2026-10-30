@@ -20,6 +20,7 @@ class RuntimePreflightTests(unittest.TestCase):
             "ok": True,
             "task_id": "P259-L03",
             "stage": "tts",
+            "bridge_protocol": 9,
             "google_access_token": "PRIVATE_TOKEN_NEVER_LOG",
             "expires_at": (self.now + timedelta(hours=7)).isoformat(),
         }
@@ -46,6 +47,15 @@ class RuntimePreflightTests(unittest.TestCase):
         for task, stage in [("P259-L04", "tts"), ("P259-L03", "multi")]:
             with self.assertRaisesRegex(module.PreflightError, "runtime_task_or_stage_mismatch"):
                 module.validate_runtime(self.base, task, stage, 10, self.now)
+
+    def test_stale_live_apps_script_is_blocked_before_kaggle(self):
+        old={**self.base, "bridge_protocol": 8}
+        with self.assertRaisesRegex(module.PreflightError, "apps_script_bridge_protocol_too_old"):
+            module.validate_runtime(old,"P259-L03","tts",10,self.now)
+        missing={**self.base}
+        missing.pop("bridge_protocol")
+        with self.assertRaisesRegex(module.PreflightError, "apps_script_bridge_protocol_too_old"):
+            module.validate_runtime(missing,"P259-L03","tts",10,self.now)
 
     def test_missing_oauth_cannot_start(self):
         value = {**self.base, "google_access_token": ""}
