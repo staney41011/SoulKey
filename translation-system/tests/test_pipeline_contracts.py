@@ -46,13 +46,12 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('"$ATTEMPT_ELAPSED" -lt 120', workflow)
         self.assertIn('if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then', workflow)
         self.assertIn('echo "[KAGGLE STARTUP] Retries exhausted', workflow)
-        # Hybrid deployment routes TTS/multi to CPU and ASR to Kaggle.
-        # Verify both groups exist instead of requiring a single legacy group.
+        # Restored production routes both TTS/multi and ASR through Kaggle.
         self.assertIn('soulkey-kaggle-web-worker', workflow)
-        self.assertIn('soulkey-github-cpu', workflow)
-        self.assertIn('queue: max', workflow)
+        self.assertNotIn('soulkey-github-cpu', workflow)
         self.assertIn('cancel-in-progress: false', workflow)
-        self.assertIn('SOULKEY_CPU_WORKER_ENABLED', workflow)
+        self.assertNotIn('SOULKEY_CPU_WORKER_ENABLED', workflow)
+        self.assertIn('jobs:\\n  launch:\\n    runs-on:', workflow)
 
     def test_asr_prefers_verified_drive_audio_over_expired_youtube_cookies(self):
         runner = read("translation-system/runner.py")
@@ -93,12 +92,12 @@ class PipelineContracts(unittest.TestCase):
 
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
-        self.assertIn('const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km","bn","ne","lo","my","it","pt"]', app)
+        self.assertIn('const YOUTUBE_CC_TARGETS = ["en"]', app)
         self.assertIn('if(kind==="asr")', app)
         self.assertIn('zh-TW\\.transcript\\.txt', app)
         self.assertIn('ccTotal+"/"+ccTotal+" 語純逐字稿已齊全', app)
         self.assertIn("一般使用者只顯示無時間軸純逐字稿", index)
-        self.assertIn("429 會逐語言退避重試", index)
+        self.assertIn("YouTube", index)
         self.assertNotIn("JSON / 時間軸 TXT / SRT / 純逐字稿", index)
 
     def test_frontend_bridge_actions_have_server_handlers(self):
@@ -729,9 +728,9 @@ class PipelineContracts(unittest.TestCase):
     def test_studio_long_running_kaggle_is_not_false_upstream_change(self):
         app = read("studio/app-20260923-48.js")
         self.assertIn('copy.status="delayed"', app)
-        self.assertIn('delayed:"長時間未回報，先查Kaggle"', app)
+        self.assertIn('delayed:"工作逾時未回報（勿重複派送）"', app)
         self.assertNotIn('copy.status="stale"', app)
-        self.assertIn('remoteActive.status!=="delayed"', app)
+        self.assertIn('["queued","running","delayed"]', app)
         self.assertIn('if(remote.status==="delayed") return "running"', app)
 
     def test_optional_review_cache_publication_cannot_erase_gemini_polish(self):
