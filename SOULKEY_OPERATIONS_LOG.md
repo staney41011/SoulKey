@@ -173,3 +173,14 @@
 - [Runtime status #41031073162](https://github.com/staney41011/SoulKey/actions/runs/41031073162) 追查後，Kaggle kernel 從 RUNNING 轉成 ERROR，仍於 GOOGLE_CLIENT_ID 讀取失敗；沒有任何新增的 Gemma 文稿或音檔驗收證據。
 - 根因：Kaggle CLI kernels push 不會把 Notebook 網頁已授權的 Secrets 附掛至新的 API 派工版本。已核對 Kaggle CLI 文件及官方討論，禁止把憑證字串寫入 GitHub / Notebook 原始碼。
 - 唯一尚需使用者執行的操作：在 [同一個 Kaggle Notebook](https://www.kaggle.com/code/cwlmrcsir/soulkey-p259-gemma4-translation) 開啟 Edit，保留 GPU，按 Save Version → Save & Run All。**不要再由 GitHub API push**，以免再產出未附 Secrets 的版本。之後核對 Kaggle 真正 Log、中央 Sheet、Drive。
+
+
+### 2026-10-30 17:42（台灣）｜正式修復第259期 Gemma4 授權接線（非交付宣告）
+
+- **已修正根因**：第259期原本獨立 Kaggle Gemma Notebook 透過 CLI push 無法取得 Kaggle Secrets，正式路徑已改為 Studio 既有 `run_stage(task_id=P259-L01,stage=multi,lang=central4)` → 原 Apps Script Bridge 產生 8 小時 runtime nonce → `kaggle_web_job.yml` → `web_job_worker.py` 取得短效 `GOOGLE_ACCESS_TOKEN`、`SOULKEY_BRIDGE_URL`、`SOULKEY_RUNTIME_NONCE` → GPU `p259_gemma4_kaggle.py` → 中央 Sheet/Drive 正式文稿 → `central_tts_recovery.py` Edge TTS。**不再要求 Kaggle Notebook 的 Google Secrets，翻譯與本地 QA 不呼叫 Gemini API**。
+- `translation-system/web_job_worker.py` P259 的 `multi`（含 `central4`）改走 Gemma 4；原 Gemini central4 分支已移除；其他期數未變。補正 GPU preflight 不再為 Gemma4 強制要求 CTranslate2。
+- `.github/workflows/kaggle_web_job.yml` 只有 P259 multi 改用 T4 GPU、掛載 Kaggle 官方 `google/gemma-4/transformers/gemma-4-12b-it/1`、4h 工作時間；原 Apps Script workflow_dispatch/nonce 機制保持不變。
+- `translation-system/p259_gemma4_kaggle.py` 固定上述模型版本並採用 Gemma4 官方 Transformers processor chat template。保留已通過 QA 的來源 SHA，失敗語言隔離，語言獨立寫回；只對通過 QA 的來源進行 Edge TTS。
+- `studio/app-20260923-48.js` 第259期四堂補譯救援按鈕確認文字更新為 Gemma4，原使用者操作入口不更動，無須重部署 Apps Script。
+- **測試**：[GitHub P259 Gemma4 Bridge Integration Check #41035224870](https://github.com/staney41011/SoulKey/actions/runs/41035224870) 已成功（`py_compile`、純函數 self-test、Bridge OAuth 接線、GPU/模型版本一致性）。這是靜態／離線整合測試，**不是 Kaggle GPU 實際模型載入與翻譯交付驗收**。
+- **下一個必需動作**：由已登入 Studio 的使用者按一次「第259期四堂課補譯」啟動原 Apps Script Bridge 的新 runtime nonce，GitHub 才能取得有效短效 Google Token；不可重用舊 nonce、不可從 log 挖取憑證、不可再用獨立 `p259_gemma4_kaggle.yml` 的失敗型直接派工。確認 GitHub Kaggle Web Job 的新 run ID、Kaggle 真正 log，以及中央 Sheet `翻譯QA紀錄` 和 Drive 的新增 TXT/SRT/JSON/正式 MP3 才能宣告交付。
