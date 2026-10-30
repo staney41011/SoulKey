@@ -244,9 +244,46 @@ def repair(gemma,lang,source,translated):
             rows=ans.get("segments") if isinstance(ans,dict) else ans
             current[sid]=check_ids([{"id":sid}],rows)[0]["text"]
             repairs+=1
+    # A second, isolated check is necessary for self-judged semantic QA.
+    # Gemma occasionally flags faithful paraphrases as omissions.  Never
+    # override deterministic wrong-language, number, copied-English, or
+    # repetition checks; only independently adjudicate semantic-only flags.
+    verified_failures={}
+    for sid,issues in failures.items():
+        original=originals[sid]
+        candidate=current[sid]
+        hard_issues=local_issues(original,candidate,lang)
+        if hard_issues:
+            verified_failures[sid]=list(dict.fromkeys(hard_issues+issues))
+            continue
+        try:
+            prompt=("You are an independent final translation reviewer. Compare exactly "
+              "ONE English spiritual-lecture segment with its "+LANGS[lang]+
+              " translation. A paraphrase or different word order IS acceptable. "
+              "Do not demand word-for-word translation. Decide whether an actual "
+              "material claim, negation, name, number, or religious meaning is "
+              "wrong or missing. Reply ONLY JSON: "
+              '{"verdict":"accurate|material_issue|uncertain","evidence":"brief specific reason"}. '
+              "Only return accurate when the entire original meaning is preserved; "
+              "uncertain must never count as passing.\nENGLISH: "+
+              json.dumps(original,ensure_ascii=False)+"\nTRANSLATION: "+
+              json.dumps(candidate,ensure_ascii=False)+"\nFIRST_REVIEW_CONCERNS: "+
+              json.dumps(issues,ensure_ascii=False))
+            review=gemma.json(prompt,limit=700)
+            if isinstance(review,dict) and review.get("verdict")=="accurate":
+                print("GEMMA4_SECOND_REVIEW_CLEARED",lang,sid,flush=True)
+                continue
+        except Exception as exc:
+            print("GEMMA4_SECOND_REVIEW_ERROR",lang,sid,type(exc).__name__,flush=True)
+        verified_failures[sid]=issues
+    if not verified_failures:
+        return [{"id":x["id"],"text":current[int(x["id"])]}
+                for x in source],6,repairs
     print("GEMMA4_QA_UNRESOLVED_REASONS",lang,
-          json.dumps({str(k):v for k,v in failures.items()},ensure_ascii=False)[:4500],flush=True)
-    raise ValueError("gemma4_unresolved_qa_"+lang+"_"+",".join(map(str,failures)))
+          json.dumps({str(k):v for k,v in verified_failures.items()},
+                     ensure_ascii=False)[:4500],flush=True)
+    raise ValueError("gemma4_unresolved_qa_"+lang+"_"+
+                     ",".join(map(str,verified_failures)))
 
 def append_verify(sheets,tab,rows):
     from config import SPREADSHEET_ID
