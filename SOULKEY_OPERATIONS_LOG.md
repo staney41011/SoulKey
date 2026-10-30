@@ -1,5 +1,20 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 最新驗收更新｜2026-10-30 13:27（Asia/Taipei）
+
+> **本節比下方 12:21 的原始快照更新。** 完成數量是此時點的確認數字，正在持續運算，切勿用此數字假裝最終交付。
+
+- [Kaggle Web Job #41002147166](https://github.com/staney41011/SoulKey/actions/runs/41002147166) 仍為 **in_progress**，GitHub `Run Kaggle job with GPU retry` 執行中。不得重複按配音派工。
+- **Google Drive `04_音檔` 現有 6 組正式非空 MP3 + WAV + TTS 清單 + 對齊報告**（L01 3 組、L02 3 組、L03/L04 尚未有），中央狀態均有 `tts:<lang> done` 與「正式 MP3/WAV 與 manifest 已上傳 Drive 並校驗」。
+  - **P259-L01**：`en` 12:46:45 完成；`th` 12:52:44 完成；`es` 12:55:46 完成。
+  - **P259-L02**：`en` 13:17:10 完成；`th` 13:24:14 完成；`es` 13:27:24 完成。
+  - **P259-L02 `id`** 於 13:27:29 開始，快照時仍為 `running`，尚不計完成。
+- 實際抽驗 **P259-L02 `es` manifest**：`engine=edge-natural-v2`、`status=done`、來源 `en_backup_revision=d89bd0ee...`、`source_segment_count=53`、MP3 `27,374,253` bytes、WAV `82,119,212` bytes，包含 MP3/WAV MD5 receipts。這是檔案驗收而非單靠 GitHub 綠燈。
+- **總交付仍僅 6 / 64 組已驗證音檔**，尚餘 58 組；其他語言還需依各堂翻譯與 QA 條件完成（先前 AI QA 10 / 60、4 組英文人工定稿），Gemini HTTP 429 可能阻礙後續翻譯。不能承諾其餘 58 組在本次工作完成。
+- 後續更新請繼續往本頁頂端追加新的日期時間小節，不要覆寫本節，也不要在原始快照默默改數字。對照中央 Sheet `執行狀態` 與 Drive 正式檔案。
+
+---
+
 > **正式接手入口 / 目前狀態快照**。本文件補上 2026-10-30 救援操作的連續紀錄，避免依賴 ChatGPT 對話或個人記憶。
 >
 > **快照依據**：2026-10-30 台灣時間 12:21 以後，查核 GitHub Actions、中央 Google Sheet、四堂課的 Drive `04_音檔`。文件是**有時間點的人工查核紀錄**，不是會自行更新的即時儀表板。後續以最新工作日誌和 Drive 讀回結果為準。
