@@ -273,3 +273,11 @@
 - **泰文獨立補救**：[GH #41061359807](https://github.com/staney41011/SoulKey/actions/runs/41061359807) 已啟動，僅對 L02 Thai 重配，不重做另13語；輸出以 workflow artifact 與 Drive 讀回驗收。
 - **Gemma 補譯**：真 Kaggle JSON grammar smoke（義大利文、葡萄牙文一段）完成，但 [Kaggle P259 GGUF relay](https://www.kaggle.com/code/cwlmrcsir/soulkey-p259-gemma4-relay) 最先的 L01 ja/ko/km 因長句 QA 失敗，未 falsely pass。已將 `p259_gemma4_kaggle.py` 的重譯次數提高為5輪、對長句增加最大新 token、輸出 QA failure reasons，離線 Bridge 整合測試 [#41062204407](https://github.com/staney41011/SoulKey/actions/runs/41062204407) 通過；L01 ja/ko/km 重新排隊。另 [Worker #41061398456](https://github.com/staney41011/SoulKey/actions/runs/41061398456) 正處理 L02 it/pt，後續應由 bounded workflow_dispatch 續跑；**不能稱四堂已完成**。
 - 正式 Drive 基線需重新核對，最後一次確認為文稿14/64、音檔11/64，試聽 ZIP 和核可文字備份不列入正式完成數。
+
+### 2026-10-30 21:30（台灣）｜Drive 正式資料夾再驗收與泰文停止重試依據
+
+- 逐堂直讀 `02_翻譯稿`：L01=21檔(7語×3)、L02=42檔(14語×3)、L03=6檔(2語×3)、L04=3檔(1語×3)，**已在正式資料夾的語言組合計24/64**；其餘核可文字稿另已備份於 `98_人工檢查` 的4 ZIP，不代表正式逐檔交付。
+- 逐堂直讀 `04_音檔`：正式命名 `TTS音檔.mp3` L01=5、L02=12、L03=1、L04=0，**計18/64**；另 `自然試聽版.mp3` 不算正式。L02 **泰文正式 MP3 已存在**，所以不可把單獨試聽重配失敗等同正式泰文缺漏。
+- [L02 Thai 單語預覽重試 #41061359807](https://github.com/staney41011/SoulKey/actions/runs/41061359807) 在 Edge block43 `No audio was received` 失敗；第一次試聽批次 block17 失敗，屬不穩定上游 Edge TTS。既有 L02 Thai 正式 MP3/WAV + Manifest 應優先沿用，暫勿無限重配。
+- L04 `00_來源資訊` 資料夾目前為空，其他三堂均有原始 `來源資訊.json` 含精確 duration（L01 1941s、L02 1799s、L03 1813s）。L04 缺原始影片長度的可驗證資訊，不能把英文自然試聽 MP3 當正式 MP3。
+- GitHub [Gemma4 整合測試 #41062204407](https://github.com/staney41011/SoulKey/actions/runs/41062204407) 成功，新版 QA 長句重譯 5 輪已編入主分支；當前 [翻譯工作 #41061398456](https://github.com/staney41011/SoulKey/actions/runs/41061398456) 正在執行 L02 it/pt，下一組 L01 ja/ko/km 已根據修復重新排隊；截至最新 Sheet QA 仍24/60 非英文 passed。
