@@ -24,7 +24,7 @@ def ready_tasks(sheets,period,only_task):
 def approved_plan_rows(rows,task):
     result=[]
     for row in rows:
-        if len(row)<7 or row[0]!=task or str(row[6]).upper()!="TRUE":continue
+        if len(row)<7 or row[0]!=task or str(row[5]).upper()!="TRUE":continue
         lang=str(row[1]).lower().strip()
         if lang not in result:result.append(lang)
     return result
@@ -112,7 +112,7 @@ def main():
     ap.add_argument("--lang",default="")
     ap.add_argument("--max-languages",type=int,default=1)
     args=ap.parse_args()
-    if args.max_languages<1 or args.max_languages>4:
+    if args.max_languages<1 or args.max_languages>64:
         raise SystemExit("max_languages_out_of_bounds")
     drive,sheets=build_google_services()
     get=lambda range_:read_values(sheets,SPREADSHEET_ID,range_)
