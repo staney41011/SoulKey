@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Export exact source-revision approved manuscripts without Google credentials
-        run: python -u translation-system/p259_export_approved_bundles.py
+        run: |
+          python -m pip install -q google-api-python-client google-auth google-auth-oauthlib
+          python -u translation-system/p259_export_approved_bundles.py
       - name: Upload P259-L01 approved transcripts
         uses: actions/upload-artifact@v4
         with:
