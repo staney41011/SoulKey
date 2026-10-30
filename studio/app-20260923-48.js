@@ -6261,11 +6261,11 @@ function startP259RescueAudio(){
   if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL ||
       !LEGACY_KAGGLE_ENDPOINT || firebaseSnapshotReadOnly ||
       !needed.every(id=>confirmedRemoteTaskIds.has(id))){
-    if(status) status.textContent="尚未完成原 Apps Script Bridge 驗證，或四堂課尚未全部載入；沒有派工。";
+    if(status) status.textContent="尚未完成中央課程驗證，或舊版 Kaggle Bridge 未設定；沒有派工。";
     return;
   }
-  if(p259RescueSending){
-    if(status) status.textContent="上一筆配音派工尚未確認，請勿重複送出。";
+  if(p259RescueSending || p259TranslationSending){
+    if(status) status.textContent="已有救援派工尚未確認，請先核對 GitHub 執行狀態。";
     return;
   }
   if(!window.confirm("第 259 期四堂課：以既有英文定稿、已通過 QA 的翻譯先產生配音；未完成 QA 的語言繼續保留等待。確認送至舊版 Kaggle？"))return;
@@ -6296,7 +6296,7 @@ function startP259RescueTranslation(){
   if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL ||
       !LEGACY_KAGGLE_ENDPOINT || firebaseSnapshotReadOnly ||
       !needed.every(id=>confirmedRemoteTaskIds.has(id))){
-    if(status)status.textContent="原 Apps Script 尚未驗證或四堂任務尚未載入；沒有派工。";
+    if(status)status.textContent="中央課程驗證未完成，或舊版 Kaggle Bridge 未設定；沒有派工。";
     return;
   }
   if(p259TranslationSending || p259RescueSending){
