@@ -1,0 +1,44 @@
+name: P259 Manuscript Backfill After First Kaggle TTS
+
+# One-shot recovery for the specific already running P259 job.
+# That original 12:18 job cloned the pre-manuscript-export code.
+# Re-run its launch job ONCE after it completes so the Kaggle bootstrap clones
+# updated main and exports verified central TXT/SRT/JSON without changing keys.
+on:
+  workflow_run:
+    workflows:
+      - Kaggle Web Job
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  backfill:
+    # IMPORTANT: prevent recursive re-runs. github.event.workflow_run.run_attempt
+    # is incremented for the follow-up run; only original attempt 1 may trigger.
+    if: >-
+      ${{ github.event.workflow_run.id == 41002147166 &&
+          github.event.workflow_run.run_attempt == 1 &&
+          (github.event.workflow_run.conclusion == 'success' ||
+           github.event.workflow_run.conclusion == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Re-run only the original P259 Kaggle launch after it fully ends
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_RUN_ID: "41002147166"
+          SOURCE_JOB_ID: "123888787917"
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Do not read, expose or copy the Apps Script runtime nonce.
+          # The GitHub re-run retains the original authorized workflow inputs,
+          # but clones the latest SoulKey main source on the Kaggle worker.
+          echo "P259_SOURCE_RUN=$SOURCE_RUN_ID"
+          echo "P259_MANUSCRIPT_BACKFILL_RERUN_JOB=$SOURCE_JOB_ID"
+          gh api --method POST "repos/$GH_REPO/actions/jobs/$SOURCE_JOB_ID/rerun" >/dev/null
+          echo "P259_MANUSCRIPT_BACKFILL_REQUESTED"
