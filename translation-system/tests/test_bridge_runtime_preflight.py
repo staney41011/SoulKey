@@ -76,6 +76,9 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertNotIn("subprocess.run(cmd, check=True)", workflow)
         self.assertIn("[REDACTED_RUNTIME_NONCE]", workflow)
         self.assertIn("steps.runtime_preflight.outcome == 'success'", workflow)
+        self.assertIn("Report rejected runtime preflight to original Studio", workflow)
+        self.assertIn('"action":"worker_report"', workflow)
+        self.assertIn('"status":"error"', workflow)
 
     def test_runtime_http_failure_does_not_disclose_nonce(self):
         from urllib.error import HTTPError
