@@ -13,15 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Probe public Apps Script / Cloud Run health without credentials
+      - name: Probe public Apps Script health without credentials
         shell: bash
         env:
           LEGACY_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
-          READ_URL: https://soulkey-bridge-214901732194.asia-east1.run.app
         run: |
           set -euo pipefail
-          for svc in legacy read; do
-            if [[ "$svc" == legacy ]]; then url="$LEGACY_URL"; else url="$READ_URL"; fi
+          for svc in legacy; do
+            url="$LEGACY_URL"
             echo "PROBE_SERVICE=$svc"
             response=$(mktemp)
             headers=$(mktemp)

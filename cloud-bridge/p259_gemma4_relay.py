@@ -167,6 +167,7 @@ def main():
         if output:
             with open(output,"a",encoding="utf-8") as stream:
                 stream.write("has_job="+("true" if available else "false")+"\n")
+    raise RuntimeError("retired_gcp_worker_use_original_apps_script_kaggle")
     continuation(False)
     if not os.getenv("KAGGLE_API_TOKEN"):
         raise RuntimeError("KAGGLE_API_TOKEN missing in protected GitHub Actions secrets")

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+echo 'Cloud Run deployment retired. Use the original Apps Script and Kaggle workflow.' >&2
+exit 2
 # Deploy SoulKey Cloud Bridge from an already-authorized Google Cloud Shell.
 # Does not read, print, replace, or commit the existing BRIDGE_KEY/Google secrets.
 set -euo pipefail

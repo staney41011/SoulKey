@@ -181,6 +181,7 @@ def parts(text,size=17000):
             end-=1
         yield text[i:end]
 def main():
+    raise RuntimeError("retired_gcp_worker_use_original_apps_script_kaggle")
     # Diagnose code/identity drift without disclosing the Bridge Key or JWT.
     try:
         status=request_json(BASE,timeout=20)

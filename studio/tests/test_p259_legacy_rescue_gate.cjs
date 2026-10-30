@@ -22,7 +22,7 @@ for(const section of sections){
 }
 assert(config.includes("legacyKaggleBridgeEndpoint:"));
 assert(config.includes('bridgeEndpoint: "https://script.google.com/macros/s/'));
-assert(config.includes('mode: "legacy-firebase"'));
-assert(config.includes('firebaseHostingUrl: "https://soulkey-control-2026.web.app/"'));
+assert(config.includes('mode: "legacy-kaggle"'));
+assert(config.includes('firebaseHostingUrl: ""'));
 assert(script.includes('const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,fields)'));
-console.log("PASS: legacy Apps Script primary + Firebase Hosting preserves four-lesson Kaggle dispatch");
+console.log("PASS: legacy Apps Script primary + original bridge preserves four-lesson Kaggle dispatch");

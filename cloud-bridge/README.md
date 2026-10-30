@@ -1,3 +1,7 @@
+# Archived control service
+
+As of 2026-10-31, this service is retired. Production uses the original Apps Script, Google Sheets/Drive, GitHub Actions and Kaggle. Do not deploy Cloud Run or re-enable its workers. Historical code and records remain for recovery; pure translation QA utilities may still be imported locally.
+
 # SoulKey Cloud Run Bridge — Google Sheet + GitHub Worker
 
 Project: translate-system-509202 / asia-east1 / soulkey-bridge.

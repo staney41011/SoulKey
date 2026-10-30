@@ -616,11 +616,12 @@ def main():
         central_p259 = args.task_id in {
             "P259-L01", "P259-L02", "P259-L03", "P259-L04"
         }
-        if args.stage in {"en","multi","tts","finish"} and args.lang not in {"central4","cc-refresh"}:
+        if args.stage in {"en","multi","tts","finish"} and args.lang!="cc-refresh":
             from central_final_sync import sync_finals
-            sync_finals(args.task_id,
-                        ["zh"] if args.stage=="en" else ["zh","en"],
-                        Path("/kaggle/working/central-final-sync")/args.task_id)
+            targets=["P259-L01","P259-L02","P259-L03","P259-L04"] if args.lang=="central4" else [args.task_id]
+            for target in targets:
+                sync_finals(target,["zh"] if args.stage=="en" else ["zh","en"],
+                            Path("/kaggle/working/central-final-sync")/target)
 
         # A human may have finalized a pre-reupload transcript before the
         # new URL was checked. Guard every downstream consumer as well:
