@@ -57,7 +57,8 @@ jobs:
             "kernel_type": "script",
             "is_private": true,
             "enable_gpu": false,
-            "enable_internet": true
+            "enable_internet": true,
+            "kernel_sources": ["cwlmrcsir/translate-system"]
           }
           JSON
           cat > "$DIR/soulkey-p259-tts-rescue.py" <<'PY'
@@ -75,8 +76,7 @@ jobs:
           subprocess.run(command,cwd=str(root/"translation-system"),check=True)
           print("KAGGLE_TTS_SUCCESS",flush=True)
           PY
-          # Kaggle CLI push does not guarantee Notebook Secrets are attached.
-          # The owner must attach the existing three OAuth secrets to this kernel.
+          # Reuse the legacy translate-system kernel as a source dependency.
           python - <<'PY'
           import json,os,pathlib
           path=pathlib.Path(os.environ["RUNNER_TEMP"])/"soulkey-p259-rescue"/"soulkey-p259-tts-rescue.py"
@@ -86,7 +86,7 @@ jobs:
           path.write_text(src)
           PY
           kaggle kernels push -p "$DIR" -t 14400
-          echo "Kaggle job submitted. Verify the Kaggle kernel has the three existing Google OAuth Secrets attached."
+          echo "Kaggle job submitted; Google OAuth availability is verified by Kaggle runtime, not GitHub push."
       - name: Read Kaggle execution log
         if: always()
         shell: bash
