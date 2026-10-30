@@ -225,21 +225,27 @@ def repair(gemma,lang,source,translated):
     originals={int(x["id"]):x["text"] for x in source}
     current={int(x["id"]):x["text"] for x in translated}
     repairs=0
-    for round_no in range(3):
+    for round_no in range(5):
         failures=qa(gemma,lang,source,[{"id":i,"text":t} for i,t in current.items()])
         if not failures:
             return [{"id":x["id"],"text":current[int(x["id"])]} for x in source],round_no+1,repairs
-        if round_no==2:break
+        if round_no==4:break
         print("GEMMA4_QA_REPAIR",lang,len(failures),flush=True)
         for sid,issues in failures.items():
             prompt=("Re-translate this ONE English segment faithfully to "+LANGS[lang]+
               ". Correct: "+",".join(issues)+". Do not omit meaning, quantities or proper "
               "names. Output ONLY JSON "+'{"segments":[{"id":'+str(sid)+',"text":"..."}]}'+
               "\nEnglish: "+originals[sid]+"\nEarlier result: "+current[sid])
-            ans=gemma.json(prompt,limit=950)
+            # Long English CC segments often contain 150+ words and several
+            # numerical claims. 950 tokens may clip their target-language
+            # retranslation. Increase only for such difficult segments.
+            token_budget=2304 if len(originals[sid])>560 else 1200
+            ans=gemma.json(prompt,limit=token_budget)
             rows=ans.get("segments") if isinstance(ans,dict) else ans
             current[sid]=check_ids([{"id":sid}],rows)[0]["text"]
             repairs+=1
+    print("GEMMA4_QA_UNRESOLVED_REASONS",lang,
+          json.dumps({str(k):v for k,v in failures.items()},ensure_ascii=False)[:4500],flush=True)
     raise ValueError("gemma4_unresolved_qa_"+lang+"_"+",".join(map(str,failures)))
 
 def append_verify(sheets,tab,rows):
