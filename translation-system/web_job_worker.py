@@ -54,21 +54,25 @@ def fetch_runtime(bridge_url: str, nonce: str):
             with urllib.request.urlopen(url, timeout=60) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except Exception as exc:
-            last_exc = exc
+            # HTTPError and URLError messages can contain the full request
+            # URL, including the bearer runtime nonce in its query string.
+            # Keep the class only; never log the exception or the URL.
+            last_exc = type(exc).__name__
             print(
                 f"[BRIDGE] runtime request {attempt}/{len(waits)} failed: "
-                f"{type(exc).__name__}: {exc}",
+                f"{last_exc}",
                 flush=True,
             )
             continue
 
         if not payload.get("ok"):
-            # An explicit Bridge rejection (expired/invalid nonce, etc.) is not
-            # a transient network condition and should fail immediately.
-            raise RuntimeError(
-                "SoulKey runtime credential request failed: "
-                + str(payload.get("message") or payload.get("error") or payload)
-            )
+            # Print only a short, server-defined reason code. The raw Bridge
+            # response could include credentials and must never hit CI logs.
+            code = str(payload.get("error") or "runtime_rejected")
+            if code not in {"invalid_or_expired_nonce", "unauthorized",
+                            "server_not_configured", "runtime_rejected"}:
+                code = "runtime_rejected"
+            raise RuntimeError("SoulKey runtime credential request failed: " + code)
 
         protocol = int(payload.get("bridge_protocol") or 0)
         if protocol < REQUIRED_BRIDGE_PROTOCOL:
@@ -86,7 +90,7 @@ def fetch_runtime(bridge_url: str, nonce: str):
 
     raise RuntimeError(
         "SoulKey runtime credential request exhausted retries: "
-        + (f"{type(last_exc).__name__}: {last_exc}" if last_exc else "unknown error")
+        + (last_exc or "unknown_error")
     )
 
 
