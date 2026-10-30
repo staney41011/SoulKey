@@ -184,7 +184,15 @@ def local_issues(source,target,lang):
     from gemini_engine import local_language_issue
     from gemini_quality import translated_number_issues
     issues=[]
-    if not target or target.strip().casefold()==source.strip().casefold():
+    original=str(source or "").strip()
+    candidate=str(target or "").strip()
+    # Numbers, timestamps and punctuation are language-neutral subtitle
+    # fragments. Requiring them to be "translated" creates a QA deadlock:
+    # the faithful target is identical to the English source.
+    neutral_source=not re.search(r"[A-Za-z]",original)
+    if not candidate:
+        issues.append("empty_or_english_copy")
+    elif candidate.casefold()==original.casefold() and not neutral_source:
         issues.append("empty_or_english_copy")
     error=local_language_issue(target,source,lang)
     if error:issues.append(str(error))
