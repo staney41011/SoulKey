@@ -21,7 +21,7 @@ from lesson_paths import resolve_lesson_folders
 TARGET="P259-L04"
 
 def source_video_id(url):
-    match=re.search(r"(?:youtu\\.be/|[?&]v=)([A-Za-z0-9_-]{11})",str(url))
+    match=re.search(r"(?:youtu\.be/|[?&]v=)([A-Za-z0-9_-]{11})",str(url))
     return match.group(1) if match else ""
 
 def run():
