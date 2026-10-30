@@ -2348,7 +2348,8 @@ function firebaseStatusMirror_(taskId,stage,status,progress,runId,inputRevision,
   const props=PropertiesService.getScriptProperties();
   if(String(props.getProperty("FIREBASE_STATUS_MIRROR_ENABLED")||"")!=="true")
     return false;
-  const root=String(props.getProperty("FIREBASE_DATABASE_URL")||"").trim().replace(/\\/$/,"");
+  const configured=String(props.getProperty("FIREBASE_DATABASE_URL")||"").trim();
+  const root=configured.endsWith("/")?configured.slice(0,-1):configured;
   if(!/^https:\/\/[a-z0-9-]+\.(?:firebaseio\.com|[a-z0-9-]+\.firebasedatabase\.app)$/.test(root))
     return false;
   const id=String(taskId||""),phase=String(stage||"");
