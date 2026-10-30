@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'translation-system/p259_gemma4_kaggle.py'
+      - 'translation-system/test_p259_gemma4_repair.py'
       - 'translation-system/web_job_worker.py'
       - '.github/workflows/kaggle_web_job.yml'
       - '.github/workflows/p259_gemma4_bridge_check.yml'
@@ -25,6 +26,7 @@ jobs:
           set -euo pipefail
           python -m py_compile translation-system/p259_gemma4_kaggle.py translation-system/web_job_worker.py translation-system/google_io.py
           python translation-system/p259_gemma4_kaggle.py --self-test
+          python translation-system/test_p259_gemma4_repair.py
       - name: Check auth bridge routing and GPU metadata consistency
         shell: bash
         run: |
