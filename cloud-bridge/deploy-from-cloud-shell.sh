@@ -32,6 +32,7 @@ node cloud-bridge/tests/sheets-request.test.js
 node cloud-bridge/tests/english-final-source.test.js
 node cloud-bridge/tests/central-writes.test.js
 node cloud-bridge/tests/github-worker-auth.test.js
+python3 -m py_compile translation-system/google_io.py translation-system/p259_source_duration_restore.py translation-system/central_tts_recovery.py
 node cloud-bridge/tests/translation-queue.test.js
 node cloud-bridge/tests/translation-chunk.test.js
 node cloud-bridge/tests/translation-resume.test.js
@@ -68,6 +69,11 @@ if data.get("build")!=sys.argv[1]:
     raise SystemExit("ERROR: source and deployed build mismatch")
 print("CLOUD_BRIDGE_BUILD_VERIFIED",data["build"])
 ' "$REVISION"
+SERVICE_ACCOUNT="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format='value(spec.template.spec.serviceAccountName)')"
+echo "P259 delivery service account: $SERVICE_ACCOUNT"
+echo "P259 final delivery requires this identity to have Editor on all four lesson 02_翻譯稿 and 04_音檔 folders."
+echo "Verify access by manually dispatching .github/workflows/soulkey_p259_final_delivery.yml with export_only=true."
+echo "Only after real Drive readback, enable GitHub variable SOULKEY_P259_DELIVERY_READY=true for bounded scheduled TTS."
 echo "Code deployment verified. Open Studio, reconnect with the existing six-digit Bridge Key,"
 echo "then check status_health and confirm new queued jobs are claimed by GitHub Actions."
 echo "NOTE: Deployment success does not prove Kaggle/translation/TTS execution; verify actual Sheet results."
