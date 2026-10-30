@@ -52,18 +52,39 @@ class Gemma:
         print("GEMMA4_GGUF_GPU",torch.cuda.get_device_name(0),flush=True)
         base=Path("/kaggle/working/gemma4-local")
         base.mkdir(parents=True,exist_ok=True)
-        source=base/"llama.cpp"
-        build=source/"build"
-        if not source.exists():
-            subprocess.run(["git","clone","--depth","1",
-                "https://github.com/ggml-org/llama.cpp.git",str(source)],
-                check=True,timeout=300)
-        subprocess.run(["cmake","-S",str(source),"-B",str(build),
-            "-DGGML_CUDA=ON","-DGGML_CUDA_NO_VMM=ON","-DLLAMA_BUILD_SERVER=ON",
-            "-DLLAMA_BUILD_TESTS=OFF","-DLLAMA_BUILD_EXAMPLES=OFF",
-            "-DCMAKE_BUILD_TYPE=Release"],check=True,timeout=300)
-        subprocess.run(["cmake","--build",str(build),"-j","4",
-            "--target","llama-server"],check=True,timeout=1100)
+        # Never compile llama.cpp inside a short-lived Kaggle GPU session.
+        # Official upstream release b11988 supports Gemma 4 and CUDA 12.8.
+        # Kaggle T4 already provides CUDA 12.8, so install pre-built binaries.
+        import tarfile
+        import shutil
+        binary=base/"bin"/"llama-server"
+        if not binary.exists():
+            release="b11988"
+            asset=("llama-"+release+"-bin-ubuntu-cuda-12.8-x64.tar.gz")
+            url=("https://github.com/ggml-org/llama.cpp/releases/download/"
+                 +release+"/"+asset)
+            package=base/asset
+            print("GEMMA4_OFFICIAL_PREBUILT_DOWNLOAD",asset,flush=True)
+            urllib.request.urlretrieve(url,str(package))
+            extracted=base/"upstream"
+            extracted.mkdir(parents=True,exist_ok=True)
+            with tarfile.open(package,"r:gz") as archive:
+                # Avoid path traversal or symlinks when extracting binaries.
+                root=extracted.resolve()
+                for member in archive.getmembers():
+                    target=(extracted/member.name).resolve()
+                    if not target.is_relative_to(root) or member.issym() or member.islnk():
+                        raise RuntimeError("Unsafe upstream archive member")
+                archive.extractall(extracted,filter="data")
+            found=list(extracted.rglob("llama-server"))
+            if len(found)!=1:
+                raise RuntimeError("llama-server missing in official binary asset")
+            bindir=found[0].parent
+            binary=bindir/"llama-server"
+            binary.chmod(0o755)
+            print("GEMMA4_PREBUILT_CUDA_SERVER",binary,flush=True)
+        else:
+            bindir=binary.parent
         from huggingface_hub import hf_hub_download
         repo="google/gemma-4-12B-it-qat-q4_0-gguf"
         filename="gemma-4-12b-it-qat-q4_0.gguf"
@@ -75,8 +96,10 @@ class Gemma:
         cmd=[str(build/"bin"/"llama-server"),"-m",str(file),
             "--host","127.0.0.1","--port",str(self.port),"-ngl","99",
             "-c","8192","-t","4","--parallel","1"]
+        env=dict(os.environ)
+        env["LD_LIBRARY_PATH"]=str(bindir)+os.pathsep+env.get("LD_LIBRARY_PATH","")
         self.proc=subprocess.Popen(cmd,stdout=logfile,
-            stderr=subprocess.STDOUT)
+            stderr=subprocess.STDOUT,env=env)
         deadline=time.monotonic()+240
         while time.monotonic()<deadline:
             if self.proc.poll() is not None:
