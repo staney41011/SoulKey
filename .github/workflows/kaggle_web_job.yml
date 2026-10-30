@@ -35,6 +35,7 @@ permissions:
 
 concurrency:
   group: soulkey-kaggle-web-worker
+  queue: max
   cancel-in-progress: false
 
 jobs:

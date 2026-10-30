@@ -77,28 +77,25 @@ jobs:
           python -m pip install --disable-pip-version-check -q edge-tts==7.3.1
           python -u translation-system/tests/tts_full_cpu_live_smoke.py \
             --output-dir "$RUNNER_TEMP/soulkey-edge-cpu-full"
-      - name: Validate Github CPU split routing and FIFO wait queue
+      - name: Validate restored Kaggle execution and accelerator selection
         shell: bash
         run: |
           python -m pip install -q pyyaml
-          python - <<'PY'
-          import yaml
+          python - <<'PYCODE'
+          import os,yaml
           from pathlib import Path
-          workflow = yaml.safe_load(Path(".github/workflows/kaggle_web_job.yml").read_text())
-          assert workflow["concurrency"]["queue"] == "max"
+          workflow=yaml.safe_load(Path(".github/workflows/kaggle_web_job.yml").read_text())
           assert workflow["concurrency"]["cancel-in-progress"] is False
-          jobs = workflow["jobs"]
-          assert "cpu" in jobs and "launch" in jobs
-          assert "tts" in jobs["cpu"]["if"] and "multi" in jobs["cpu"]["if"]
-          assert "tts" in jobs["launch"]["if"] and "multi" in jobs["launch"]["if"]
-          steps = jobs["cpu"]["steps"]
-          text = "\n".join(str(step) for step in steps)
-          assert "SOULKEY_TTS_PARALLEL_BLOCKS" in text
-          assert "SOULKEY_TTS_WORKDIR" in text
-          assert "SOULKEY_GEMINI_MULTI_WORKDIR" in text
-          assert "add-mask" in text
-          print("CPU_WORKER_ROUTING_AND_FIFO_OK")
-          PY
+          assert workflow["concurrency"]["queue"] == "max"
+          assert "launch" in workflow["jobs"] and "cpu" not in workflow["jobs"]
+          steps=workflow["jobs"]["launch"]["steps"]
+          text="\n".join(str(step) for step in steps)
+          assert "web_job_worker.py" in text
+          assert 'meta["enable_gpu"] = needs_gpu' in text
+          assert 'meta["model_sources"] = []' in text
+          assert "KAGGLE_KERNEL" in str(workflow["jobs"]["launch"]["env"])
+          print("ORIGINAL_KAGGLE_COMPUTE_ROUTING_OK")
+          PYCODE
       - name: Verify production is disabled by default
         run: |
           python - <<'PY'
