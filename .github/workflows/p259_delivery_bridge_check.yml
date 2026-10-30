@@ -10,6 +10,8 @@ on:
       - 'translation-system/google_io.py'
       - 'translation-system/tests/test_google_io_oidc.py'
       - 'translation-system/central_tts_recovery.py'
+      - 'translation-system/p259_source_duration_restore.py'
+      - 'translation-system/tests/test_p259_duration_source.py'
       - '.github/workflows/soulkey_p259_final_delivery.yml'
       - '.github/workflows/p259_delivery_bridge_check.yml'
   workflow_dispatch:
@@ -35,8 +37,9 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -q google-auth google-api-python-client google-auth-httplib2 PyYAML
-          python -m py_compile translation-system/google_io.py translation-system/central_tts_recovery.py
+          python -m py_compile translation-system/google_io.py translation-system/central_tts_recovery.py translation-system/p259_source_duration_restore.py
           python translation-system/tests/test_google_io_oidc.py
+          python translation-system/tests/test_p259_duration_source.py
           python -m unittest discover -s translation-system/tests -p 'test_central_tts_source.py' -v
       - name: Assert delivery workflow cannot start on push or PR
         shell: bash
