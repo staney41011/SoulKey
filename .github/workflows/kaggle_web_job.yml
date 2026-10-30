@@ -112,7 +112,8 @@ jobs:
           stage = os.environ["JOB_STAGE"].strip()
           lang = os.environ["JOB_LANG"].strip()
           gpu_stages = {"zh", "asr", "batch"}
-          needs_gpu = stage in gpu_stages
+          p259_gemma4 = stage == "multi" and os.environ["JOB_TASK_ID"].strip() in {"P259-L01","P259-L02","P259-L03","P259-L04"}
+          needs_gpu = stage in gpu_stages or p259_gemma4
 
           # Rebind every run to the dedicated GPU-only kernel. Do not preserve
           # id_no from an older CPU worker because Kaggle prefers id_no over id.
@@ -133,7 +134,7 @@ jobs:
           meta["kernel_sources"] = ["cwlmrcsir/translate-system"]
           meta["dataset_sources"] = []
           meta["competition_sources"] = []
-          meta["model_sources"] = []
+          meta["model_sources"] = ["google/gemma-4/transformers/gemma-4-12b-it/1"] if p259_gemma4 else []
 
           meta_path.write_text(
               json.dumps(meta, ensure_ascii=False, indent=2),
@@ -204,11 +205,13 @@ jobs:
         env:
           JOB_STAGE: ${{ inputs.stage }}
           JOB_LANG: ${{ inputs.lang }}
+          JOB_TASK_ID: ${{ inputs.task_id }}
         run: |
           set -euo pipefail
           DIR="${RUNNER_TEMP}/soulkey-web-worker"
           STAGE="${JOB_STAGE}"
           LANG="${JOB_LANG}"
+          TASK_ID="${JOB_TASK_ID}"
           FINAL_STATUS="UNKNOWN"
           MAX_ATTEMPTS=1
 
@@ -225,6 +228,9 @@ jobs:
             if [[ "$STAGE" == "batch" ]]; then
               echo "Launching Kaggle batch with NvidiaTeslaT4 accelerator; timeout=14400s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
+            elif [[ "$STAGE" == "multi" && "$TASK_ID" =~ ^P259-L0[1-4]$ ]]; then
+              echo "Launching P259 Gemma4 GPU with existing Bridge OAuth; timeout=14400s"
+              kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
             elif [[ "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ]]; then
               echo "Launching P259 four-lesson Kaggle CPU recovery; timeout=14400s"
               kaggle kernels push -p "$DIR" -t 14400
@@ -237,7 +243,7 @@ jobs:
             fi
 
             ATTEMPT_STATUS="UNKNOWN"
-            if [[ "$STAGE" == "batch" || ( "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ) ]]; then
+            if [[ "$STAGE" == "batch" || ( "$STAGE" == "multi" && "$TASK_ID" =~ ^P259-L0[1-4]$ ) || ( "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ) ]]; then
               POLL_LIMIT=1440
             else
               POLL_LIMIT=720
