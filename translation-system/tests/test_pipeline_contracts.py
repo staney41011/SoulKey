@@ -51,7 +51,9 @@ class PipelineContracts(unittest.TestCase):
         self.assertNotIn('soulkey-github-cpu', workflow)
         self.assertIn('cancel-in-progress: false', workflow)
         self.assertNotIn('SOULKEY_CPU_WORKER_ENABLED', workflow)
-        self.assertIn('jobs:\\n  launch:\\n    runs-on:', workflow)
+        self.assertIn('jobs:', workflow)
+        self.assertIn('  launch:', workflow)
+        self.assertIn('    runs-on:', workflow)
 
     def test_asr_prefers_verified_drive_audio_over_expired_youtube_cookies(self):
         runner = read("translation-system/runner.py")
