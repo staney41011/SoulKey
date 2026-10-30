@@ -24,7 +24,9 @@ jobs:
           [[ -n "$KAGGLE_API_TOKEN" ]] || exit 1
           python -m pip install -q kaggle
           echo "=== P259 GEMMA4 KAGGLE STATUS ==="
-          kaggle kernels status "$KERNEL"
+          kaggle kernels list --user cwlmrcsir | grep -i -E "gemma4|soulkey" | head -40 || true
+          kaggle kernels status "$KERNEL" || true
+          kaggle kernels status cwlmrcsir/soulkey-p259-gemma4-private-relay || true
           echo "=== P259 GEMMA4 KAGGLE LOGS ==="
           kaggle kernels logs "$KERNEL" 2>&1 | tail -200 || true
           echo "NOTE: queued/submitted != verified Sheet/Drive delivery."
