@@ -29,5 +29,5 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run soulkey_translation_queue.yml --repo "$GH_REPO" --ref main
-          echo "P259_TRANSLATION_WORKFLOW_DISPATCH_SUBMITTED"
+          echo "P259_GEMMA4_GGUF_QAT_RELAY_DISPATCH_SUBMITTED"
           echo "P259 Gemma4 local GPU; verify Cloud Run QA receipts and Drive, not green workflow status."
