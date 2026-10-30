@@ -1,0 +1,70 @@
+name: Gemma JSON Kaggle GPU Smoke
+on:
+  push:
+    branches: [fix/restore-legacy-workflow-on-central-store]
+    paths: ['.github/workflows/gemma_json_smoke.yml', 'translation-system/gemma_json_smoke.py']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: soulkey-gemma-json-smoke
+  cancel-in-progress: false
+jobs:
+  gpu-json:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL: cwlmrcsir/soulkey-gemma-json-smoke
+    steps:
+      - name: Install Kaggle CLI
+        run: python -m pip install -q kaggle
+      - name: Validate real JSON translation and QA with synthetic public text
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/gemma-json-smoke-job"
+          export DIR
+          mkdir -p "$DIR"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ["DIR"])
+          # No credential or human manuscript is serialized into this kernel.
+          code='''import subprocess,sys
+          from pathlib import Path
+          root=Path("/kaggle/working/SoulKey")
+          subprocess.run(["git","clone","--depth","1","https://github.com/staney41011/SoulKey.git",str(root)],check=True)
+          subprocess.run(["git","fetch","origin",__SHA__],cwd=root,check=True)
+          subprocess.run(["git","checkout","--detach",__SHA__],cwd=root,check=True)
+          subprocess.run([sys.executable,"-m","pip","install","-q","-r",str(root/"translation-system/requirements-gemini.txt"),"huggingface_hub"],check=True)
+          subprocess.run([sys.executable,"-u",str(root/"translation-system/gemma_json_smoke.py")],check=True)
+          '''.replace("__SHA__",repr(os.environ["GITHUB_SHA"]))
+          (root/"smoke.py").write_text(code)
+          (root/"kernel-metadata.json").write_text(json.dumps({
+            "id":os.environ["KERNEL"],"title":"Soulkey Gemma Json Smoke",
+            "code_file":"smoke.py","language":"python","kernel_type":"script",
+            "is_private":True,"enable_gpu":True,"enable_internet":True,
+            "dataset_sources":[],"competition_sources":[],"kernel_sources":[],"model_sources":[]}))
+          PY
+          kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 1200
+          for attempt in $(seq 1 120); do
+            STATUS="$(kaggle kernels status "$KERNEL")"
+            echo "$STATUS"
+            if echo "$STATUS" | grep -qi complete; then break; fi
+            if echo "$STATUS" | grep -qi error; then
+              kaggle kernels logs "$KERNEL" | tail -60
+              exit 1
+            fi
+            sleep 10
+          done
+          kaggle kernels output "$KERNEL" -p "$DIR/results" --file-pattern '(^|/)gemma-json-smoke\.json$'
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          files=list((Path(os.environ["DIR"])/"results").rglob("gemma-json-smoke.json"))
+          assert len(files)==1,"GPU result missing"
+          data=json.loads(files[0].read_text())
+          print("GEMMA_GPU_JSON_VERIFIED",json.dumps(data))
+          assert data["passed"]==["it","pt"] and not data["failures"]
+          PY
