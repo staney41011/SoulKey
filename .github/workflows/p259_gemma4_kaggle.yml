@@ -74,7 +74,7 @@ jobs:
                           "edge-tts==7.3.1"],check=True)
           audio_cmd=[sys.executable,"-u",
               str(root/"translation-system/central_tts_recovery.py"),
-              "--period","259","--max-languages","4"]
+              "--period","259","--max-languages","64"]
           tts_code=subprocess.run(audio_cmd,cwd=str(root/"translation-system")).returncode
           print("P259_GEMMA4_TTS_EXIT",tts_code,flush=True)
           if code and code!=2:raise SystemExit(code)
