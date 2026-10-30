@@ -8,6 +8,7 @@ Cloud Run's existing verified upload and QA endpoints finalize each language.
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -123,6 +124,24 @@ def run_kernel(job):
         import shutil
         shutil.rmtree(root,ignore_errors=True)
 
+def safe_failure_summary(raw, language):
+    """Only print allowlisted QA IDs or exception class; never lecture text.
+
+    Full Kaggle error strings can contain model output or private excerpts.
+    This summary is suitable for ordinary GitHub Actions log retention.
+    """
+    value=str(raw or "")
+    match=re.fullmatch(
+        r"ValueError: gemma4_unresolved_qa_([a-z]{2})_([0-9]+(?:,[0-9]+)*)",
+        value)
+    if match and match.group(1)==language:
+        return "unresolved_segment_ids="+match.group(2)
+    cls=value.partition(":")[0].strip()
+    allowed={"ValueError","RuntimeError","TimeoutError","HTTPError",
+             "KeyError","TypeError","ConnectionError"}
+    return "failure_class="+(cls if cls in allowed else "unclassified")
+
+
 def checked_output(job,data):
     if data.get("job_id")!=job["id"] or data.get("task_id")!=job["task_id"] or data.get("revision")!=job["revision"]:
         raise RuntimeError("remote_result_job_or_revision_mismatch")
@@ -182,6 +201,10 @@ def main():
                   ",".join(job["langs"]),flush=True)
             return 0
         result=run_kernel(job)
+        for language in job["langs"]:
+            if language in result.get("failures",{}):
+                print("P259_GEMMA4_LANGUAGE_REVIEW_REQUIRED",job["task_id"],language,
+                      safe_failure_summary(result["failures"][language],language),flush=True)
         approved=checked_output(job,result)
         for lang,entry in result.get("results",{}).items():
             saved=bridge_request(oidc,"worker_job_part",{
