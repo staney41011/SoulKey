@@ -1,0 +1,93 @@
+name: SoulKey P259 Final Drive Text and Natural TTS Delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_languages:
+        description: New QA-approved audio languages per run
+        type: choice
+        options: ['1', '2', '4']
+        default: '2'
+      export_only:
+        description: Deliver approved JSON/TXT/SRT only
+        type: boolean
+        default: false
+  schedule:
+    - cron: '19 */2 * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: soulkey-p259-source-verified-drive-delivery
+  cancel-in-progress: false
+
+jobs:
+  deliver:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.SOULKEY_P259_DELIVERY_READY == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 310
+    env:
+      SOULKEY_BRIDGE_URL: https://soulkey-bridge-214901732194.asia-east1.run.app
+      SOULKEY_CLOUD_RUN_OIDC_REFRESH: '1'
+      SOULKEY_TTS_PARALLEL_BLOCKS: '1'
+      SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/p259-final-tts
+      INPUT_MAX_LANGUAGES: ${{ inputs.max_languages || '2' }}
+      INPUT_EXPORT_ONLY: ${{ inputs.export_only || false }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source-verification and Drive publishing code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile translation-system/google_io.py \
+            translation-system/central_tts_source.py \
+            translation-system/central_tts_recovery.py \
+            translation-system/central_manuscript_export.py \
+            translation-system/natural_tts_edge.py
+          python -m unittest discover -s translation-system/tests \
+            -p test_central_tts_source.py -v
+      - name: Install Natural TTS and Google Drive clients
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -q \
+            -r translation-system/requirements-gemini.txt \
+            'google-auth-oauthlib' 'edge-tts==7.3.1'
+          ffprobe -version | head -n 1
+      - name: Probe live Cloud Run OIDC + Editor on all P259 lesson folders
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys
+          sys.path.insert(0,"translation-system")
+          from google_io import build_google_services
+          from config import SPREADSHEET_ID
+          drive,sheets=build_google_services()
+          response=sheets.spreadsheets().get(
+              spreadsheetId=SPREADSHEET_ID,fields="spreadsheetId").execute()
+          assert response.get("spreadsheetId")==SPREADSHEET_ID
+          print("P259_DELIVERY_BRIDGE_FOUR_LESSON_DRIVE_WRITE_VERIFIED",flush=True)
+          PY
+      - name: Deliver current-SHA-approved manuscripts and bounded Edge TTS
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAX="$INPUT_MAX_LANGUAGES"
+          [[ "$MAX" =~ ^(1|2|4)$ ]] || { echo "::error::invalid_language_budget"; exit 1; }
+          flags=(--period 259 --max-languages "$MAX")
+          if [[ "$INPUT_EXPORT_ONLY" == "true" ]]; then flags+=(--export-only); fi
+          python -u translation-system/central_tts_recovery.py "${flags[@]}" \
+            2>&1 | tee "$RUNNER_TEMP/p259-official-drive-delivery.log"
+      - name: Preserve non-secret delivery proof and failed language receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-final-drive-receipts-${{ github.run_id }}
+          path: ${{ runner.temp }}/p259-official-drive-delivery.log
+          if-no-files-found: ignore
+          retention-days: 30
