@@ -21,6 +21,6 @@ for(const section of sections){
   assert(section.includes('lang:"central4"'),"Requires four-lesson worker");
 }
 assert(config.includes("legacyKaggleBridgeEndpoint:"));
-assert(config.includes('bridgeEndpoint: "https://soulkey-bridge-'));
+assert(config.includes('bridgeEndpoint: "https://script.google.com/macros/s/'));\nassert(config.includes('mode: "legacy-firebase"'));\nassert(config.includes('firebaseHostingUrl: "https://soulkey-control-2026.web.app/"'));
 assert(script.includes('const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,fields)'));
-console.log("PASS: verified Cloud Run login can dispatch four-lesson jobs to original Kaggle Apps Script");
+console.log("PASS: legacy Apps Script primary + Firebase Hosting preserves four-lesson Kaggle dispatch");
