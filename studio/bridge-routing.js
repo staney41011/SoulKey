@@ -61,7 +61,7 @@
     function pump(){
       if(active||!queue.length)return;
       active=queue.shift();
-      timer=root.setTimeout(()=>fail("原服務讀取逾時，請稍後重試"),90000);
+      timer=root.setTimeout(()=>fail("原服務讀取逾時，請稍後重試"),active.options.timeoutMs||90000);
       if(peer){send();return;}
       frame=root.document.createElement("iframe");
       frame.hidden=true;frame.title="SoulKey legacy read bridge";

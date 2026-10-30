@@ -4960,7 +4960,10 @@ function bridgeSyncRequestFailed(action,reason){
 
 function legacyBridgeRead(fields,options={}){
   if(firebaseSnapshotReadOnly)return false;
-  return window.SoulKeyBridgeRoutes.readLegacy(cfg,bridgeKeyValue(),fields,options);
+  return window.SoulKeyBridgeRoutes.readLegacy(cfg,bridgeKeyValue(),fields,{
+    timeoutMs:fields.action==="status_health"?30000:90000,...options,
+    onError:options.onError || (error=>bridgeSyncRequestFailed(fields.action,error.message))
+  });
 }
 
 function jsonpBridgeRequest(fields,options={}){
@@ -5199,9 +5202,8 @@ window.addEventListener("message",event=>{
     if(syncText){
       syncText.textContent="正在讀取執行狀態…";
     }
-    requestStatusHealth();
-    requestTaskStatuses();
-    requestLanguageSettings();
+    // The shared read queue already holds the request that opened this
+    // client. Do not enqueue a second login on every iframe ready event.
     return;
   }
 

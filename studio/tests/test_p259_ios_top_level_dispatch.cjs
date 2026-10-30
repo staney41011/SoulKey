@@ -15,7 +15,7 @@ assert.match(app,/input\.value=String\(value \?\? ""\)/);
 assert.match(app,/if\(legacyMachineJob && useTopLevelP259LegacyDispatch\(fields\)\)/);
 assert.match(app,/const sent=submitP259LegacyTopLevelForm\(endpoint,key,fields\)/);
 assert.match(app,/requestTaskStatuses\(\),15000/);
-assert.match(html,/app-20260923-48\.js\?v=20261031-no-gcp-v1/);
+assert.match(html,/app-20260923-48\.js\?v=20261031-no-gcp-v2/);
 assert.match(html,/bridge-ready（協定 v9）/);
 assert(!html.includes("派工未回報／Apps Script 403"),"Do not misdiagnose owner's accessible deployed web app");
 console.log("PASS: iOS P259 uses top-level Google POST with no passcode in URL and no false TTS success");

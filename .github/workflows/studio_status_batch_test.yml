@@ -142,9 +142,9 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261031-no-gcp-v1" in html
+          assert "app-20260923-48.js?v=20261031-no-gcp-v2" in html
           assert html.index("bridge-routing.js?v=") < html.index("app-20260923-48.js?v=")
-          assert 'config.js?v=20261031-no-gcp-v1' in html
+          assert 'config.js?v=20261031-no-gcp-v2' in html
           cfg=Path("studio/config.js").read_text(encoding="utf-8")
           assert 'mode: "legacy-kaggle"' in cfg
           assert 'bridgeEndpoint: "https://script.google.com/macros/s/' in cfg

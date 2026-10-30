@@ -1,6 +1,18 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
 
+## 2026-10-31｜無GCP版已上線；原 Apps Script 嵌入回覆仍需更新部署
+
+- [PR #32](https://github.com/staney41011/SoulKey/pull/32) 已合併 `aa3117286e9fe4ddcabfb570a4c67025e80fb7f3`，正式分支所有CI通過。[退役工作 #41097953766](https://github.com/staney41011/SoulKey/actions/runs/41097953766) 成功，日誌逐一確認四個舊 GCP workflow 已 disabled。沒有刪除原專案、Sheet、Drive 或私人 Kaggle 產物。
+- 最新 Drive 再盤點：L01 文稿7／正式MP3 5／試聽2；L02 14／12／2；L03 2／1／0；L04 1／0／1。合計 **24/64組文稿、18/64組正式MP3、另5組試聽**。最新中央非英文QA **30/60**。
+- 實際瀏覽器已確認正式站載入無GCP版、移除 Firebase 入口；原 `/exec` 回傳 `bridge-ready / protocol 9`。安全表單送出登入後，嵌入式讀取沒有完成，未宣稱登入成功或重新派工成功。
+- 原因：原 `bridgeClientHtml_` 只 `window.parent.postMessage`；HtmlService 另包一層Google外框，回覆未直接送回Studio。修正為同時送至指定 Studio origin 的 `window.top`；公開健康回覆加上 `bridge_client_transport=top-postmessage-v1`，可獨立核對實際部署。
+- 前端讀取失敗會呼叫登入錯誤處理，不再永遠顯示同步中；health讀取有30秒上限。iframe ready不再額外重排同一登入請求。新版快取v2。新增實際執行原client腳本的測試，確認ready、Google script callback與逾時能送達正確的Studio。
+- **部署邊界**：程式與測試已備妥，需更新原 Apps Script 的同一既有部署，保留原Script Properties／原六碼與授權。不能把GitHub已更新當成Google腳本已更新；部署後以健康欄位、真實登入及新的Kaggle run驗證。
+
+---
+
+
 ## 2026-10-31｜依最新指示停用 GCP，接回原 Apps Script／Kaggle
 
 - 使用者明確要求日後不再使用 GCP。以中途修改後的 main `13cd8a425f29a37710ccf8873d73e54bc3ec1a1f` 為基礎；保留新加的數字 QA、短句檢查、敏感錯誤遮罩與 runtime preflight，沒有套回之前未提交的舊工作目錄。
