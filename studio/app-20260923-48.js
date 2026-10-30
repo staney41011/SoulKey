@@ -6355,7 +6355,7 @@ function startP259RescueTranslation(){
     if(status)status.textContent="已有派工尚未確認，請先核對執行狀態。";
     return;
   }
-  if(!window.confirm("補譯第259期四堂課尚未完成的15種 AI 語言。保留所有人工英文定稿與既有QA；Gemini 429時會保留進度，不會冒充完成。確認啟動原 Kaggle？"))return;
+  if(!window.confirm("補譯第259期四堂課尚未完成的15種 AI 語言。沿用人工英文定稿與既有QA，改用 Kaggle Gemma 4 本地翻譯和 QA，接著處理已核可語言的配音。確認由原 Apps Script Bridge 啟動？"))return;
   p259TranslationSending=true;
   if(btn)btn.disabled=true;
   const translationWarning=window.setTimeout(()=>{
@@ -6382,7 +6382,7 @@ function startP259RescueTranslation(){
     window.clearTimeout(translationWarning);
     p259TranslationSending=false;
     if(btn)btn.disabled=false;
-    if(status)status.textContent="尚未取得補譯派工確認。請以 GitHub Actions 的新工作為準；不代表 Gemini 已成功翻譯。";
+    if(status)status.textContent="尚未取得補譯派工確認。請以 GitHub Actions → Kaggle 實際執行與 Drive 成果為準；不是已完成。";
   },120000);
 }
 document.getElementById("p259-translation-start")?.addEventListener("click",startP259RescueTranslation);
