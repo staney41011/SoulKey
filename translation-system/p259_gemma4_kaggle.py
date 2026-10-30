@@ -93,7 +93,7 @@ class Gemma:
             local_dir=str(base/"model"))
         self.port=8099
         logfile=(base/"llama-server.log").open("w",encoding="utf-8")
-        cmd=[str(build/"bin"/"llama-server"),"-m",str(file),
+        cmd=[str(binary),"-m",str(file),
             "--host","127.0.0.1","--port",str(self.port),"-ngl","99",
             "-c","8192","-t","4","--parallel","1"]
         env=dict(os.environ)
