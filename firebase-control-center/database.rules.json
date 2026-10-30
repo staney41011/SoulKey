@@ -1,6 +1,12 @@
 {
   "rules": {
     ".read": false,
-    ".write": false
+    ".write": false,
+    "soulkey": {
+      "status_v1": {
+        ".read": "auth != null && auth.token.soulkeyViewer === true",
+        ".write": false
+      }
+    }
   }
 }
