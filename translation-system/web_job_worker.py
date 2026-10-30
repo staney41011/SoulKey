@@ -355,6 +355,7 @@ def main():
         elif needs_gemini and not (
             (args.stage == "en" and args.lang == "cc-refresh")
             or (args.stage == "tts" and args.lang == "central4")
+            or (args.stage == "multi" and args.task_id in {"P259-L01","P259-L02","P259-L03","P259-L04"})
         ):
             raise RuntimeError(
                 "Apps Script 尚未設定 GEMINI_API_KEY；"
@@ -726,52 +727,47 @@ def main():
                 "--stage", "en",
             ]
 
-        elif args.stage == "multi" and args.lang == "central4":
-            if args.task_id != "P259-L01":
+        elif args.stage == "multi" and central_p259:
+            # P259 migration: all approved English Finals -> Kaggle local Gemma4.
+            # The *existing* Apps Script worker_runtime has already provided
+            # short-lived GOOGLE_ACCESS_TOKEN + refreshable nonce above.
+            # No Kaggle Secrets or Gemini API keys are needed for this route.
+            if args.lang == "central4" and args.task_id != "P259-L01":
                 raise RuntimeError("central4_requires_P259-L01_dispatch_anchor")
-            requested = "th,es,id,vi,hi,ta,ja,ko,km,bn,ne,lo,my,it,pt"
-            # Preserve already QA-passed central translations. Never ask
-            # Gemini to recreate those current-revision full language sets.
-            from central_tts_source import verified_english_final, verified_translation, SourceNotReady
-            from google_io import build_google_services, read_values
-            from config import SPREADSHEET_ID
-            _, central_sheets = build_google_services()
-            idx_rows = read_values(central_sheets, SPREADSHEET_ID, "英文定稿索引!A2:F10000")
-            backup_rows = read_values(central_sheets, SPREADSHEET_ID, "英文定稿備存!A2:G10000")
-            translated_rows = read_values(central_sheets, SPREADSHEET_ID, "多語翻譯結果!A2:G50000")
-            quality_rows = read_values(central_sheets, SPREADSHEET_ID, "翻譯QA紀錄!A2:I5000")
-            delivered = 0
-            failures = []
-            for index in range(1, 5):
-                lesson = f"P259-L{index:02d}"
-                try:
-                    final = verified_english_final(lesson, idx_rows, backup_rows)
-                    pending = []
-                    for code in requested.split(","):
-                        try:
-                            verified_translation(lesson, code, final,
-                                                 translated_rows, quality_rows)
-                        except SourceNotReady:
-                            pending.append(code)
-                    if not pending:
-                        print("[P259-MULTI-QA-ALREADY-COMPLETE]", lesson, flush=True)
-                        delivered += 1
-                        continue
-                    print("[P259-MULTI-PENDING]", lesson, ",".join(pending), flush=True)
-                    run([sys.executable, str(system_dir / "central_english_sync.py"),
-                         "--task-id", lesson])
-                    run([sys.executable, str(system_dir / "gemini_multi_production_runner.py"),
-                         "--task-id", lesson, "--langs", ",".join(pending)])
-                    delivered += 1
-                except (subprocess.CalledProcessError, SourceNotReady) as error:
-                    failures.append(lesson)
-                    print("[P259-MULTI-RETRY-LATER]", lesson, error, flush=True)
-            report(args.bridge_url, args.runtime_nonce, "needs_review",
-                   "四堂課 Gemini 翻譯嘗試；本次已完成課程數="
-                   + str(delivered) + "；失敗待補=" + ",".join(failures))
-            if delivered == 0:
-                raise RuntimeError("P259_GEMINI_TRANSLATION_NOT_YET_AVAILABLE")
-            cmd = None
+            require_gpu_runtime("gemma4")
+            print("[P259-GEMMA4-BRIDGE] authorized OAuth runtime, local GPU translation",flush=True)
+            run([sys.executable, "-m", "pip", "install", "-q", "-U",
+                 "transformers>=5.10.1", "accelerate", "bitsandbytes",
+                 "kagglehub", "edge-tts==7.3.1"])
+            translation_cmd = [
+                sys.executable, "-u",
+                str(system_dir / "p259_gemma4_kaggle.py"),
+                "--period", "259", "--max-new-languages", "60",
+            ]
+            if args.lang != "central4":
+                translation_cmd.extend(["--task-id",args.task_id])
+            incomplete_qa=False
+            try:
+                run(translation_cmd)
+            except subprocess.CalledProcessError as exc:
+                if exc.returncode != 2:
+                    raise
+                incomplete_qa=True
+                print("[P259-GEMMA4] Some languages need review; preserving passed languages",flush=True)
+            # Continue to audio only from verified, current-revision sources.
+            audio_cmd=[
+                sys.executable, "-u",
+                str(system_dir / "central_tts_recovery.py"),
+                "--period", "259", "--max-languages", "64",
+            ]
+            if args.lang != "central4":
+                audio_cmd.extend(["--task-id",args.task_id])
+            run(audio_cmd)
+            report(args.bridge_url,args.runtime_nonce,"needs_review",
+                   "第259期 Gemma4 本地翻譯與核可來源 Edge TTS 已執行；"
+                   + ("部分語言仍需 QA 複核；" if incomplete_qa else "")
+                   + "以中央 Sheet 和 Drive 的正式檔案為準")
+            cmd=None
 
         elif args.stage == "multi":
             translate_langs = ",".join(
