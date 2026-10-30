@@ -72,6 +72,12 @@ jobs:
           assert response.get("spreadsheetId")==SPREADSHEET_ID
           print("P259_DELIVERY_BRIDGE_FOUR_LESSON_DRIVE_WRITE_VERIFIED",flush=True)
           PY
+      - name: Restore P259-L04 original YouTube duration only when safely verifiable
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python -u translation-system/p259_source_duration_restore.py
       - name: Deliver current-SHA-approved manuscripts and bounded Edge TTS
         shell: bash
         env:
