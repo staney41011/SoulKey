@@ -1,5 +1,28 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-30｜第259期「有 MP3、沒有逐字稿」根因及修正
+
+**使用者發現**：第2堂 \`05・檔案總覽\` 中，有英文／泰文／西班牙文／印尼文正式 MP3，卻只有中文及英文 CC 兩份原始文稿。
+
+**實際查核**：
+- 第259期四堂 \`02_翻譯稿\` Drive 資料夾均空，屬實，並非只被前端隱藏。
+- 中央 Sheet \`英文定稿索引 + 英文定稿備存 + 多語翻譯結果 + 翻譯QA紀錄\` 中已有來源受驗證的英文定稿與 10 個 AI QA 通過語言。既有 \`central_tts_recovery.py\` 直接讀中央表生成音檔，不會將來源寫成 Drive 正式 \`.txt/.srt/.json\`；而 \`cloud-bridge/drive-overview.js\` 只顯示 Drive 真實 \`.txt\`，因此會「有 MP3、沒有逐字稿」。
+- AI QA 10/60：L01 \`th,es\`；L02 \`th,es,id,vi,hi,ta,ja,ko\`；L03/L04 暫無 QA pass。四堂人工英文定稿另驗證。**其餘語言不能憑空生成**，Gemini HTTP 429 尚待恢復。
+- 14:04（Asia/Taipei）中央 TTS 表：L01 英、泰、西已 \`done\`；L02 英、泰、西、印尼、越、日已 \`done\`，印地語與泰米爾文為 \`needs_review\`（試聽音檔、未列正式交付）；韓文正在跑。以上時間為歷史快照，後續以最新 Drive 為準。
+
+**程式修復**：[PR #26](https://github.com/staney41011/SoulKey/pull/26)，合併主程式。新增 \`translation-system/central_manuscript_export.py\`，依現行的英文定稿版本及完整翻譯QA核對，對每個已驗證語言匯出人可閱讀 \`.txt\`、\`.srt\`、\`.json\`，上傳課堂 \`02_翻譯稿\`，逐檔讀回核驗；如果 Drive 既有文件內容不符，**不覆寫**。正式 TTS 救援流程新增「配音前先同步文稿」，\`central_tts_recovery.py --period 259 --export-only\` 可做純文稿補同步，不需要再產生 MP3。專用 regression tests 和 GitHub Studio CI 通過。
+
+**重要部署界線**：原 12:18 啟動的 Kaggle Web Job #41002147166 在修復 PR 前已 clone 程式，**不會自行更新成 #26 的新版程式**。PR 合併成功不等於 TXT 已上傳；目前四個 \`02_翻譯稿\` 仍需新的已授權 Kaggle 執行才能實際回填。避免 TTS 進行中重複派工或覆蓋。使用者不需要重做已完成的翻譯或重新 Google 授權。
+
+**待辦 / 驗收**：
+1. 先等 #41002147166 結束或確認中斷，核對正式 \`tts:<lang>\` 和 Drive MP3/preview 分別有幾組。
+2. 透過**原已授權 Kaggle Bridge**執行新版文稿同步（純文稿 \`--export-only\` 或新版同一 rescue stage，已完成 MP3 會重用、不重算）。不得用缺憑證的新 Kaggle Notebook 取代。
+3. 逐堂驗證 \`02_翻譯稿\` 對每個合格語言都有 TXT/SRT/JSON，且在 Studio \`05・檔案總覽\` 看得到 TXT。人工英文定稿和 AI QA 不可混淆。
+4. 剩下未通過 QA 的語言須先排除 Gemini 429、完成翻譯 + QA，才可以送 TTS；不偽造文字/音檔。最終交付仍為 64 組文稿 + 64 組音檔。
+
+---
+
+
 ## 最新驗收更新｜2026-10-30 13:27（Asia/Taipei）
 
 > **本節比下方 12:21 的原始快照更新。** 完成數量是此時點的確認數字，正在持續運算，切勿用此數字假裝最終交付。
