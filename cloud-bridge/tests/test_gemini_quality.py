@@ -43,4 +43,14 @@ class TestQuality(unittest.TestCase):
    self.assertEqual(m.translated_number_issues("This happened in 2026.","Questo è successo nel 2025.",lang),["missing_number:2026"])
    self.assertEqual(m.translated_number_issues("This happened in 2026.","Questo è successo nel 2026.",lang),[])
 
+ def test_no_substring_number_false_positive_in_other_languages(self):
+  examples=[("2","12"),("2026","12026"),("2.5","12.5")]
+  for lang in ["th","es","vi","hi","ta","km","bn","ja","ko"]:
+   for source,target in examples:
+    with self.subTest(lang=lang,source=source,target=target):
+     self.assertTrue(m.translated_number_issues("There were "+source+" people.",
+                                               "There were "+target+" people.",lang))
+     self.assertEqual(m.translated_number_issues("There were "+source+" people.",
+                                                "There were "+source+" people.",lang),[])
+
 if __name__=="__main__":unittest.main()
