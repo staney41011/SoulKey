@@ -18,6 +18,7 @@ on:
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - studio/tests/test_p259_legacy_rescue_gate.cjs
+      - studio/tests/test_p259_ios_top_level_dispatch.cjs
       - .github/workflows/studio_status_batch_test.yml
   push:
     branches: [main]
@@ -37,6 +38,7 @@ on:
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - studio/tests/test_p259_legacy_rescue_gate.cjs
+      - studio/tests/test_p259_ios_top_level_dispatch.cjs
       - .github/workflows/studio_status_batch_test.yml
 
 permissions:
@@ -52,6 +54,7 @@ jobs:
         run: |
           node --check studio/app-20260923-48.js
           node studio/tests/test_p259_legacy_rescue_gate.cjs
+          node studio/tests/test_p259_ios_top_level_dispatch.cjs
           node studio/tests/test_ios_control_login_split.cjs
           node --check studio/tts-share-message.js
           node --check studio/language-delivery.js
@@ -122,7 +125,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261030-p259-bridge-403-v3" in html
+          assert "app-20260923-48.js?v=20261030-ios-top-level-dispatch-v4" in html
           assert "english-cc-alignment.js?v=20261029-central-cc-restore-v1" in html
           assert "tts-share-message.js?v=20261028-length-audit-v1" in html
           assert "id=\"tts-share-copy\"" in html
