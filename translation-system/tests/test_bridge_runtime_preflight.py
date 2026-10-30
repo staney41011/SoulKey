@@ -68,6 +68,15 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertEqual(module.required_remaining_seconds("batch"), 4 * 3600)
         self.assertEqual(module.required_remaining_seconds("zh"), 2 * 3600)
 
+    def test_kaggle_bootstrap_and_logs_do_not_echo_runtime_nonce(self):
+        workflow=(Path(__file__).resolve().parents[2] /
+                  ".github" / "workflows" / "kaggle_web_job.yml").read_text(encoding="utf-8")
+        self.assertIn("SOULKEY_PREFLIGHT_RUNTIME_NONCE", workflow)
+        self.assertIn("subprocess.run(cmd, check=False).returncode", workflow)
+        self.assertNotIn("subprocess.run(cmd, check=True)", workflow)
+        self.assertIn("[REDACTED_RUNTIME_NONCE]", workflow)
+        self.assertIn("steps.runtime_preflight.outcome == 'success'", workflow)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
