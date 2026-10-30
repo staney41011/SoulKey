@@ -1,5 +1,16 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-30 20:50（台灣）｜連續佇列已正式啟動；文稿23組、正式配音18組
+
+- [PR #30](https://github.com/staney41011/SoulKey/pull/30) 已合併至 `db9376537f1ead3a4275cd3d4e7b086204476287`，Studio、MVP、Bridge 整合、relay 靜態檢查及 Pages 部署均通過。瀏覽器實際載入原 Studio 的修復資源；登入仍使用原六碼，沒有更換金鑰或 Google 授權。
+- 合併後的 [kickstart #41057302259](https://github.com/staney41011/SoulKey/actions/runs/41057302259) 以合法 `workflow_dispatch` 自動啟動 [正式翻譯 #41057315662](https://github.com/staney41011/SoulKey/actions/runs/41057315662)。中央 Sheet 已確認第1堂 `ja,ko,km` 於20:42:17被領取、狀態 running；後續有上限續接。這不等於全文 QA 已通過，此時 QA 仍24/60。
+- 原授權 [Kaggle Web Job #41002147166 attempt 3](https://github.com/staney41011/SoulKey/actions/runs/41002147166) 持續交付；新增正式音檔：L01 `id,vi`，L02 `km,bn,ne,lo,my`。L03 `th` 於20:48:35開始。每語言先發布已驗證 TXT/SRT/JSON，再生成音檔並讀回校驗。
+- Drive 逐堂目錄快照：L01 **7組文稿／5組正式MP3／2組試聽**；L02 **14／12／2**；L03 **1／1／0**；L04 **1／0／1**，合計 **23/64組文稿、18/64組正式MP3，另5組待驗收試聽**。此表不含後續仍在執行的輸出，不宣稱64組全部完成。
+- 獨立抽驗 L02 緬甸文：文稿為 `central-passed-qa`、53個唯一且非空段落、revision `d89bd0ee...`；正式MP3 27,633,453 bytes，manifest `edge-natural-v2 / done`，MP3 MD5 `4c63843148c23ad2a85f250e93169023`、WAV MD5 `72c17764283ea8d8534d9f49d2eb59f0`。L01 越南文59段、revision `2bc74709...`，MP3 28,433,325 bytes／MD5 `dc3a188d48385677b5fcd767035b60dc`。
+- 仍須核對：Gemma 整堂翻譯 QA 與後續自動領取、尚缺文稿和配音、試聽版音長驗收。原 runtime nonce 有8小時時效，若後續明確回報過期，需由原 Studio 合法建立新工作；不從紀錄取憑證、不延長授權時效。
+
+---
+
 ## 2026-10-30 20:37（台灣）｜JSON 修復已通過真實 GPU 並部署；接續整批佇列
 
 - [PR #29](https://github.com/staney41011/SoulKey/pull/29) 已合併至 `ff613c62ce109836e70a374805fa5987abb09003`。舊 response_format 路徑即使停用 thinking，仍可能開啟 thought 前綴（llama.cpp上游 #30256）；改直接 GBNF JSON 文法，並保留完整 IDs、數字、語意 QA。
