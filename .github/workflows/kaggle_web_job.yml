@@ -186,6 +186,14 @@ jobs:
           # cannot attach a newly gated model interactively; that obsolete
           # attachment rejected the job before our existing OAuth ran.
           meta["model_sources"] = []
+          # `kernels pull -m` includes the old worker's immutable Docker digest.
+          # Keeping it silently restores an Ubuntu 22 image whose glibc/libstdc++
+          # cannot load the official Gemma4 CUDA binaries. Kaggle's supported
+          # latest pinning must also discard that digest; credentials, source
+          # notebooks and the dedicated worker identity stay the same.
+          if p259_gemma4:
+              meta.pop("docker_image", None)
+              meta["docker_image_pinning_type"] = "latest"
 
           meta_path.write_text(
               json.dumps(meta, ensure_ascii=False, indent=2),

@@ -34,6 +34,22 @@ def check_ids(source,rows):
     if set(expected)!=set(found):raise ValueError("gemma_ids_incomplete")
     return [{"id":sid,"text":found[sid]} for sid in expected]
 
+def verify_server_runtime(binary,bindir):
+    """Reject an incompatible pinned Kaggle image before downloading weights."""
+    import subprocess
+    env=dict(os.environ)
+    env["LD_LIBRARY_PATH"]=str(bindir)+os.pathsep+env.get("LD_LIBRARY_PATH","")
+    probe=subprocess.run([str(binary),"--version"],capture_output=True,
+                         text=True,env=env,timeout=30,check=False)
+    if probe.returncode:
+        # A native loader error cannot contain lesson text or OAuth values.
+        detail=(probe.stderr or probe.stdout or "")[-1200:]
+        print("GEMMA4_SERVER_RUNTIME_PROBE_FAILED",detail,flush=True)
+        raise RuntimeError("Gemma4 CUDA binary cannot load in this Kaggle image; "
+                           "use docker_image_pinning_type=latest without the old docker_image digest")
+    print("GEMMA4_SERVER_RUNTIME_VERIFIED",flush=True)
+    return env
+
 class Gemma:
     """Gemma 4 12B on Kaggle GPU, using Google's public QAT 4-bit GGUF.
 
@@ -86,6 +102,7 @@ class Gemma:
             print("GEMMA4_PREBUILT_CUDA_SERVER",binary,flush=True)
         else:
             bindir=binary.parent
+        env=verify_server_runtime(binary,bindir)
         from huggingface_hub import hf_hub_download
         repo="google/gemma-4-12B-it-qat-q4_0-gguf"
         filename="gemma-4-12b-it-qat-q4_0.gguf"
@@ -98,8 +115,6 @@ class Gemma:
             "--host","127.0.0.1","--port",str(self.port),"-ngl","99",
             "-c","8192","-t","4","--parallel","1","--jinja",
             "--chat-template-kwargs",'{"enable_thinking":false}']
-        env=dict(os.environ)
-        env["LD_LIBRARY_PATH"]=str(bindir)+os.pathsep+env.get("LD_LIBRARY_PATH","")
         self.proc=subprocess.Popen(cmd,stdout=logfile,
             stderr=subprocess.STDOUT,env=env)
         deadline=time.monotonic()+240
