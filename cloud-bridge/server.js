@@ -16,7 +16,10 @@ const ID="1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
 const N={tasks:"任務佇列",status:"執行狀態",lang:"語言設定",plans:"語言任務設定",edits:"英文人工定稿"};
 const key=process.env.BRIDGE_KEY||"",source="soulkey-bridge";
 const bridgeAuth=createBridgeAuth({primaryKey:key,legacyHmac:process.env.BRIDGE_LEGACY_HMAC||""});
-const auth=new GoogleAuth({scopes:["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive.readonly"]});
+// Read/write access is used only by explicitly authorized delivery workers.
+ // The Google identity must ALSO have Editor on each P259 lesson folder.
+ // No Drive access tokens are ever placed in Kaggle notebooks or GitHub source.
+const auth=new GoogleAuth({scopes:["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]});
 let client;
 const sheetsRequest=createSheetsRequest({
  send:async options=>{client??=await auth.getClient();return client.request(options);}
@@ -78,6 +81,34 @@ const translationQueue=createTranslationQueue({
 const driveFinalPublisher=createDriveFinalPublisher({
  resolveFolders:driveReview.resolveFolders,invalidateFolder:driveReview.invalidateFolder,get,put
 });
+async function verifiedP259DeliveryRuntime(){
+ // Never issue a Drive access token based on Bridge Key or anonymous GET.
+ // This helper is reachable only after strict dedicated GitHub OIDC validation.
+ const courseIds=["P259-L01","P259-L02","P259-L03","P259-L04"];
+ const appClient=await auth.getClient();
+ for(const task of courseIds){
+  const folders=await driveReview.resolveFolders(task);
+  for(const kind of ["translation","audio"]){
+   const folder=String(folders[kind]||"");
+   if(!/^[A-Za-z0-9_-]{12,}$/.test(folder))
+    return {ok:false,error:"p259_delivery_folder_missing",task_id:task,kind};
+   const resp=(await appClient.request({
+    url:"https://www.googleapis.com/drive/v3/files/"+encodeURIComponent(folder)+
+        "?fields=id,capabilities(canAddChildren)&supportsAllDrives=true",
+    timeout:15000
+   })).data;
+   if(!resp.id||resp.capabilities?.canAddChildren!==true)
+    return {ok:false,error:"p259_drive_editor_permission_missing",
+      task_id:task,kind,message:"Cloud Run 執行身分需要此資料夾的編輯權限"};
+  }
+ }
+ const fetched=await appClient.getAccessToken();
+ const token=typeof fetched==="string"?fetched:String(fetched?.token||"");
+ if(!token)throw Error("cloud_run_google_access_token_unavailable");
+ return {ok:true,google_access_token:token,expires_in:2700,
+  authorized_tasks:courseIds.length,scope:"drive_and_sheets",
+  message:"P259 Drive translation/audio folder write access verified"};
+}
 async function recordVerifiedEnglishStage(taskId,hash,mode){
  const tasksRows=await get(N.tasks,"A1:J5000");
  const taskRow=tasksRows.findIndex((r,i)=>i>0&&r[0]===taskId);
@@ -278,13 +309,16 @@ http.createServer(async(req,res)=>{let p={};try{if(req.headers.origin==="https:/
  }
  // Signed GitHub OIDC is the sole path for background worker queue access.
  // Never accept a user-supplied task ID as authentication.
- if(["worker_job_claim","worker_job_part","worker_job_quality","worker_job_report","worker_cc_claim","worker_cc_part","worker_cc_finish"].includes(p.action)){
+ if(["worker_job_claim","worker_job_part","worker_job_quality","worker_job_report","worker_cc_claim","worker_cc_part","worker_cc_finish","worker_drive_runtime"].includes(p.action)){
    try{
     if(req.method!=="POST")throw Error("worker_post_required");
     const bearer=String(req.headers.authorization||"").match(/^Bearer (.+)$/i);
-    await verifyGithubWorker(bearer?.[1],String(p.action||"").startsWith("worker_cc_")?"cc":"translation");
+    await verifyGithubWorker(bearer?.[1],
+      p.action==="worker_drive_runtime"?"delivery":
+      String(p.action||"").startsWith("worker_cc_")?"cc":"translation");
     let result;
-    if(p.action==="worker_job_claim")result=await translationQueue.claim();
+    if(p.action==="worker_drive_runtime")result=await verifiedP259DeliveryRuntime();
+    else if(p.action==="worker_job_claim")result=await translationQueue.claim();
     else if(p.action==="worker_job_part")result=await translationQueue.part(p);
     else if(p.action==="worker_job_quality")result=await translationQueue.quality(p);
     else if(p.action==="worker_job_report")result=await translationQueue.report(p);
