@@ -21,6 +21,8 @@ for(const section of sections){
   assert(section.includes('lang:"central4"'),"Requires four-lesson worker");
 }
 assert(config.includes("legacyKaggleBridgeEndpoint:"));
-assert(config.includes('bridgeEndpoint: "https://script.google.com/macros/s/'));\nassert(config.includes('mode: "legacy-firebase"'));\nassert(config.includes('firebaseHostingUrl: "https://soulkey-control-2026.web.app/"'));
+assert(config.includes('bridgeEndpoint: "https://script.google.com/macros/s/'));
+assert(config.includes('mode: "legacy-firebase"'));
+assert(config.includes('firebaseHostingUrl: "https://soulkey-control-2026.web.app/"'));
 assert(script.includes('const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,fields)'));
 console.log("PASS: legacy Apps Script primary + Firebase Hosting preserves four-lesson Kaggle dispatch");
