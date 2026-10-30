@@ -205,7 +205,12 @@ jobs:
           if job.get("langs"):
               cmd += ["--langs", job["langs"]]
 
-          subprocess.run(cmd, check=True)
+          # Never let CalledProcessError echo the full command: it contains
+          # the private Apps Script runtime nonce used for Google OAuth.
+          worker_exit = subprocess.run(cmd, check=False).returncode
+          if worker_exit:
+              print("SOULKEY_WEB_WORKER_EXIT_CODE",worker_exit,flush=True)
+              raise SystemExit(worker_exit)
           '''
           (d / code_file).write_text(bootstrap, encoding="utf-8")
 
@@ -372,7 +377,9 @@ jobs:
 
           if [ -s "$LOG" ]; then
             echo "----- Kaggle log tail -----"
-            tail -n 180 "$LOG"
+            # Redact old-style nonce-bearing traceback lines as a second
+            # defence even if a nested worker forgets to sanitize errors.
+            tail -n 180 "$LOG" | sed -E 's/job_[A-Za-z0-9_-]{30,}/[REDACTED_RUNTIME_NONCE]/g'
           else
             echo "No Kaggle log text returned."
           fi
