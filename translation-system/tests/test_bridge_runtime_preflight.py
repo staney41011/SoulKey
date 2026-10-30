@@ -77,6 +77,24 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertIn("[REDACTED_RUNTIME_NONCE]", workflow)
         self.assertIn("steps.runtime_preflight.outcome == 'success'", workflow)
 
+    def test_runtime_http_failure_does_not_disclose_nonce(self):
+        from urllib.error import HTTPError
+        worker_path=Path(__file__).resolve().parents[1] / "web_job_worker.py"
+        worker_spec=importlib.util.spec_from_file_location("web_job_worker",worker_path)
+        worker=importlib.util.module_from_spec(worker_spec)
+        worker_spec.loader.exec_module(worker)
+        secret="job_SECRET_NEVER_LEAK_THIS_RUNTIME_NONCE_777777"
+        error=HTTPError("https://script.google.com/macros/s/test/exec?nonce="+secret,
+                        503,"Service Unavailable",None,None)
+        with patch.object(worker.urllib.request,"urlopen",side_effect=error), \
+             patch.object(worker.time,"sleep",return_value=None), \
+             patch("sys.stdout",new_callable=io.StringIO) as output:
+            with self.assertRaises(RuntimeError) as raised:
+                worker.fetch_runtime("https://script.google.com/macros/s/test/exec",secret)
+        self.assertNotIn(secret,output.getvalue())
+        self.assertNotIn(secret,str(raised.exception))
+        self.assertIn("HTTPError",str(raised.exception))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
