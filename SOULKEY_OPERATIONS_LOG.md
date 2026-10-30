@@ -1,5 +1,21 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-30 15:26（台灣）｜第259期四堂 64 文稿／64 配音續跑：實際驗收、GitHub 自動授權派工
+
+> 這是實際執行記錄，**不是已完成 64/64 的宣告**。以 Google Drive 上正式檔案及來源 SHA/QA/manifest 讀回為最終標準。
+
+- 真實交付快照（Drive 逐堂資料夾列舉）：L01 `3` 份已驗證文稿／`3` 組正式 MP3；L02 `9`／`7`；L03 `1`／`1`；L04 `1`／`0`，合計 **14/64 文稿、11/64 正式 MP3**。另有 L02 Hindi、Tamil 和 L04 English 三組 `needs_review` 試聽 MP3，不納入正式數。
+- 中央 `翻譯QA紀錄`：非英語 **10/60** 通過；L01 `th,es`，L02 `th,es,id,vi,hi,ta,ja,ko`。L03/L04 0。全部四堂 `英文定稿索引` 各有已驗證的獨立 revision；保留既有成果，不清空 Sheet。
+- 舊版原始 Kaggle Web Job [#41002147166](https://github.com/staney41011/SoulKey/actions/runs/41002147166) 已完成；一次性 backfill run [#41016642669](https://github.com/staney41011/SoulKey/actions/runs/41016642669) 的原 rerun 結果 `exported_manuscripts 14, manuscript_export_errors 0`，**不是 64 語驗收**。
+- GitHub `cloud-bridge/translation_worker.py` 現在只有第259期可用 `SOULKEY_P259_GEMINI_MODEL=gemini-3.1-flash-lite`，其他期仍保留原模型；不降低 QA、鎖定英文來源 revision、完整 segment ID 審核。
+- 中央 `翻譯工作佇列` 的原有四筆安全恢復為 `queued`（第10–13列）。另外新增 P259-L03、L04 的 `hi,ta,ja,ko,bn,ne,lo,my,it,pt` 十語補譯各一筆（第14–15列）。總計六筆中央工作；前面已通過 QA 的語言仍按來源 revision 複用，不重新刪改。
+- [push run #41019698354](https://github.com/staney41011/SoulKey/actions/runs/41019698354) 曾因 Cloud Run OIDC 僅授權 `schedule/workflow_dispatch` 而 401；**沒有放寬 Cloud Run 身分驗證**。已移除直接 push 翻譯，建立 [one-shot kickstart #41020031810](https://github.com/staney41011/SoulKey/actions/runs/41020031810) 用 Actions 官方權限派出合法 `workflow_dispatch`，[正式翻譯 run #41020040604](https://github.com/staney41011/SoulKey/actions/runs/41020040604) 已進入 `in_progress` 的翻譯步驟（截至紀錄時）。
+- 正式翻譯完成需驗證 `翻譯QA紀錄` 真正增加與 Drive TXT/SRT/JSON，之後再用已授權的 Kaggle CPU Natural TTS 校驗 MP3/WAV/manifest；該步驟此時**尚未交付新成果**。
+- 遠端 Desktop Commander 月額度已達上限（連線仍在），本輪沒有嘗試重連或重置 OAuth。切勿重派相同來源造成互蓋或稱宣傳 run 成功等於 64 音檔完成。
+
+---
+
+
 ## 2026-10-30｜第259期「有 MP3、沒有逐字稿」根因及修正
 
 **使用者發現**：第2堂 `05・檔案總覽` 中，有英文／泰文／西班牙文／印尼文正式 MP3，卻只有中文及英文 CC 兩份原始文稿。
