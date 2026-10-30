@@ -163,7 +163,9 @@
           </div>
           <p class="muted block-copy">使用既有英文人工定稿、已通過 QA 的各語言文稿及舊版 Natural TTS 快取。一次派工涵蓋四堂課；尚未通過 QA 的語言不會亂配音，已完成的音檔不會重複產生。</p>
           <button class="primary" id="p259-rescue-start" type="button">啟動四堂課已驗證語言配音（Kaggle）</button>
+          <button class="ghost" id="p259-translation-start" type="button" style="margin-left:8px">接續補齊四堂課未完成的語言翻譯</button>
           <p class="muted" id="p259-rescue-status" role="status" aria-live="polite">先連線原 Apps Script 控制中心；成功派工後請核對 Google Drive 正式音檔。</p>
+          <p class="muted" id="p259-translation-status" role="status" aria-live="polite">補譯依 Gemini 可用配額執行；429 會保留現有成果，不代表翻譯已完成。</p>
         </div>
 
         <div class="panel">
@@ -835,6 +837,6 @@
   <script src="./tts-share-message.js?v=20261028-length-audit-v1"></script>
   <script src="./language-delivery.js?v=20261020-review-preview-v2"></script>
   <script src="./english-cc-alignment.js?v=20261029-central-cc-restore-v1"></script>
-  <script src="./app-20260923-48.js?v=20261030-legacy-kaggle-rescue-v1"></script>
+  <script src="./app-20260923-48.js?v=20261030-legacy-kaggle-rescue-v2"></script>
 </body>
 </html>
