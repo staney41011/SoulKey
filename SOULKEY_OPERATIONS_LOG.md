@@ -1,5 +1,14 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-30 20:54（台灣）｜修復跨時區的派工回執與逾時判讀
+
+- 發現並修正：原 Apps Script 的 `yyyy-MM-dd HH:mm:ss` 是台灣時間，Cloud Run 原樣回傳；瀏覽器若在 UTC／其他時區用 Date.parse 直接解讀，舊 `finish done` 可能被當成新派工回執，執行逾時提示也會錯位。
+- `bridge-routing.js` 明確以 `+08:00` 解讀原服務時間，ISO UTC／帶時區值保持原意；主介面的最新中文階段排序及30分鐘提示採用相同函數。新舊 run ID 和提交時間門檻仍保留，舊結果不能代替本次派工成功。
+- 驗證涵蓋 UTC、Asia/Taipei、America/Los_Angeles 三時區：20:00:01台灣時間對應12:00:01Z；提交前十分鐘的舊完工紀錄一律拒收。iOS 頂層派工及中央定稿儲存測試同時通過。
+- 原頁面與獨立校稿頁的 bridge 腳本更新版本至v2，主程式至v6，避免瀏覽器沿用舊快取。回退僅需回復本次前端提交，不改 Sheet、Drive、授權或正在執行的 Kaggle 工作。
+
+---
+
 ## 2026-10-30 20:50（台灣）｜連續佇列已正式啟動；文稿23組、正式配音18組
 
 - [PR #30](https://github.com/staney41011/SoulKey/pull/30) 已合併至 `db9376537f1ead3a4275cd3d4e7b086204476287`，Studio、MVP、Bridge 整合、relay 靜態檢查及 Pages 部署均通過。瀏覽器實際載入原 Studio 的修復資源；登入仍使用原六碼，沒有更換金鑰或 Google 授權。

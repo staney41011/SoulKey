@@ -20,4 +20,20 @@ assert.equal(routes.dispatchReceipt(pending,{run_id:"new",status:"queued",update
 assert.equal(routes.dispatchReceipt(pending,{run_id:"old",status:"done",updated_at:"2026-10-30T12:00:01Z"}),false);
 assert.equal(routes.dispatchReceipt(pending,{run_id:"new",status:"done",updated_at:"2026-10-29T12:00:01Z"}),false);
 assert.equal(routes.dispatchReceipt(pending,{status:"queued",updated_at:"2026-10-30T12:00:01Z"}),false);
-console.log("PASS: central saves, original machine/admin actions, and current-run receipt correlation");
+// Old GAS wall-clock values and new UTC timestamps must identify the same
+// dispatch on a phone/computer in any timezone. In UTC the stale 19:50 row
+// used to look eight hours newer and falsely acknowledge an unsent finish.
+const savedZone=process.env.TZ;
+try{
+  for(const zone of ["UTC","Asia/Taipei","America/Los_Angeles"]){
+    process.env.TZ=zone;
+    assert.equal(routes.statusTime("2026-10-30 20:00:01"),Date.parse("2026-10-30T12:00:01Z"),zone);
+    assert.equal(routes.statusTime("2026-10-30T20:00:01+08:00"),Date.parse("2026-10-30T12:00:01Z"),zone);
+    assert.equal(routes.dispatchReceipt(pending,{run_id:"new",status:"queued",updated_at:"2026-10-30 20:00:01"}),true,zone);
+    assert.equal(routes.dispatchReceipt({...pending,previousRunId:""},{run_id:"old",status:"done",updated_at:"2026-10-30 19:50:01"}),false,zone);
+  }
+}finally{
+  if(savedZone===undefined)delete process.env.TZ;else process.env.TZ=savedZone;
+}
+assert.equal(routes.dispatchReceipt(pending,{run_id:"new",status:"queued",updated_at:"invalid"}),false);
+console.log("PASS: central saves, original machine actions, and timezone-independent dispatch receipts");

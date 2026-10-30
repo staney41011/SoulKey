@@ -552,7 +552,7 @@ function remoteStageStatus(task, stageKey){
     if(candidates.length){
       const stamp=item=>{
         const raw=String(item.updated_at || item.started_at || item.finished_at || "");
-        const parsed=Date.parse(raw.replace(" ","T"));
+        const parsed=window.SoulKeyBridgeRoutes?.statusTime?.(raw) ?? Date.parse(raw.replace(" ","T"));
         return Number.isFinite(parsed) ? parsed : 0;
       };
       candidates.sort((a,b)=>stamp(b)-stamp(a));
@@ -644,7 +644,7 @@ function normalizeRemoteStatus(item){
   if(!item) return null;
   const copy={...item};
   if(["queued","running"].includes(copy.status) && copy.updated_at){
-    const ts=Date.parse(String(copy.updated_at).replace(" ","T"));
+    const ts=window.SoulKeyBridgeRoutes?.statusTime?.(copy.updated_at) ?? Date.parse(String(copy.updated_at).replace(" ","T"));
     if(Number.isFinite(ts) && Date.now()-ts > 30*60*1000){
       // A stale timestamp is NOT proof of an upstream data change.
       // Reserve "stale" for actual dependency invalidation from backend.
