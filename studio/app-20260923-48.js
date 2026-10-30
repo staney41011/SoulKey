@@ -213,6 +213,7 @@ let englishFinalizePriorFinishedAt = "";
 let englishFinalizeWatchdog = null;
 let pendingRunStageRequest=null;
 let p259RescueSending=false;
+let p259TranslationSending=false;
 let pendingYoutubeCapture=null;
 // A confirmed Drive acknowledgement applies to its own task only.
 const englishFinalizedThisSession = new Set();
@@ -5567,6 +5568,15 @@ window.addEventListener("message",event=>{
         ? "已收到 Kaggle 配音派工確認；會驗證四堂課已通過 QA 的語言，請至音檔資料夾確認成果。"
         : "配音未派送："+String(data.message||data.error||"未知錯誤");
     }
+    if(p259TranslationSending && String(data.task_id||"")==="P259-L01" && data.stage==="multi"){
+      p259TranslationSending=false;
+      const btn=document.getElementById("p259-translation-start");
+      const out=document.getElementById("p259-translation-status");
+      if(btn) btn.disabled=false;
+      if(out) out.textContent=data.ok
+        ? "已確認派送 Kaggle 四堂課補譯；翻譯結果須經完整 QA 後才能配音。"
+        : "補譯未派送："+String(data.message||data.error||"未知錯誤");
+    }
     const youtube=pendingYoutubeCapture;
     if(youtube && data.stage==="cc" &&
        (!data.task_id || data.task_id===youtube.taskId)){
@@ -6267,6 +6277,42 @@ function startP259RescueAudio(){
   },120000);
 }
 document.getElementById("p259-rescue-start")?.addEventListener("click",startP259RescueAudio);
+function startP259RescueTranslation(){
+  const status=document.getElementById("p259-translation-status");
+  const btn=document.getElementById("p259-translation-start");
+  const needed=["P259-L01","P259-L02","P259-L03","P259-L04"];
+  if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL ||
+      !isAppsScriptBridge() || firebaseSnapshotReadOnly ||
+      !needed.every(id=>confirmedRemoteTaskIds.has(id))){
+    if(status)status.textContent="原 Apps Script 尚未驗證或四堂任務尚未載入；沒有派工。";
+    return;
+  }
+  if(p259TranslationSending || p259RescueSending){
+    if(status)status.textContent="已有派工尚未確認，請先核對執行狀態。";
+    return;
+  }
+  if(!window.confirm("補譯第259期四堂課尚未完成的15種 AI 語言。保留所有人工英文定稿與既有QA；Gemini 429時會保留進度，不會冒充完成。確認啟動原 Kaggle？"))return;
+  p259TranslationSending=true;
+  if(btn)btn.disabled=true;
+  if(status)status.textContent="正在請原 Apps Script 控制中心派送四堂課 Kaggle 補譯，等待確認…";
+  const sent=submitBridgePost({
+    action:"run_stage",task_id:"P259-L01",stage:"multi",lang:"central4",langs:""
+  });
+  if(!sent){
+    p259TranslationSending=false;
+    if(btn)btn.disabled=false;
+    if(status)status.textContent="控制中心未接受派工，沒有啟動 Kaggle。";
+    return;
+  }
+  window.setTimeout(()=>{
+    if(!p259TranslationSending)return;
+    p259TranslationSending=false;
+    if(btn)btn.disabled=false;
+    if(status)status.textContent="回覆逾時；請先確認 GitHub / Kaggle 狀態，勿重複派工。";
+  },120000);
+}
+document.getElementById("p259-translation-start")?.addEventListener("click",startP259RescueTranslation);
+
 
 updateTaskCodes();
 renderPipeline();
