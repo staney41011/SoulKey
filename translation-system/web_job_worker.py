@@ -233,7 +233,12 @@ def require_gpu_runtime(stage: str):
         print(f"[GPU] nvidia-smi 不可用：{smi.stderr.strip()}", flush=True)
 
     import torch
-    import ctranslate2
+    if stage == "gemma4":
+        # Gemma4 uses Transformers/PyTorch only; the Gemini-light requirements
+        # intentionally do not install CTranslate2.
+        ctranslate2 = None
+    else:
+        import ctranslate2
 
     torch_ok = bool(torch.cuda.is_available())
     torch_count = int(torch.cuda.device_count()) if torch_ok else 0
@@ -243,7 +248,7 @@ def require_gpu_runtime(stage: str):
     ] if torch_ok else []
 
     try:
-        ct2_count = int(ctranslate2.get_cuda_device_count())
+        ct2_count = int(ctranslate2.get_cuda_device_count()) if ctranslate2 else 0
     except Exception as exc:
         print(
             f"[GPU] CTranslate2 CUDA 偵測失敗：{type(exc).__name__}: {exc}",
@@ -261,7 +266,7 @@ def require_gpu_runtime(stage: str):
 
     needs_ct2 = stage in {"zh", "metadata", "asr", "batch"}
     needs_torch = stage in {
-        "zh", "metadata", "polish", "vernacular", "en", "multi", "tts", "finish", "batch"
+        "zh", "metadata", "polish", "vernacular", "en", "multi", "tts", "finish", "batch", "gemma4"
     }
 
     failures = []
