@@ -59,7 +59,7 @@ class Gemma:
                 "https://github.com/ggml-org/llama.cpp.git",str(source)],
                 check=True,timeout=300)
         subprocess.run(["cmake","-S",str(source),"-B",str(build),
-            "-DGGML_CUDA=ON","-DLLAMA_BUILD_SERVER=ON",
+            "-DGGML_CUDA=ON","-DGGML_CUDA_NO_VMM=ON","-DLLAMA_BUILD_SERVER=ON",
             "-DLLAMA_BUILD_TESTS=OFF","-DLLAMA_BUILD_EXAMPLES=OFF",
             "-DCMAKE_BUILD_TYPE=Release"],check=True,timeout=300)
         subprocess.run(["cmake","--build",str(build),"-j","4",
