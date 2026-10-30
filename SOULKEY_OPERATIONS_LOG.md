@@ -263,3 +263,13 @@
 - **第一個已驗證成果**：L04 英文 Edge TTS MP3 23,506,220 bytes、來源 English Final SHA \`17354f093b3719df30fcd4e87c9943f3dfc9485c89b8dc5ca0c8255648354eb7\`，GH [L04 產物 #41048498342](https://github.com/staney41011/SoulKey/actions/runs/41048498342) 成功。已將大 Zip 重包為 22,362,606 bytes，經已連接的 Google Drive 上傳並移至第259期總資料夾 [試聽包（非正式）](https://drive.google.com/file/d/1haZ8MNHCeYLeQNqilcEdbsOkoB7j5TBB/view)，Drive list_folder readback 確認存在。**此為試聽版，不能計為已驗證原片長度的正式 MP3。**
 - 既有官方正式文稿/音檔基線依前次實際核對仍為 **14/64 與 11/64**；未因 GH 工作綠燈或新試聽 ZIP 增加為正式完成。除第4堂英文試聽之外，其他三堂配音還在獨立執行，保留缺漏及失敗審核紀錄。
 - 已新增 [配音完成後壓縮小包的工作](.github/workflows/p259_compact_completed_previews.yml)，各包預期低於 Google Drive 單次 connector 100MB 下載限制，以免不能移交 Drive。需等待來源 GH 完成並以實際 artifact／Drive readback 驗收；這不是四堂已完成的宣告。
+
+### 2026-10-30 21:20（台灣）｜接手第259期：Drive 實際交付與尚未驗收關卡
+
+- 使用者要求直接接手完成四堂。最新中央 `翻譯QA紀錄` 核對仍 **24/60 非英文 passed**：L01=6，L02=13，L03=5，L04=0；另四份人工英文 Final 均保留。**沒有可驗證的新增 Gemma 正式 QA pass**，不能冒稱 60/60。
+- [GH 4 堂 Edge TTS preview #41048498342](https://github.com/staney41011/SoulKey/actions/runs/41048498342)：L01 7/7、L02 13/14（泰文 TTS block 17 No audio）、L03 6/6、L04 1/1，合計 **27/28** 可用來源試聽。
+- **本輪已實際交付**：從 [GH compact #41054425922](https://github.com/staney41011/SoulKey/actions/runs/41054425922) 下載 L01 4包、L02 7包、L03 3包，共 **14 個試聽 ZIP**，全部透過已連接 Google Drive 上傳至 [第259期 98_人工檢查](https://drive.google.com/drive/folders/1oBBGr6mLHE1YgH2GDZHRIEX6fMN9Y424) 並使用 `list_folder` 讀回確認；L04 1包英文試聽則已在 [第259期總資料夾](https://drive.google.com/file/d/1haZ8MNHCeYLeQNqilcEdbsOkoB7j5TBB/view) 驗證，合計涵蓋 27 組音檔。**都是非正式試聽，未完成原片時長驗收**。
+- **本輪新增文稿保全**：`translation-system/p259_export_approved_bundles.py` 使用現有 `central_manuscript_export.manuscript_files` 僅匯出 28 組核可來源×JSON/TXT/SRT=84 份文字檔；[GH #41061731010](https://github.com/staney41011/SoulKey/actions/runs/41061731010) 成功。四堂各一 ZIP 均上傳上方 98_人工檢查，Drive readback 已確認：L01=1zCqNyZppkkKyJClz6di8FkGMFwJzeb_v；L02=1JvXguXMWl1M8z-sdT59uwiO9OY11FUnV；L03=1aP5KM5xUcKt-Qsjq3Ch1dPw71GD_en2J；L04=1qg1Ess_uwEOWQTIdzUFTpnpYbqOob2r_。這是補救備份，不代表正式 `02_翻譯稿` 已逐檔完成。
+- **泰文獨立補救**：[GH #41061359807](https://github.com/staney41011/SoulKey/actions/runs/41061359807) 已啟動，僅對 L02 Thai 重配，不重做另13語；輸出以 workflow artifact 與 Drive 讀回驗收。
+- **Gemma 補譯**：真 Kaggle JSON grammar smoke（義大利文、葡萄牙文一段）完成，但 [Kaggle P259 GGUF relay](https://www.kaggle.com/code/cwlmrcsir/soulkey-p259-gemma4-relay) 最先的 L01 ja/ko/km 因長句 QA 失敗，未 falsely pass。已將 `p259_gemma4_kaggle.py` 的重譯次數提高為5輪、對長句增加最大新 token、輸出 QA failure reasons，離線 Bridge 整合測試 [#41062204407](https://github.com/staney41011/SoulKey/actions/runs/41062204407) 通過；L01 ja/ko/km 重新排隊。另 [Worker #41061398456](https://github.com/staney41011/SoulKey/actions/runs/41061398456) 正處理 L02 it/pt，後續應由 bounded workflow_dispatch 續跑；**不能稱四堂已完成**。
+- 正式 Drive 基線需重新核對，最後一次確認為文稿14/64、音檔11/64，試聽 ZIP 和核可文字備份不列入正式完成數。
