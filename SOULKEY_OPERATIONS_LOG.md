@@ -1,5 +1,17 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-31 02:10（台灣）｜原 Bridge 第67版已部署，真實登入與新 Kaggle 派工成功
+
+- 原 Apps Script 專案 `SoulKey Studio Bridge` 的既有公開部署已更新至 **67版**（02:03）。保留原 `/exec` 網址、原六碼、Script Properties、執行身分與存取範圍；沒有建立替代控制中心。以線上原始碼177,240字元為基礎，只新增框架回傳與可核對的健康欄位，沒有整份覆蓋使用者線上的修訂。
+- 原 `/exec` 實際讀回 `bridge-ready / bridge_protocol:9 / bridge_client_transport:top-postmessage-v1`。manifest 僅保留 spreadsheets、drive、script.external_request 三項原權限；無 Firebase／GCP 額外權限。
+- [PR #33](https://github.com/staney41011/SoulKey/pull/33) 已合併 `24cc131804ac8724a6bb9ca49977cc971c22d645`；[Pages #41100019709](https://github.com/staney41011/SoulKey/actions/runs/41100019709) 成功。正式工作台實際顯示「控制中心已連線」，並從原 Google Sheet 載入 **31筆任務**，不是只核對公開健康端點。
+- 02:05由原Studio確認四堂補譯，建立新的 [Kaggle Web Job #41103810894](https://github.com/staney41011/SoulKey/actions/runs/41103810894)（main `24cc131804ac`）。中央狀態已出現本次 `P259-L01 / multi / running / web-job_eidS9Rrm / 02:05:41`。這是本次已授權 Worker 開始的證據；不代表60語 QA 或64組音檔完成。舊 #41002147166 nonce 已過期，沒有再重跑。
+- 真實開啟快速校稿頁另發現：Drive中英文已載入，卻未刷新定稿旗標與步驟，英文按鈕仍被鎖住；59個英文段落又錯按ID套至449個ASR片段。前端改用原Bridge回傳的英文段落、時間對齊中文與 `finalized_at`，完整保留人工定稿並解鎖輸出；草稿仍需人工定稿。已完成稿不再被遲到的GitHub快取或逐句草稿覆蓋，本機未儲存修改保留。
+- 新增實際執行校稿訊息處理器的回歸測試，涵蓋59/449不同段落ID、定稿解鎖、草稿不誤標完成、不同課隔離、逐句回執、本機未儲存修改與晚到快取；**21個Studio測試程式及JS語法檢查通過**。校稿新修正另待該次PR與Pages部署及真實讀回；不能以本地測試當線上完成。
+- 當前最後一份完成數快照仍為 **QA 30/60、文稿24/64、正式MP3 18/64、試聽5組**。下方10/30的Cloud Run、舊run與數量僅為歷史；現行接手入口以本節及第0、1節為準。
+
+---
+
 
 ## 2026-10-31｜無GCP版已上線；原 Apps Script 嵌入回覆仍需更新部署
 
@@ -161,22 +173,22 @@
 
 1. **正在救援**：第 259 期 P259-L01～P259-L04，4 堂 × 16 語 = **64 份目標語言文稿 + 64 組目標配音**。16 語：`en, th, es, id, vi, hi, ta, ja, ko, km, bn, ne, lo, my, it, pt`。
 2. **嚴禁把 GitHub 派工成功當作 Kaggle 或音檔交付**。分層判斷：Studio POST → Apps Script 驗證 → GitHub Workflow Dispatch → Kaggle Worker 執行 → 該語完整翻譯 QA / TTS → Google Drive 非空檔案及 manifest readback → Sheet status。
-3. **目前正在進行的真實工作**：[Kaggle Web Job #41002147166](https://github.com/staney41011/SoulKey/actions/runs/41002147166)，2026-10-30 12:18:20（Asia/Taipei）由 Studio 在 iPhone 上成功觸發。上次查詢時 GitHub `launch` job **in_progress**，步驟 `Run Kaggle job with GPU retry` **in_progress**。尚未證明 Kaggle 已完成。
-4. **中央新紀錄**：`執行狀態` 表有 `P259-L01 / tts / queued / 41002147166 / 12:18:20`；後續有 `P259-L01 / tts / running / 12:20:36` 與 `P259-L01 / tts:en / running / 12:21:02`。這是**已開始處理的證據，尚非完成**。
-5. **交付仍未完成**：截至本次查核，四堂課的正式 Drive `04_音檔` 資料夾均無可驗證輸出（0/64）。中央 `翻譯QA紀錄` 確認 AI 語言通過 **10/60**（L01：`th,es`；L02：`th,es,id,vi,hi,ta,ja,ko`；L03/L04：0）。4 組人工英文定稿另依 `英文定稿索引` / `英文定稿備存` 驗證，不能混入 AI QA 分母。
-6. **主要阻礙**：獨立的 GitHub 翻譯佇列 P259-L01/L03/L04 於 2026-10-30 約 11:54～11:57（台灣時間）均碰到 Gemini HTTP 429。現有 QA 成果不得刪除、覆蓋或因 429 標記全部完成。
+3. **現行真實工作**：[Kaggle Web Job #41103810894](https://github.com/staney41011/SoulKey/actions/runs/41103810894)，2026-10-31 02:05（Asia/Taipei）由原Studio建立新授權；原#41002147166已過期，禁止重跑舊nonce。
+4. **中央新紀錄**：`P259-L01 / multi / queued / 41103810894`；後續 `multi / running / web-job_eidS9Rrm / 02:05:41`。新工作在Kaggle本地跑Gemma4補譯與QA，之後只為已核可來源執行正式配音。
+5. **交付最後快照**：QA **30/60**、文稿 **24/64**、正式MP3 **18/64**、試聽 **5組**；4組英文人工Final另計。須讀回新的QA、Drive檔案與manifest才增加數量。
+6. **注意**：四個GCP workflow已實際disabled，沒有排程或Cloud Run接手。部分語言仍可能需要QA複核；保留既有成果與來源revision，不降低QA或將試聽版標成正式音檔。
 7. **安全**：不重設使用者 Google OAuth、原六碼 Bridge Key、Apps Script Script Properties、Drive 既有檔案；不要把 token、金鑰放入此文件、PR、前端或 Sheet。不要未確認工作狀態就再次派送相同救援。
 
-## 1. 現行系統架構（2026-10-30）
+## 1. 現行系統架構（2026-10-31；不使用 GCP 服務）
 
 ```text
 瀏覽器（iPhone / Android / 桌面）→ SoulKey Studio（GitHub Pages /studio/）
-                  ├─ 課程列表、六碼驗證、狀態查詢 → 已部署的 Cloud Run 控制中心（讀取路徑）
-                  └─ 正式 multi / tts 派工 → 原 Apps Script Studio Bridge（驗證 + 短效 runtime nonce）
+                  ├─ 課程、六碼驗證、狀態、校稿 → 原 Apps Script Studio Bridge → Sheets／Drive
+                  └─ ASR / CC / multi / tts 派工 → 同一原 Bridge（驗證 + 短效 runtime nonce）
                                               → GitHub Actions: Kaggle Web Job
                                               → Kaggle kernel: cwlmrcsir/soulkey-gpu-worker
                                               → 舊 translation-system Worker / 中央 Sheet / Google Drive
-獨立現存路線：SoulKey Translation Queue Worker（GitHub CPU）；這不是上述 Kaggle TTS。
+GCP Translation／CC Queue、kickstart、capability probe：已退役並disabled，沒有另一路常駐服務。
 ```
 
 - 網頁入口：[SoulKey Studio](https://staney41011.github.io/SoulKey/studio/)
@@ -185,8 +197,8 @@
 - 網頁路由：[studio/config.js](studio/config.js) 和 [studio/app-20260923-48.js](studio/app-20260923-48.js)。
 - 中央 TTS 來源/執行：[translation-system/central_tts_source.py](translation-system/central_tts_source.py) / [translation-system/central_tts_recovery.py](translation-system/central_tts_recovery.py)。
 - 中央 Sheet：[全球翻譯控制中心](https://docs.google.com/spreadsheets/d/1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8/edit)（重點分頁：`執行狀態`、`語言任務設定`、`翻譯工作佇列`、`翻譯QA紀錄`、`英文定稿索引`、`英文定稿備存`）。
-- **舊架構不等於完整功能已恢復**。目前 iPhone 的「在 Google 獨立分頁用 POST 派工」是暫時繞過 iframe 問題的方式；不應把它當最終跨裝置 UX，也不應在此輪產出時貿然撤除。
-- GitHub Actions scheduled 翻譯 Queue Worker 與 Kaggle 版 multi/tts 並存。交付狀態必須比對中央 Sheet 和 Drive，避免重覆派工或互蓋。
+- iPhone 保留Google獨立分頁POST派工；桌面嵌入回傳於67版修復。不能移除原本可用的手機路徑；真實裝置驗收與桌面測試須區分。
+- GitHub／Kaggle工作的成功狀態仍須比對中央Sheet與Drive檔案。執行中避免重複派工，後續只有來源revision相同且已驗證的成果可直接複用。
 
 ## 2. 2026-10-30 修復紀錄（台灣時間；PR 為永久證據）
 
