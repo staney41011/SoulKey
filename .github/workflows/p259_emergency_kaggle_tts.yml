@@ -1,0 +1,95 @@
+name: P259 Emergency Kaggle Natural TTS
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: Optional P259-L01..L04 (blank = all four)
+        required: false
+        default: ''
+        type: string
+      max_languages:
+        description: Number of NEW language audios per Kaggle run (1-4)
+        required: false
+        default: '4'
+        type: choice
+        options: ['1', '2', '3', '4']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-p259-emergency-kaggle-tts
+  cancel-in-progress: false
+
+jobs:
+  kaggle-tts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-p259-tts-rescue
+      SOULKEY_TASK_ID: ${{ inputs.task_id }}
+      SOULKEY_MAX_LANGUAGES: ${{ inputs.max_languages }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate dispatch and Kaggle authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$KAGGLE_API_TOKEN" ]] || { echo "::error::Missing KAGGLE_API_TOKEN"; exit 1; }
+          [[ -z "$SOULKEY_TASK_ID" || "$SOULKEY_TASK_ID" =~ ^P259-L0[1-4]$ ]] || { echo "::error::Only P259-L01..L04 permitted"; exit 1; }
+          python -m py_compile translation-system/central_tts_recovery.py translation-system/tts_runner.py
+          python -m pip install -q kaggle
+      - name: Launch existing Natural TTS on Kaggle CPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/soulkey-p259-rescue"
+          mkdir -p "$DIR"
+          cp translation-system/requirements-gemini.txt "$DIR/requirements-gemini.txt"
+          cat > "$DIR/kernel-metadata.json" <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-p259-tts-rescue",
+            "title": "SoulKey P259 Natural TTS Emergency",
+            "code_file": "soulkey-p259-tts-rescue.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_internet": true
+          }
+          JSON
+          cat > "$DIR/soulkey-p259-tts-rescue.py" <<'PY'
+          import os,subprocess,sys
+          from pathlib import Path
+          root=Path("/kaggle/working/SoulKey")
+          if not root.exists():
+              subprocess.run(["git","clone","--depth","1","https://github.com/staney41011/SoulKey.git",str(root)],check=True)
+          subprocess.run([sys.executable,"-m","pip","install","-q","-r",str(root/"translation-system/requirements-gemini.txt"),"google-auth-oauthlib","edge-tts==7.3.1"],check=True)
+          subprocess.run(["ffmpeg","-version"],stdout=subprocess.DEVNULL,check=True)
+          command=[sys.executable,"-u",str(root/"translation-system/central_tts_recovery.py"),"--period","259","--max-languages",os.environ.get("SOULKEY_MAX_LANGUAGES","4")]
+          task=os.environ.get("SOULKEY_TASK_ID","")
+          if task:command.extend(["--task-id",task])
+          print("KAGGLE_TTS_START",task or "P259-L01..L04",flush=True)
+          subprocess.run(command,cwd=str(root/"translation-system"),check=True)
+          print("KAGGLE_TTS_SUCCESS",flush=True)
+          PY
+          # Kaggle CLI push does not guarantee Notebook Secrets are attached.
+          # The owner must attach the existing three OAuth secrets to this kernel.
+          python - <<'PY'
+          import json,os,pathlib
+          path=pathlib.Path(os.environ["RUNNER_TEMP"])/"soulkey-p259-rescue"/"soulkey-p259-tts-rescue.py"
+          src=path.read_text()
+          src=src.replace('os.environ.get("SOULKEY_MAX_LANGUAGES","4")',repr(os.environ["SOULKEY_MAX_LANGUAGES"]))
+          src=src.replace('os.environ.get("SOULKEY_TASK_ID","")',repr(os.environ["SOULKEY_TASK_ID"]))
+          path.write_text(src)
+          PY
+          kaggle kernels push -p "$DIR" -t 14400
+          echo "Kaggle job submitted. Verify the Kaggle kernel has the three existing Google OAuth Secrets attached."
+      - name: Read Kaggle execution log
+        if: always()
+        shell: bash
+        run: |
+          kaggle kernels status "$KAGGLE_KERNEL" || true
+          kaggle kernels logs "$KAGGLE_KERNEL" 2>&1 | tail -100 || true
