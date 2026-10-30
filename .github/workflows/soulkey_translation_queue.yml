@@ -17,11 +17,12 @@ concurrency:
 jobs:
   translate:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 350
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       SOULKEY_GEMINI_MODEL: gemini-3.5-flash-lite
       SOULKEY_P259_GEMINI_MODEL: gemini-3.1-flash-lite
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
       SOULKEY_P259_PRIMARY_ENGINE: gemma4
       SOULKEY_BRIDGE_URL: https://soulkey-bridge-214901732194.asia-east1.run.app
     steps:
@@ -31,8 +32,12 @@ jobs:
         run: |
           python -m py_compile cloud-bridge/translation_worker.py
           python -m py_compile cloud-bridge/nllb_cpu.py
-          if [[ -z "$GEMINI_API_KEY" ]]; then
-            echo "::error::GEMINI_API_KEY is not available; no job will be claimed."
+          if [[ "$SOULKEY_P259_PRIMARY_ENGINE" == "gemma4" ]]; then
+            [[ -n "$KAGGLE_API_TOKEN" ]] || { echo "::error::KAGGLE_API_TOKEN missing"; exit 1; }
+            python -m py_compile cloud-bridge/p259_gemma4_relay.py translation-system/p259_gemma4_kaggle.py
+            echo "P259_GEMMA4_RELAY_AUTH_READY"
+          elif [[ -z "$GEMINI_API_KEY" ]]; then
+            echo "::error::GEMINI_API_KEY is not available for non-P259 jobs."
             exit 1
           fi
           echo "SOULKEY_GEMINI_SECRET_PRESENT"
@@ -40,24 +45,26 @@ jobs:
       - name: Detect live QA bridge capabilities
         shell: bash
         run: python -u cloud-bridge/check_worker_capabilities.py
-      - name: Recover and process up to three queued jobs sequentially
+      - name: Install Kaggle CLI for credential-free Gemma4 compute
+        if: env.SOULKEY_P259_PRIMARY_ENGINE == 'gemma4'
+        shell: bash
+        run: python -m pip install -q kaggle
+      - name: Run one secure OIDC -> Kaggle Gemma4 job and verify central QA
+        if: env.SOULKEY_P259_PRIMARY_ENGINE == 'gemma4'
+        shell: bash
+        run: python -u cloud-bridge/p259_gemma4_relay.py
+      - name: Legacy non-P259 Gemini queue
+        if: env.SOULKEY_P259_PRIMARY_ENGINE != 'gemma4'
         shell: bash
         run: |
           set -euo pipefail
           failures=0
-          # Independent jobs: errors do not prevent the next queued lesson
-          # from being picked up. Each failure is recorded in the central queue.
           for slot in 1 2 3; do
-            echo "SOULKEY_QUEUE_SLOT=$slot"
             if ! python -u cloud-bridge/translation_worker.py; then
               failures=$((failures+1))
-              echo "::warning::Translation slot $slot failed; next job remains independent"
             fi
           done
-          if [ "$failures" -gt 0 ]; then
-            echo "::error::$failures translation slots failed"
-            exit 1
-          fi
+          if [ "$failures" -gt 0 ]; then exit 1; fi
       - name: Preserve Gemini QA audit receipts (no manuscripts or secrets)
         if: always()
         uses: actions/upload-artifact@v4
