@@ -17,6 +17,7 @@ on:
       - studio/styles.css
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
+      - studio/tests/test_p259_legacy_rescue_gate.cjs
       - .github/workflows/studio_status_batch_test.yml
   push:
     branches: [main]
@@ -35,6 +36,7 @@ on:
       - studio/styles.css
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
+      - studio/tests/test_p259_legacy_rescue_gate.cjs
       - .github/workflows/studio_status_batch_test.yml
 
 permissions:
