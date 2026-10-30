@@ -234,6 +234,17 @@ def main():
             MODEL=override
             print("SOULKEY_P259_GEMINI_MODEL",MODEL,flush=True)
     jid=job["id"]; print("CLAIMED JOB",jid,job["task_id"],job["langs"],flush=True)
+    if (os.environ.get("SOULKEY_P259_PRIMARY_ENGINE")=="gemma4"
+            and job.get("task_id") in {"P259-L01","P259-L02","P259-L03","P259-L04"}):
+        # P259 is owned by verified local Gemma4 Kaggle production.
+        # Close a legacy retry honestly, without spending any Gemini quota.
+        # Never write a false QA receipt or mark missing translations done.
+        print("P259_GEMMA4_RETAKES_TRANSLATION_NO_GEMINI_API",jid,flush=True)
+        bridge_request(token,"worker_job_report",{
+            "job_id":jid,"status":"error",
+            "message":"已切換 Gemma4 Kaggle，舊 Gemini 工作不執行；需查看 Gemma4 交付"
+        })
+        return
     try:
         if job.get("stage")!="multi":raise RuntimeError("Unsupported stage")
         segments=job.get("segments") or []
