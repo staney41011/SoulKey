@@ -9,6 +9,9 @@ const STORE = {
 const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
+// Stable authenticated central reads use Cloud Run; only machine execution
+// goes through the original Apps Script -> GitHub Actions -> Kaggle bridge.
+const LEGACY_KAGGLE_ENDPOINT = String(cfg.legacyKaggleBridgeEndpoint || "").trim();
 const STATUS_POLL_MS = 30000;
 const REQUIRED_BRIDGE_PROTOCOL = 9;
 let bridgeProtocolVersion = 0;
@@ -355,7 +358,7 @@ function syncStudioNow(){
   if(isAppsScriptBridge() && !bridgeClientReady) initBridgeClient();
   const key=bridgeKeyValue();
   if(!BRIDGE_ENDPOINT){
-    setDashboardBridgeState("系統尚未設定 Cloud Run 橋樑網址。","error");
+    setDashboardBridgeState("系統尚未設定控制中心網址。","error");
     return false;
   }
   if(!key){
@@ -367,8 +370,9 @@ function syncStudioNow(){
   confirmedRemoteTaskIds=new Set();
   sessionStorage.setItem(BRIDGE_SESSION_KEY,key);
   setDashboardBridgeState("正在驗證控制中心，再讀取正式課程…","working");
-  // A single health probe first. Previously 3 JSONP calls plus iframe
-  // duplicated tasks/status/language requests and delayed the dashboard.
+  // Login is a credentialed POST with a bounded retry/error path on iOS;
+  // never depend on an embedded third-party Apps Script iframe to load tasks.
+  // The old Apps Script is used only after authenticated manual job dispatch.
   requestStatusHealth();
   return true;
 }
@@ -4742,7 +4746,13 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
 });
 
 function submitBridgePost(fields){
-  const endpoint=bridgeEndpointValue();
+  const legacyMachineJob=fields?.action==="run_stage" && fields?.stage!=="cc";
+  const endpoint=legacyMachineJob ? LEGACY_KAGGLE_ENDPOINT : bridgeEndpointValue();
+  if(legacyMachineJob && !endpoint){
+    const status=document.getElementById("p259-rescue-status");
+    if(status)status.textContent="原 Apps Script Kaggle Bridge 尚未設定，沒有送出任務。";
+    return false;
+  }
   const key=bridgeKeyValue();
 
   if(!endpoint || !key || !bridgeAuthenticated ||
@@ -4758,7 +4768,7 @@ function submitBridgePost(fields){
     }
     if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
       alert(
-        "Apps Script 控制中心版本過舊（目前 "+bridgeProtocolVersion+
+        "控制中心版本過舊（目前 "+bridgeProtocolVersion+
         "，需要 "+REQUIRED_BRIDGE_PROTOCOL+"）。請先重新部署 Code.gs；"+
         "系統已阻止送出可能使用錯誤協定的 Kaggle 工作。"
       );
@@ -4766,6 +4776,8 @@ function submitBridgePost(fields){
     }
   }
 
+  // Machine jobs use a private form POST to the existing Apps Script web app.
+  // A six-digit Bridge Key must never enter a query string.
   // Google Cloud replacement returns JSON over CORS. The former Apps Script
   // hidden iframe cannot receive that response, so deliver its ACK through the
   // same event dispatcher used by the existing UI.
@@ -4984,7 +4996,7 @@ function jsonpBridgeRequest(fields,options={}){
       if(!cleanup())return;
       if(typeof options.onResult==="function")options.onResult(data);
       else window.dispatchEvent(new MessageEvent("message",{data}));
-    }).catch(error=>fail("Cloud Run 連線失敗："+String(error?.message||error)));
+    }).catch(error=>fail("控制中心連線失敗："+String(error?.message||error)));
     return true;
   }
   script.onerror=()=>fail("控制中心可能拒絕存取或暫時無法連線");
