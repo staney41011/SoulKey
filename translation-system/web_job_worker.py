@@ -355,7 +355,6 @@ def main():
         elif needs_gemini and not (
             (args.stage == "en" and args.lang == "cc-refresh")
             or (args.stage == "tts" and args.lang == "central4")
-            or (args.stage == "multi" and central_p259)
         ):
             raise RuntimeError(
                 "Apps Script 尚未設定 GEMINI_API_KEY；"
@@ -616,6 +615,7 @@ def main():
         if args.stage in {"polish", "vernacular", "en", "multi", "tts", "finish"} and not (
             (args.stage == "en" and args.lang == "cc-refresh")
             or (args.stage == "tts" and args.lang == "central4")
+            or (args.stage == "multi" and central_p259)
         ):
             try:
                 verify_asr_source_revision()
