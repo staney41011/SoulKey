@@ -1,0 +1,66 @@
+name: SoulKey NVIDIA API isolated fallback smoke
+on:
+  push:
+    branches:
+      - test/nvidia-api-backup-smoke-20261031
+    paths:
+      - .github/workflows/nvidia_api_backup_smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  nvidia-translation-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe short English to Indonesian and Vietnamese via existing NVIDIA client
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          import sys
+          import time
+          sys.path.insert(0, "translation-system")
+          from nvidia_translate import NvidiaTranslateClient
+          if not os.environ.get("NVIDIA_API_KEY", "").strip():
+              print("NVIDIA_SMOKE_UNAVAILABLE: NVIDIA_API_KEY not configured in GitHub Actions secrets")
+              raise SystemExit(3)
+          client = NvidiaTranslateClient(
+              api_key=os.environ["NVIDIA_API_KEY"],
+              timeout=30,
+              max_attempts=1,
+          )
+          english = "A kind thought can become a helpful action."
+          print("NVIDIA_SMOKE_START model=" + client.model + " target=id,vi; read-only; no production data")
+          failures = 0
+          for lang in ("id", "vi"):
+              start = time.monotonic()
+              try:
+                  result = client.translate(english, lang)
+                  if not result.strip() or result.casefold().strip() == english.casefold().strip():
+                      raise RuntimeError("empty_or_untranslated")
+                  print("NVIDIA_SMOKE_OK language={} seconds={:.1f} translated={}".format(
+                      lang, time.monotonic()-start, result.strip().replace("\n", " ")[:240]))
+              except Exception as exc:
+                  msg = str(exc)
+                  code = re.search(r"HTTP\s+(\d{3})", msg)
+                  if code:
+                      reason = "HTTP_" + code.group(1)
+                  elif "timed out" in msg.lower() or "timeout" in msg.lower():
+                      reason = "TIMEOUT"
+                  elif "empty_or_untranslated" in msg:
+                      reason = "EMPTY_OR_UNTRANSLATED"
+                  else:
+                      reason = type(exc).__name__
+                  print("NVIDIA_SMOKE_FAIL language={} seconds={:.1f} reason={}".format(
+                      lang,time.monotonic()-start,reason))
+                  failures += 1
+          print("NVIDIA_SMOKE_RESULT succeeded={}/2".format(2-failures))
+          raise SystemExit(0 if failures == 0 else 1)
+          PY
