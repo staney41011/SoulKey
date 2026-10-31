@@ -822,7 +822,7 @@ def main():
                  "edge-tts==7.3.1"])
             central_audio=[sys.executable, "-u",
                  str(system_dir / "central_tts_recovery.py"),
-                 "--period", "259", "--max-languages", "64"]
+                 "--period", "259", "--max-languages", "6"]
             if args.lang != "central4":
                 if not args.langs.strip():raise RuntimeError("TTS 沒有指定任何語言")
                 central_audio.extend(["--task-id",args.task_id,"--langs",args.langs])
