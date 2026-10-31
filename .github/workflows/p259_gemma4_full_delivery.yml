@@ -1,0 +1,70 @@
+name: P259 Gemma4 26B complete missing translations and audio
+on:
+  push:
+    branches: [delivery/p259-gemma4-recovery-20261101]
+    paths: [.github/workflows/p259_gemma4_full_delivery.yml]
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { lesson: L01, lang: km, tts_only: false }
+          - { lesson: L01, lang: bn, tts_only: false }
+          - { lesson: L01, lang: ne, tts_only: false }
+          - { lesson: L01, lang: lo, tts_only: false }
+          - { lesson: L03, lang: ta, tts_only: false }
+          - { lesson: L03, lang: ko, tts_only: false }
+          - { lesson: L03, lang: ne, tts_only: false }
+          - { lesson: L03, lang: lo, tts_only: false }
+          - { lesson: L03, lang: my, tts_only: false }
+          - { lesson: L03, lang: it, tts_only: false }
+          - { lesson: L03, lang: pt, tts_only: false }
+          - { lesson: L04, lang: id, tts_only: false }
+          - { lesson: L04, lang: vi, tts_only: false }
+          - { lesson: L04, lang: hi, tts_only: false }
+          - { lesson: L04, lang: ja, tts_only: false }
+          - { lesson: L04, lang: ko, tts_only: false }
+          - { lesson: L04, lang: km, tts_only: false }
+          - { lesson: L04, lang: bn, tts_only: false }
+          - { lesson: L04, lang: it, tts_only: false }
+          - { lesson: L04, lang: pt, tts_only: false }
+          - { lesson: L01, lang: hi, tts_only: true }
+          - { lesson: L01, lang: ta, tts_only: true }
+          - { lesson: L02, lang: hi, tts_only: true }
+          - { lesson: L02, lang: ta, tts_only: true }
+          - { lesson: L03, lang: hi, tts_only: true }
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install text translation and Edge TTS runtime
+        run: |
+          python -m py_compile translation-system/gemma4_p259_recovery.py
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q google-genai gdown edge-tts==7.2.8
+      - name: Translate QA repair and synthesize individual lesson-language
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.tts_only }}" == "true" ]]; then
+            python -u translation-system/gemma4_p259_recovery.py --lesson "${{ matrix.lesson }}" --lang "${{ matrix.lang }}" --tts-only
+          else
+            python -u translation-system/gemma4_p259_recovery.py --lesson "${{ matrix.lesson }}" --lang "${{ matrix.lang }}"
+          fi
+      - name: Save manuscript WAV/MP3 and separate review report even if task has errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-${{ matrix.lang }}-gemma4-delivery
+          path: recovery-output/${{ matrix.lesson }}/${{ matrix.lang }}/*
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
