@@ -14,9 +14,10 @@ from p259_priority import (
 
 class PriorityTests(unittest.TestCase):
     def test_exact_six_languages_and_human_english_final(self):
-        self.assertEqual(PRIORITY_LANGUAGE_CODES, ("en", "th", "es", "id", "vi", "hi"))
+        self.assertEqual(PRIORITY_LANGUAGE_CODES, ("en", "th", "es", "id", "vi", "km"))
         self.assertTrue(all(is_priority("P259-L04", x) for x in PRIORITY_LANGUAGE_CODES))
         self.assertFalse(is_priority("P259-L04", "ta"))
+        self.assertFalse(is_priority("P259-L04", "hi"))
         self.assertFalse(is_priority("P259-L03", "th"))
 
     def test_gemma_only_reorders_missing_ai_languages(self):
