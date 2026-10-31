@@ -174,7 +174,14 @@ def assemble_continuous_with_limit(
 
     final_duration = _wav_duration(output_wav)
     over_source = max(0.0, final_duration - source_duration)
-    if over_source > 0.10:
+    # A voice that cannot be slowed enough to cover the source timeline is a
+    # complete listening preview, NOT a verified video-ready narration.
+    # The 0.1 s margin accommodates WAV sample rounding only.
+    min_required_duration = source_duration * min(
+        max(float(min_duration_ratio), 0.0), 1.0
+    )
+    under_source_minimum = final_duration + 0.10 < min_required_duration
+    if over_source > 0.10 or under_source_minimum:
         needs_review = True
 
     return {
@@ -186,6 +193,7 @@ def assemble_continuous_with_limit(
         "applied_slowdown": round(applied_slowdown, 6),
         "target_min_ratio": round(float(min_duration_ratio), 4),
         "duration_gap_seconds": round(max(0.0,source_duration-final_duration),3),
+        "under_source_minimum": bool(under_source_minimum),
         "final_duration": round(final_duration, 3),
         "speech_end": round(final_duration, 3),
         "over_source": round(over_source, 3),

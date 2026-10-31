@@ -24,7 +24,10 @@ def main():
     results = []
     for trial in range(2):
         result = render_natural_language(
-            SAMPLES, "en", dest, source_duration=120.0,
+            # Real spoken text runs ~17 s; an artificial 120 s source
+            # should rightly need review after enforcing the 96% minimum.
+            # Use a realistic source window to exercise formal MP3 output.
+            SAMPLES, "en", dest, source_duration=19.0,
             duration_limit_basis="synthetic_integration_test",
         )
         manifest = json.loads(result["manifest"].read_text(encoding="utf-8"))
