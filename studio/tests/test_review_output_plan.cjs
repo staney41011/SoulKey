@@ -2,6 +2,7 @@
 const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm"),path=require("node:path");
 const source=fs.readFileSync(path.join(__dirname,"../review-editor.js"),"utf8");
 const html=fs.readFileSync(path.join(__dirname,"../review.html"),"utf8");
+const bridge=fs.readFileSync(path.join(__dirname,"../../bridge/apps-script/Code.gs"),"utf8");
 const codes=[...html.matchAll(/data-output-lang="([a-z]+)"/g)].map(x=>x[1]);
 assert.equal(codes.length,16);assert.equal((html.match(/data-output-enabled checked/g)||[]).length,16);
 function section(a,b){const start=source.indexOf(a),end=source.indexOf(b,start+a.length);assert(start>=0&&end>start);return source.slice(start,end);}
@@ -12,7 +13,7 @@ function setup(){
     outputPlanReady:false,outputPlanError:"",savedOutputPlan:new Map(),outputSelectionTouched:new Set(),
     LANG_NAMES:Object.fromEntries(codes.map(x=>[x,x])),LANG_NAMES_ZH:Object.fromEntries(codes.map(x=>[x,x])),
     document:{querySelectorAll:()=>rows},$:id=>{if(!elements.has(id))elements.set(id,{disabled:true,textContent:""});return elements.get(id);},
-    setStatus(message){context.lastStatus=message;},centralReviewRequest:async fields=>{assert.equal(fields.action,"language_plan");assert.equal(fields.task_id,"P259-L01");return {ok:true,task_id:"P259-L01",plan:[]};},
+    setStatus(message){context.lastStatus=message;},centralReviewRequest:async fields=>{assert.equal(fields.action,"language_plan_get");assert.equal(fields.task_id,"P259-L01");return {ok:true,task_id:"P259-L01",plan:[]};},
     confirm(){throw Error("An empty or unread plan must not reach dispatch confirmation");},alert(message){context.lastAlert=message;},rows,elements};
   vm.createContext(context);
   vm.runInContext(section("function collectOutputPlan(){","function finishWorkflow(){"),context);
@@ -20,6 +21,22 @@ function setup(){
   return context;
 }
 async function main(){
+  // Exercise the actual Apps Script request handler and Sheet reader rather
+  // than inventing a mock action name that the deployed service rejects.
+  const server={LANGUAGE_PLAN_SHEET_NAME:"語言任務設定",
+    PropertiesService:{getScriptProperties:()=>({getProperty:()=>"test-only-bridge-key"})},
+    getSheetByName_:()=>({getDataRange:()=>({getDisplayValues:()=>[
+      ["task_id","language_code"],...codes.map(code=>["P259-L01",code,code,"TRUE",code==="en"?"human":"ai","TRUE","tts"])
+    ]})})};
+  vm.createContext(server);
+  for(const name of ["bridgeRequest","readLanguagePlan_"]){
+    const a=bridge.indexOf("function "+name+"("),b=bridge.indexOf("\nfunction ",a+1);
+    assert(a>=0&&b>a);vm.runInContext(bridge.slice(a,b),server);
+  }
+  const integrated=setup();integrated.centralReviewRequest=async fields=>server.bridgeRequest({...fields,bridge_key:"test-only-bridge-key"});
+  await integrated.loadOutputPlan();assert.equal(integrated.outputPlanReady,true);
+  assert.equal(integrated.collectOutputPlan().filter(x=>x.audio_enabled).length,16);
+  assert.equal(server.bridgeRequest({action:"language_plan",task_id:"P259-L01",bridge_key:"test-only-bridge-key"}).ok,false);
   const fresh=setup();await fresh.loadOutputPlan();assert.equal(fresh.outputPlanReady,true);
   assert(fresh.rows.every(x=>x.toggle.checked));assert(fresh.collectOutputPlan().every(x=>x.audio_enabled));
   assert.equal(fresh.elements.get("finish-workflow").disabled,false);

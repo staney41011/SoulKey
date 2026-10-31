@@ -1,5 +1,13 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-31｜輸出語言讀回對齊原 Bridge 實際 action
+
+- [PR #37](https://github.com/staney41011/SoulKey/pull/37) 已合併 `454b7edd160334972f9b5b50a7a692db76885209`，Pages成功；首次正式頁驗證顯示16語，但讀取失敗時按鈕正確保持disabled，沒有送出或清空原設定。
+- 原API請求名稱是 `language_plan_get`，回覆type才是 `language_plan`。前端修正為正確請求名稱、快取升版v2；測試新增真實執行 `bridgeRequest` 與 `readLanguagePlan_`，以原Sheet欄位格式連接前端讀回，避免mock再次掩蓋介面名稱錯誤。
+- [PR #38](https://github.com/staney41011/SoulKey/pull/38) 已合併 `e3a180c8ecb4e0f2043b749f7c15850b779be8d7`。新增只讀Kaggle診斷，僅輸出task／語言／段落ID、數量與QA原因分類，不公開講稿、自由文字錯誤、token或nonce。第一次診斷當時API回傳0筆日誌，沒有據此宣稱模型未啟動；工作完成後會再自動讀取，查最新kernel紀錄時須注意對應時間。
+
+---
+
 ## 2026-10-31｜第68版原Bridge與校稿輸出實測完成；補回既有語言選項
 
 - [PR #36](https://github.com/staney41011/SoulKey/pull/36) 已合併 `d80cc1bac3f1fbab2df2796c6acb132a6558702c`，六組PR CI、主分支CI與Pages均通過。原同一公開部署已更新 **68版（10:12）**；健康端點實際回傳 `bridge_review_final_transport=drive-authoritative-v1`。原網址、六碼、Script Properties與三項原權限保持。

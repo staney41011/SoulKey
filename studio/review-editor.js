@@ -1022,7 +1022,7 @@ async function loadOutputPlan(){
   outputPlanReady=false;outputPlanError="";
   $("finish-workflow").disabled=true;
   try{
-    const result=await centralReviewRequest({action:"language_plan",task_id:taskId});
+    const result=await centralReviewRequest({action:"language_plan_get",task_id:taskId});
     if(!result.ok || String(result.task_id||"")!==taskId || !Array.isArray(result.plan))
       throw new Error("Invalid lesson output plan");
     const enabled=value=>value===true||String(value).toUpperCase()==="TRUE";
