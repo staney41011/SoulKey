@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'translation-system'))
 from natural_tts_config import NATURAL_TTS_PROFILES
 from natural_tts_edge import synthesize_block, _ffprobe_duration
