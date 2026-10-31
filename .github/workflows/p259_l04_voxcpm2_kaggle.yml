@@ -1,4 +1,5 @@
 name: P259-L04 VoxCPM2 real Kaggle GPU benchmark
+# corrected VoxCPM PyPI 2.0.3 compatibility and Kaggle-created slug
 on:
   push:
     branches:
@@ -14,7 +15,7 @@ jobs:
     timeout-minutes: 50
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KAGGLE_KERNEL: cwlmrcsir/soulkey-voxcpm2-benchmark
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-voxcpm2-kaggle-t4-benchmark-p259-l04
       PYTHONUNBUFFERED: "1"
     steps:
       - name: Checkout independent benchmark branch
@@ -59,7 +60,7 @@ jobs:
           """ .replace("          ","") + code
           (d/"voxcpm2-benchmark.py").write_text(code,"utf-8")
           metadata={
-              "id":"cwlmrcsir/soulkey-voxcpm2-benchmark",
+              "id":"cwlmrcsir/soulkey-voxcpm2-kaggle-t4-benchmark-p259-l04",
               "title":"SoulKey VoxCPM2 Kaggle T4 benchmark P259 L04",
               "code_file":"voxcpm2-benchmark.py",
               "language":"python","kernel_type":"script",
