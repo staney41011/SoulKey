@@ -1,0 +1,39 @@
+name: P259 L01 Khmer Bengali verified Edge audio recovery
+on:
+  push:
+    branches: [delivery/p259-gemma4-recovery-20261101]
+    paths: [.github/workflows/p259_l01_km_bn_audio_recovery.yml]
+permissions:
+  contents: read
+jobs:
+  audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { lang: km, drive_id: 1UC3yBwMJSf76hfuC0G-sykxyJORzQyoX }
+          - { lang: bn, drive_id: 1_5SDmHztFUoCiGumFE-ZqsUT3NLUPMLy }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Edge TTS and ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q gdown edge-tts==7.2.8
+      - name: Render complete lesson audio using tested msedgeservices endpoint
+        run: |
+          python -u translation-system/p259_edge_audio_from_drive.py --lesson L01 --lang "${{ matrix.lang }}" --file-id "${{ matrix.drive_id }}"
+      - name: Preserve audio and QA manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-L01-${{ matrix.lang }}-EdgeTTS-msedgeservices
+          path: |
+            audio-only-output/L01/${{ matrix.lang }}/*.mp3
+            audio-only-output/L01/${{ matrix.lang }}/*驗收報告.json
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
