@@ -365,6 +365,7 @@ def run():
     from central_tts_recovery import ready_tasks
     from central_manuscript_export import publish_manuscript
     from gemma_draft_checkpoint import DraftCheckpoint
+    from p259_priority import prioritize_translation_jobs
     from lesson_paths import resolve_lesson_folders
     drive,sheets=build_google_services()
     read=lambda r:read_values(sheets,SPREADSHEET_ID,r)
@@ -390,6 +391,10 @@ def run():
                 # it even when this language does not request an audio file.
                 work=Path("/kaggle/working/gemma4-p259")/task["task_id"]/lang/"reuse"
                 publish_manuscript(drive,sheets,task,lang,final,existing,work)
+    # Keep finished QA/Drive files intact, but translate L04 six-language targets first.
+    # English is human Final, so only the five AI languages enter this queue.
+    remaining=prioritize_translation_jobs(remaining)
+    print("GEMMA4_P259_PRIORITY_L04_SIX",[(task["task_id"],lang) for task,_,lang in remaining if task["task_id"]=="P259-L04" and lang in ("th","es","id","vi","hi")],flush=True)
     print("GEMMA4_P259_PENDING_LANGUAGES",len(remaining),flush=True)
     if not remaining:return
     gemma=Gemma()
