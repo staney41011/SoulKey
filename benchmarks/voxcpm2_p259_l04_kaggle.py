@@ -16,7 +16,7 @@ import soundfile as sf
 RESULT_DIR=Path("/kaggle/working") if Path("/kaggle/working").exists() else Path.cwd()
 BENCH_FILE=RESULT_DIR/"voxcpm2_p259_l04_benchmark.json"
 SAMPLES=__INJECT_SAMPLES_JSON__
-result={"experiment":"P259-L04 isolated VoxCPM2 on Kaggle","model":"openbmb/VoxCPM2","start_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"configuration":{"load_denoiser":False,"optimize":False,"cfg_value":2.0,"inference_timesteps":10,"seed":42},"system":{"python":sys.version,"platform":platform.platform()},"samples":[],"model_loaded":False,"completed":False}
+result={"experiment":"P259-L04 isolated VoxCPM2 on Kaggle","model":"openbmb/VoxCPM2","start_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"configuration":{"load_denoiser":False,"optimize":False,"cfg_value":2.0,"inference_timesteps":10,"seed_method":"torch.manual_seed(42)"},"system":{"python":sys.version,"platform":platform.platform()},"samples":[],"model_loaded":False,"completed":False}
 def save():
     BENCH_FILE.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
     print("BENCH_STATE "+json.dumps({"model_loaded":result["model_loaded"],"completed":result["completed"],"num_samples":len(result["samples"]),"last_error":result.get("error")},ensure_ascii=False),flush=True)
@@ -51,7 +51,8 @@ try:
             start=time.monotonic()
             try:
                 torch.cuda.reset_peak_memory_stats()
-                wav=model.generate(text=text,cfg_value=2.0,inference_timesteps=10,seed=42)
+                torch.manual_seed(42)
+                wav=model.generate(text=text,cfg_value=2.0,inference_timesteps=10)
                 torch.cuda.synchronize()
                 elapsed=time.monotonic()-start
                 sound=np.asarray(wav).reshape(-1)
