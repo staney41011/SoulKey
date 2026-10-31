@@ -43,7 +43,7 @@ async function test(){
   await bridgeContext.centralReviewRequest({action:"review_en_draft_status",task_id:"P259-L03"});
   assert.equal(requests.at(-1).action,"review_en_draft_status");
   const sent=[],plan=[{language_code:"en",audio_enabled:true},{language_code:"ja",audio_enabled:true}];let finishSave;
-  const finish={payload:{en_finalized_at:"verified"},BRIDGE_ENDPOINT:endpoint,taskId:"P259-L03",LANG_NAMES_ZH:{en:"英文",ja:"日文"},
+  const finish={payload:{en_finalized_at:"verified"},outputPlanReady:true,BRIDGE_ENDPOINT:endpoint,taskId:"P259-L03",LANG_NAMES_ZH:{en:"英文",ja:"日文"},
     confirm:()=>true,collectOutputPlan:()=>plan,$:()=>({}),setStatus(){},navigator:{userAgent:"desktop"},
     centralReviewRequest:()=>new Promise(resolve=>{finishSave=resolve;}),submit:x=>{sent.push(x);return true;},
     window:{setTimeout(){}},jsonpBridgeRequest(){},finishPending:null};

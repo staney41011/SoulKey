@@ -10,6 +10,7 @@ function setup(){
   const context={
     taskId:"P259-L01",payload:{},segments:Array.from({length:449},(_,id)=>({id,text:"ASR "+id})),
     dirty:false,englishAligned:null,englishDriveLoaded:false,englishBaseRequests:{},
+    outputPlanReady:true,
     driveFallbackZh:[],driveFallbackTotal:0,driveFallbackFinalizedAt:"",driveFallbackReviewRevision:"",driveFallbackFinalSource:false,
     finishQueued:false,requestedStepNumber:0,currentStep:1,
     $:id=>{if(!elements.has(id))elements.set(id,{disabled:true,textContent:""});return elements.get(id);},
