@@ -1,0 +1,32 @@
+name: P259 L01 Lao Edge audio-only from Drive AI-QA manuscript
+on:
+  push:
+    branches: [delivery/p259-gemma4-recovery-20261101]
+    paths: [.github/workflows/p259_l01_lo_audio_only_20261101.yml]
+permissions:
+  contents: read
+jobs:
+  l01-lo-audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Edge audio runtime without GCP or Gemini
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q gdown edge-tts==7.2.8
+      - name: Synthesize only from already archived verified Gemma manuscript
+        run: |
+          python -u translation-system/p259_edge_audio_from_drive.py --lesson L01 --lang lo --file-id 1JAGPDLs4izn-S931gyGWNkhvrP753452
+      - name: Preserve audio and timeline review report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-L01-lo-EdgeTTS-msedgeservices
+          path: |
+            audio-only-output/L01/lo/*TTS_待複核.mp3
+            audio-only-output/L01/lo/TTS_QA_驗收報告.json
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
