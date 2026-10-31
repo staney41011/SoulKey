@@ -1,0 +1,58 @@
+name: SoulKey NVIDIA Gemma4 multilingual fallback smoke
+on:
+  push:
+    branches:
+      - test/nvidia-api-backup-smoke-20261031
+    paths:
+      - .github/workflows/nvidia_gemma4_multilingual_smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-gemma:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Test Gemma4 via NVIDIA independently of Google Gemini provider
+        run: |
+          python - <<'PY'
+          import os, json, time, urllib.request, urllib.error, socket
+          key=os.getenv("NVIDIA_API_KEY","").strip()
+          if not key:
+              print("GEMMA4_NO_KEY")
+              raise SystemExit(3)
+          model="google/gemma-4-31b-it"
+          text="A kind thought can become a helpful action."
+          languages={"id":"Indonesian","km":"Khmer"}
+          passed=0
+          print("GEMMA4_START model="+model,flush=True)
+          for lang,name in languages.items():
+              prompt=f"Translate this English sentence into {name}. Output only the accurate translation, no introduction. {text}"
+              payload={"model":model,"messages":[{"role":"user","content":prompt}],"temperature":0,"max_tokens":150,"stream":False}
+              req=urllib.request.Request("https://integrate.api.nvidia.com/v1/chat/completions",data=json.dumps(payload).encode("utf-8"),headers={"Authorization":"Bearer "+key,"Content-Type":"application/json","Accept":"application/json"},method="POST")
+              start=time.monotonic()
+              try:
+                  with urllib.request.urlopen(req,timeout=50) as resp:
+                      data=json.load(resp)
+                      status=resp.status
+                  answer=str(((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+                  if not answer or answer.lower()==text.lower():
+                      raise ValueError("EMPTY_OR_UNTRANSLATED")
+                  ok=lang!="km" or any("\\u1780"<=c<="\\u17ff" for c in answer)
+                  # Programmatically check Khmer script against Unicode code points.
+                  if lang=="km" and not any(0x1780<=ord(c)<=0x17ff for c in answer):ok=False
+                  if not ok:raise ValueError("KHMER_SCRIPT_MISSING")
+                  passed+=1
+                  print("GEMMA4_OK lang={} http={} sec={:.1f} translation={}".format(lang,status,time.monotonic()-start,answer.replace("\n"," ")[:220]),flush=True)
+              except Exception as e:
+                  if isinstance(e,urllib.error.HTTPError):
+                      reason="HTTP_"+str(e.code)
+                  elif isinstance(e,(TimeoutError,socket.timeout)) or "timed out" in str(e).lower():reason="TIMEOUT"
+                  else:reason=type(e).__name__+":"+str(e)[:100]
+                  print("GEMMA4_FAIL lang={} sec={:.1f} reason={}".format(lang,time.monotonic()-start,reason),flush=True)
+          print(f"GEMMA4_RESULT passed={passed}/2",flush=True)
+          raise SystemExit(0 if passed==2 else 1)
+          PY
