@@ -1,10 +1,6 @@
 name: SoulKey 16-Voice Health Audit
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/soulkey_16_voice_health_audit.yml
   workflow_dispatch:
 
 permissions:
@@ -21,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install voice runtime
-        run: python -m pip install -q edge-tts==7.3.1
+        run: python -m pip install -q edge-tts==7.2.8
       - name: Probe all 16 voices on GitHub runner
         run: python -u translation-system/tts_health_audit.py --output-dir "$RUNNER_TEMP/soulkey-voice-health"
       - name: Upload full diagnostic JSON
@@ -42,9 +38,6 @@ jobs:
           PY
 
   kaggle-environment:
-    # Separate manual check only. Repeated Kaggle kernel pushes can return
-    # 409 Conflict while another legitimate SoulKey kernel is active.
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 48
     env:
@@ -86,7 +79,7 @@ jobs:
               "https://github.com/staney41011/SoulKey.git",str(repo)
           ],check=True)
           subprocess.run([
-              sys.executable,"-m","pip","install","-q","edge-tts==7.3.1"
+              sys.executable,"-m","pip","install","-q","edge-tts==7.2.8"
           ],check=True)
           subprocess.run([
               sys.executable,"-u",str(repo/"translation-system/tts_health_audit.py"),

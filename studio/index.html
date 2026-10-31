@@ -117,12 +117,12 @@
             <p class="eyebrow">CONTROL CENTER</p>
             <div>
               <h3>連線全球翻譯控制中心</h3>
-              <p class="muted">所有使用者只要輸入管理者原本設定的 6 碼 Bridge Key，即可共用翻譯工作台，不必掃 QR Code 或進行手機配對。首次啟用 6 碼登入須由管理者在授權電腦完成一次設定。</p>
+              <p class="muted">Apps Script URL 已內建。輸入 Bridge Key 後，會自動讀取 Google Sheet 任務與最新 Kaggle 狀態。</p>
             </div>
           </div>
           <div class="dashboard-bridge-form">
-            <label>共用 Bridge Key（原設定 6 碼）
-              <input id="dashboard-bridge-key" type="password" autocomplete="off" inputmode="text" placeholder="輸入原本的 6 碼">
+            <label>Bridge Key
+              <input id="dashboard-bridge-key" type="password" autocomplete="off" placeholder="輸入 Bridge Key">
             </label>
             <button class="primary" id="dashboard-bridge-connect" type="button">連線控制中心</button>
             <span class="badge" id="dashboard-bridge-state">尚未連線</span>
@@ -145,22 +145,6 @@
             <span class="muted">可獨立執行、重跑與人工確認</span>
           </div>
           <div class="pipeline" id="pipeline"></div>
-        </div>
-
-        <div class="panel" id="p259-rescue-panel" hidden>
-          <div class="panel-head">
-            <div><p class="eyebrow">P259 · KAGGLE RESCUE</p><h3>第259期四堂課｜立即恢復配音</h3></div>
-          </div>
-          <p class="muted block-copy">使用既有英文人工定稿、已通過 QA 的各語言文稿及舊版 Natural TTS 快取。一次派工涵蓋四堂課；尚未通過 QA 的語言不會亂配音，已完成的音檔不會重複產生。</p>
-          <button class="primary" id="p259-rescue-start" type="button">啟動四堂課已驗證語言配音（Kaggle）</button>
-          <button class="ghost" id="p259-translation-start" type="button" style="margin-left:8px">接續補齊四堂課未完成的語言翻譯</button>
-          <p class="muted" id="p259-rescue-status" role="status" aria-live="polite">先連線原 Apps Script 控制中心；成功派工後請核對 Google Drive 正式音檔。</p>
-          <p class="muted" id="p259-translation-status" role="status" aria-live="polite">補譯會保留既有成果；每種語言通過檢查後，才可製作正式音檔。</p>
-          <details class="muted" id="p259-bridge-access-help">
-            <summary>iPhone 派工說明及查看 GitHub 實際工作</summary>
-            <p>原 Apps Script 已在 Safari 直接開啟並顯示 bridge-ready（協定 v9），網址及授權設定不需重建。先前 GitHub 匿名探測得到 403，不能據此判定你的登入環境無法使用。</p>
-            <p>iPhone 按下救援後，會以 Google 獨立分頁用 POST 提交（六碼不會出現在網址）。分頁可能僅顯示「SoulKey response」；這不代表派工成功。返回本頁後，請到 <a href="https://github.com/staney41011/SoulKey/actions/workflows/kaggle_web_job.yml" target="_blank" rel="noopener noreferrer">GitHub「Kaggle Web Job」執行紀錄</a> 檢查是否新增工作。沒有新工作時，先不要重複按。</p>
-          </details>
         </div>
 
         <div class="panel">
@@ -551,7 +535,7 @@
               本次執行抓取 CC 字幕
             </label>
             <div id="youtube-cc-options" class="capture-help">
-              只抓取本堂 YouTube 英文 CC，避免多語字幕造成額外請求。取得後立即存入中央 Google Sheet，供英文人工定稿使用；其他語言由 Gemini 翻譯正式英文定稿。中文使用 Taiwan-Breeze ASR。
+              固定補齊 7 語 YouTube CC：英文、泰文、西班牙文、印尼文、越南文、信德文、泰米爾文。遇到 YouTube 429 會逐語言退避重試；Drive 會保留處理檔，但 Studio 一般使用者只顯示純逐字稿。中文不抓 YouTube 翻譯字幕，固定使用 Taiwan-Breeze ASR。
             </div>
           </div>
 
@@ -604,7 +588,7 @@
           <div class="panel-head">
             <div>
               <p class="eyebrow">CLOUD FILES</p>
-              <h3>雲端已抓取檔案</h3>
+              <h3>Google Drive 已抓取檔案</h3>
             </div>
             <span class="badge" id="youtube-capture-files-state">等待讀取</span>
           </div>
@@ -827,12 +811,9 @@
     </form>
   </dialog>
 
-  <script src="./bridge-routing.js?v=20261031-clock-v3"></script>
-  <script src="./config.js?v=20261031-no-gcp-v2"></script>
-  <script src="./bridge-pair.js?v=20261028-secure-pair-v1"></script>
-  <script src="./tts-share-message.js?v=20261028-length-audit-v1"></script>
+  <script src="./config.js?v=20260922-34"></script>
+  <script src="./tts-share-message.js?v=20261020-review-preview-v2"></script>
   <script src="./language-delivery.js?v=20261020-review-preview-v2"></script>
-  <script src="./english-cc-alignment.js?v=20261029-central-cc-restore-v1"></script>
-  <script src="./app-20260923-48.js?v=20261031-no-gcp-v2"></script>
+  <script src="./app-20260923-48.js?v=20261022-edit-store-v3"></script>
 </body>
 </html>

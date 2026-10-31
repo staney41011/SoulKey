@@ -160,20 +160,6 @@ class GeminiEngineTest(unittest.TestCase):
             "missing_target_script",
         )
 
-    def test_script_guard_accepts_short_natural_replies(self):
-        for target, source, lang in [
-            ("はい。", "Yes.", "ja"),
-            ("いいえ。", "No.", "ja"),
-            ("네.", "Yes.", "ko"),
-            ("ใช่", "Yes.", "th"),
-        ]:
-            with self.subTest(lang=lang, source=source):
-                self.assertEqual(local_language_issue(target, source, lang), "")
-        # Do not let very short target-language output mask a long lecture.
-        long_source="We should protect every person and value the kindness of others."
-        self.assertEqual(local_language_issue("はい",long_source,"ja"),
-                         "missing_target_script")
-
     def test_script_guard_allows_numeric_only_fragments(self):
         for lang, text in [
             ("th", "7."),

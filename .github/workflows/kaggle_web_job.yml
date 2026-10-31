@@ -33,13 +33,16 @@ on:
 permissions:
   contents: write
 
+# Keep API/TTS CPU work independent from Kaggle ASR/GPU work.
+# queue: max prevents newer runs silently canceling older pending lessons.
 concurrency:
-  group: soulkey-kaggle-web-worker
+  group: ${{ ((inputs.stage == 'multi' || inputs.stage == 'tts') && vars.SOULKEY_CPU_WORKER_ENABLED != 'false') && 'soulkey-github-cpu' || 'soulkey-kaggle-web-worker' }}
   queue: max
   cancel-in-progress: false
 
 jobs:
   launch:
+    if: ${{ (inputs.stage != 'multi' && inputs.stage != 'tts') || vars.SOULKEY_CPU_WORKER_ENABLED == 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
@@ -47,53 +50,6 @@ jobs:
       KAGGLE_KERNEL: cwlmrcsir/soulkey-gpu-worker
 
     steps:
-      - uses: actions/checkout@v4
-
-      # GitHub re-run uses the ORIGINAL nonce. A prior 8-hour nonce can
-      # expire while Kaggle is synthesizing audio, causing Drive writes to
-      # fail after GPU time is consumed. Check original Apps Script first.
-      - name: Verify fresh original Apps Script runtime before Kaggle
-        id: runtime_preflight
-        env:
-          SOULKEY_PREFLIGHT_TASK_ID: ${{ inputs.task_id }}
-          SOULKEY_PREFLIGHT_STAGE: ${{ inputs.stage }}
-          SOULKEY_PREFLIGHT_LANG: ${{ inputs.lang }}
-          SOULKEY_PREFLIGHT_LANGS: ${{ inputs.langs }}
-          SOULKEY_PREFLIGHT_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
-          SOULKEY_PREFLIGHT_BRIDGE_URL: ${{ inputs.bridge_url }}
-        run: python -u translation-system/bridge_runtime_preflight.py
-
-      # The preflight intentionally aborts stale runs before wasting Kaggle
-      # GPU time. While the nonce still exists, report a real error to Studio
-      # and release the per-task dispatch lease rather than leaving "running".
-      - name: Report rejected runtime preflight to original Studio
-        if: ${{ failure() && steps.runtime_preflight.outcome == 'failure' }}
-        env:
-          SOULKEY_PREFLIGHT_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
-          SOULKEY_PREFLIGHT_BRIDGE_URL: ${{ inputs.bridge_url }}
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json,os,urllib.parse,urllib.request
-          data=urllib.parse.urlencode({
-              "action":"worker_report",
-              "nonce":os.environ["SOULKEY_PREFLIGHT_RUNTIME_NONCE"],
-              "status":"error",
-              "message":"授權檢查未通過，Kaggle 未啟動；請由 SoulKey Studio 重新派送新工作。"
-          }).encode("utf-8")
-          try:
-              request=urllib.request.Request(
-                  os.environ["SOULKEY_PREFLIGHT_BRIDGE_URL"],
-                  data=data,method="POST")
-              with urllib.request.urlopen(request,timeout=20) as response:
-                  receipt=json.loads(response.read(8192).decode("utf-8"))
-              print("SOULKEY_PREFLIGHT_STATUS_REPORTED",
-                    "yes" if receipt.get("ok") else "unconfirmed")
-          except Exception as exc:
-              print("SOULKEY_PREFLIGHT_STATUS_UNCONFIRMED",
-                    type(exc).__name__)
-          PY
-
       - name: Install Kaggle CLI
         run: |
           python -m pip install --upgrade pip
@@ -160,12 +116,7 @@ jobs:
           stage = os.environ["JOB_STAGE"].strip()
           lang = os.environ["JOB_LANG"].strip()
           gpu_stages = {"zh", "asr", "batch"}
-          p259_gemma4 = (stage == "multi" or (stage == "finish" and bool(os.environ["JOB_LANGS"].strip()))) and os.environ["JOB_TASK_ID"].strip() in {"P259-L01","P259-L02","P259-L03","P259-L04"}
-          # The existing Studio central4 authorization prioritizes L04 Gemini
-          # and Edge TTS on Kaggle CPU, preserving weekly GPU quota.
-          central4_l04_cpu = (stage == "multi" and lang == "central4"
-              and os.environ["JOB_TASK_ID"].strip() == "P259-L01")
-          needs_gpu = stage in gpu_stages or (p259_gemma4 and not central4_l04_cpu)
+          needs_gpu = stage in gpu_stages
 
           # Rebind every run to the dedicated GPU-only kernel. Do not preserve
           # id_no from an older CPU worker because Kaggle prefers id_no over id.
@@ -186,18 +137,7 @@ jobs:
           meta["kernel_sources"] = ["cwlmrcsir/translate-system"]
           meta["dataset_sources"] = []
           meta["competition_sources"] = []
-          # Gemma loads the public GGUF in the worker. Kaggle API submissions
-          # cannot attach a newly gated model interactively; that obsolete
-          # attachment rejected the job before our existing OAuth ran.
           meta["model_sources"] = []
-          # `kernels pull -m` includes the old worker's immutable Docker digest.
-          # Keeping it silently restores an Ubuntu 22 image whose glibc/libstdc++
-          # cannot load the official Gemma4 CUDA binaries. Kaggle's supported
-          # latest pinning must also discard that digest; credentials, source
-          # notebooks and the dedicated worker identity stay the same.
-          if p259_gemma4:
-              meta.pop("docker_image", None)
-              meta["docker_image_pinning_type"] = "latest"
 
           meta_path.write_text(
               json.dumps(meta, ensure_ascii=False, indent=2),
@@ -248,12 +188,7 @@ jobs:
           if job.get("langs"):
               cmd += ["--langs", job["langs"]]
 
-          # Never let CalledProcessError echo the full command: it contains
-          # the private Apps Script runtime nonce used for Google OAuth.
-          worker_exit = subprocess.run(cmd, check=False).returncode
-          if worker_exit:
-              print("SOULKEY_WEB_WORKER_EXIT_CODE",worker_exit,flush=True)
-              raise SystemExit(worker_exit)
+          subprocess.run(cmd, check=True)
           '''
           (d / code_file).write_text(bootstrap, encoding="utf-8")
 
@@ -273,13 +208,11 @@ jobs:
         env:
           JOB_STAGE: ${{ inputs.stage }}
           JOB_LANG: ${{ inputs.lang }}
-          JOB_TASK_ID: ${{ inputs.task_id }}
         run: |
           set -euo pipefail
           DIR="${RUNNER_TEMP}/soulkey-web-worker"
           STAGE="${JOB_STAGE}"
           LANG="${JOB_LANG}"
-          TASK_ID="${JOB_TASK_ID}"
           FINAL_STATUS="UNKNOWN"
           MAX_ATTEMPTS=1
 
@@ -296,12 +229,6 @@ jobs:
             if [[ "$STAGE" == "batch" ]]; then
               echo "Launching Kaggle batch with NvidiaTeslaT4 accelerator; timeout=14400s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
-            elif [[ "$TASK_ID" =~ ^P259-L0[1-4]$ ]] && python -c 'import json,sys;sys.exit(not json.load(open(sys.argv[1])).get("enable_gpu"))' "$DIR/kernel-metadata.json"; then
-              echo "Launching P259 Gemma4 GPU with existing Bridge OAuth; timeout=14400s"
-              kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 14400
-            elif [[ "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ]]; then
-              echo "Launching P259 four-lesson Kaggle CPU recovery; timeout=14400s"
-              kaggle kernels push -p "$DIR" -t 14400
             elif [[ "$STAGE" =~ ^(zh|asr)$ ]]; then
               echo "Launching Kaggle with NvidiaTeslaT4 accelerator; timeout=7200s"
               kaggle kernels push -p "$DIR" --accelerator NvidiaTeslaT4 -t 7200
@@ -311,7 +238,7 @@ jobs:
             fi
 
             ATTEMPT_STATUS="UNKNOWN"
-            if [[ "$STAGE" == "batch" || ( "$STAGE" =~ ^(multi|finish)$ && "$TASK_ID" =~ ^P259-L0[1-4]$ ) || ( "$STAGE" =~ ^(multi|tts)$ && "$LANG" == "central4" ) ]]; then
+            if [[ "$STAGE" == "batch" ]]; then
               POLL_LIMIT=1440
             else
               POLL_LIMIT=720
@@ -403,7 +330,7 @@ jobs:
           echo "Kaggle final status: $FINAL_STATUS"
 
       - name: Download Kaggle log
-        if: always() && steps.runtime_preflight.outcome == 'success'
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -420,15 +347,13 @@ jobs:
 
           if [ -s "$LOG" ]; then
             echo "----- Kaggle log tail -----"
-            # Redact old-style nonce-bearing traceback lines as a second
-            # defence even if a nested worker forgets to sanitize errors.
-            tail -n 180 "$LOG" | sed -E 's/job_[A-Za-z0-9_-]{30,}/[REDACTED_RUNTIME_NONCE]/g'
+            tail -n 180 "$LOG"
           else
             echo "No Kaggle log text returned."
           fi
 
       - name: Report Kaggle failure to Bridge
-        if: always() && steps.runtime_preflight.outcome == 'success' && steps.wait_job.outputs.final_status != 'COMPLETE'
+        if: always() && steps.wait_job.outputs.final_status != 'COMPLETE'
         shell: bash
         env:
           JOB_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
@@ -447,12 +372,91 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ steps.runtime_preflight.outcome }}" != "success" ]; then
-            echo "Kaggle was deliberately NOT launched: legacy Apps Script nonce requires a NEW Studio dispatch."
-            exit 1
-          fi
           if [ "${{ steps.wait_job.outputs.final_status }}" != "COMPLETE" ]; then
             echo "Kaggle job failed: ${{ steps.wait_job.outputs.final_status }}"
             exit 1
           fi
           echo "SoulKey Kaggle Web Job completed."
+
+  cpu:
+    # Only API translation and TTS: they do not need Kaggle or CUDA.
+    if: ${{ (inputs.stage == 'multi' || inputs.stage == 'tts') && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      # CPU Worker can mirror checkpoints with short-lived Actions token.
+      contents: write
+    steps:
+      - name: Mask short-lived Bridge authentication inputs before any other step
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          fields = data.get("inputs") or {}
+          for key in ("runtime_nonce", "bridge_url"):
+              value = str(fields.get(key) or "")
+              if value:
+                  print("::add-mask::" + value, flush=True)
+          PY
+
+      - name: Checkout SoulKey source
+        uses: actions/checkout@v4
+
+      - name: Install lightweight Google/API and speech runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -q \
+            -r translation-system/requirements-gemini.txt
+          if [[ "${{ inputs.stage }}" == "tts" ]]; then
+            python -m pip install --disable-pip-version-check -q edge-tts==7.2.8
+          fi
+          ffprobe -version | head -n 1
+
+      - name: Execute CPU translation or safe 2-way parallel TTS
+        shell: bash
+        env:
+          JOB_TASK_ID: ${{ inputs.task_id }}
+          JOB_STAGE: ${{ inputs.stage }}
+          JOB_LANGS: ${{ inputs.langs }}
+          JOB_LANG: ${{ inputs.lang }}
+          JOB_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
+          JOB_BRIDGE_URL: ${{ inputs.bridge_url }}
+          SOULKEY_REPO_DIR: ${{ github.workspace }}
+          SOULKEY_TTS_WORKDIR: ${{ runner.temp }}/soulkey-tts-workdir
+          SOULKEY_GEMINI_MULTI_WORKDIR: ${{ runner.temp }}/soulkey-multi-workdir
+          # Never sent to Apps Script or printed in logs.
+          SOULKEY_GITHUB_ACTIONS_TOKEN: ${{ github.token }}
+          SOULKEY_EDGE_ENDPOINT: msedgeservices
+          SOULKEY_TTS_PARALLEL_BLOCKS: ${{ vars.SOULKEY_TTS_PARALLEL_BLOCKS || '2' }}
+        run: |
+          set -euo pipefail
+          python -u translation-system/web_job_worker.py \
+            --task-id "$JOB_TASK_ID" \
+            --stage "$JOB_STAGE" \
+            --lang "$JOB_LANG" \
+            --langs "$JOB_LANGS" \
+            --bridge-url "$JOB_BRIDGE_URL" \
+            --runtime-nonce "$JOB_RUNTIME_NONCE"
+
+      - name: Report infrastructure error to Bridge
+        if: ${{ failure() }}
+        shell: bash
+        env:
+          JOB_BRIDGE_URL: ${{ inputs.bridge_url }}
+          JOB_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
+        run: |
+          # The worker itself reports runtime failures; this is for failures
+          # during checkout/install, when the worker could not start.
+          if [[ -n "$JOB_BRIDGE_URL" && -n "$JOB_RUNTIME_NONCE" ]]; then
+            curl --max-time 15 --fail --silent --show-error -X POST "$JOB_BRIDGE_URL" \
+              --data-urlencode "action=worker_report" \
+              --data-urlencode "nonce=$JOB_RUNTIME_NONCE" \
+              --data-urlencode "status=error" \
+              --data-urlencode "message=GitHub CPU worker failed; inspect GitHub Actions log" \
+              >/dev/null || true
+          fi

@@ -32,8 +32,6 @@ const MACHINE_STAGES = [
 ];
 const RUNTIME_TTL_MS = 8 * 60 * 60 * 1000;
 const BRIDGE_PROTOCOL_VERSION = 9;
-const BRIDGE_CLIENT_TRANSPORT = "top-postmessage-v1";
-const BRIDGE_REVIEW_FINAL_TRANSPORT = "drive-authoritative-v1";
 
 function doGet(e) {
   const view = String((e && e.parameter && e.parameter.view) || "").trim();
@@ -82,9 +80,7 @@ function doGet(e) {
     message: "bridge-ready",
     status_sheet: STATUS_SHEET_NAME,
     web_job_workflow: WORKFLOW_WEB_JOB,
-    bridge_protocol: BRIDGE_PROTOCOL_VERSION,
-    bridge_client_transport: BRIDGE_CLIENT_TRANSPORT,
-    bridge_review_final_transport: BRIDGE_REVIEW_FINAL_TRANSPORT
+    bridge_protocol: BRIDGE_PROTOCOL_VERSION
   });
 }
 
@@ -421,8 +417,6 @@ function doPost(e) {
         rows: Math.max(0, sheet.getLastRow() - 1),
         youtube_cookies_configured: !!props.getProperty("YOUTUBE_COOKIES_B64"),
         bridge_protocol: BRIDGE_PROTOCOL_VERSION,
-        bridge_client_transport: BRIDGE_CLIENT_TRANSPORT,
-        bridge_review_final_transport: BRIDGE_REVIEW_FINAL_TRANSPORT,
         server_time: new Date().toISOString()
       });
     }
@@ -510,8 +504,6 @@ function bridgeRequest(request) {
         rows: Math.max(0, sheet.getLastRow() - 1),
         youtube_cookies_configured: !!props.getProperty("YOUTUBE_COOKIES_B64"),
         bridge_protocol: BRIDGE_PROTOCOL_VERSION,
-        bridge_client_transport: BRIDGE_CLIENT_TRANSPORT,
-        bridge_review_final_transport: BRIDGE_REVIEW_FINAL_TRANSPORT,
         server_time: new Date().toISOString()
       };
     }
@@ -2339,19 +2331,6 @@ function appendExecutionStatus_(
   ]);
 }
 
-/**
- * Optional Firebase Realtime Database STATUS mirror. Apps Script and Google
- * Sheets remain authoritative; Firebase failure must never block a lesson.
- *
- * Script Properties (server-side ONLY):
- *   FIREBASE_STATUS_MIRROR_ENABLED = true
- *   FIREBASE_DATABASE_URL = existing Firebase RTDB HTTPS root URL
- *
- * OAuth scopes firebase.database + userinfo.email must be authorized by
- * the existing deploying Google account, which must have Database write IAM.
- * Do not upload manuscript text, access keys, Cookies or audio to Firebase.
- */
-
 function nowText_() {
   return Utilities.formatDate(
     new Date(),
@@ -2398,30 +2377,7 @@ function dispatchLeaseKey_(taskId, stage, lang, langs) {
     .replace(/=+$/g, "");
 }
 
-// Editor-only recovery entry point. The trailing underscore prevents calls
-// through the public HtmlService client; normal six-code sign-in is unchanged.
-function resumeP259VerifiedWork_() {
-  const taskId = "P259-L01";
-  const registered = readTasks_().map(function(item) { return item.id; });
-  if ([1, 2, 3, 4].some(function(n) { return registered.indexOf("P259-L0" + n) < 0; })) {
-    throw new Error("第259期四堂課尚未完整登記，未派工");
-  }
-  const githubToken = String(PropertiesService.getScriptProperties().getProperty("GITHUB_TOKEN") || "").trim();
-  if (!githubToken) throw new Error("原 GitHub 派工設定尚未完成");
-  const bridgeUrl = "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec";
-  const dispatch = dispatchWorkflowIdempotently_(githubToken, taskId, "multi", "central4", "", bridgeUrl);
-  if (!dispatch.ok) throw new Error("原 Kaggle 派工未成功，請核對 GitHub 回應狀態");
-  const receipt = {ok: true, task_id: taskId, stage: "multi", duplicate: !!dispatch.duplicate,
-    run_id: String(dispatch.workflow_run_id || "")};
-  if (!dispatch.duplicate) appendExecutionStatus_(taskId, "multi", "queued",
-    receipt.run_id || "admin-P259-" + Date.now(), 0,
-    "管理編輯器已由原 Bridge 接續四堂課；沿用已驗證文稿與音檔", "", "", "");
-  // Never log or return the runtime nonce or the underlying dispatch object.
-  Logger.log(JSON.stringify(receipt));
-  return receipt;
-}
-
-function dispatchWorkflowIdempotently_(githubToken, taskId, stage, lang, langs, bridgeUrl) {
+function dispatchWorkflowIdempotently_(githubToken, taskId, stage, lang, langs) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -2445,7 +2401,7 @@ function dispatchWorkflowIdempotently_(githubToken, taskId, stage, lang, langs, 
         task_id: taskId, stage: stage,
         lang: lang || "", langs: langs || "",
         runtime_nonce: nonce,
-        bridge_url: bridgeUrl || ScriptApp.getService().getUrl()
+        bridge_url: ScriptApp.getService().getUrl()
       }
     );
     if (!dispatch.ok) {
@@ -4994,41 +4950,7 @@ function buildZhReviewManifest_(folder, raw, polished) {
   return manifest;
 }
 
-function loadChineseFinalReviewChunk_(official, taskId, chunkIndex, startedAt) {
-  if ((official.task_id && String(official.task_id) !== String(taskId)) ||
-      !Array.isArray(official.segments) || !official.segments.length) {
-    return { ok: false, task_id: taskId, kind: "zh",
-      error: "invalid_chinese_final", message: "中文 Final 資料不完整，保留原稿，請核對來源" };
-  }
-  const items = official.segments;
-  const chunkSize = 200;
-  const chunkCount = Math.max(1, Math.ceil(items.length / chunkSize));
-  const safeIndex = Math.max(0, Math.min(Number(chunkIndex || 0), chunkCount - 1));
-  const finalizedAt = String(official.finalized_at || official.central_finalized_at || "");
-  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(official));
-  return {
-    ok: true, task_id: taskId, kind: "zh", is_final: true,
-    review_source: "zh-TW.final.json", finalized_at: finalizedAt,
-    zh_finalized_at: finalizedAt,
-    review_revision: Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, ""),
-    load_ms: Date.now() - startedAt, chunk_index: safeIndex, chunk_count: chunkCount,
-    total_segments: items.length, has_more: safeIndex + 1 < chunkCount,
-    segments: items.slice(safeIndex * chunkSize, (safeIndex + 1) * chunkSize).map(function(item, index) {
-      const result = Object.assign({}, item);
-      result.id = Number(item.id !== undefined ? item.id : safeIndex * chunkSize + index);
-      result.text = String(item.text || "");
-      result.raw = String(item.raw !== undefined ? item.raw : result.text);
-      result.confirmed = true;
-      return result;
-    })
-  };
-}
-
 function loadZhReviewChunk_(folders, taskId, chunkIndex, startedAt) {
-  // A human Final is authoritative even when an older ASR/polish manifest
-  // remains in Drive or the GitHub review cache is temporarily unavailable.
-  const official = readJsonFile_(folders.transcript, "zh-TW.final.json");
-  if (official) return loadChineseFinalReviewChunk_(official, taskId, chunkIndex, startedAt);
   let manifest = readJsonFile_(folders.transcript, "zh-TW.review.manifest.json");
 
   // 舊任務第一次開啟時，才由既有 ASR + polish_report 建立一次分塊快取。
@@ -5178,10 +5100,7 @@ function loadReview_(taskId, kind, chunkIndex) {
         task_id: taskId,
         kind: kind,
         source: "en.final.json",
-        review_source: "en.final.json",
-        is_final: true,
-        finalized_at: String(englishFinal.finalized_at || englishFinal.central_finalized_at || ""),
-        zh_finalized_at: String(original.finalized_at || original.central_finalized_at || ""),
+        finalized_at: String(englishFinal.finalized_at || ""),
         load_ms: Date.now() - startedAt,
         segments: englishFinal.segments.map(function(x, i) {
           const start = Number(x.start || 0);
@@ -5511,9 +5430,6 @@ function bridgeClientHtml_() {
 (function(){
   function send(payload){
     try { window.parent.postMessage(payload, "*"); } catch (e) {}
-    // HtmlService adds a sandbox iframe inside the Apps Script wrapper.
-    // The Studio is the top window when embedded, not the immediate parent.
-    try { window.top.postMessage(payload, "https://staney41011.github.io"); } catch (e) {}
   }
 
   send({source: "soulkey-bridge-client", type: "ready"});

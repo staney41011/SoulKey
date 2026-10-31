@@ -37,21 +37,9 @@ let saveRevisionInFlight=0;
 let autoSaveTimer=null;
 let currentStep=1;
 let finishQueued=false;
-let finishPending=null;
-let finishTarget="";
 let driveFallbackZh=[];
 let driveFallbackTotal=0;
-let driveFallbackFinalizedAt="";
-let driveFallbackReviewRevision="";
-let driveFallbackFinalSource=false;
-let englishBaseRequests={};
-let legacyDraftBatchRequests=0;
 let englishAligned=null; // separate English sentence-paired draft
-let englishDriveLoaded=false;
-let outputPlanReady=false;
-let outputPlanError="";
-let savedOutputPlan=new Map();
-const outputSelectionTouched=new Set();
 
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??"")
@@ -395,13 +383,7 @@ function updateEnglishSummary(){
   const available=groups.filter(x=>String(x.en_text||"").trim()).length;
   const changed=groups.filter(x=>String(x.en_text||"").trim()!==String(x.source_en||"").trim()).length;
   $("english-summary").textContent=
-    (payload?.en_finalized_at?"英文定稿 ":"English CC ")+available+" / "+groups.length+" 句・人工修改 "+changed+" 句";
-
-  if(payload?.en_finalized_at){
-    $("cc-notice").className="cc-notice card ok";
-    $("cc-notice").textContent="已載入既有英文人工定稿，可直接選擇輸出語言。";
-    return;
-  }
+    "English CC "+available+" / "+groups.length+" 句・人工修改 "+changed+" 句";
 
   const hasEnglishCc=payload?.english_cc_available===true ||
     groups.some(x=>String(x.source_en||"").trim());
@@ -603,22 +585,6 @@ function bridgeKeyValue(){
 function jsonpBridgeRequest(fields){
   const key=bridgeKeyValue();
   if(!BRIDGE_ENDPOINT || !key) return false;
-  if(/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT) ||
-     window.SoulKeyBridgeRoutes.usesLegacy(fields)){
-    return window.SoulKeyBridgeRoutes.readLegacy(cfg,key,fields,{
-      onError:error=>setStatus(error.message,"error")
-    });
-  }
-  if(!/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT)){
-    fetch(BRIDGE_ENDPOINT,{
-      method:"POST",mode:"cors",cache:"no-store",
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-      body:new URLSearchParams({...fields,bridge_key:key})
-    }).then(response=>response.json()).then(data=>{
-      window.dispatchEvent(new MessageEvent("message",{data}));
-    }).catch(()=>setStatus("控制中心讀取失敗，編輯內容仍保留在此裝置","error"));
-    return true;
-  }
 
   const callbackName="__soulkey_review_jsonp_"+Date.now()+"_"+Math.random().toString(36).slice(2);
   const script=document.createElement("script");
@@ -670,7 +636,7 @@ function applyReviewPayload(loaded){
   $("save-draft").disabled=false;
   $("finalize-zh").disabled=!!payload.zh_finalized_at;
   $("finalize-en").disabled=!payload.zh_finalized_at||!!payload.en_finalized_at;
-  $("finish-workflow").disabled=!payload.en_finalized_at||!outputPlanReady;
+  $("finish-workflow").disabled=!payload.en_finalized_at;
 
   const finishRaw=localStorage.getItem("soulkey_finish:"+taskId);
   if(finishRaw){
@@ -699,10 +665,6 @@ function applyReviewPayload(loaded){
 }
 
 function submit(fields){
-  if(!bridgeKeyValue()){
-    setStatus("請先回工作台輸入原本的 6 碼，再開啟校稿頁","error");
-    return false;
-  }
   if(!BRIDGE_ENDPOINT){
     setStatus("後端連線不存在","error");
     return false;
@@ -726,29 +688,6 @@ function submit(fields){
       return false;
     }
   }
-  // Finalize into the new authoritative central store. Keep the old editor's
-  // response names so the review flow advances only after verified readback.
-  const finalTypes={review_share_finalize:"zh",review_share_finalize_en:"en"};
-  const finalKind=finalTypes[fields.action];
-  const outgoing=finalKind && !/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT) ? {...fields,action:"review_save",kind:finalKind,
-    source_video_id:videoId} : fields;
-  const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,outgoing);
-  if(!endpoint){setStatus("原有服務連線尚未設定","error");return false;}
-  if(!/^https:\/\/script\.google\.com\//.test(endpoint)){
-    fetch(endpoint,{
-      method:"POST",mode:"cors",cache:"no-store",
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-      body:new URLSearchParams({...outgoing,bridge_key:bridgeKeyValue()})
-    }).then(response=>response.json()).then(result=>{
-      const data=finalKind ? {...result,type:finalKind==="zh"
-        ?"review_share_finalized":"review_share_en_finalized"} : result;
-      window.dispatchEvent(new MessageEvent("message",{data}));
-    }).catch(()=>{
-      if(finalKind)$(finalKind==="zh"?"finalize-zh":"finalize-en").disabled=false;
-      setStatus("儲存未確認，內容仍保留在此裝置，請重試","error");
-    });
-    return true;
-  }
   const target="soulkey-share-"+Date.now()+"-"+Math.random().toString(36).slice(2);
   const frame=document.createElement("iframe");
   frame.name=target;
@@ -757,11 +696,11 @@ function submit(fields){
 
   const form=document.createElement("form");
   form.method="POST";
-  form.action=endpoint;
-  form.target=["run_stage","review_finish"].includes(fields.action) && finishTarget ? finishTarget : target;
+  form.action=BRIDGE_ENDPOINT;
+  form.target=target;
   form.style.display="none";
   const authenticatedFields={
-    ...outgoing,
+    ...fields,
     bridge_key:bridgeKeyValue()
   };
   for(const [name,value] of Object.entries(authenticatedFields)){
@@ -777,86 +716,8 @@ function submit(fields){
   setTimeout(()=>{
     form.remove();
     frame.remove();
-  },180000);
+  },10000);
   return true;
-}
-
-async function centralReviewRequest(fields){
-  if(/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT)){
-    const expected={review_en_draft_save:"english_review_draft_saved",
-      language_plan_save:"language_plan_saved"}[fields.action];
-    if(!expected)return new Promise((resolve,reject)=>{
-      if(!window.SoulKeyBridgeRoutes.readLegacy(cfg,bridgeKeyValue(),fields,
-        {onResult:resolve,onError:reject}))reject(new Error("原服務尚未連線"));
-    });
-    return new Promise((resolve,reject)=>{
-      const requestId=fields.action==="review_en_draft_save"
-        ? String(JSON.parse(fields.payload_json||"{}").save_request_id||""):"";
-      const tracksDraft=fields.action==="review_en_draft_save";
-      if(tracksDraft)legacyDraftBatchRequests++;
-      let settled=false;
-      const cleanup=()=>{
-        if(settled)return;settled=true;
-        clearTimeout(timer);window.removeEventListener("message",receive);
-        if(tracksDraft)legacyDraftBatchRequests--;
-      };
-      const receive=event=>{
-        const data=event.data||{};
-        if(data.source!=="soulkey-bridge"||data.type!==expected||
-           String(data.task_id||"")!==String(fields.task_id||""))return;
-        if(requestId&&String(data.request_id||"")!==requestId)return;
-        cleanup();resolve(data);
-      };
-      const timer=setTimeout(()=>{cleanup();reject(new Error("原服務儲存回執逾時，請核對後重試"));},90000);
-      window.addEventListener("message",receive);
-      if(!submit(fields)){cleanup();reject(new Error("原服務儲存未送出"));}
-    });
-  }
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),45000);
-  try{
-    const response=await fetch(BRIDGE_ENDPOINT,{
-      method:"POST",mode:"cors",cache:"no-store",signal:controller.signal,
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-      body:new URLSearchParams({...fields,bridge_key:bridgeKeyValue()})
-    });
-    return await response.json();
-  }finally{clearTimeout(timer);}
-}
-
-async function saveCentralEnglishDraft(editPayload){
-  const rows=editPayload.segments.filter(x=>x.en_confirmed===true);
-  if(!rows.length)throw new Error("請先確認至少一句英文，再儲存");
-  const current=await centralReviewRequest({action:"review_en_draft_status",task_id:taskId,include_edits:"1"});
-  if(!current.ok)throw new Error(current.message||current.error||"無法核對英文版本");
-  for(const row of rows){
-    const server=current.edits?.[String(row.id)];
-    if(server && String(server.request_id)!==String(englishBaseRequests[String(row.id)]||"") &&
-       String(server.en_text)!==String(row.en_text))
-      throw new Error("這句英文已由其他裝置更新，請保留本機修改並重新載入："+row.id);
-  }
-  for(let offset=0;offset<rows.length;offset+=25){
-    const part=rows.slice(offset,offset+25);
-    const requestId=Date.now()+"-"+offset+"-"+Math.random().toString(36).slice(2);
-    const batch={...editPayload,save_request_id:requestId,
-      confirmed_segment_ids:part.map(x=>x.id),segments:part.map(x=>({...x,
-        base_request_id:String(current.edits?.[String(x.id)]?.request_id||"")}))};
-    let result;
-    try{
-      result=await centralReviewRequest({action:"review_en_draft_save",task_id:taskId,
-        payload_json:JSON.stringify(batch)});
-    }catch(error){
-      // A lost ACK may follow a committed write. Confirm the same request ID
-      // before permitting a later attempt with a different revision.
-      const receipt=await centralReviewRequest({action:"review_en_draft_status",task_id:taskId,request_id:requestId});
-      if(!receipt.ok||!receipt.committed)throw error;
-      result={ok:true};
-    }
-    if(!result.ok)throw new Error(result.message||result.error||"英文儲存未確認");
-    for(const row of part)englishBaseRequests[String(row.id)]=requestId;
-  }
-  return {source:"soulkey-bridge",type:"english_review_draft_saved",ok:true,
-    task_id:taskId,storage:"google-sheet"};
 }
 
 function requestDraftSave(reason="manual"){
@@ -896,17 +757,8 @@ function requestDraftSave(reason="manual"){
       en_confirmed:x.en_confirmed===true
     }))
   }:currentPayload();
-  if(englishMode){
-    saveCentralEnglishDraft(editPayload).then(data=>{
-      window.dispatchEvent(new MessageEvent("message",{data}));
-    }).catch(error=>window.dispatchEvent(new MessageEvent("message",{data:{
-      source:"soulkey-bridge",type:"english_review_draft_saved",ok:false,
-      task_id:taskId,message:error.message
-    }})));
-    return;
-  }
   const sent=submit({
-    action:"review_share_draft_save",
+    action:englishMode?"review_en_draft_save":"review_share_draft_save",
     task_id:taskId,
     payload_json:JSON.stringify(editPayload)
   });
@@ -990,75 +842,34 @@ function collectOutputPlan(){
   return [...document.querySelectorAll(".output-row")].map(row=>{
     const code=row.dataset.outputLang;
     const selected=!!row.querySelector("[data-output-enabled]")?.checked;
-    const saved=savedOutputPlan.get(code);
-    const preserve=saved && !outputSelectionTouched.has(code);
     return {
       language_code:code,
-      language_name:String(saved?.language_name||LANG_NAMES[code]||code),
-      transcript_enabled:preserve?saved.transcript_enabled:code==="en"||selected,
-      transcript_source:preserve?saved.transcript_source:code==="en"?"human":"ai",
-      audio_enabled:preserve?saved.audio_enabled:selected,
-      audio_source:preserve?saved.audio_source:"tts"
+      language_name:LANG_NAMES[code]||code,
+      transcript_enabled:code==="en"||selected,
+      transcript_source:code==="en"?"human":"ai",
+      audio_enabled:selected,
+      audio_source:"tts"
     };
   });
 }
 
 function updateOutputSummary(){
-  if(!outputPlanReady){
-    $("output-summary").textContent=outputPlanError||"正在讀取這堂課的輸出語言設定…";
-    return;
-  }
   const selected=collectOutputPlan()
     .filter(x=>x.audio_enabled)
     .map(x=>LANG_NAMES_ZH[x.language_code]||x.language_code);
-  const textOnly=collectOutputPlan().filter(x=>x.language_code!=="en"&&x.transcript_enabled&&!x.audio_enabled);
-  $("output-summary").textContent=(selected.length
+  $("output-summary").textContent=selected.length
     ? "已選 "+selected.length+" 種："+selected.join("、")+"。每種都會產生文稿＋自然語音音檔。"
-    : "目前保留英文人工 Final；尚未選擇額外音檔。")+
-    (textOnly.length?" 另保留僅文稿："+textOnly.map(x=>LANG_NAMES_ZH[x.language_code]||x.language_code).join("、")+"。":"");
-}
-
-async function loadOutputPlan(){
-  outputPlanReady=false;outputPlanError="";
-  $("finish-workflow").disabled=true;
-  try{
-    const result=await centralReviewRequest({action:"language_plan_get",task_id:taskId});
-    if(!result.ok || String(result.task_id||"")!==taskId || !Array.isArray(result.plan))
-      throw new Error("Invalid lesson output plan");
-    const enabled=value=>value===true||String(value).toUpperCase()==="TRUE";
-    savedOutputPlan=new Map(result.plan.map(row=>[String(row.language_code),{
-      ...row,transcript_enabled:enabled(row.transcript_enabled),audio_enabled:enabled(row.audio_enabled)
-    }]));
-    document.querySelectorAll(".output-row").forEach(row=>{
-      const code=row.dataset.outputLang;
-      if(outputSelectionTouched.has(code)) return;
-      const toggle=row.querySelector("[data-output-enabled]");
-      if(toggle) toggle.checked=savedOutputPlan.has(code)?savedOutputPlan.get(code).audio_enabled:true;
-      const saved=savedOutputPlan.get(code);
-      if(code!=="en"&&saved?.transcript_enabled&&!saved.audio_enabled){
-        const label=row.querySelector(".output-pair");
-        if(label)label.textContent="已保留僅文稿設定；勾選可另外製作音檔";
-      }
-    });
-    outputPlanReady=true;
-  }catch(_){
-    outputPlanError="輸出語言設定讀取失敗，請重新整理後再送出。";
-    setStatus(outputPlanError,"error");
-  }
-  $("finish-workflow").disabled=!outputPlanReady||!payload?.en_finalized_at;
-  updateOutputSummary();
+    : "目前保留英文人工 Final；尚未選擇額外輸出。";
 }
 
 function finishWorkflow(){
-  if(!outputPlanReady){setStatus(outputPlanError||"請等待輸出語言設定載入","error");return;}
   if(!payload?.en_finalized_at){
     alert("請先完成 English Final。");
     return;
   }
   const plan=collectOutputPlan();
-  const extra=plan.filter(x=>x.language_code!=="en"&&x.transcript_enabled);
+  const extra=plan.filter(x=>x.language_code!=="en"&&x.audio_enabled);
   const audio=plan.filter(x=>x.audio_enabled);
-  if(!extra.length&&!audio.length){alert("請至少選擇一種輸出語言。");return;}
 
   const msg=
     "確定開始最終輸出？\n\n"+
@@ -1068,53 +879,19 @@ function finishWorkflow(){
 
   $("finish-workflow").disabled=true;
   setStatus("送出最終輸出工作…","working");
-  if(/iPad|iPhone|iPod/i.test(navigator.userAgent||"")){
-    finishTarget="soulkey-finish-"+Date.now();
-    window.open("about:blank",finishTarget);
-  }
-  const translateLangs=extra.map(x=>x.language_code);
-  const audioLangs=audio.map(x=>x.language_code);
-  finishPending={submittedAt:Date.now(),previousRunId:"",translateLangs,audioLangs};
-  centralReviewRequest({action:"language_plan_save",task_id:taskId,
-    plan_json:JSON.stringify(plan)}).then(result=>{
-    if(!result.ok)throw new Error(result.message||result.error||"語言設定未儲存");
-    const sent=submit(/^https:\/\/script\.google\.com\//.test(BRIDGE_ENDPOINT)
-      ? {action:"review_finish",task_id:taskId,plan_json:JSON.stringify(plan)}
-      : {action:"run_stage",task_id:taskId,stage:"finish",
-         langs:translateLangs.join(","),lang:audioLangs.join(",")});
-    if(!sent)throw new Error("派工未送出");
-    setStatus("請求已送出，等待中央派工確認…","working");
-    for(const wait of [3000,8000,15000,30000,60000])
-      window.setTimeout(()=>jsonpBridgeRequest({action:"status",task_id:taskId}),wait);
-  }).catch(error=>{
-    finishPending=null;$("finish-workflow").disabled=false;
-    setStatus(error.message,"error");
+  submit({
+    action:"review_finish",
+    task_id:taskId,
+    plan_json:JSON.stringify(plan)
   });
 }
 
 window.addEventListener("message",event=>{
   const data=event.data||{};
   if(data.source!=="soulkey-bridge") return;
-  if(finishPending && data.type==="status_result" && data.ok){
-    const state=data.tasks?.[taskId]?.stages?.finish;
-    if(window.SoulKeyBridgeRoutes.dispatchReceipt(finishPending,state)){
-      window.dispatchEvent(new MessageEvent("message",{data:{
-        source:"soulkey-bridge",type:"run_stage",ok:true,task_id:taskId,
-        stage:"finish",run_id:state.run_id
-      }}));
-    }
-  }
-  if(finishPending && data.type==="run_stage" && data.task_id===taskId && data.stage==="finish"){
-    const pending=finishPending;finishPending=null;
-    window.dispatchEvent(new MessageEvent("message",{data:{...data,
-      type:"review_finish_queued",translate_langs:pending.translateLangs,
-      audio_langs:pending.audioLangs,
-      message:data.ok?"中央已確認 Kaggle 派工；完成後請核對文稿及音檔":data.message
-    }}));
-  }
 
   if(data.type==="status_health" && data.ok){
-    bridgeProtocolVersion=window.SoulKeyBridgeRoutes.protocol(data.bridge_protocol);
+    bridgeProtocolVersion=Number(data.bridge_protocol||0);
     if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
       setStatus(
         "控制中心版本過舊（v"+bridgeProtocolVersion+"）；可讀取 Drive，但已停用寫入與送出工作，請重新部署 Code.gs。",
@@ -1145,7 +922,6 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="review_data"){
-    if(data.task_id && String(data.task_id)!==taskId) return;
     if(!data.ok){
       if(data.kind==="en"){
         // English may legitimately not exist before Chinese Final. Keep the
@@ -1166,14 +942,6 @@ window.addEventListener("message",event=>{
       if(chunkIndex===0){
         driveFallbackZh=[];
         driveFallbackTotal=Number(data.total_segments||0);
-        driveFallbackFinalSource=data.is_final===true && data.review_source==="zh-TW.final.json";
-        driveFallbackFinalizedAt=driveFallbackFinalSource?String(data.zh_finalized_at||data.finalized_at||"drive-final"):"";
-        driveFallbackReviewRevision=String(data.review_revision||"");
-      }else if(driveFallbackReviewRevision!==String(data.review_revision||"") ||
-               driveFallbackTotal!==Number(data.total_segments||0) ||
-               driveFallbackFinalSource!==(data.is_final===true && data.review_source==="zh-TW.final.json")){
-        setStatus("中文稿版本已變動，請重新載入；此裝置的修改仍保留","error");
-        return;
       }
       driveFallbackZh.push(...(Array.isArray(data.segments)?data.segments:[]));
 
@@ -1192,7 +960,6 @@ window.addEventListener("message",event=>{
         task_id:taskId,
         generated_at:new Date().toISOString(),
         total_segments:driveFallbackZh.length,
-        zh_finalized_at:driveFallbackFinalizedAt,
         segments:driveFallbackZh
       };
       applyReviewPayload(fallbackPayload);
@@ -1206,6 +973,17 @@ window.addEventListener("message",event=>{
 
     if(data.kind==="en"){
       const rows=Array.isArray(data.segments)?data.segments:[];
+      const byId=new Map(rows.map(x=>[Number(x.id),x]));
+      segments=segments.map(item=>{
+        const row=byId.get(Number(item.id));
+        if(!row) return item;
+        return {
+          ...item,
+          source_en:String(item.source_en||""),
+          en_text:String(row.en||item.en_text||item.source_en||"")
+        };
+      });
+
       // A successful English Drive response proves zh-TW.final.json exists,
       // because the Bridge refuses to return English review data otherwise.
       // Preserve that fact when GitHub cache is temporarily unavailable so a
@@ -1214,49 +992,24 @@ window.addEventListener("message",event=>{
       if(!payload.zh_finalized_at){
         payload.zh_finalized_at="drive-final";
       }
-      // English Final and Chinese ASR IDs describe different paragraph sets.
-      // Keep the authenticated English rows and their time-aligned Chinese;
-      // joining 59 English passages onto 449 ASR IDs silently loses content.
-      if(!dirty){
-        englishDriveLoaded=true;
-        englishAligned=rows.map((row,index)=>({
-          ...row,
-          id:Number(row.id??index),
-          text:String(row.original??row.text??""),
-          source_en:String(row.source_en??""),
-          en_text:String(row.en??row.en_text??row.source_en??""),
-          en_confirmed:row.en_confirmed===true,
-          zh_ids:Array.isArray(row.ids)?row.ids.map(Number):[]
-        }));
-        payload.en_finalized_at=String(data.finalized_at||
-          (data.is_final===true && data.review_source==="en.final.json"?"drive-final":""));
-        if(!payload.en_finalized_at) restoreEnglishDraftEdits(englishAligned).catch(()=>{
-          setStatus("Drive 英文稿已載入；逐句修改回讀失敗，請重新整理核對","error");
-        });
-      }
-      $("finalize-zh").disabled=true;
+
+      if(!englishAligned) renderEn();
       $("finalize-en").disabled=!!payload.en_finalized_at;
-      $("finish-workflow").disabled=!payload.en_finalized_at||!outputPlanReady;
-      renderZh();
-      renderEn();
-      setStep(requestedStepNumber||(payload.en_finalized_at?3:2));
-      setStatus(dirty?"已讀取 Drive；保留此裝置尚未儲存的修改":
-        payload.en_finalized_at?"已由 Google Drive 恢復中英文人工定稿":
-        "GitHub 快取缺少・已由 Google Drive 恢復中英文稿","ok");
+      if(requestedStepNumber===2) setStep(2);
+      setStatus("GitHub 快取缺少・已由 Google Drive 恢復中英文稿","ok");
       return;
     }
   }
 
-  if((data.type==="review_share_draft_saved" ||
-      data.type==="english_review_draft_saved") &&
-     !(data.type==="english_review_draft_saved" && legacyDraftBatchRequests>0)){
+  if(data.type==="review_share_draft_saved" ||
+     data.type==="english_review_draft_saved"){
     saveInFlight=false;
     $("save-draft").disabled=false;
     if(data.ok){
       lastSavedRevision=Math.max(lastSavedRevision,saveRevisionInFlight);
       dirty=revision>lastSavedRevision;
       setStatus(
-        saveQueued?"前一批已同步・繼續同步最新修改…":data.storage==="google-sheet"?"英文已寫入中央表並回讀驗證":"已同步到 GitHub",
+        saveQueued?"前一批已同步・繼續同步最新修改…":"已同步到 GitHub",
         saveQueued?"working":"ok"
       );
       if(saveQueued){
@@ -1298,7 +1051,7 @@ window.addEventListener("message",event=>{
       setStatus("英文定稿完成","ok");
       $("finalize-en").disabled=true;
       renderEn();
-      $("finish-workflow").disabled=!outputPlanReady;
+      $("finish-workflow").disabled=false;
       setStep(3);
     }else{
       $("finalize-en").disabled=false;
@@ -1387,22 +1140,10 @@ async function fastReviewJson(kind){
   }));
 }
 
-async function restoreEnglishDraftEdits(alignedRows){
-  const saved=await centralReviewRequest({action:"review_en_draft_status",task_id:taskId,include_edits:"1"});
-  if(!saved.ok || dirty || payload?.en_finalized_at || englishAligned!==alignedRows) return;
-  for(const row of alignedRows){
-    const edit=saved.edits?.[String(row.id)];
-    if(edit){row.en_text=String(edit.en_text);row.en_confirmed=true;
-      englishBaseRequests[String(row.id)]=String(edit.request_id||"");}
-  }
-  renderEn();
-}
-
 async function loadAlignedEnglish(force=false){
-  if(!payload?.zh_finalized_at || englishDriveLoaded || (englishAligned && !force)) return;
+  if(!payload?.zh_finalized_at || (englishAligned && !force)) return;
   try{
     const aligned=await fastReviewJson("en");
-    if(englishDriveLoaded) return;
     if(!aligned.segments?.length) return;
     // Do not overwrite a newer unsaved English edit from this device.
     if(dirty && Array.isArray(englishAligned) && englishAligned.length) return;
@@ -1414,11 +1155,10 @@ async function loadAlignedEnglish(force=false){
     if(aligned.en_finalized_at){
       payload.en_finalized_at=String(aligned.en_finalized_at);
       $("finalize-en").disabled=true;
-      $("finish-workflow").disabled=!outputPlanReady;
+      $("finish-workflow").disabled=false;
     }
-    if(!payload.en_finalized_at) await restoreEnglishDraftEdits(englishAligned);
     renderEn();
-    setStep(requestedStepNumber||(payload.en_finalized_at?3:2));
+    if(requestedStepNumber===2) setStep(2);
     setStatus("中英段落已按中文 Final 時間軸對齊","ok");
   }catch(_){
     // Legacy lessons without an English cache retain the Drive fallback.
@@ -1437,7 +1177,10 @@ async function loadReview(){
     if(loaded?.segments?.length){
       applyReviewPayload(loaded);
       loadAlignedEnglish();
-      if(loaded.zh_finalized_at){
+      const hasEnglish=(loaded.segments||[]).some(
+        x=>String(x.en_text||x.source_en||"").trim()
+      );
+      if(!hasEnglish && loaded.zh_finalized_at){
         requestDriveReview("en",0);
       }
       return;
@@ -1470,10 +1213,7 @@ document.querySelectorAll("[data-go-step]").forEach(btn=>{
 });
 
 document.querySelectorAll(".output-row [data-output-enabled]").forEach(toggle=>{
-  toggle.addEventListener("change",()=>{
-    outputSelectionTouched.add(String(toggle.closest(".output-row")?.dataset.outputLang||""));
-    updateOutputSummary();
-  });
+  toggle.addEventListener("change",updateOutputSummary);
 });
 
 $("load-more-zh").addEventListener("click",()=>{
@@ -1504,7 +1244,6 @@ window.addEventListener("beforeunload",event=>{
 });
 
 updateOutputSummary();
-loadOutputPlan();
 mountPlayer();
 jsonpBridgeRequest({action:"status_health"});
 loadReview();

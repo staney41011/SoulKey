@@ -58,7 +58,6 @@ class BridgeCredentials(Credentials):
         self.token = token
         self.expiry = datetime.utcnow() + timedelta(minutes=45)
         print("[Google] SoulKey Bridge OAuth token 已自動更新", flush=True)
-
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
