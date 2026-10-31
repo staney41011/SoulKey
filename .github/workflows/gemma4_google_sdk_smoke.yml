@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - test/gemma4-google-api-p259l04-20261101
+    paths:
+      - .github/workflows/gemma4_google_sdk_smoke.yml
   workflow_dispatch:
 jobs:
   smoke:
