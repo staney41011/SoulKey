@@ -41,6 +41,9 @@ let finishPending=null;
 let finishTarget="";
 let driveFallbackZh=[];
 let driveFallbackTotal=0;
+let driveFallbackFinalizedAt="";
+let driveFallbackReviewRevision="";
+let driveFallbackFinalSource=false;
 let englishBaseRequests={};
 let legacyDraftBatchRequests=0;
 let englishAligned=null; // separate English sentence-paired draft
@@ -1118,6 +1121,14 @@ window.addEventListener("message",event=>{
       if(chunkIndex===0){
         driveFallbackZh=[];
         driveFallbackTotal=Number(data.total_segments||0);
+        driveFallbackFinalSource=data.is_final===true && data.review_source==="zh-TW.final.json";
+        driveFallbackFinalizedAt=driveFallbackFinalSource?String(data.zh_finalized_at||data.finalized_at||"drive-final"):"";
+        driveFallbackReviewRevision=String(data.review_revision||"");
+      }else if(driveFallbackReviewRevision!==String(data.review_revision||"") ||
+               driveFallbackTotal!==Number(data.total_segments||0) ||
+               driveFallbackFinalSource!==(data.is_final===true && data.review_source==="zh-TW.final.json")){
+        setStatus("中文稿版本已變動，請重新載入；此裝置的修改仍保留","error");
+        return;
       }
       driveFallbackZh.push(...(Array.isArray(data.segments)?data.segments:[]));
 
@@ -1136,6 +1147,7 @@ window.addEventListener("message",event=>{
         task_id:taskId,
         generated_at:new Date().toISOString(),
         total_segments:driveFallbackZh.length,
+        zh_finalized_at:driveFallbackFinalizedAt,
         segments:driveFallbackZh
       };
       applyReviewPayload(fallbackPayload);
@@ -1171,7 +1183,8 @@ window.addEventListener("message",event=>{
           en_confirmed:row.en_confirmed===true,
           zh_ids:Array.isArray(row.ids)?row.ids.map(Number):[]
         }));
-        payload.en_finalized_at=String(data.finalized_at||"");
+        payload.en_finalized_at=String(data.finalized_at||
+          (data.is_final===true && data.review_source==="en.final.json"?"drive-final":""));
         if(!payload.en_finalized_at) restoreEnglishDraftEdits(englishAligned).catch(()=>{
           setStatus("Drive 英文稿已載入；逐句修改回讀失敗，請重新整理核對","error");
         });
