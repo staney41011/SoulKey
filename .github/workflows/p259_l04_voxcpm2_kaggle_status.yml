@@ -1,4 +1,5 @@
 name: P259 VoxCPM2 Kaggle status snapshot
+# second run: verify Kaggle benchmark after API-compatibility fix
 on:
   push:
     branches:
