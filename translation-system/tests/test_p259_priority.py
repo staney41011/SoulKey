@@ -37,7 +37,7 @@ class PriorityTests(unittest.TestCase):
 
     def test_tts_schedules_six_once_before_other_58(self):
         tasks = [{"task_id": "P259-L01"}, {"task_id": "P259-L04"}, {"task_id": "P259-L02"}]
-        languages = ["en", "th", "es", "id", "vi", "hi", "ta", "ja"]
+        languages = ["en", "th", "es", "id", "vi", "km", "hi", "ta", "ja"]
         selected = [(task["task_id"], lang) for task, priority_only in tts_job_passes(tasks)
                     for lang in languages
                     if is_priority(task["task_id"], lang) == priority_only]
