@@ -262,7 +262,7 @@ def qa(gemma,lang,source,translation,semantic_pass_cache=None):
                     semantic_pass_cache.add((sid,dest[sid]))
     return errors
 
-def repair(gemma,lang,source,translated):
+def repair(gemma,lang,source,translated,checkpoint=None):
     originals={int(x["id"]):x["text"] for x in source}
     current={int(x["id"]):x["text"] for x in translated}
     repairs=0
@@ -274,19 +274,22 @@ def repair(gemma,lang,source,translated):
             return [{"id":x["id"],"text":current[int(x["id"])]} for x in source],round_no+1,repairs
         if round_no==4:break
         print("GEMMA4_QA_REPAIR",lang,len(failures),flush=True)
-        for sid,issues in failures.items():
-            prompt=("Re-translate this ONE English segment faithfully to "+LANGS[lang]+
-              ". Correct: "+",".join(issues)+". Do not omit meaning, quantities or proper "
-              "names. Output ONLY JSON "+'{"segments":[{"id":'+str(sid)+',"text":"..."}]}'+
-              "\nEnglish: "+originals[sid]+"\nEarlier result: "+current[sid])
-            # Long English CC segments often contain 150+ words and several
-            # numerical claims. 950 tokens may clip their target-language
-            # retranslation. Increase only for such difficult segments.
-            token_budget=2304 if len(originals[sid])>560 else 1200
-            ans=gemma.json(prompt,limit=token_budget)
-            rows=ans.get("segments") if isinstance(ans,dict) else ans
-            current[sid]=check_ids([{"id":sid}],rows)[0]["text"]
-            repairs+=1
+        prior_repairs=repairs
+        try:
+            for sid,issues in failures.items():
+                prompt=("Re-translate this ONE English segment faithfully to "+LANGS[lang]+
+                  ". Correct: "+",".join(issues)+". Do not omit meaning, quantities or proper "
+                  "names. Output ONLY JSON "+'{"segments":[{"id":'+str(sid)+',"text":"..."}]}'+
+                  "\nEnglish: "+originals[sid]+"\nEarlier result: "+current[sid])
+                # Long source paragraphs need the existing larger output cap.
+                token_budget=2304 if len(originals[sid])>560 else 1200
+                ans=gemma.json(prompt,limit=token_budget)
+                rows=ans.get("segments") if isinstance(ans,dict) else ans
+                current[sid]=check_ids([{"id":sid}],rows)[0]["text"]
+                repairs+=1
+        finally:
+            if checkpoint and repairs>prior_repairs:
+                checkpoint([{"id":x["id"],"text":current[int(x["id"])]} for x in source])
     # A second, isolated check is necessary for self-judged semantic QA.
     # Gemma occasionally flags faithful paraphrases as omissions.  Never
     # override deterministic wrong-language, number, copied-English, or
@@ -361,6 +364,8 @@ def run():
     from central_tts_source import verified_english_final,verified_translation,SourceNotReady
     from central_tts_recovery import ready_tasks
     from central_manuscript_export import publish_manuscript
+    from gemma_draft_checkpoint import DraftCheckpoint
+    from lesson_paths import resolve_lesson_folders
     drive,sheets=build_google_services()
     read=lambda r:read_values(sheets,SPREADSHEET_ID,r)
     indexes=read("英文定稿索引!A2:F10000")
@@ -389,6 +394,7 @@ def run():
     if not remaining:return
     gemma=Gemma()
     passed=failed=0
+    draft_folders={}
     # Leave substantial Kaggle time for producing verified Edge TTS audio.
     deadline=time.monotonic()+int(os.environ.get("SOULKEY_GEMMA4_TRANSLATION_BUDGET_SECONDS","9000"))
     for task,final,lang in remaining:
@@ -409,8 +415,17 @@ def run():
                 continue
             except SourceNotReady:pass
             source=[{"id":x["id"],"text":x["text"]} for x in final["segments"]]
-            proposed=translate(gemma,lang,source)
-            checked,batches,repair_count=repair(gemma,lang,source,proposed)
+            if task["task_id"] not in draft_folders:
+                draft_folders[task["task_id"]]=resolve_lesson_folders(drive,sheets,task["period"],task["lesson"])["log"]
+            checkpoint=DraftCheckpoint(drive,draft_folders[task["task_id"]],work/"checkpoints",
+                task["task_id"],lang,final["revision"],[row["id"] for row in source])
+            proposed=checkpoint.load()
+            if proposed is None:
+                proposed=translate(gemma,lang,source)
+                checkpoint.save(proposed)
+            # Every resumed proposal repeats full QA. No semantic cache or
+            # pass receipt is loaded from these explicitly unverified drafts.
+            checked,batches,repair_count=repair(gemma,lang,source,proposed,checkpoint=checkpoint.save)
             checked_by_id={str(x["id"]):x["text"] for x in checked}
             job="gemma4-"+uuid.uuid4().hex
             now=datetime.now(timezone.utc).isoformat()

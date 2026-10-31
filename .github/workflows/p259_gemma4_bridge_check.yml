@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'translation-system/p259_gemma4_kaggle.py'
+      - 'translation-system/gemma_draft_checkpoint.py'
+      - 'translation-system/tests/test_gemma_draft_checkpoint.py'
       - 'translation-system/test_p259_gemma4_repair.py'
       - 'translation-system/web_job_worker.py'
       - 'translation-system/tests/test_kaggle_gemma_runtime.py'
@@ -13,6 +15,8 @@ on:
   pull_request:
     paths:
       - 'translation-system/p259_gemma4_kaggle.py'
+      - 'translation-system/gemma_draft_checkpoint.py'
+      - 'translation-system/tests/test_gemma_draft_checkpoint.py'
       - 'translation-system/web_job_worker.py'
       - 'translation-system/tests/test_kaggle_gemma_runtime.py'
       - '.github/workflows/kaggle_web_job.yml'
@@ -36,6 +40,7 @@ jobs:
           python translation-system/p259_gemma4_kaggle.py --self-test
           python translation-system/test_p259_gemma4_repair.py
           python translation-system/tests/test_kaggle_gemma_runtime.py
+          python translation-system/tests/test_gemma_draft_checkpoint.py
       - name: Check auth bridge routing and GPU metadata consistency
         shell: bash
         run: |
