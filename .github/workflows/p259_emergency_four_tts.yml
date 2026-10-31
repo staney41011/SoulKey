@@ -1,4 +1,5 @@
 name: P259 emergency four-language voice delivery
+# rerun after script import path fix
 on:
   push:
     branches:
