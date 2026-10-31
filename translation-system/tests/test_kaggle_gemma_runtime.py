@@ -39,7 +39,7 @@ class KaggleRuntimeTests(unittest.TestCase):
     def test_gemma_removes_stale_digest_and_requests_supported_latest_image(self):
         for stage,langs in [("multi",""),("finish","ja,ko")]:
             with self.subTest(stage=stage):
-                metadata=self.metadata(stage,langs=langs)
+                metadata=self.metadata(stage,langs=langs,lang="id")
                 self.assertNotIn("docker_image",metadata)
                 self.assertEqual(metadata["docker_image_pinning_type"],"latest")
                 self.assertTrue(metadata["enable_gpu"])
@@ -48,6 +48,11 @@ class KaggleRuntimeTests(unittest.TestCase):
                 self.assertEqual(metadata["kernel_sources"],["cwlmrcsir/translate-system"])
                 self.assertEqual(metadata["model_sources"],[])
                 self.assertNotIn("id_no",metadata)
+
+    def test_central4_l04_urgent_path_uses_cpu_not_gpu(self):
+        metadata=self.metadata("multi",task="P259-L01",lang="central4")
+        self.assertFalse(metadata["enable_gpu"])
+        self.assertEqual(metadata["docker_image"],"old-image@sha256:stale")
 
     def test_other_jobs_do_not_silently_change_their_pulled_image(self):
         for stage,task in [("zh","P259-L01"),("tts","P259-L01"),("multi","P260-L01")]:
