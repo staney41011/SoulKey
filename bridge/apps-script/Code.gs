@@ -4159,7 +4159,9 @@ function ttsShareLinks_(taskId) {
   }
   const folders = lessonFolders_(id);
   const audioFolder = cachedChildFolder_(folders.lesson, "04_音檔");
-  const codes = ["en","es","th","id","km","vi"];
+  // All 16 configured audio languages must be discoverable. The previous
+  // six-language shortlist silently hid P259-L04 Tamil/Nepali/Lao/Burmese.
+  const codes = ["en","es","th","id","km","vi","hi","ta","ja","ko","bn","ne","lo","my","it","pt"];
   const files = [];
   codes.forEach(function(code) {
     const canonical = code + ".mp3";
