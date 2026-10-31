@@ -9,26 +9,15 @@
   if (root) root.SoulKeyTTSShare = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
-  // Show the complete configured 16-language plan: real Drive-backed links
-  // where delivered, and explicit pending/review labels for missing audio.
-  // Older six-language selection hid four already-delivered P259-L04 voices.
+  // Public sharing is intentionally limited to the six requested languages.
+  // Other languages remain available in the translation/TTS pipeline.
   const LANGUAGES = Object.freeze([
     {code:"en",label:"🇬🇧 English 英語"},
     {code:"es",label:"🇪🇸 Español 西班牙語"},
     {code:"th",label:"🇹🇭 ภาษาไทย 泰語"},
     {code:"id",label:"🇮🇩 Bahasa Indonesia 印尼語"},
     {code:"km",label:"🇰🇭 ភាសាខ្មែរ 高棉語"},
-    {code:"vi",label:"🇻🇳 Tiếng Việt 越南語"},
-    {code:"hi",label:"🇮🇳 हिन्दी 印地語"},
-    {code:"ta",label:"🇮🇳 தமிழ் 泰米爾語"},
-    {code:"ja",label:"🇯🇵 日本語 日語"},
-    {code:"ko",label:"🇰🇷 한국어 韓語"},
-    {code:"bn",label:"🇧🇩 বাংলা 孟加拉語"},
-    {code:"ne",label:"🇳🇵 नेपाली 尼泊爾語"},
-    {code:"lo",label:"🇱🇦 ພາສາລາວ 寮語"},
-    {code:"my",label:"🇲🇲 မြန်မာဘာသာ 緬甸語"},
-    {code:"it",label:"🇮🇹 Italiano 義大利語"},
-    {code:"pt",label:"🇧🇷 Português 葡萄牙語"}
+    {code:"vi",label:"🇻🇳 Tiếng Việt 越南語"}
   ]);
   const LOOKUP = Object.fromEntries(LANGUAGES.map(l => [l.code,l]));
 
@@ -99,7 +88,8 @@
     return "https://drive.google.com/file/d/"+id+"/view";
   }
   function expectedLanguages() {
-    // All 16 are visible; missing or review-only audio is never marked done.
+    // A shared lesson message always lists this six-language shortlist.
+    // Languages without a verified full-length Drive file show pending.
     return LANGUAGES;
   }
   function reviewReason(task,code) {
