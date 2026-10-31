@@ -8,7 +8,7 @@ const LANG={
  "尼泊爾文":"ne","寮文":"lo","緬甸文":"my","義大利文":"it","葡萄牙文":"pt"
 };
 const codes=["zh-TW","en","th","es","id","vi","km","hi","ta","ja","ko","bn","ne","lo","my","it","pt"];
-const shareCodes=["en","es","th","id","km","vi"];
+const shareCodes=codes.filter(code=>code!=="zh-TW");
 const FOLDER="application/vnd.google-apps.folder";
 const url=id=>"https://drive.google.com/file/d/"+id+"/view";
 const folderUrl=id=>"https://drive.google.com/drive/folders/"+id;
