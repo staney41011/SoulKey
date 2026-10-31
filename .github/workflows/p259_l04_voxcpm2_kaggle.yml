@@ -1,0 +1,115 @@
+name: P259-L04 VoxCPM2 real Kaggle GPU benchmark
+on:
+  push:
+    branches:
+      - benchmark/voxcpm2-kaggle-p259-l04
+    paths:
+      - .github/workflows/p259_l04_voxcpm2_kaggle.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  kaggle-voxcpm2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-voxcpm2-benchmark
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout independent benchmark branch
+        uses: actions/checkout@v4
+      - name: Install Kaggle CLI and verify GPU token exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${KAGGLE_API_TOKEN}" ]; then
+            echo "BENCH_BLOCKED: KAGGLE_API_TOKEN is missing from repository Actions secret"
+            exit 3
+          fi
+          python -m pip install -q kaggle
+          kaggle --version
+      - name: Prepare P259 L04 real text and isolated T4 kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path.cwd()
+          samples={}
+          for lang in ("id","vi","km"):
+              p=root/"emergency-delivery"/"P259-L04"/(lang+".json")
+              source=json.loads(p.read_text("utf-8"))
+              assert len(source["segments"])==67 and source["language"]==lang
+              texts=[s["text"].strip() for s in source["segments"] if s.get("text") and len(s["text"].strip())>=40]
+              used=[]
+              for wanted in (110,230):
+                  chosen=min((t for t in texts if t not in used),key=lambda t:abs(len(t)-wanted))
+                  used.append(chosen)
+              samples[lang]=used
+          d=Path("/tmp/soulkey-voxcpm2-kaggle");d.mkdir(parents=True,exist_ok=True)
+          code=(root/"benchmarks"/"voxcpm2_p259_l04_kaggle.py").read_text("utf-8")
+          assert code.count("__INJECT_SAMPLES_JSON__")==1
+          code=code.replace("__INJECT_SAMPLES_JSON__",repr(samples))
+          code="""import subprocess, time, sys
+          _setup_t0=time.monotonic()
+          subprocess.run([sys.executable, "-m", "pip", "install", "-q", "voxcpm", "soundfile"],check=True)
+          print("BENCH_SETUP_SEC",round(time.monotonic()-_setup_t0,2),flush=True)
+          """ .replace("          ","") + code
+          (d/"voxcpm2-benchmark.py").write_text(code,"utf-8")
+          metadata={
+              "id":"cwlmrcsir/soulkey-voxcpm2-benchmark",
+              "title":"SoulKey VoxCPM2 Kaggle T4 benchmark P259 L04",
+              "code_file":"voxcpm2-benchmark.py",
+              "language":"python","kernel_type":"script",
+              "is_private":True,"enable_gpu":True,"enable_tpu":False,
+              "enable_internet":True,"machine_shape":"NvidiaTeslaT4",
+              "dataset_sources":[],"competition_sources":[],"kernel_sources":[],"model_sources":[]
+          }
+          (d/"kernel-metadata.json").write_text(json.dumps(metadata,indent=2),"utf-8")
+          print("BENCH_KAGGLE_SETUP",json.dumps({k:[len(x) for x in v] for k,v in samples.items()}),flush=True)
+          PY
+      - name: Push and run independent Kaggle kernel with T4
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p /tmp/soulkey-voxcpm2-kaggle --accelerator NvidiaTeslaT4 -t 2000
+          echo "BENCH_KAGGLE_KERNEL=https://www.kaggle.com/code/${KAGGLE_KERNEL}"
+      - name: Observe Kaggle execution and retrieve metrics
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/soulkey-voxcpm2-output
+          state="unknown"
+          for i in $(seq 1 80); do
+            out="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1)"
+            echo "BENCH_KAGGLE_POLL $i: $out"
+            if echo "$out" | grep -Eiq "complete|finished|success"; then state="complete";break;fi
+            if echo "$out" | grep -Eiq "error|failed|cancel"; then state="failed";break;fi
+            sleep 20
+          done
+          echo "BENCH_KAGGLE_STATE=$state"
+          kaggle kernels output "$KAGGLE_KERNEL" -p /tmp/soulkey-voxcpm2-output -o || true
+          find /tmp/soulkey-voxcpm2-output -maxdepth 2 -type f -printf '%f (%s bytes)\n' | head -n 30
+          if [ -f /tmp/soulkey-voxcpm2-output/voxcpm2_p259_l04_benchmark.json ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("/tmp/soulkey-voxcpm2-output/voxcpm2_p259_l04_benchmark.json")
+          j=json.loads(p.read_text("utf-8"))
+          print("BENCH_RESULT",json.dumps({k:j.get(k) for k in ("model_loaded","model_load_sec","system","summary","error","completed")},ensure_ascii=False),flush=True)
+          for r in j.get("samples",[]):print("BENCH_ROW",json.dumps(r,ensure_ascii=False),flush=True)
+          PY
+          else
+            echo "BENCH_RESULT_MISSING: no metrics JSON; inspect Kaggle kernel logs and status"
+          fi
+          if [ "$state" != "complete" ]; then exit 1;fi
+      - name: Preserve benchmark metrics and preview WAVs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-l04-voxcpm2-kaggle-benchmark
+          path: /tmp/soulkey-voxcpm2-output/*
+          if-no-files-found: warn
+          retention-days: 14
