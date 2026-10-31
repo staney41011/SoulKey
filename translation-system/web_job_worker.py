@@ -751,7 +751,7 @@ def main():
                     translation_cmd=[
                         sys.executable,"-u",str(system_dir/"p259_gemini_central.py"),
                         "--period","259","--task-id","P259-L04",
-                        "--langs","id,vi,hi","--max-new-languages","3",
+                        "--langs","id,vi,km","--max-new-languages","3",
                     ]
                     try:
                         run(translation_cmd)
@@ -766,7 +766,7 @@ def main():
                 run([
                     sys.executable,"-u",str(system_dir/"central_tts_recovery.py"),
                     "--period","259","--task-id","P259-L04",
-                    "--langs","en,th,es,id,vi,hi","--max-languages","6",
+                    "--langs","en,th,es,id,vi,km","--max-languages","6",
                 ])
                 report(args.bridge_url,args.runtime_nonce,
                     "needs_review" if incomplete_qa else "needs_review",
