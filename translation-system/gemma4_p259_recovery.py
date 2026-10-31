@@ -214,12 +214,18 @@ def main():
         key=(lesson,lang)
         if key not in EXISTING:raise ValueError("NO_FORMALLY_APPROVED_SOURCE")
         approved=get_drive_json(EXISTING[key],out/"approved.json")
-        if approved.get("source")!="en.final.json" or approved.get("source_sha256")!=fingerprint:raise ValueError("APPROVED_TRANSLATION_WRONG_REVISION")
-        manuscript=approved.get("segments") or []
-        if not manuscript:raise ValueError("EMPTY_APPROVED_TRANSLATION")
-        if {int(s["id"]) for s in manuscript}!={int(s["id"]) for s in original}:raise ValueError("APPROVED_SEGMENT_IDS_MISMATCH")
-        report["translation_status"]="existing_approved_no_retranslation"
-    else:
+        if approved.get("source")!="en.final.json" or approved.get("source_sha256")!=fingerprint:
+            print("LEGACY_QA_SOURCE_MISMATCH",lesson,lang,"existing_source",approved.get("source"),"existing_sha_prefix",str(approved.get("source_sha256"))[:12],flush=True)
+            report["legacy_approved_drive_id"]=EXISTING[key]
+            report["legacy_approved_sha"]=approved.get("source_sha256")
+            report["legacy_revision_status"]="needs_review; translating from current English Final with Gemma instead"
+            args.tts_only=False
+        if args.tts_only:
+            manuscript=approved.get("segments") or []
+            if not manuscript:raise ValueError("EMPTY_APPROVED_TRANSLATION")
+            if {int(s["id"]) for s in manuscript}!={int(s["id"]) for s in original}:raise ValueError("APPROVED_SEGMENT_IDS_MISMATCH")
+            report["translation_status"]="existing_approved_no_retranslation"
+    if not args.tts_only:
         client=genai.Client(api_key=os.environ["GEMINI_API_KEY"],http_options={"timeout":90000})
         translated={};issue_by_id={};repair_count=0
         for begin in range(0,len(original),4):
