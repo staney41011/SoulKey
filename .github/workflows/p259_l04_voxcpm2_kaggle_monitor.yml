@@ -1,0 +1,64 @@
+name: P259 VoxCPM2 Kaggle GPU live run monitor
+on:
+  push:
+    branches:
+      - benchmark/voxcpm2-kaggle-p259-l04
+    paths:
+      - .github/workflows/p259_l04_voxcpm2_kaggle_monitor.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  monitor-original-kaggle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 42
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_KERNEL: cwlmrcsir/soulkey-voxcpm2-kaggle-t4-benchmark-p259-l04
+    steps:
+      - name: Install Kaggle CLI and check actual kernel
+        shell: bash
+        run: |
+          python -m pip install -q kaggle
+          echo "BENCH_KERNEL=https://www.kaggle.com/code/$KAGGLE_KERNEL"
+          kaggle kernels status "$KAGGLE_KERNEL" || true
+      - name: Poll correct Kaggle kernel and fetch benchmark logs
+        shell: bash
+        run: |
+          set -u
+          mkdir -p "$RUNNER_TEMP/voxcpm2-result"
+          state="unknown"
+          for i in $(seq 1 90); do
+             out="$(kaggle kernels status "$KAGGLE_KERNEL" 2>&1 || true)"
+             echo "BENCH_KAGGLE_POLL $i: $out"
+             if echo "$out" | grep -Eiq 'status.*(complete|finished|success)|has been completed|KernelStatus.COMPLETE|KernelStatus.COMPLETED'; then state="complete"; break; fi
+             if echo "$out" | grep -Eiq 'status.*(error|failed|cancel)|KernelStatus.ERROR|KernelStatus.CANCELLED'; then state="failed"; break; fi
+             sleep 20
+          done
+          echo "BENCH_KAGGLE_STATE=$state"
+          kaggle kernels output "$KAGGLE_KERNEL" -p "$RUNNER_TEMP/voxcpm2-result" --file-pattern '.*(json|log|txt|wav)$' -o || true
+          find "$RUNNER_TEMP/voxcpm2-result" -maxdepth 3 -type f -printf '%f (%s bytes)\n' | head -n 25
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          folder=Path(__import__("os").environ["RUNNER_TEMP"])/"voxcpm2-result"
+          for p in folder.rglob("*.log"):
+              s=p.read_text("utf-8",errors="replace")
+              lines=[x for x in s.splitlines() if "BENCH_" in x or "Traceback" in x or "ERROR" in x or "Error" in x]
+              print("BENCH_LOG_FILE",p.name)
+              print("\n".join(lines[-75:])[-14500:])
+          for p in folder.rglob("*benchmark.json"):
+              j=json.loads(p.read_text("utf-8"))
+              print("BENCH_JSON_FOUND",p.name)
+              print("BENCH_RESULT",json.dumps({k:j.get(k) for k in ["model_loaded","model_load_sec","system","summary","error","completed"]},ensure_ascii=False))
+              for sample in j.get("samples",[]):print("BENCH_ROW",json.dumps(sample,ensure_ascii=False))
+          PY
+          if [ "$state" != "complete" ]; then echo "Kaggle not completed successfully";exit 1;fi
+      - name: Save reports for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-l04-voxcpm2-original-kaggle-reports
+          path: ${{ runner.temp }}/voxcpm2-result/*
+          if-no-files-found: warn
+          retention-days: 14
