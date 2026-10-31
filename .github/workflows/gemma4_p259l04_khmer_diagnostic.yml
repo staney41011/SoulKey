@@ -1,0 +1,44 @@
+name: Gemma4 P259-L04 Khmer API diagnostic
+on:
+  push:
+    branches:
+      - test/gemma4-google-api-p259l04-20261101
+    paths:
+      - .github/workflows/gemma4_p259l04_khmer_diagnostic.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  khmer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Inspect response text and finish reason for actual English lesson paragraph
+        run: |
+          python -m pip install -q google-genai
+          python - <<'PY'
+          import os, time
+          from google import genai
+          from google.genai import types
+          client=genai.Client(api_key=os.environ['GEMINI_API_KEY'],http_options={'timeout':65000})
+          source="I am grateful for the virtues of Heaven and the mercy of the divine, which allow me the opportunity to share this lesson with you all: The Path of Harmony. The Path of Harmony. Humans don‘t need much, but we want too much, which makes us busy and tense, bringing a lot of pressure upon ourselves."
+          short='The Path of Harmony. Humans do not need much, but we often want too much.'
+          cases=[('gemma-4-26b-a4b-it',source),('gemma-4-31b-it',source),('gemma-4-26b-a4b-it',short)]
+          for model,txt in cases:
+              start=time.monotonic()
+              try:
+                  cfg=types.GenerateContentConfig(temperature=0.1,max_output_tokens=2048,thinking_config=types.ThinkingConfig(thinking_level='minimal'))
+                  r=client.models.generate_content(model=model,contents='Translate this English course teaching faithfully to Khmer (Cambodian). Return only the complete Khmer translation, keeping repeated phrases. English: '+txt,config=cfg)
+                  answer=(r.text or '').strip()
+                  finish=str(r.candidates[0].finish_reason) if r.candidates else 'NO_CANDIDATE'
+                  khmer=any(0x1780<=ord(c)<=0x17ff for c in answer)
+                  usage=getattr(r,'usage_metadata',None)
+                  count=getattr(usage,'candidates_token_count',None)
+                  print('KHMER_DIAG model={} in_chars={} out_chars={} khmer={} finish={} tokens={} elapsed={:.2f}'.format(model,len(txt),len(answer),khmer,finish,count,time.monotonic()-start),flush=True)
+                  print('KHMER_TEXT '+answer[:900].replace('\n',' '),flush=True)
+              except Exception as e:
+                  print('KHMER_DIAG_ERROR model={} seconds={:.2f} error={}:{}'.format(model,time.monotonic()-start,type(e).__name__,str(e)[:220]),flush=True)
+          PY
