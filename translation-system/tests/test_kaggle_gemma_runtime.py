@@ -52,7 +52,8 @@ class KaggleRuntimeTests(unittest.TestCase):
     def test_central4_l04_urgent_path_uses_cpu_not_gpu(self):
         metadata=self.metadata("multi",task="P259-L01",lang="central4")
         self.assertFalse(metadata["enable_gpu"])
-        self.assertEqual(metadata["docker_image"],"old-image@sha256:stale")
+        self.assertNotIn("id_no",metadata)
+        self.assertNotIn("docker_image",metadata)
 
     def test_other_jobs_do_not_silently_change_their_pulled_image(self):
         for stage,task in [("zh","P259-L01"),("tts","P259-L01"),("multi","P260-L01")]:
