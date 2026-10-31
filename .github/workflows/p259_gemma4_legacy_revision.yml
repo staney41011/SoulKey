@@ -1,0 +1,50 @@
+name: P259 Gemma4 refresh legacy QA source mismatches and TTS
+on:
+  push:
+    branches: [delivery/p259-gemma4-recovery-20261101]
+    paths: [.github/workflows/p259_gemma4_legacy_revision.yml]
+permissions:
+  contents: read
+jobs:
+  refresh-and-tts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - { lesson: L01, lang: hi }
+          - { lesson: L01, lang: ta }
+          - { lesson: L02, lang: hi }
+          - { lesson: L02, lang: ta }
+          - { lesson: L03, lang: hi }
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime
+        run: |
+          python -m py_compile translation-system/gemma4_p259_recovery.py
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q google-genai gdown edge-tts==7.2.8
+      - name: Preserve original approved text; regenerate from current English Final if legacy revision differs
+        run: |
+          python -u translation-system/gemma4_p259_recovery.py --lesson "${{ matrix.lesson }}" --lang "${{ matrix.lang }}" --tts-only
+      - name: Save validated deliverables and QA records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-${{ matrix.lang }}-gemma4-revision-refresh
+          path: |
+            recovery-output/${{ matrix.lesson }}/${{ matrix.lang }}/*翻譯稿資料.json
+            recovery-output/${{ matrix.lesson }}/${{ matrix.lang }}/*翻譯稿時間軸.txt
+            recovery-output/${{ matrix.lesson }}/${{ matrix.lang }}/*翻譯稿字幕.srt
+            recovery-output/${{ matrix.lesson }}/${{ matrix.lang }}/*TTS音檔.mp3
+            recovery-output/${{ matrix.lesson }}/${{ matrix.lang }}/*TTS清單.json
+            recovery-output/${{ matrix.lesson }}/${{ matrix.lang }}/QA_驗收報告.json
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
