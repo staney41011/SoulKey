@@ -1,5 +1,15 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-31｜正式站實際驗證通過，剩餘產製保持原Kaggle工作接續
+
+- 原同址Bridge **68版** 已讀回 `top-postmessage-v1 / drive-authoritative-v1`；正式Studio原六碼登入成功，中央 **31筆任務**正常載入。快速流程實測中文 **449/449段**、英文 **59/59句**均為既有Final，欄位鎖定，直接進入STEP3。
+- [PR #39](https://github.com/staney41011/SoulKey/pull/39) 已合併 `50e21b1bd725be0724e399a001a5caafa62915a7`，所有CI與Pages成功。實際載入 `20261031-output-plan-v2`，原 `language_plan_get` 成功讀回，**16/16語勾選、摘要列出16語、開始輸出按鈕enabled**。核對過程未再按輸出派同批工作，也未寫回或清空語言設定。
+- [PR #40](https://github.com/staney41011/SoulKey/pull/40) 已合併 `8d5a9c354cf8aa609c0a487fb291bd2407b8d151`；MVP、原Gemma整合、無GCP合約及Pages全部成功。草稿檢查點經7項離線測試及原10項QA測試；實際Drive寫入仍需下一個合法工作驗收，當前執行不會自動套用後來的程式。
+- 最後獨立重新盤點：L01 **12文稿／10正式MP3／2試聽**；L02 **15／13／2**；L03 **9／8／1**；L04 **5／0／1**。合計 **41/64完整文稿、31/64正式MP3、6組試聽；AI QA37/60**。文稿逐一核對非空JSON、TXT、SRT成套，試聽不混入正式數。
+- [#41158756555](https://github.com/staney41011/SoulKey/actions/runs/41158756555) 最後讀回仍 **in_progress**；10:10的新授權已通過preflight並有中央running紀錄。未宣稱64組交付完成；當前run執行中勿重派。四個GCP排程持續disabled，現行系統不呼叫Cloud Run或Firebase。
+
+---
+
 ## 2026-10-31｜未過QA的翻譯修復也保存檢查點，避免下輪重頭翻譯
 
 - 檢查既有Gemma程式發現：全文翻譯與多輪修復後，只要最後仍有少數段落未過QA，僅寫本機error JSON；下次Kaggle工作會把整語重新翻譯，先前已改善的候選文字遺失。這會浪費有限GPU時間，並反覆回到相同問題。
