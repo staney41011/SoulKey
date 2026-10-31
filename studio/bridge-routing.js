@@ -34,8 +34,10 @@
     // The original Apps Script writes Asia/Taipei wall-clock timestamps.
     // Cloud Run returns those unchanged alongside ISO UTC worker timestamps.
     // Interpret the original format explicitly, independent of browser zone.
-    return Date.parse(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(text)
-      ? text.replace(" ","T")+"+08:00" : text);
+    const legacyClock=/^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2}):(\d{2})$/.exec(text);
+    return Date.parse(legacyClock
+      ? legacyClock[1]+"T"+legacyClock[2].padStart(2,"0")+":"+legacyClock[3]+":"+legacyClock[4]+"+08:00"
+      : text);
   }
   function dispatchReceipt(pending,status){
     if(!pending || !status || !status.run_id)return false;

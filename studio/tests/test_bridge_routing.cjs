@@ -29,6 +29,11 @@ try{
     process.env.TZ=zone;
     assert.equal(routes.statusTime("2026-10-30 20:00:01"),Date.parse("2026-10-30T12:00:01Z"),zone);
     assert.equal(routes.statusTime("2026-10-30T20:00:01+08:00"),Date.parse("2026-10-30T12:00:01Z"),zone);
+    assert.equal(routes.statusTime("2026-10-31 2:05:17"),Date.parse("2026-10-30T18:05:17Z"),zone);
+    assert.equal(routes.statusTime("2026-10-31T0:05:17"),Date.parse("2026-10-30T16:05:17Z"),zone);
+    const night={submittedAt:Date.parse("2026-10-30T18:05:16Z"),previousRunId:"prior"};
+    assert.equal(routes.dispatchReceipt(night,{run_id:"current",status:"queued",updated_at:"2026-10-31 2:05:17"}),true,zone);
+    assert.equal(routes.dispatchReceipt(night,{run_id:"stale",status:"done",updated_at:"2026-10-31 1:55:17"}),false,zone);
     assert.equal(routes.dispatchReceipt(pending,{run_id:"new",status:"queued",updated_at:"2026-10-30 20:00:01"}),true,zone);
     assert.equal(routes.dispatchReceipt({...pending,previousRunId:""},{run_id:"old",status:"done",updated_at:"2026-10-30 19:50:01"}),false,zone);
   }
