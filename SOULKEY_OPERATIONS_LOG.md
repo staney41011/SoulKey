@@ -1,5 +1,16 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-31｜第68版原Bridge與校稿輸出實測完成；補回既有語言選項
+
+- [PR #36](https://github.com/staney41011/SoulKey/pull/36) 已合併 `d80cc1bac3f1fbab2df2796c6acb132a6558702c`，六組PR CI、主分支CI與Pages均通過。原同一公開部署已更新 **68版（10:12）**；健康端點實際回傳 `bridge_review_final_transport=drive-authoritative-v1`。原網址、六碼、Script Properties與三項原權限保持。
+- 實際從正式Studio安全登入原六碼，載入 **31筆任務**。從第259期第1堂「快速流程」開啟新頁，實測中文 **449/449段已確認**、英文 **59/59句定稿**，59個英文欄位均鎖定並顯示原人工稿；無須重新定稿即可切到 **STEP3選擇語言**。現行腳本 `20261031-drive-final-v2`，不是僅本地測試。
+- 管理編輯器透過原重複派工保護建立新 [Kaggle Web Job #41158756555](https://github.com/staney41011/SoulKey/actions/runs/41158756555)，10:10:17排入、10:10:40中央記錄 `multi running`。新runtime preflight通過，正在Kaggle工作中。正式部署僅保留底線結尾的私有管理函式；臨時編輯器執行名稱未發佈。
+- 輸出頁實測另發現既有語言選項從未讀回，全部未勾；直接送出可把原語言設定清空。補上原 `language_plan` authenticated讀取；新設定預設16語，既有取消、僅文稿、來源及送出前本機變更均保留。讀取失敗或尚未完成時禁止送出，零輸出不派工。只有使用者明確修改選項並按送出，才寫回中央設定。
+- 新增實際執行讀回與送出處理的測試，覆蓋預設全語、既有opt-out、僅文稿、讀取中修改、跨課程回覆、讀取失敗與空輸出。**24個JavaScript測試程式、61項pipeline合約通過**。輸出選項這一修正仍待該次PR與Pages部署，再實際核對16語勾選；不能把上一版定稿頁成功當作這項新修正已上線。
+- 完成數最後核對仍 **QA37/60、文稿41/64、正式MP3 31/64、試聽6組**；運算中新成果需另讀回後增加，沒有標成64組已完成。
+
+---
+
 ## 2026-10-31 09:55（台灣）｜原 Kaggle 本地翻譯實際增加7語；文稿41組、正式音檔31組
 
 - [PR #35](https://github.com/staney41011/SoulKey/pull/35) 已合併 `fa81e716a36e3b7428720910b6037e9e2437eb16`，CI與Pages均通過；原Studio建立新授權 [Kaggle Web Job #41107262736](https://github.com/staney41011/SoulKey/actions/runs/41107262736)。修正後的Kaggle映像已真正執行Gemma補譯與正式配音，不再是先前GLIBC啟動錯誤。
@@ -195,8 +206,8 @@
 
 1. **正在救援**：第 259 期 P259-L01～P259-L04，4 堂 × 16 語 = **64 份目標語言文稿 + 64 組目標配音**。16 語：`en, th, es, id, vi, hi, ta, ja, ko, km, bn, ne, lo, my, it, pt`。
 2. **嚴禁把 GitHub 派工成功當作 Kaggle 或音檔交付**。分層判斷：Studio POST → Apps Script 驗證 → GitHub Workflow Dispatch → Kaggle Worker 執行 → 該語完整翻譯 QA / TTS → Google Drive 非空檔案及 manifest readback → Sheet status。
-3. **最近授權工作**：[Kaggle Web Job #41107262736](https://github.com/staney41011/SoulKey/actions/runs/41107262736)，02:28新授權、06:32結束。已實際補譯與配音，約4小時後error（設定上限14400秒，確切終止原因仍需完整日誌）；原#41002147166已過期，禁止重跑舊nonce。
-4. **接續**：使用原Studio或管理編輯器私有resume函式建立新runtime與run；不能聲稱06:32停止後仍執行中。核對新run ID、中央開始紀錄及真實輸出，再增加成果數量。
+3. **正在進行**：[Kaggle Web Job #41158756555](https://github.com/staney41011/SoulKey/actions/runs/41158756555)，10:10由原管理授權建立新runtime，preflight通過、中央已記錄running。前一輪#41107262736於06:32結束，原#41002147166已過期，禁止重跑舊nonce。
+4. **接續**：現有工作仍執行時不可再派同批。核對新QA、Drive文稿／正式音檔與manifest，再增加完成數；37語之外的未通過QA語言不會被標為done。
 5. **交付最後快照**：QA **37/60**、完整文稿 **41/64**、正式MP3 **31/64**、試聽 **6組**；文稿包含4組英文人工Final。須讀回新的QA、Drive檔案與manifest才增加數量。
 6. **注意**：四個GCP workflow已實際disabled，沒有排程或Cloud Run接手。部分語言仍可能需要QA複核；保留既有成果與來源revision，不降低QA或將試聽版標成正式音檔。
 7. **安全**：不重設使用者 Google OAuth、原六碼 Bridge Key、Apps Script Script Properties、Drive 既有檔案；不要把 token、金鑰放入此文件、PR、前端或 Sheet。不要未確認工作狀態就再次派送相同救援。

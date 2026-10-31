@@ -48,6 +48,10 @@ let englishBaseRequests={};
 let legacyDraftBatchRequests=0;
 let englishAligned=null; // separate English sentence-paired draft
 let englishDriveLoaded=false;
+let outputPlanReady=false;
+let outputPlanError="";
+let savedOutputPlan=new Map();
+const outputSelectionTouched=new Set();
 
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??"")
@@ -666,7 +670,7 @@ function applyReviewPayload(loaded){
   $("save-draft").disabled=false;
   $("finalize-zh").disabled=!!payload.zh_finalized_at;
   $("finalize-en").disabled=!payload.zh_finalized_at||!!payload.en_finalized_at;
-  $("finish-workflow").disabled=!payload.en_finalized_at;
+  $("finish-workflow").disabled=!payload.en_finalized_at||!outputPlanReady;
 
   const finishRaw=localStorage.getItem("soulkey_finish:"+taskId);
   if(finishRaw){
@@ -986,34 +990,75 @@ function collectOutputPlan(){
   return [...document.querySelectorAll(".output-row")].map(row=>{
     const code=row.dataset.outputLang;
     const selected=!!row.querySelector("[data-output-enabled]")?.checked;
+    const saved=savedOutputPlan.get(code);
+    const preserve=saved && !outputSelectionTouched.has(code);
     return {
       language_code:code,
-      language_name:LANG_NAMES[code]||code,
-      transcript_enabled:code==="en"||selected,
-      transcript_source:code==="en"?"human":"ai",
-      audio_enabled:selected,
-      audio_source:"tts"
+      language_name:String(saved?.language_name||LANG_NAMES[code]||code),
+      transcript_enabled:preserve?saved.transcript_enabled:code==="en"||selected,
+      transcript_source:preserve?saved.transcript_source:code==="en"?"human":"ai",
+      audio_enabled:preserve?saved.audio_enabled:selected,
+      audio_source:preserve?saved.audio_source:"tts"
     };
   });
 }
 
 function updateOutputSummary(){
+  if(!outputPlanReady){
+    $("output-summary").textContent=outputPlanError||"正在讀取這堂課的輸出語言設定…";
+    return;
+  }
   const selected=collectOutputPlan()
     .filter(x=>x.audio_enabled)
     .map(x=>LANG_NAMES_ZH[x.language_code]||x.language_code);
-  $("output-summary").textContent=selected.length
+  const textOnly=collectOutputPlan().filter(x=>x.language_code!=="en"&&x.transcript_enabled&&!x.audio_enabled);
+  $("output-summary").textContent=(selected.length
     ? "已選 "+selected.length+" 種："+selected.join("、")+"。每種都會產生文稿＋自然語音音檔。"
-    : "目前保留英文人工 Final；尚未選擇額外輸出。";
+    : "目前保留英文人工 Final；尚未選擇額外音檔。")+
+    (textOnly.length?" 另保留僅文稿："+textOnly.map(x=>LANG_NAMES_ZH[x.language_code]||x.language_code).join("、")+"。":"");
+}
+
+async function loadOutputPlan(){
+  outputPlanReady=false;outputPlanError="";
+  $("finish-workflow").disabled=true;
+  try{
+    const result=await centralReviewRequest({action:"language_plan",task_id:taskId});
+    if(!result.ok || String(result.task_id||"")!==taskId || !Array.isArray(result.plan))
+      throw new Error("Invalid lesson output plan");
+    const enabled=value=>value===true||String(value).toUpperCase()==="TRUE";
+    savedOutputPlan=new Map(result.plan.map(row=>[String(row.language_code),{
+      ...row,transcript_enabled:enabled(row.transcript_enabled),audio_enabled:enabled(row.audio_enabled)
+    }]));
+    document.querySelectorAll(".output-row").forEach(row=>{
+      const code=row.dataset.outputLang;
+      if(outputSelectionTouched.has(code)) return;
+      const toggle=row.querySelector("[data-output-enabled]");
+      if(toggle) toggle.checked=savedOutputPlan.has(code)?savedOutputPlan.get(code).audio_enabled:true;
+      const saved=savedOutputPlan.get(code);
+      if(code!=="en"&&saved?.transcript_enabled&&!saved.audio_enabled){
+        const label=row.querySelector(".output-pair");
+        if(label)label.textContent="已保留僅文稿設定；勾選可另外製作音檔";
+      }
+    });
+    outputPlanReady=true;
+  }catch(_){
+    outputPlanError="輸出語言設定讀取失敗，請重新整理後再送出。";
+    setStatus(outputPlanError,"error");
+  }
+  $("finish-workflow").disabled=!outputPlanReady||!payload?.en_finalized_at;
+  updateOutputSummary();
 }
 
 function finishWorkflow(){
+  if(!outputPlanReady){setStatus(outputPlanError||"請等待輸出語言設定載入","error");return;}
   if(!payload?.en_finalized_at){
     alert("請先完成 English Final。");
     return;
   }
   const plan=collectOutputPlan();
-  const extra=plan.filter(x=>x.language_code!=="en"&&x.audio_enabled);
+  const extra=plan.filter(x=>x.language_code!=="en"&&x.transcript_enabled);
   const audio=plan.filter(x=>x.audio_enabled);
+  if(!extra.length&&!audio.length){alert("請至少選擇一種輸出語言。");return;}
 
   const msg=
     "確定開始最終輸出？\n\n"+
@@ -1191,7 +1236,7 @@ window.addEventListener("message",event=>{
       }
       $("finalize-zh").disabled=true;
       $("finalize-en").disabled=!!payload.en_finalized_at;
-      $("finish-workflow").disabled=!payload.en_finalized_at;
+      $("finish-workflow").disabled=!payload.en_finalized_at||!outputPlanReady;
       renderZh();
       renderEn();
       setStep(requestedStepNumber||(payload.en_finalized_at?3:2));
@@ -1253,7 +1298,7 @@ window.addEventListener("message",event=>{
       setStatus("英文定稿完成","ok");
       $("finalize-en").disabled=true;
       renderEn();
-      $("finish-workflow").disabled=false;
+      $("finish-workflow").disabled=!outputPlanReady;
       setStep(3);
     }else{
       $("finalize-en").disabled=false;
@@ -1369,7 +1414,7 @@ async function loadAlignedEnglish(force=false){
     if(aligned.en_finalized_at){
       payload.en_finalized_at=String(aligned.en_finalized_at);
       $("finalize-en").disabled=true;
-      $("finish-workflow").disabled=false;
+      $("finish-workflow").disabled=!outputPlanReady;
     }
     if(!payload.en_finalized_at) await restoreEnglishDraftEdits(englishAligned);
     renderEn();
@@ -1425,7 +1470,10 @@ document.querySelectorAll("[data-go-step]").forEach(btn=>{
 });
 
 document.querySelectorAll(".output-row [data-output-enabled]").forEach(toggle=>{
-  toggle.addEventListener("change",updateOutputSummary);
+  toggle.addEventListener("change",()=>{
+    outputSelectionTouched.add(String(toggle.closest(".output-row")?.dataset.outputLang||""));
+    updateOutputSummary();
+  });
 });
 
 $("load-more-zh").addEventListener("click",()=>{
@@ -1456,6 +1504,7 @@ window.addEventListener("beforeunload",event=>{
 });
 
 updateOutputSummary();
+loadOutputPlan();
 mountPlayer();
 jsonpBridgeRequest({action:"status_health"});
 loadReview();
