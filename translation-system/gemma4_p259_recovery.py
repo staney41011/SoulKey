@@ -13,6 +13,14 @@ import gdown
 from google import genai
 from google.genai import types
 import edge_tts
+import edge_tts.communicate as edge_communicate
+from edge_tts.constants import TRUSTED_CLIENT_TOKEN
+
+# Mirror production SoulKey's 2026-10-27 Edge endpoint fix.
+edge_communicate.WSS_URL = (
+    "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+    "?Ocp-Apim-Subscription-Key=" + TRUSTED_CLIENT_TOKEN
+)
 
 MODEL="gemma-4-26b-a4b-it"
 SOURCES={
