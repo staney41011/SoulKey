@@ -1,0 +1,34 @@
+name: P259 source Drive read-only preflight
+on:
+  push:
+    branches: [delivery/p259-gemma4-recovery-20261101]
+    paths: [.github/workflows/p259_drive_source_preflight.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check original approved source files using existing Drive link permissions
+        run: |
+          python -m pip install -q gdown
+          python - <<'PY'
+          import gdown,json,os,tempfile
+          sources={"L01":"1EM3T1iZ2N5AJoW0OSawKJTiD5mUCIuyy","L02":"1oHonBUDOKYe95SXkmUPdy8rasSG1Uiy1","L03":"1B4zHH4p2eQ-ApLrMtHBwZkN8xfqOwU-5","L04":"1WVvcJ0HbSKlwRuSCpCQtjbyq9-_7IPuF"}
+          passed=0
+          for name,file_id in sources.items():
+            try:
+              with tempfile.TemporaryDirectory() as d:
+                path=gdown.download(id=file_id,output=os.path.join(d,"source.json"),quiet=True)
+                if not path: raise RuntimeError("FILE_NOT_PUBLICLY_DOWNLOADABLE")
+                doc=json.load(open(path,encoding="utf-8"))
+                seg=doc.get("segments") or []
+                if not len(seg)>=45 or not doc.get("source_sha256"):raise ValueError("INVALID_APPROVED_SOURCE")
+                passed+=1
+                print(f"DRIVE_READ_OK {name} segments={len(seg)} sha_prefix={doc['source_sha256'][:12]}",flush=True)
+            except Exception as e:
+              print(f"DRIVE_READ_BLOCKED {name} reason={type(e).__name__}:{str(e)[:100]}",flush=True)
+          print(f"DRIVE_PREFLIGHT_RESULT {passed}/{len(sources)}",flush=True)
+          if passed!=len(sources):raise SystemExit(1)
+          PY
