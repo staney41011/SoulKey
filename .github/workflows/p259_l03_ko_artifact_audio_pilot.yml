@@ -36,3 +36,5 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
           compression-level: 0
+
+# Controlled one-time retry after fixing SRT regex validation; no translation API calls.
