@@ -33,7 +33,7 @@ def main():
     srt=list(folder.rglob("*翻譯稿字幕.srt"))
     if len(txt)!=1 or len(srt)!=1:raise ValueError("TXT_SRT_MISSING")
     if txt[0].read_text("utf-8").strip()!="\n".join(x["text"] for x in segs).strip():raise ValueError("TXT_CONTENT_MISMATCH")
-    if len(re.findall(r"(?m)^\\d+\\s*$",srt[0].read_text("utf-8")))!=len(segs):raise ValueError("SRT_SEGMENT_MISMATCH")
+    if len(re.findall(r"(?m)^[0-9]+[ ]*$",srt[0].read_text("utf-8")))!=len(segs):raise ValueError("SRT_SEGMENT_MISMATCH")
     spec=importlib.util.spec_from_file_location("edge_audio","translation-system/p259_edge_audio_from_drive.py")
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     if args.lang not in module.VOICE:raise ValueError("VOICE_NOT_CONFIGURED")
