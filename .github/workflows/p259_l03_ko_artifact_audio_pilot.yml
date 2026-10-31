@@ -1,0 +1,38 @@
+name: P259 L03 Korean Edge audio from completed Gemma artifact
+on:
+  push:
+    branches: [delivery/p259-gemma4-recovery-20261101]
+    paths: [.github/workflows/p259_l03_ko_artifact_audio_pilot.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  l03-ko-artifact-audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: p259-L03-ko-gemma4-delivery
+          run-id: 41225469799
+          github-token: ${{ github.token }}
+          path: artifact-in
+      - name: Install validated Edge audio-only runtime
+        run: |
+          python -m py_compile translation-system/p259_edge_audio_from_artifact.py
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q gdown edge-tts==7.2.8
+      - name: Verify English Final SHA and Gemma QA then synthesize
+        run: |
+          python -u translation-system/p259_edge_audio_from_artifact.py --lesson L03 --lang ko --artifact-dir artifact-in
+      - name: Preserve audio and timeline review evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-L03-ko-EdgeTTS-from-Gemma-artifact
+          path: audio-only-output/L03/ko/*
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
