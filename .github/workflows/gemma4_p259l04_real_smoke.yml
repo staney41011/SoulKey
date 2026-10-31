@@ -1,0 +1,46 @@
+name: Gemma 4 P259 L04 real English paragraph comparison
+on:
+  push:
+    branches:
+      - test/gemma4-google-api-p259l04-20261101
+    paths:
+      - .github/workflows/gemma4_p259l04_real_smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  p259l04-sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Test approved English segment with Gemma 4 and three languages
+        run: |
+          python -m pip install -q google-genai
+          python - <<'PY'
+          import os, time
+          from google import genai
+          from google.genai import types
+          client=genai.Client(api_key=os.environ['GEMINI_API_KEY'],http_options={'timeout':65000})
+          english="I am grateful for the virtues of Heaven and the mercy of the divine, which allow me the opportunity to share this lesson with you all: The Path of Harmony. The Path of Harmony. Humans don‘t need much, but we want too much, which makes us busy and tense, bringing a lot of pressure upon ourselves."
+          cases=[('gemma-4-26b-a4b-it','id','Indonesian'),('gemma-4-26b-a4b-it','vi','Vietnamese'),('gemma-4-26b-a4b-it','km','Khmer'),('gemma-4-31b-it','km','Khmer')]
+          passed=0
+          for model,lang,name in cases:
+              prompt=f'Translate the following English course manuscript paragraph into natural, accurate {name}. Keep all content, repetitions, meaning and religious terms; do not summarize or add explanations. Return translation only.\n\n{english}'
+              start=time.monotonic()
+              try:
+                  r=client.models.generate_content(model=model,contents=prompt,config=types.GenerateContentConfig(temperature=0.2,max_output_tokens=1500))
+                  txt=(r.text or '').strip()
+                  if len(txt)<80:raise ValueError('TOO_SHORT')
+                  if lang=='km' and not any(0x1780<=ord(c)<=0x17ff for c in txt):raise ValueError('NO_KHMER_SCRIPT')
+                  if lang=='vi' and not any(ord(c)>127 for c in txt):raise ValueError('NO_VIETNAMESE_DIACRITICS')
+                  passed+=1
+                  print(f'REAL_L04_OK model={model} lang={lang} sec={time.monotonic()-start:.2f} input_chars={len(english)} out_chars={len(txt)}',flush=True)
+                  print('TRANSLATED_SAMPLE '+txt[:1000].replace('\n',' '),flush=True)
+              except Exception as exc:
+                  print(f'REAL_L04_FAIL model={model} lang={lang} sec={time.monotonic()-start:.2f} error={type(exc).__name__}:{str(exc)[:140]}',flush=True)
+          print(f'REAL_L04_SUMMARY passed={passed}/{len(cases)}',flush=True)
+          raise SystemExit(0 if passed==len(cases) else 1)
+          PY
