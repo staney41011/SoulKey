@@ -415,3 +415,12 @@ GCP Translation／CC Queue、kickstart、capability probe：已退役並disabled
 - **已確認真正阻礙**：[CI #41078123942](https://github.com/staney41011/SoulKey/actions/runs/41078123942) 從 GCP Cloud Run 的公開版本端點讀回部署的 **舊 SHA `7ad3d5af3936bb989aeef70f92169c08c26cd5a9`**，不是新的 main 交付版；GitHub 程式提交並不部署 GCP。Remote Desktop Commander 遠端呼叫餘額 **0%**，本回合沒有 GCP 管理權限，不得宣稱已部署或已完成正式寫回。
 - 一次性部署命令已在 [cloud-bridge/README.md](cloud-bridge/README.md)：使用既有已登入 Google Cloud Shell 的 SoulKey Git checkout 執行 `git pull --ff-only && bash cloud-bridge/deploy-from-cloud-shell.sh`，保留現有 Bridge Key/OAuth 設定，部署後驗證 build SHA，確定 Drive Owner OAuth 或 Cloud Run SA 對第259期八個文字/音檔資料夾具 Editor；再手動執行新交付 workflow **export_only=true** 一輪核對文稿是否真的寫回；確認後設置 GitHub Actions Variable `SOULKEY_P259_DELIVERY_READY=true` 啟用每兩小時定時正式輸出。
 - 截至本回合最後核對，中央**非英文 QA 已由26提升至28/60**（四份英文 Final 已核可，餘32非英文）；24／64 正式文稿與18／64正式 MP3是先前最後一次「實際正式資料夾逐檔」核對數字，本回合尚無新的正式檔案回讀，因此不得宣稱已提高。新正式交付工作在 GCP 部署/權限驗證前尚不可運作。
+
+
+## 2026-10-31｜第259期正式音檔音長下限誤判防護（修補分支，未視為交付）
+
+- **實測症狀**：P259-L04 原片 `source_info.json` 已驗證原片長 `1829s`；Drive 英文 TTS 對齊報告 `final_duration=1468.901s`、`target_min_ratio=0.96`，但舊演算法 `needs_review=false`，可能將短約六分鐘的語音錯算正式交付。先前 Drive `done` 必須按 SHA、原片長度及對齊報告重審；不能把檔名或 Sheet 狀態當成完整影音驗收。
+- **根因**：`natural_tts_assemble.assemble_continuous_with_limit` 將放慢速度限制為不超過 18%，只對超長聲音驗收，不檢查放慢後是否仍短於原片 96%。`tts_runner.verify_uploaded_natural_output` 也只驗證舊 `done` manifest 憑證與檔案 MD5，未複核時長下限。
+- **修正**：成品不足 `96%` 時標示 `needs_review`，不發布新正式音檔；既有不符比例的 `done` manifest 驗證時回傳 `needs_review`，保留原音檔、不覆寫來源文稿、不重耗 GPU；允許 0.1 秒 WAV 取樣容差。新增英文 P259-L04 及 23-to-30-minute 回歸測試，以及舊 manifest 讀回測試。
+- **回退**：若發現現有用戶的其他時長策略受影響，回退本分支相應 commit；不能以回退檢查來把明顯不足時長的影片配音宣告完成。
+- **驗收區分**：這是程式品質修正，需等 PR CI 成功與合併後才正式生效；目前正在執行的 Kaggle kernel 可能仍是修補前的程序。不要把 PR、檔名或 CI 綠燈當作 64 組正式交付。
