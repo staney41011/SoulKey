@@ -19,7 +19,8 @@ def ready_tasks(sheets,period,only_task):
         if period is not None and p!=period:continue
         if only_task and tid!=only_task:continue
         yield {"task_id":tid,"period":p,"lesson":str(row[2]),
-               "title":str(row[3]) if len(row)>3 else ""}
+               "title":str(row[3]) if len(row)>3 else "",
+               "youtube_url":str(row[4]).strip() if len(row)>4 else ""}
 
 def approved_plan_rows(rows,task):
     result=[]
@@ -50,7 +51,7 @@ def produce(drive,sheets,task,lang,final,approved,workdir):
     if lang not in NATURAL_TTS_PROFILES:raise SourceNotReady("voice_not_supported:"+lang)
     folders=resolve_lesson_folders(drive,sheets,task["period"],task["lesson"])
     workdir.mkdir(parents=True,exist_ok=True)
-    authoritative_duration,basis=load_source_duration_limit(drive,folders["source"],workdir)
+    authoritative_duration,basis=load_source_duration_limit(drive,folders["source"],workdir,task.get("youtube_url",""))
     duration=(float(authoritative_duration) if authoritative_duration
        else max(float(x["end"]) for x in final["segments"]))
     if duration<=0:raise SourceNotReady("original_video_duration_unavailable")

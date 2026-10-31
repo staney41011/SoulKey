@@ -161,7 +161,11 @@ jobs:
           lang = os.environ["JOB_LANG"].strip()
           gpu_stages = {"zh", "asr", "batch"}
           p259_gemma4 = (stage == "multi" or (stage == "finish" and bool(os.environ["JOB_LANGS"].strip()))) and os.environ["JOB_TASK_ID"].strip() in {"P259-L01","P259-L02","P259-L03","P259-L04"}
-          needs_gpu = stage in gpu_stages or p259_gemma4
+          # The existing Studio central4 authorization prioritizes L04 Gemini
+          # and Edge TTS on Kaggle CPU, preserving weekly GPU quota.
+          central4_l04_cpu = (stage == "multi" and lang == "central4"
+              and os.environ["JOB_TASK_ID"].strip() == "P259-L01")
+          needs_gpu = stage in gpu_stages or (p259_gemma4 and not central4_l04_cpu)
 
           # Rebind every run to the dedicated GPU-only kernel. Do not preserve
           # id_no from an older CPU worker because Kaggle prefers id_no over id.

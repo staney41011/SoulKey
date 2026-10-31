@@ -742,47 +742,79 @@ def main():
             ]
 
         elif args.stage == "multi" and central_p259:
-            # P259 migration: all approved English Finals -> Kaggle local Gemma4.
-            # The *existing* Apps Script worker_runtime has already provided
-            # short-lived GOOGLE_ACCESS_TOKEN + refreshable nonce above.
-            # No Kaggle Secrets or Gemini API keys are needed for this route.
-            if args.lang == "central4" and args.task_id != "P259-L01":
-                raise RuntimeError("central4_requires_P259-L01_dispatch_anchor")
-            require_gpu_runtime("gemma4")
-            print("[P259-GEMMA4-BRIDGE] authorized OAuth runtime, local GPU translation",flush=True)
-            run([sys.executable, "-m", "pip", "install", "-q", "-U",
-                 "huggingface_hub", "edge-tts==7.3.1"])
-            translation_cmd = [
-                sys.executable, "-u",
-                str(system_dir / "p259_gemma4_kaggle.py"),
-                "--period", "259", "--max-new-languages", "60",
-            ]
-            if args.lang != "central4":
-                translation_cmd.extend(["--task-id",args.task_id])
-                translation_cmd.extend(["--langs",args.langs])
-            incomplete_qa=False
-            try:
-                run(translation_cmd)
-            except subprocess.CalledProcessError as exc:
-                if exc.returncode != 2:
-                    raise
-                incomplete_qa=True
-                print("[P259-GEMMA4] Some languages need review; preserving passed languages",flush=True)
-            # Continue to audio only from verified, current-revision sources.
-            audio_cmd=[
-                sys.executable, "-u",
-                str(system_dir / "central_tts_recovery.py"),
-                "--period", "259", "--max-languages", "64",
-            ]
-            if args.lang != "central4":
-                audio_cmd.extend(["--task-id",args.task_id])
-                audio_cmd.extend(["--langs",args.langs])
-            run(audio_cmd)
-            report(args.bridge_url,args.runtime_nonce,"needs_review" if incomplete_qa else "done",
-                   "第259期 Gemma4 本地翻譯與核可來源 Edge TTS 已執行；"
-                   + ("部分語言仍需 QA 複核；" if incomplete_qa else "")
-                   + "以中央 Sheet 和 Drive 的正式檔案為準")
-            cmd=None
+            if args.lang == "central4" and args.task_id == "P259-L01":
+                # Emergency P259 L04 ONLY. Original Studio-issued nonce authenticates
+                # Drive + Sheets; no Cloud Run and no Kaggle GPU translations.
+                print("[P259-L04-URGENT] Six languages via Gemini CPU + Edge Natural TTS",flush=True)
+                incomplete_qa=False
+                if gemini_api_key:
+                    translation_cmd=[
+                        sys.executable,"-u",str(system_dir/"p259_gemini_central.py"),
+                        "--period","259","--task-id","P259-L04",
+                        "--langs","id,vi,hi","--max-new-languages","3",
+                    ]
+                    try:
+                        run(translation_cmd)
+                    except subprocess.CalledProcessError as exc:
+                        if exc.returncode != 2:raise
+                        incomplete_qa=True
+                        print("[P259-L04-URGENT] Some translations still need QA",flush=True)
+                else:
+                    incomplete_qa=True
+                    print("[P259-L04-URGENT] No Gemini key from Bridge; audio only",flush=True)
+                run([sys.executable,"-m","pip","install","-q","edge-tts==7.3.1"])
+                run([
+                    sys.executable,"-u",str(system_dir/"central_tts_recovery.py"),
+                    "--period","259","--task-id","P259-L04",
+                    "--langs","en,th,es,id,vi,hi","--max-languages","6",
+                ])
+                report(args.bridge_url,args.runtime_nonce,
+                    "needs_review" if incomplete_qa else "needs_review",
+                    "第259期第四堂六語補譯、核可配音已執行；請以 Drive 正式檔案逐語言驗收")
+                cmd=None
+            else:
+                # P259 migration: all approved English Finals -> Kaggle local Gemma4.
+                # The *existing* Apps Script worker_runtime has already provided
+                # short-lived GOOGLE_ACCESS_TOKEN + refreshable nonce above.
+                # No Kaggle Secrets or Gemini API keys are needed for this route.
+                if args.lang == "central4" and args.task_id != "P259-L01":
+                    raise RuntimeError("central4_requires_P259-L01_dispatch_anchor")
+                require_gpu_runtime("gemma4")
+                print("[P259-GEMMA4-BRIDGE] authorized OAuth runtime, local GPU translation",flush=True)
+                run([sys.executable, "-m", "pip", "install", "-q", "-U",
+                     "huggingface_hub", "edge-tts==7.3.1"])
+                translation_cmd = [
+                    sys.executable, "-u",
+                    str(system_dir / "p259_gemma4_kaggle.py"),
+                    "--period", "259", "--max-new-languages", "60",
+                ]
+                if args.lang != "central4":
+                    translation_cmd.extend(["--task-id",args.task_id])
+                    translation_cmd.extend(["--langs",args.langs])
+                incomplete_qa=False
+                try:
+                    run(translation_cmd)
+                except subprocess.CalledProcessError as exc:
+                    if exc.returncode != 2:
+                        raise
+                    incomplete_qa=True
+                    print("[P259-GEMMA4] Some languages need review; preserving passed languages",flush=True)
+                # Continue to audio only from verified, current-revision sources.
+                audio_cmd=[
+                    sys.executable, "-u",
+                    str(system_dir / "central_tts_recovery.py"),
+                    "--period", "259", "--max-languages", "64",
+                ]
+                if args.lang != "central4":
+                    audio_cmd.extend(["--task-id",args.task_id])
+                    audio_cmd.extend(["--langs",args.langs])
+                run(audio_cmd)
+                report(args.bridge_url,args.runtime_nonce,"needs_review" if incomplete_qa else "done",
+                       "第259期 Gemma4 本地翻譯與核可來源 Edge TTS 已執行；"
+                       + ("部分語言仍需 QA 複核；" if incomplete_qa else "")
+                       + "以中央 Sheet 和 Drive 的正式檔案為準")
+                cmd=None
+
 
         elif args.stage == "multi":
             translate_langs = ",".join(
