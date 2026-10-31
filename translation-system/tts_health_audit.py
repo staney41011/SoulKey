@@ -67,25 +67,17 @@ async def audit_one(code,output,timeout):
     item={"code":code,"voice":profile["voice"],"status":"failed"}
     path=output/f"{code}.mp3"
     started=time.monotonic()
-    # One extra attempt only for transient "no audio" responses. A
-    # rejected WebSocket (403) is never retried in a rapid loop.
-    for attempt in range(2):
-        try:
-            await asyncio.wait_for(
-                edge_tts.Communicate(text=SAMPLES[code],
-                    voice=profile["voice"],rate=profile["rate"],
-                    pitch=profile["pitch"],boundary="SentenceBoundary").save(str(path)),
-                timeout=timeout)
-            item.update(validate_mp3(path))
-            item["status"]="ok"
-            item["attempts"]=attempt+1
-            break
-        except Exception as e:
-            item["error_type"]=type(e).__name__
-            item["error"]=str(e).split("url=")[0].strip()[:180]
-            if type(e).__name__!="NoAudioReceived" or attempt:
-                break
-            await asyncio.sleep(2.0)
+    try:
+        await asyncio.wait_for(
+            edge_tts.Communicate(text=SAMPLES[code],
+                voice=profile["voice"],rate=profile["rate"],
+                pitch=profile["pitch"],boundary="SentenceBoundary").save(str(path)),
+            timeout=timeout)
+        item.update(validate_mp3(path))
+        item["status"]="ok"
+    except Exception as e:
+        item["error_type"]=type(e).__name__
+        item["error"]=str(e).split("url=")[0].strip()[:180]
     item["elapsed_sec"]=round(time.monotonic()-started,2)
     print("VOICE_HEALTH",json.dumps(item,ensure_ascii=False),flush=True)
     return item

@@ -538,14 +538,7 @@ def local_language_issue(text, source, target_code):
             and text_core.casefold() == source_core.casefold()
         )
 
-        # Genuine one-to-three-word subtitle replies may have only one or
-        # two target-script characters (Japanese はい, Korean 네, etc.).
-        # Requiring four characters makes faithful short replies impossible.
-        # Keep the original stricter threshold for full spoken sentences.
-        source_words = re.findall(r"[A-Za-z]+(?:['’\-][A-Za-z]+)*", source)
-        short_reply = 0 < len(source_words) <= 3 and len(source) <= 24
-        min_target_chars = 1 if short_reply else 4
-        if target_chars < min_target_chars and not standalone_romanized_name:
+        if target_chars < 4 and not standalone_romanized_name:
             return "missing_target_script"
         if latin > 20 and target_chars / max(1, target_chars + latin) < 0.65:
             return "target_script_ratio_too_low"

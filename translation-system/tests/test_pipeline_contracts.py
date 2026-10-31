@@ -46,14 +46,13 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('"$ATTEMPT_ELAPSED" -lt 120', workflow)
         self.assertIn('if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then', workflow)
         self.assertIn('echo "[KAGGLE STARTUP] Retries exhausted', workflow)
-        # Restored production routes both TTS/multi and ASR through Kaggle.
+        # Hybrid deployment routes TTS/multi to CPU and ASR to Kaggle.
+        # Verify both groups exist instead of requiring a single legacy group.
         self.assertIn('soulkey-kaggle-web-worker', workflow)
-        self.assertNotIn('soulkey-github-cpu', workflow)
+        self.assertIn('soulkey-github-cpu', workflow)
+        self.assertIn('queue: max', workflow)
         self.assertIn('cancel-in-progress: false', workflow)
-        self.assertNotIn('SOULKEY_CPU_WORKER_ENABLED', workflow)
-        self.assertIn('jobs:', workflow)
-        self.assertIn('  launch:', workflow)
-        self.assertIn('    runs-on:', workflow)
+        self.assertIn('SOULKEY_CPU_WORKER_ENABLED', workflow)
 
     def test_asr_prefers_verified_drive_audio_over_expired_youtube_cookies(self):
         runner = read("translation-system/runner.py")
@@ -94,12 +93,12 @@ class PipelineContracts(unittest.TestCase):
 
         app = read("studio/app-20260923-48.js")
         index = read("studio/index.html")
-        self.assertIn('const YOUTUBE_CC_TARGETS = ["en"]', app)
+        self.assertIn('const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km","bn","ne","lo","my","it","pt"]', app)
         self.assertIn('if(kind==="asr")', app)
         self.assertIn('zh-TW\\.transcript\\.txt', app)
         self.assertIn('ccTotal+"/"+ccTotal+" 語純逐字稿已齊全', app)
         self.assertIn("一般使用者只顯示無時間軸純逐字稿", index)
-        self.assertIn("YouTube", index)
+        self.assertIn("429 會逐語言退避重試", index)
         self.assertNotIn("JSON / 時間軸 TXT / SRT / 純逐字稿", index)
 
     def test_frontend_bridge_actions_have_server_handlers(self):
@@ -122,10 +121,7 @@ class PipelineContracts(unittest.TestCase):
                 action,
             )
         self.assertIn('action:"review_cache_seed"', app)
-        # New central Finals need not already exist in legacy Drive. Save the
-        # plan centrally, then use the original authenticated machine dispatch.
-        self.assertIn('action:"language_plan_save"', quick)
-        self.assertIn('action:"run_stage",task_id:taskId,stage:"finish"', quick)
+        self.assertIn('action:"review_finish"', quick)
 
     def test_formal_drive_naming_preserves_canonical_lookups(self):
         naming = read("translation-system/drive_naming.py")
@@ -608,8 +604,7 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('action:"review_en_draft_save"', app)
         self.assertIn("function saveEnglishReviewDraft(", app)
         self.assertIn("review_en_draft_status", app)
-        self.assertIn("收到原服務的儲存回執後，才會進入下一步", app)
-        self.assertIn("ENGLISH_FINAL_PENDING_PREFIX", app)
+        self.assertIn("正在寫入 Google Drive English Final", app)
         self.assertIn("englishFinalizePendingTaskId", app)
 
         self.assertIn('action === "review_en_draft_save"', bridge)
@@ -676,7 +671,7 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn('.zh-review-media-bar.floating-video', styles)
         self.assertIn('const requestedStep=String(params.get("step")', review)
         self.assertIn("en:2", review)
-        self.assertIn("setStep(requestedStepNumber||(payload.en_finalized_at?3:2))", review)
+        self.assertIn("if(requestedStepNumber===2) setStep(2)", review)
 
     def test_course_file_overview_can_collapse_and_remember_state(self):
         app = read("studio/app-20260923-48.js")
@@ -733,9 +728,9 @@ class PipelineContracts(unittest.TestCase):
     def test_studio_long_running_kaggle_is_not_false_upstream_change(self):
         app = read("studio/app-20260923-48.js")
         self.assertIn('copy.status="delayed"', app)
-        self.assertIn('delayed:"工作逾時未回報（勿重複派送）"', app)
+        self.assertIn('delayed:"長時間未回報，先查Kaggle"', app)
         self.assertNotIn('copy.status="stale"', app)
-        self.assertIn('["queued","running","delayed"]', app)
+        self.assertIn('remoteActive.status!=="delayed"', app)
         self.assertIn('if(remote.status==="delayed") return "running"', app)
 
     def test_optional_review_cache_publication_cannot_erase_gemini_polish(self):

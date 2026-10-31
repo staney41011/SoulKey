@@ -299,11 +299,8 @@ def _ensure_edge_tts_runtime():
 
 
 
-def load_source_duration_limit(drive, source_folder, workdir, expected_youtube_url=""):
-    """Read metadata only when it matches the exact lesson video ID."""
-    if expected_youtube_url:
-        from source_duration import trusted_video_duration
-        return trusted_video_duration(drive, source_folder, workdir, expected_youtube_url)
+def load_source_duration_limit(drive, source_folder, workdir):
+    """Prefer exact original-video duration from source_info.json."""
     item = find_file(drive, source_folder, "source_info.json")
     if not item:
         return None, "source_timestamp_fallback"
@@ -406,32 +403,14 @@ def verify_uploaded_natural_output(
     if receipts is not None and not isinstance(receipts,dict):
         return "missing"
     if status=="done":
-        verified = (
+        return ("done" if
             _verified_drive_audio(
                 drive,audio_folder,f"{lang}.mp3",
                 (receipts or {}).get("mp3") if receipts is not None else None
             ) and _verified_drive_audio(
                 drive,audio_folder,f"{lang}.wav",
                 (receipts or {}).get("wav") if receipts is not None else None
-            )
-        )
-        if not verified:
-            return "missing"
-        # Review pre-fix "done" manifests too: they could certify a 24-minute
-        # recording against a 30-minute source video. Do not erase good audio;
-        # only withhold its formal approved status until reviewed/repaired.
-        timeline = manifest.get("timeline") or {}
-        if timeline.get("final_duration") is not None:
-            try:
-                actual_duration = float(timeline["final_duration"])
-            except (TypeError, ValueError):
-                return "needs_review"
-            if actual_duration <= 0 or (
-                actual_duration + 0.10 <
-                float(duration_limit) * MIN_NARRATION_TO_SOURCE_RATIO
-            ):
-                return "needs_review"
-        return "done"
+            ) else "missing")
     if status=="needs_review":
         return ("needs_review" if _verified_drive_audio(
             drive,audio_folder,f"{lang}.preview.mp3",

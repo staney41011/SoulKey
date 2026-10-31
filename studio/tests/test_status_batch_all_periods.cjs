@@ -21,8 +21,6 @@ const build=(count,period=258)=>{
   if(count===24)tasks.slice(20).forEach((t,j)=>{t.period=period;t.id="P258-L0"+(j+1)});
   const context={
     tasks,
-    currentView:"dashboard",
-    selectedTaskId:null,
     bridgeAuthenticated:true,
     bridgeKeyValue:()=>"test-key",
     bridgeEndpointValue:()=>"https://example.invalid/bridge",
@@ -49,12 +47,6 @@ const sent61=test61.calls.flatMap(c=>c.task_ids.split(","));
 assert.equal(sent61.length,61);
 assert.deepEqual(new Set(sent61),new Set(test61.tasks.map(t=>t.id)));
 assert(test61.calls.every(c=>c.task_ids.split(",").length<=20));
-const editor=build(24);
-editor.context.currentView="en-review";
-editor.context.selectedTaskId="P258-L01";
-assert.equal(editor.request(),true);
-assert.equal(editor.calls.length,1,"English editor only polls current lesson");
-assert.equal(editor.calls[0].task_ids,"P258-L01");
 const blocked=build(24);
 blocked.context.bridgeAuthenticated=false;
 assert.equal(blocked.request(),false);

@@ -3,7 +3,6 @@ name: SoulKey Studio Status and TTS Share Tests
 on:
   pull_request:
     paths:
-      - cloud-bridge/**
       - studio/app-20260923-48.js
       - studio/tts-share-message.js
       - studio/language-delivery.js
@@ -11,24 +10,15 @@ on:
       - studio/tests/test_tts_share_message.cjs
       - studio/tests/test_english_draft_save_receipt.cjs
       - studio/tests/test_english_drive_authority.cjs
-      - studio/tests/test_english_lesson_isolation.cjs
       - studio/tests/test_english_independent_store.cjs
       - studio/tests/test_review_audio_backend.cjs
       - studio/styles.css
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
-      - studio/tests/test_p259_legacy_rescue_gate.cjs
-      - studio/tests/test_p259_ios_top_level_dispatch.cjs
-      - bridge/apps-script/tests/firebase-status-mirror.test.cjs
-      - bridge/apps-script/Code.gs
-      - translation-system/central_manuscript_export.py
-      - translation-system/central_tts_recovery.py
-      - translation-system/tests/test_central_manuscript_export.py
       - .github/workflows/studio_status_batch_test.yml
   push:
     branches: [main]
     paths:
-      - cloud-bridge/**
       - studio/app-20260923-48.js
       - studio/tts-share-message.js
       - studio/language-delivery.js
@@ -36,19 +26,11 @@ on:
       - studio/tests/test_tts_share_message.cjs
       - studio/tests/test_english_draft_save_receipt.cjs
       - studio/tests/test_english_drive_authority.cjs
-      - studio/tests/test_english_lesson_isolation.cjs
       - studio/tests/test_english_independent_store.cjs
       - studio/tests/test_review_audio_backend.cjs
       - studio/styles.css
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
-      - studio/tests/test_p259_legacy_rescue_gate.cjs
-      - studio/tests/test_p259_ios_top_level_dispatch.cjs
-      - bridge/apps-script/tests/firebase-status-mirror.test.cjs
-      - bridge/apps-script/Code.gs
-      - translation-system/central_manuscript_export.py
-      - translation-system/central_tts_recovery.py
-      - translation-system/tests/test_central_manuscript_export.py
       - .github/workflows/studio_status_batch_test.yml
 
 permissions:
@@ -62,76 +44,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate production browser JS syntax
         run: |
-          node --check studio/bridge-routing.js
-          node --check studio/review-editor.js
-          node studio/tests/test_bridge_routing.cjs
-          node studio/tests/test_review_editor_central_save.cjs
           node --check studio/app-20260923-48.js
-          node studio/tests/test_p259_legacy_rescue_gate.cjs
-          node studio/tests/test_p259_ios_top_level_dispatch.cjs
-          node studio/tests/test_ios_control_login_split.cjs
-          node bridge/apps-script/tests/firebase-status-mirror.test.cjs
           node --check studio/tts-share-message.js
           node --check studio/language-delivery.js
-      - name: Validate Cloud Run Bridge read-only helpers
-        run: |
-          node --check cloud-bridge/server.js
-          python -m unittest discover -s cloud-bridge/tests -p 'test_gemini_response_recovery.py' -v
-          python -m unittest discover -s translation-system/tests -p 'test_central_tts_source.py' -v
-          python -m unittest discover -s translation-system/tests -p 'test_central_manuscript_export.py' -v
-          python -m py_compile translation-system/central_manuscript_export.py translation-system/central_tts_recovery.py
-          node cloud-bridge/tests/sheets-request.test.js
-          node cloud-bridge/tests/english-final-source.test.js
-          node --check cloud-bridge/drive-review.js
-          node --check cloud-bridge/drive-overview.js
-          node cloud-bridge/tests/auth.test.js
-          node cloud-bridge/tests/drive-overview.test.js
-          node --check cloud-bridge/english-final-backup.js
-          node cloud-bridge/tests/english-final-backup.test.js
-          node --check cloud-bridge/sheet-final-store.js
-          node cloud-bridge/tests/sheet-final-store.test.js
-          node --check cloud-bridge/chinese-final-store.js
-          node cloud-bridge/tests/chinese-final-store.test.js
-          node --check cloud-bridge/central-writes.js
-          node cloud-bridge/tests/central-writes.test.js
-          node --check cloud-bridge/translation-queue.js
-          node --check cloud-bridge/github-worker-auth.js
-          node cloud-bridge/tests/github-worker-auth.test.js
-          node cloud-bridge/tests/translation-queue.test.js
-          node cloud-bridge/tests/translation-chunk.test.js
-          node cloud-bridge/tests/translation-resume.test.js
-          node --check cloud-bridge/youtube-cc-queue.js
-          node cloud-bridge/tests/youtube-cc-queue.test.js
-          node cloud-bridge/tests/youtube-cc-progressive.test.js
-          python -m py_compile cloud-bridge/youtube_cc_worker.py
-          python -m py_compile cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
-          python -m py_compile cloud-bridge/translation_worker.py cloud-bridge/nllb_cpu.py
-          python -m py_compile cloud-bridge/youtube_cc_worker.py cloud-bridge/youtube_cc_kaggle.py cloud-bridge/youtube_cc_kaggle_client.py
-          python -m unittest discover -s cloud-bridge/tests -p 'test_youtube_cookie_env.py' -v
-          python -m unittest discover -s cloud-bridge/tests -p 'test_cc_english_first.py' -v
-          python - <<'PY'
-          import ast
-          from pathlib import Path
-          cc=Path('cloud-bridge/youtube_cc_kaggle.py').read_text()
-          assert 'from youtube_cc_worker import' not in cc
-          ast.parse('JOB_PAYLOAD = {"video_id":"w7rzYft4MeE","languages":["en"]}\n'+cc)
-          print('CC_KAGGLE_SINGLE_FILE_ENTRYPOINT_OK')
-          PY
-          python -m unittest discover -s cloud-bridge/tests -p 'test_translation_oidc_refresh.py' -v
-          python -m py_compile cloud-bridge/gemini_quality.py
-          python -m unittest discover -s cloud-bridge/tests -p 'test_gemini_quality.py' -v
-          node --check cloud-bridge/drive-final-publisher.js
-          node --check cloud-bridge/setup_owner_drive.js
-          node cloud-bridge/tests/drive-final-publisher.test.js
       - name: Verify TTS share message includes only valid Drive audio
         run: |
           node studio/tests/test_tts_share_message.cjs
           node studio/tests/test_english_draft_save_receipt.cjs
           node studio/tests/test_english_drive_authority.cjs
-          node studio/tests/test_english_lesson_isolation.cjs
-          node studio/tests/test_central_english_cc_editable.cjs
-          node studio/tests/test_default_all_languages_manual_optout.cjs
-          node studio/tests/test_workflow_running_translation_blocks_tts.cjs
           node studio/tests/test_english_independent_store.cjs
           node studio/tests/test_review_audio_backend.cjs
           node studio/tests/test_language_delivery_layout.cjs
@@ -142,15 +62,9 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
-          assert "app-20260923-48.js?v=20261031-no-gcp-v2" in html
-          assert html.index("bridge-routing.js?v=") < html.index("app-20260923-48.js?v=")
-          assert 'config.js?v=20261031-no-gcp-v2' in html
-          cfg=Path("studio/config.js").read_text(encoding="utf-8")
-          assert 'mode: "legacy-kaggle"' in cfg
-          assert 'bridgeEndpoint: "https://script.google.com/macros/s/' in cfg
-          assert "english-cc-alignment.js?v=20261029-central-cc-restore-v1" in html
-          assert "tts-share-message.js?v=20261028-length-audit-v1" in html
+          assert "app-20260923-48.js?v=20261022-edit-store-v3" in html
+          assert "tts-share-message.js?v=20261020-review-preview-v2" in html
           assert "id=\"tts-share-copy\"" in html
-          assert html.index("tts-share-message.js?v=") < html.index("language-delivery.js?v=") < html.index("english-cc-alignment.js?v=") < html.index("app-20260923-48.js?v=")
+          assert html.index("tts-share-message.js?v=") < html.index("language-delivery.js?v=") < html.index("app-20260923-48.js?v=")
           print("STUDIO_SCRIPT_CACHE_VERSION_OK")
           PY

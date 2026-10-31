@@ -54,25 +54,21 @@ def fetch_runtime(bridge_url: str, nonce: str):
             with urllib.request.urlopen(url, timeout=60) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except Exception as exc:
-            # HTTPError and URLError messages can contain the full request
-            # URL, including the bearer runtime nonce in its query string.
-            # Keep the class only; never log the exception or the URL.
-            last_exc = type(exc).__name__
+            last_exc = exc
             print(
                 f"[BRIDGE] runtime request {attempt}/{len(waits)} failed: "
-                f"{last_exc}",
+                f"{type(exc).__name__}: {exc}",
                 flush=True,
             )
             continue
 
         if not payload.get("ok"):
-            # Print only a short, server-defined reason code. The raw Bridge
-            # response could include credentials and must never hit CI logs.
-            code = str(payload.get("error") or "runtime_rejected")
-            if code not in {"invalid_or_expired_nonce", "unauthorized",
-                            "server_not_configured", "runtime_rejected"}:
-                code = "runtime_rejected"
-            raise RuntimeError("SoulKey runtime credential request failed: " + code)
+            # An explicit Bridge rejection (expired/invalid nonce, etc.) is not
+            # a transient network condition and should fail immediately.
+            raise RuntimeError(
+                "SoulKey runtime credential request failed: "
+                + str(payload.get("message") or payload.get("error") or payload)
+            )
 
         protocol = int(payload.get("bridge_protocol") or 0)
         if protocol < REQUIRED_BRIDGE_PROTOCOL:
@@ -90,7 +86,7 @@ def fetch_runtime(bridge_url: str, nonce: str):
 
     raise RuntimeError(
         "SoulKey runtime credential request exhausted retries: "
-        + (last_exc or "unknown_error")
+        + (f"{type(last_exc).__name__}: {last_exc}" if last_exc else "unknown error")
     )
 
 
@@ -237,12 +233,7 @@ def require_gpu_runtime(stage: str):
         print(f"[GPU] nvidia-smi 不可用：{smi.stderr.strip()}", flush=True)
 
     import torch
-    if stage == "gemma4":
-        # Gemma4 uses Transformers/PyTorch only; the Gemini-light requirements
-        # intentionally do not install CTranslate2.
-        ctranslate2 = None
-    else:
-        import ctranslate2
+    import ctranslate2
 
     torch_ok = bool(torch.cuda.is_available())
     torch_count = int(torch.cuda.device_count()) if torch_ok else 0
@@ -252,7 +243,7 @@ def require_gpu_runtime(stage: str):
     ] if torch_ok else []
 
     try:
-        ct2_count = int(ctranslate2.get_cuda_device_count()) if ctranslate2 else 0
+        ct2_count = int(ctranslate2.get_cuda_device_count())
     except Exception as exc:
         print(
             f"[GPU] CTranslate2 CUDA 偵測失敗：{type(exc).__name__}: {exc}",
@@ -270,7 +261,7 @@ def require_gpu_runtime(stage: str):
 
     needs_ct2 = stage in {"zh", "metadata", "asr", "batch"}
     needs_torch = stage in {
-        "zh", "metadata", "polish", "vernacular", "en", "multi", "tts", "finish", "batch", "gemma4"
+        "zh", "metadata", "polish", "vernacular", "en", "multi", "tts", "finish", "batch"
     }
 
     failures = []
@@ -362,10 +353,7 @@ def main():
             os.environ["GEMINI_API_KEY"] = gemini_api_key
             print("[RUNTIME] Gemini API Key：Apps Script 已提供", flush=True)
         elif needs_gemini and not (
-            (args.stage == "en" and args.lang == "cc-refresh")
-            or (args.stage == "tts" and args.task_id in {"P259-L01","P259-L02","P259-L03","P259-L04"})
-            or (args.stage == "multi" and args.task_id in {"P259-L01","P259-L02","P259-L03","P259-L04"})
-            or (args.stage == "finish" and args.task_id in {"P259-L01","P259-L02","P259-L03","P259-L04"})
+            args.stage == "en" and args.lang == "cc-refresh"
         ):
             raise RuntimeError(
                 "Apps Script 尚未設定 GEMINI_API_KEY；"
@@ -610,27 +598,11 @@ def main():
                     flush=True,
                 )
 
-        # P259 has SHA-verified central English Finals, but some legacy Drive
-        # en.final.json files were never synchronized by the new Cloud Bridge.
-        # Restore only missing files from exact central revisions before multi.
-        central_p259 = args.task_id in {
-            "P259-L01", "P259-L02", "P259-L03", "P259-L04"
-        }
-        if args.stage in {"en","multi","tts","finish"} and args.lang!="cc-refresh":
-            from central_final_sync import sync_finals
-            targets=["P259-L01","P259-L02","P259-L03","P259-L04"] if args.lang=="central4" else [args.task_id]
-            for target in targets:
-                sync_finals(target,["zh"] if args.stage=="en" else ["zh","en"],
-                            Path("/kaggle/working/central-final-sync")/target)
-
         # A human may have finalized a pre-reupload transcript before the
         # new URL was checked. Guard every downstream consumer as well:
         # no translations or TTS from unverified source timestamps.
         if args.stage in {"polish", "vernacular", "en", "multi", "tts", "finish"} and not (
-            (args.stage == "en" and args.lang == "cc-refresh")
-            or (args.stage == "tts" and central_p259)
-            or (args.stage == "multi" and central_p259)
-            or (args.stage == "finish" and central_p259)
+            args.stage == "en" and args.lang == "cc-refresh"
         ):
             try:
                 verify_asr_source_revision()
@@ -741,81 +713,6 @@ def main():
                 "--stage", "en",
             ]
 
-        elif args.stage == "multi" and central_p259:
-            if args.lang == "central4" and args.task_id == "P259-L01":
-                # Emergency P259 L04 ONLY. Original Studio-issued nonce authenticates
-                # Drive + Sheets; no Cloud Run and no Kaggle GPU translations.
-                print("[P259-L04-URGENT] Six languages via Gemini CPU + Edge Natural TTS",flush=True)
-                incomplete_qa=False
-                if gemini_api_key:
-                    translation_cmd=[
-                        sys.executable,"-u",str(system_dir/"p259_gemini_central.py"),
-                        "--period","259","--task-id","P259-L04",
-                        "--langs","id,vi,km","--max-new-languages","3",
-                    ]
-                    try:
-                        run(translation_cmd)
-                    except subprocess.CalledProcessError as exc:
-                        if exc.returncode != 2:raise
-                        incomplete_qa=True
-                        print("[P259-L04-URGENT] Some translations still need QA",flush=True)
-                else:
-                    incomplete_qa=True
-                    print("[P259-L04-URGENT] No Gemini key from Bridge; audio only",flush=True)
-                run([sys.executable,"-m","pip","install","-q","edge-tts==7.3.1"])
-                run([
-                    sys.executable,"-u",str(system_dir/"central_tts_recovery.py"),
-                    "--period","259","--task-id","P259-L04",
-                    "--langs","en,th,es,id,vi,km","--max-languages","6",
-                ])
-                report(args.bridge_url,args.runtime_nonce,
-                    "needs_review" if incomplete_qa else "needs_review",
-                    "第259期第四堂六語補譯、核可配音已執行；請以 Drive 正式檔案逐語言驗收")
-                cmd=None
-            else:
-                # P259 migration: all approved English Finals -> Kaggle local Gemma4.
-                # The *existing* Apps Script worker_runtime has already provided
-                # short-lived GOOGLE_ACCESS_TOKEN + refreshable nonce above.
-                # No Kaggle Secrets or Gemini API keys are needed for this route.
-                if args.lang == "central4" and args.task_id != "P259-L01":
-                    raise RuntimeError("central4_requires_P259-L01_dispatch_anchor")
-                require_gpu_runtime("gemma4")
-                print("[P259-GEMMA4-BRIDGE] authorized OAuth runtime, local GPU translation",flush=True)
-                run([sys.executable, "-m", "pip", "install", "-q", "-U",
-                     "huggingface_hub", "edge-tts==7.3.1"])
-                translation_cmd = [
-                    sys.executable, "-u",
-                    str(system_dir / "p259_gemma4_kaggle.py"),
-                    "--period", "259", "--max-new-languages", "60",
-                ]
-                if args.lang != "central4":
-                    translation_cmd.extend(["--task-id",args.task_id])
-                    translation_cmd.extend(["--langs",args.langs])
-                incomplete_qa=False
-                try:
-                    run(translation_cmd)
-                except subprocess.CalledProcessError as exc:
-                    if exc.returncode != 2:
-                        raise
-                    incomplete_qa=True
-                    print("[P259-GEMMA4] Some languages need review; preserving passed languages",flush=True)
-                # Continue to audio only from verified, current-revision sources.
-                audio_cmd=[
-                    sys.executable, "-u",
-                    str(system_dir / "central_tts_recovery.py"),
-                    "--period", "259", "--max-languages", "64",
-                ]
-                if args.lang != "central4":
-                    audio_cmd.extend(["--task-id",args.task_id])
-                    audio_cmd.extend(["--langs",args.langs])
-                run(audio_cmd)
-                report(args.bridge_url,args.runtime_nonce,"needs_review" if incomplete_qa else "done",
-                       "第259期 Gemma4 本地翻譯與核可來源 Edge TTS 已執行；"
-                       + ("部分語言仍需 QA 複核；" if incomplete_qa else "")
-                       + "以中央 Sheet 和 Drive 的正式檔案為準")
-                cmd=None
-
-
         elif args.stage == "multi":
             translate_langs = ",".join(
                 x.strip() for x in args.langs.split(",") if x.strip()
@@ -828,29 +725,6 @@ def main():
                 "--task-id", args.task_id,
                 "--langs", translate_langs,
             ]
-
-        elif args.stage == "tts" and central_p259:
-            # Emergency restoration: use the old Natural TTS/Drive engine, but
-            # read the existing SHA-verified central English Final and Gemini QA.
-            # Avoid Gemini translation calls and legacy Drive Final preflights;
-            # many current P259 English Finals are still in the central Sheet.
-            if args.lang == "central4" and args.task_id != "P259-L01":
-                raise RuntimeError("central4_requires_P259-L01_dispatch_anchor")
-            print("[P259-RESCUE] Authentic old Kaggle+Apps Script Bridge; "
-                  "recover all four lessons, source-verified languages only", flush=True)
-            run([sys.executable, "-m", "pip", "install", "-q",
-                 "edge-tts==7.3.1"])
-            central_audio=[sys.executable, "-u",
-                 str(system_dir / "central_tts_recovery.py"),
-                 "--period", "259", "--max-languages", "64"]
-            if args.lang != "central4":
-                if not args.langs.strip():raise RuntimeError("TTS 沒有指定任何語言")
-                central_audio.extend(["--task-id",args.task_id,"--langs",args.langs])
-            run(central_audio)
-            report(args.bridge_url, args.runtime_nonce, "needs_review",
-                   "已核對中央英文定稿及各語言 QA，恢復可用音檔；"
-                   "仍需檢查每語言 tts:<lang> 和 Drive MP3，未完成語言繼續等待翻譯")
-            cmd = None
 
         elif args.stage == "tts":
             requested_audio_langs = [
@@ -966,23 +840,6 @@ def main():
                 "批次全流程完成：" + task_ids,
             )
             cmd = None
-
-        elif args.stage == "finish" and central_p259:
-            # The quick editor's final button uses the same central Finals,
-            # local GPU translation and original CPU Natural TTS as Studio.
-            if args.langs.strip():
-                require_gpu_runtime("gemma4")
-                run([sys.executable,"-m","pip","install","-q","huggingface_hub"])
-                run([sys.executable,"-u",str(system_dir/"p259_gemma4_kaggle.py"),
-                     "--task-id",args.task_id,"--langs",args.langs])
-            if args.lang.strip():
-                run([sys.executable,"-m","pip","install","-q","edge-tts==7.3.1"])
-                run([sys.executable,"-u",str(system_dir/"central_tts_recovery.py"),
-                     "--task-id",args.task_id,"--langs",args.lang,
-                     "--max-languages","16"])
-            report(args.bridge_url,args.runtime_nonce,"needs_review",
-                   "已依勾選執行中央文稿翻譯與音檔；請逐語確認 QA、Drive 文稿及 MP3")
-            cmd=None
 
         elif args.stage == "finish":
             translate_langs = ",".join(

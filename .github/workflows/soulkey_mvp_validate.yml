@@ -23,15 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restored legacy workflow and central Final interoperability
-        run: |
-          node studio/tests/test_bridge_routing.cjs
-          node studio/tests/test_review_editor_central_save.cjs
-          python -m unittest discover -s translation-system/tests -p test_central_final_sync.py -v
-          python translation-system/tests/test_central_tts_recovery_plan.py
-          python translation-system/tests/test_gemma_queue_continuation.py
-          python translation-system/tests/test_bridge_runtime_preflight.py
-
       - name: Python syntax
         run: |
           python -m py_compile \

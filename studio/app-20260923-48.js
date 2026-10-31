@@ -9,21 +9,13 @@ const STORE = {
 const BRIDGE_ENDPOINT_KEY = "soulkey_bridge_endpoint_v1";
 const BRIDGE_SESSION_KEY = "soulkey_bridge_key_session_v1";
 const BRIDGE_ENDPOINT = String(cfg.bridgeEndpoint || "").trim();
-// The old Apps Script handles every authorized read/write and Kaggle dispatch.
-// Firebase is an additive control-center display; Sheet/Drive stay authoritative.
-const LEGACY_KAGGLE_ENDPOINT = String(cfg.legacyKaggleBridgeEndpoint || "").trim();
 const STATUS_POLL_MS = 30000;
 const REQUIRED_BRIDGE_PROTOCOL = 9;
 let bridgeProtocolVersion = 0;
 const REVIEW_CACHE_BASE = String(cfg.reviewCacheBaseUrl || "https://raw.githubusercontent.com/staney41011/SoulKey/main/studio-review-cache").replace(/\/$/,"");
 const ZH_RENDER_BATCH = 80;
 let bridgeClientReady = false;
-let bridgeClientInitializing = false;
 let bridgeAuthenticated = false; // true only after verified health AND central tasks are loaded
-let driveOwnerConfigured = false; // requires verified owner OAuth before Drive publishing
-let youtubeCCQueueEnabled = false; // authenticated original Bridge supports Kaggle CC/audio
-let bridgeIsCloudRecovery = false;
-let firebaseSnapshotReadOnly=false; // verified encrypted Firebase snapshot, NEVER enables mutations
 let youtubeCookiesConfigured = null;
 let reviewYouTubePlayer = null;
 let reviewYouTubeVideoId = "";
@@ -80,7 +72,7 @@ const workflow = [
   {key:"tts", label:"各國語言音檔", short:"音檔", hint:"依選擇"}
 ];
 
-const YOUTUBE_CC_TARGETS = ["en"]; // Captions only; other languages use the translation pipeline.
+const YOUTUBE_CC_TARGETS = ["en","th","es","id","vi","hi","ta","ja","ko","km","bn","ne","lo","my","it","pt"];
 
 function load(key, fallback){
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
@@ -181,7 +173,6 @@ let languageSettings = [
 let selectedTaskId = null;
 let selectedPeriod = null;
 let currentZhReview = [];
-let zhFinalPendingTaskId = "";
 let currentZhReviewAll = [];
 let zhFreshSegments = [];
 let zhReviewLoading = false;
@@ -197,8 +188,6 @@ let zhGithubLastSavedRevision = 0;
 let zhGithubSaveRevisionInFlight = 0;
 let currentVernacularReview = [];
 let currentEnglishReview = [];
-// Only an authenticated task-matched Bridge read can authorize editing/finalizing.
-let englishCanonicalLoadedTaskId = "";
 let englishDraftSavePendingId = null;
 const englishDraftSaveQueuedIds = new Set();
 let englishDraftSavePendingIds = new Set();
@@ -210,17 +199,11 @@ let englishDraftSavedSnapshot = null;
 // Only acknowledgements from Drive-backed saves may enter this local cache.
 const ENGLISH_DRIVE_ACK_PREFIX="soulkey_en_drive_ack:";
 const ENGLISH_UNCONFIRMED_BACKUP_PREFIX="soulkey_en_unsaved_backup:";
-const ENGLISH_FINAL_PENDING_PREFIX="soulkey_en_final_pending:";
 let englishFinalizePendingTaskId = "";
 let englishFinalizePriorFinishedAt = "";
 let englishFinalizeWatchdog = null;
-let pendingRunStageRequest=null;
-let p259RescueSending=false;
-let p259TranslationSending=false;
-let pendingYoutubeCapture=null;
 // A confirmed Drive acknowledgement applies to its own task only.
 const englishFinalizedThisSession = new Set();
-const englishSheetFinalizedThisSession = new Set();
 let currentView = "dashboard";
 const viewHistory = [];
 const youtubeCaptureFilesCache = {};
@@ -270,10 +253,6 @@ function bridgeEndpointValue(){
   return BRIDGE_ENDPOINT;
 }
 
-function isAppsScriptBridge(){
-  return /^https:\/\/script\.google\.com\/macros\/s\//.test(bridgeEndpointValue());
-}
-
 function setDashboardBridgeState(message,state="idle"){
   const badge=document.getElementById("dashboard-bridge-state");
   const msg=document.getElementById("dashboard-bridge-message");
@@ -294,72 +273,10 @@ function setDashboardBridgeState(message,state="idle"){
   }
 }
 
-async function restoreFirebaseSnapshot(){
-  if(!cfg.firebaseHostingUrl)return false;
-  const input=document.getElementById("dashboard-firebase-key");
-  const button=document.getElementById("dashboard-firebase-connect");
-  const message=document.getElementById("dashboard-firebase-message");
-  if(!input?.value.trim()){if(message)message.textContent="請輸入 Firebase 專用存取碼";return false;}
-  if(button)button.disabled=true;
-  if(message)message.textContent="正在驗證並讀取 Firebase 課程快照…";
-  try{
-    // Same-origin GitHub Pages path; no Apps Script, no third-party cookies.
-    const url=new URL("../firebase-control-center/public/data.enc.json",window.location.href);
-    const response=await fetch(url.toString(),{cache:"no-store"});
-    if(!response.ok)throw new Error("無法取得 Firebase 資料（HTTP "+response.status+"）");
-    const blob=await response.json();
-    const asBytes=base64=>Uint8Array.from(atob(base64),c=>c.charCodeAt(0));
-    const textEncoder=new TextEncoder();
-    const material=await crypto.subtle.importKey("raw",textEncoder.encode(input.value.trim()),"PBKDF2",false,["deriveKey"]);
-    const key=await crypto.subtle.deriveKey({
-      name:"PBKDF2",salt:asBytes(blob.salt),iterations:blob.iterations,hash:"SHA-256"
-    },material,{name:"AES-GCM",length:256},false,["decrypt"]);
-    let plain;
-    try{
-      plain=await crypto.subtle.decrypt({
-        name:"AES-GCM",iv:asBytes(blob.iv),additionalData:textEncoder.encode("SoulKey-Firebase-Snapshot-v1")
-      },key,asBytes(blob.ciphertext));
-    }catch(_){throw new Error("Firebase 存取碼不正確，或快照無法驗證");}
-    const data=JSON.parse(new TextDecoder().decode(plain));
-    if(!Array.isArray(data.tasks)||!data.tasks.length ||
-       !data.tasks.every(t=>/^P\d+-L\d+$/i.test(String(t.id||""))&&/^SKC-\d+$/i.test(String(t.course_uid||""))))
-       throw new Error("課程資料格式或固定 UID 驗證失敗");
-    input.value="";
-    firebaseSnapshotReadOnly=true;
-    bridgeAuthenticated=true;  // permits existing read-only dashboard renderer
-    confirmedRemoteTaskIds=new Set();
-    tasks=data.tasks.map(x=>normalizeTask({
-      id:x.id,period:x.period,lesson:x.lesson,title:x.title,
-      youtubeUrl:x.youtubeUrl,course_uid:x.course_uid,
-      progress:x.progress,asr:x.asr,zh:x.zh,en:x.en,tts:x.tts,
-      workflowVersion:WORKFLOW_VERSION,completedStep:-1,languagePlan:[]
-    }));
-    selectedPeriod=Math.max(...tasks.map(x=>Number(x.period)||0));
-    // Snapshot is NEVER merged into local drafts or uploaded to central Sheets.
-    renderTasks();
-    const state=document.getElementById("stat-tasks");
-    if(state)state.textContent=String(tasks.length);
-    setDashboardBridgeState(
-      "Firebase 已恢復 "+tasks.length+" 堂課的唯讀總覽（備援快照，非即時狀態）。目前禁止調課、定稿與啟動 Kaggle。",
-      "ok"
-    );
-    const badge=document.getElementById("dashboard-bridge-state");
-    if(badge)badge.textContent="Firebase 唯讀";
-    if(message)message.textContent="已驗證 "+tasks.length+" 堂課。查看課程可用；寫入功能仍待後端恢復。";
-    showView("dashboard");
-    return true;
-  }catch(error){
-    if(message)message.textContent="Firebase 備援讀取失敗："+String(error.message||error);
-    return false;
-  }finally{if(button)button.disabled=false;}
-}
-
 function syncStudioNow(){
-  firebaseSnapshotReadOnly=false;
-  if(isAppsScriptBridge() && !bridgeClientReady) initBridgeClient();
   const key=bridgeKeyValue();
   if(!BRIDGE_ENDPOINT){
-    setDashboardBridgeState("系統尚未設定控制中心網址。","error");
+    setDashboardBridgeState("系統尚未設定 Apps Script URL。","error");
     return false;
   }
   if(!key){
@@ -371,9 +288,8 @@ function syncStudioNow(){
   confirmedRemoteTaskIds=new Set();
   sessionStorage.setItem(BRIDGE_SESSION_KEY,key);
   setDashboardBridgeState("正在驗證控制中心，再讀取正式課程…","working");
-  // Login is a credentialed POST with a bounded retry/error path on iOS;
-  // never depend on an embedded third-party Apps Script iframe to load tasks.
-  // The old Apps Script is used only after authenticated manual job dispatch.
+  // A single health probe first. Previously 3 JSONP calls plus iframe
+  // duplicated tasks/status/language requests and delayed the dashboard.
   requestStatusHealth();
   return true;
 }
@@ -401,10 +317,6 @@ function applyLatestPeriodToNewTask(){
 }
 
 function showView(name, options={}){
-  if(firebaseSnapshotReadOnly && name!=="dashboard"){
-    setDashboardBridgeState("Firebase 備援目前只有課程總覽，不可修改課程、人工定稿或執行翻譯。","ok");
-    name="dashboard";
-  }
   if(name!=="dashboard" && !bridgeAuthenticated){
     setDashboardBridgeState("請先完成控制中心連線驗證，才能開啟課程或修改資料。","error");
     name="dashboard";
@@ -553,7 +465,7 @@ function remoteStageStatus(task, stageKey){
     if(candidates.length){
       const stamp=item=>{
         const raw=String(item.updated_at || item.started_at || item.finished_at || "");
-        const parsed=window.SoulKeyBridgeRoutes?.statusTime?.(raw) ?? Date.parse(raw.replace(" ","T"));
+        const parsed=Date.parse(raw.replace(" ","T"));
         return Number.isFinite(parsed) ? parsed : 0;
       };
       candidates.sort((a,b)=>stamp(b)-stamp(a));
@@ -567,14 +479,15 @@ function remoteStageStatus(task, stageKey){
 function syncCompletedFromRemote(task){
   normalizeTask(task);
 
-  // Any newest, non-done remote stage overrides stale local completion.
-  // In particular, a previously done five-language "multi" does NOT mean
-  // the newly running ten-language job is finished. Never unlock TTS early.
+  // 若已完成的步驟後來被最新重跑結果標成 error / stale，
+  // 必須退回該步驟前一關。否則 Studio 會誤以為 multi 已完成，
+  // 直接跳去 TTS，造成舊翻譯檔反覆被使用。
   for(let i=0;i<workflow.length;i++){
     const remote=remoteStageStatus(task,workflow[i].key);
     if(
       remote &&
-      ["queued","running","delayed","error","stale","needs_review"].includes(remote.status) &&
+      (["error","stale"].includes(remote.status) ||
+        (["multi","tts"].includes(workflow[i].key) && remote.status==="needs_review")) &&
       i<=task.completedStep
     ){
       task.completedStep=i-1;
@@ -645,39 +558,27 @@ function normalizeRemoteStatus(item){
   if(!item) return null;
   const copy={...item};
   if(["queued","running"].includes(copy.status) && copy.updated_at){
-    const ts=window.SoulKeyBridgeRoutes?.statusTime?.(copy.updated_at) ?? Date.parse(String(copy.updated_at).replace(" ","T"));
+    const ts=Date.parse(String(copy.updated_at).replace(" ","T"));
     if(Number.isFinite(ts) && Date.now()-ts > 30*60*1000){
       // A stale timestamp is NOT proof of an upstream data change.
       // Reserve "stale" for actual dependency invalidation from backend.
-      copy.original_status=copy.status;
       copy.status="delayed";
-      copy.message=(copy.message ? copy.message+"；" : "")+
-        (copy.original_status==="queued"
-         ? "排隊超過30分鐘，GitHub Worker 尚未領取；請檢查 Actions 與原控制中心，勿重複派送"
-         : "執行中超過30分鐘未更新；請檢查 Worker 紀錄，勿重複派送");
+      copy.message=(copy.message ? copy.message+"；" : "")+"超過30分鐘未更新，請先查看 GitHub Actions，勿重複送出";
     }
   }
   return copy;
 }
 
-function remoteProgressText(remote){
-  // The legacy Bridge sets 1% when translation is claimed, but does not
-  // update that figure after each language chunk. Hide false precision.
-  if(!remote || (remote.stage==="multi" &&
-     ["queued","running","delayed"].includes(remote.status)))return "";
-  const pct=Number(remote.progress);
-  return Number.isFinite(pct)&&pct>0 ? " "+pct+"%" : "";
-}
 function remoteStatusText(status){
   const map={
     pending:"等待執行",
-    queued:"工作排隊中",
-    running:"工作執行中",
+    queued:"Kaggle 排隊中",
+    running:"Kaggle 執行中",
     needs_review:"待人工確認",
     done:"完成",
     error:"執行失敗",
     stale:"上游資料已失效，需檢查",
-    delayed:"工作逾時未回報（勿重複派送）"
+    delayed:"長時間未回報，先查Kaggle"
   };
   return map[status] || status || "";
 }
@@ -728,13 +629,6 @@ function mergeRemoteTasks(remoteTasks){
       languagePlan:Array.isArray(local.languagePlan) ? local.languagePlan : []
     };
     normalizeTask(task);
-    if(bridgeIsCloudRecovery && /^已退回：/.test(String(local.status||""))){
-      // Previous UI rollback only touched localStorage. Discard the misleading
-      // local status while preserving central Sheet and all draft manuscripts.
-      task.status=String(remote.status||"中央工作狀態已同步");
-      delete task.rollbackStage;
-      delete task.rollbackAt;
-    }
     return task;
   });
 
@@ -1152,18 +1046,10 @@ function openQuickReview(taskId){
   }
 }
 
-function cloudStageUnavailable(stage){
-  return !!(bridgeIsCloudRecovery && stage &&
-    window.SoulKeyBridgeRoutes?.usesLegacy({action:"run_stage",stage:stage.key}) &&
-    !LEGACY_KAGGLE_ENDPOINT);
-}
-
 function renderTasks(){
   const el=document.getElementById("task-list");
 
   renderPeriodSelector();
-  const rescuePanel=document.getElementById("p259-rescue-panel");
-  if(rescuePanel) rescuePanel.hidden=Number(selectedPeriod)!==259;
 
   if(!bridgeAuthenticated){
     el.innerHTML='<div class="empty">請先連線控制中心並完成驗證；未連線時禁止建立或修改課程。</div>';
@@ -1185,7 +1071,6 @@ function renderTasks(){
       const remoteActive=activeRemoteStatus(t);
       const nextRemote=next ? remoteStageStatus(t,next.key) : null;
       const failureReason=remoteErrorReason(remoteActive);
-      const stageUnavailable=cloudStageUnavailable(next);
       return '<article class="course-task-row" data-open-task="'+escapeHtml(t.id)+'">'+
         '<div class="course-task-main">'+
           '<div class="course-task-title">'+
@@ -1203,7 +1088,8 @@ function renderTasks(){
             '</span>'+
             '<span class="muted">'+escapeHtml(
               remoteActive
-                ? remoteStatusText(remoteActive.status)+remoteProgressText(remoteActive)
+                ? remoteStatusText(remoteActive.status)+
+                  (remoteActive.status!=="delayed" && remoteActive.progress ? " "+remoteActive.progress+"%" : "")
                 : t.status
             )+'</span>'+
           '</div>'+
@@ -1219,19 +1105,15 @@ function renderTasks(){
             (!(remoteStageStatus(t,"zh") && ["needs_review","done"].includes(remoteStageStatus(t,"zh").status)) ? "disabled" : "")+
             '>快速流程</button>'+
           '<button class="primary task-next-btn" data-next-task="'+escapeHtml(t.id)+'" '+
-            (complete || stageUnavailable || !cloudConfirmed || pendingRunStageRequest?.taskId===t.id || (nextRemote && ["queued","running","delayed"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
+            (complete || !cloudConfirmed || (nextRemote && ["queued","running"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
             (!cloudConfirmed
               ? "等待雲端同步"
               : complete
               ? "已完成"
-              : stageUnavailable
-              ? "此步驟待恢復"
               : nextRemote && nextRemote.status==="running"
-                ? "執行中"+remoteProgressText(nextRemote)
+                ? "執行中 "+(nextRemote.progress||"")+"%"
                 : nextRemote && nextRemote.status==="queued"
                   ? "排隊中"
-                  : nextRemote && nextRemote.status==="delayed"
-                    ? "已派送，待確認"
                   : nextRemote && nextRemote.status==="error"
                     ? "重新執行"
                     : "執行下一步")+
@@ -1642,15 +1524,9 @@ function captureStateInfo(task,kind,files){
     : "尚未找到可閱讀的外語 CC 純逐字稿。";
 
   if(status==="running" || status==="queued"){
-    return {key:"working",label:status==="queued"?"佇列已登記":"執行中",
-      detail:message || (status==="queued"?"等待 Worker 實際領取，不代表已在 Kaggle 執行。":
-      "正在等待 Worker 的資料回報。")};
+    return {key:"working",label:"執行中",detail:message || "Kaggle 正在處理這項抓取工作。"};
   }
   if(status==="done"){
-    if(kind==="cc" && ccDone===0){
-      return {key:"error",label:"缺少已驗證字幕",
-        detail:"執行狀態雖記錄完成，但目前沒有對應本堂、可讀取的 CC 成果；不可視為完成。"};
-    }
     if(message.includes("NO_YOUTUBE_CC")){
       return {
         key:"idle",
@@ -1785,25 +1661,10 @@ function renderCaptureFileList(containerId,files,emptyText){
         '<b>'+escapeHtml(file.display_name||file.name||"未命名檔案")+'</b>'+
         '<span>'+escapeHtml([size,updated].filter(Boolean).join("・"))+'</span>'+
       '</div>'+
-      (file.storage==="google-sheet"
-        ? '<button class="secondary" type="button" data-cc-download="'+escapeHtml(file.job_id||"")+
-          '" data-cc-task="'+escapeHtml(file.task_id||"")+
-          '" data-cc-lang="'+escapeHtml(file.lang||"")+'">下載中央字幕</button>'
-        : '<a href="'+escapeHtml(file.url||"#")+'" target="_blank" rel="noopener">開啟雲端檔案</a>')+
+      '<a href="'+escapeHtml(file.url||"#")+'" target="_blank" rel="noopener">開啟雲端檔案</a>'+
     '</div>';
   }).join("");
 }
-
-document.addEventListener("click",event=>{
-  const button=event.target.closest("[data-cc-download]");
-  if(!button)return;
-  const fields={
-    action:"youtube_cc_content",task_id:button.dataset.ccTask,
-    job_id:button.dataset.ccDownload,language:button.dataset.ccLang
-  };
-  if(!bridgeClientRequest(fields) && !jsonpBridgeRequest(fields))
-    alert("未能向中央控制中心請求這份字幕，請重新連線後再試。");
-});
 
 function renderYoutubeCaptureFiles(task){
   const payload=task ? youtubeCaptureFilesCache[task.id] : null;
@@ -1866,7 +1727,7 @@ function requestYoutubeCaptureFiles(taskId,force=false){
   youtubeCaptureFilesLoadingTask=id;
   const badge=document.getElementById("youtube-capture-files-state");
   if(badge){
-    badge.textContent="正在讀取中央字幕及 Drive 成果…";
+    badge.textContent="正在讀取 Drive…";
     badge.className="badge";
   }
 
@@ -1961,15 +1822,11 @@ function syncYoutubeCaptureModeUi(){
   const status=document.getElementById("youtube-audio-status");
 
   if(audioOptions) audioOptions.hidden=mode!=="audio";
-  if(button){
-    button.textContent=mode==="cc" ? "抓取 CC 字幕" : "抓取音軌";
-    button.disabled=(!youtubeCCQueueEnabled||!!pendingYoutubeCapture);
-  }
+  if(button) button.textContent=mode==="cc" ? "抓取 CC 字幕" : "抓取音軌";
   if(status && !/已送出|Kaggle|完成|錯誤|處理中/.test(String(status.textContent||""))){
-    status.textContent=!youtubeCCQueueEnabled
-      ? "請先連線原控制中心，再送出抓取工作。"
-      : mode==="audio" ? "由 Kaggle 抓取所選可用音軌，保留實際來源。"
-      : "由 Kaggle 抓取本堂可取得的 YouTube 原始 CC，只回報實際取得的字幕。";
+    status.textContent=mode==="cc"
+      ? "固定補齊 7 語 CC 純逐字稿；遇到 YouTube 429 會逐語言退避重試。"
+      : "將抓取 YouTube 目前可取得的多語音軌。";
   }
 }
 
@@ -1992,10 +1849,6 @@ function runYoutubeAudioGrab(){
   const status=document.getElementById("youtube-audio-status");
   const button=document.getElementById("youtube-audio-run");
   const mode=youtubeCaptureMode();
-  if(!youtubeCCQueueEnabled){
-    if(status)status.textContent="請先連線原控制中心，再送出抓取工作。";
-    return;
-  }
 
   if(!task){
     if(status) status.textContent="請先選擇期數與課程。";
@@ -2038,28 +1891,26 @@ function runYoutubeAudioGrab(){
     payload.langs=langs;
   }
 
-  if(pendingYoutubeCapture){
-    if(status)status.textContent="上一次請求還沒收到控制中心回覆，請勿重複送出。";
-    return;
-  }
-  pendingYoutubeCapture={taskId:task.id,mode};
-  if(button)button.disabled=true;
-  if(status)status.textContent="正在等待控制中心確認派工，還沒有啟動任何抓取工作…";
   const sent=submitBridgePost(payload);
   if(!sent){
-    pendingYoutubeCapture=null;
-    if(button)button.disabled=false;
-    if(status)status.textContent="抓取工作未送出，請重新連線後再試。";
+    if(status) status.textContent="YouTube 抓取工作未送出，請重新連線控制中心後再試。";
     return;
   }
-  const pending=pendingYoutubeCapture;
+
+  if(button) button.disabled=true;
+  if(status){
+    status.textContent=mode==="cc"
+      ? "已送出｜抓取所有可用 CC 字幕"
+      : "已送出｜"+(langs==="all" ? "抓取全部可用音軌" : "指定音軌語言："+langs);
+  }
+
+  const stateInfo={key:"working",label:"執行中",detail:"Kaggle 已收到抓取工作，等待處理。"};
+  setCaptureState(mode==="cc"?"cc":"audio",stateInfo);
+
   window.setTimeout(()=>{
-    if(pendingYoutubeCapture===pending){
-      pendingYoutubeCapture=null;
-      if(button)button.disabled=false;
-      if(status)status.textContent="控制中心未回覆是否接收；請先刷新中央任務狀態，不要連續送出。";
-    }
-  },35000);
+    if(button) button.disabled=false;
+    requestTaskStatuses();
+  },1800);
 }
 
 function stageState(task,index){
@@ -2086,9 +1937,8 @@ function stageState(task,index){
 function normalizedLanguagePlan(task){
   const current=Array.isArray(task.languagePlan) ? task.languagePlan : [];
   const byCode=Object.fromEntries(current.map(x=>[x.language_code || x.code,x]));
-  // Only a lesson without a saved plan defaults to ALL supported languages.
-  // Once the user has saved a plan, explicit false choices always win and
-  // any new language defaults off until manually selected.
+  // Brand-new lessons default to all currently enabled languages. Existing lesson plans
+  // remain opt-in for newly added languages: never silently rerun old lessons.
   const newLessonPlan=current.length===0;
 
   return languageSettings.map(lang=>{
@@ -2564,7 +2414,7 @@ function renderTaskDetail(task){
     const state=stageState(task,i);
     const remote=remoteStageStatus(task,stage.key);
     const label=remote
-      ? remoteStatusText(remote.status)+remoteProgressText(remote)
+      ? remoteStatusText(remote.status)+(remote.progress ? " "+remote.progress+"%" : "")
       : state==="done"?"已完成":state==="current"?"目前步驟":"尚未開放";
     const stageFailure=remoteErrorReason(remote);
     const reviewStage=["zh","en-review"].includes(stage.key);
@@ -2640,15 +2490,6 @@ function renderTaskDetail(task){
         '<div><b>現在要進行English CC 定稿</b><span>逐段查看中文 Final 與英文稿（YouTube CC 或 AI 翻譯），修正後同步學習專有名詞的正式英文譯法。</span></div>'+
         '<button class="primary" data-open-en-review-inline="'+escapeHtml(task.id)+'">進入English CC 定稿</button>'+
       '</div>';
-  }else if(currentRemote && ["queued","running","delayed"].includes(currentRemote.status)){
-    const delayed=currentRemote.status==="delayed";
-    document.getElementById("detail-current-body").innerHTML=
-      '<div class="stage-message">'+
-        '<div><b>'+escapeHtml(next.label)+'：'+escapeHtml(remoteStatusText(currentRemote.status))+
-        '</b><span>'+escapeHtml(currentRemote.message||
-          (delayed?"工作長時間未回報；請檢查 GitHub Actions，勿重複派工。":
-          "正在由 Worker 處理；成果回讀驗證完成前，下一步維持鎖定。"))+
-        '</span></div></div>';
   }else{
     document.getElementById("detail-current-body").innerHTML=
       '<div class="stage-message">'+
@@ -2657,11 +2498,7 @@ function renderTaskDetail(task){
   }
 
   const previousBtn=document.getElementById("detail-previous-btn");
-  previousBtn.disabled=task.completedStep < 0 ||
-    (currentRemote && ["queued","running","delayed"].includes(currentRemote.status));
-  previousBtn.title=previousBtn.disabled&&currentRemote&&
-    ["queued","running","delayed"].includes(currentRemote.status)
-    ? "正在翻譯，暫時不可返回並重新派工" : "";
+  previousBtn.disabled=task.completedStep < 0;
   previousBtn.onclick=()=>rollbackPreviousStage(task.id);
 
   const reviewBtn=document.getElementById("detail-review-btn");
@@ -2672,11 +2509,11 @@ function renderTaskDetail(task){
 
   const nextBtn=document.getElementById("detail-next-btn");
   const nextRemote=next ? remoteStageStatus(task,next.key) : null;
-  nextBtn.disabled=!next || cloudStageUnavailable(next) || pendingRunStageRequest?.taskId===task.id || !!(nextRemote && ["queued","running","delayed"].includes(nextRemote.status));
+  nextBtn.disabled=!next || !!(nextRemote && ["queued","running"].includes(nextRemote.status));
   const humanReviewNext=next && next.key==="en-review";
   const zhNeedsReview=next && next.key==="zh" && nextRemote && nextRemote.status==="needs_review";
   nextBtn.textContent=next
-    ? (cloudStageUnavailable(next) ? "此步驟尚未接回" : zhNeedsReview ? "進入：人工中文定稿" : humanReviewNext ? "進入："+next.label : nextRemote && nextRemote.status==="delayed" ? "已派送，待確認" : nextRemote && nextRemote.status==="running" ? "工作執行中" : nextRemote && nextRemote.status==="queued" ? "工作排隊中" : "執行下一步："+next.label)
+    ? (zhNeedsReview ? "進入：人工中文定稿" : humanReviewNext ? "進入："+next.label : "執行下一步："+next.label)
     : "已全部完成";
   nextBtn.onclick=()=>{
     if(!next) return;
@@ -2771,12 +2608,6 @@ function rollbackPreviousStage(taskId){
 
   const reopenIndex=task.completedStep;
   const reopenStage=workflow[reopenIndex];
-  if(bridgeIsCloudRecovery){
-    // Cloud Run cannot yet reconcile an actual server-side rollback. Do not
-    // fabricate a locally completed rollback that contradicts central Sheet.
-    alert("目前 Cloud Run 尚未恢復正式退回功能，因此沒有更改任何課程進度。\n\n需要修改稿件時，請使用人工中文或英文定稿；資料會保留在原課程。");
-    return;
-  }
 
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
@@ -2911,15 +2742,6 @@ function confirmNextStage(taskId){
   // now tries bgutil guest PO tokens / anonymous clients first, so missing
   // YOUTUBE_COOKIES_B64 must never block a normal Chinese-stage launch.
   if(next.key==="en-review") return openEnglishReview(task.id);
-  if(cloudStageUnavailable(next)){
-    alert("新 Cloud Run 尚未恢復「"+next.label+"」的正式派送，沒有建立工作；既有稿件不受影響。");
-    return;
-  }
-  if(currentRemote && ["queued","running","delayed"].includes(currentRemote.status)){
-    alert("此課程已派送或尚未回報；請先核對中央佇列與 GitHub Actions，不要重複派送。");
-    requestTaskStatuses();
-    return;
-  }
 
   let langs="";
   if(next.key==="multi"){
@@ -2952,13 +2774,11 @@ function confirmNextStage(taskId){
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
     (retry?"重新執行：":"確定執行下一步驟：")+"\n"+next.label+"？\n\n"+
-    "確認後會送到 GitHub Actions，再啟動 Kaggle。文稿及音檔寫回並驗證後才算完成。"
+    "確認後會送到 GitHub Actions，再啟動 Kaggle Web Worker。完成前下一步會保持鎖定。"
   );
   if(!ok) return;
 
   const dispatchStage=next.key==="zh" ? "zh" : next.key;
-  pendingRunStageRequest={taskId:task.id,stage:dispatchStage,
-    submittedAt:Date.now(),previousRunId:String(currentRemote?.run_id||"")};
   const sent=submitBridgePost({
     action:"run_stage",
     task_id:task.id,
@@ -2968,18 +2788,27 @@ function confirmNextStage(taskId){
   });
 
   if(!sent){
-    pendingRunStageRequest=null;
-    alert("控制中心尚未接受這項派工；沒有建立 Kaggle 工作。");
+    alert("尚未設定 Apps Script Web App URL 或 Bridge Key。");
     return;
   }
 
-  // HTTP request sent is not the same as a GitHub/Kaggle queue receipt.
-  // Wait for the explicit run_stage ACK before marking the lesson queued.
-  task.status="正在核對派工回覆："+next.label;
+  task.status="排隊中："+next.label;
+  task.remoteStages=task.remoteStages||{};
+  task.remoteStages[next.key]={
+    task_id:task.id,
+    stage:next.key,
+    status:"queued",
+    progress:"0",
+    message:"已送出 Kaggle Web Job"
+  };
   save(STORE.tasks,tasks);
   renderTasks();
-  if(currentView==="task-detail" && selectedTaskId===task.id)
+
+  if(currentView==="task-detail" && selectedTaskId===task.id){
     renderTaskDetail(task);
+  }
+
+  window.setTimeout(()=>requestTaskStatuses(),1800);
 }
 function taskAtSchedulePosition(period,lessonNo){
   return tasks.find(t=>
@@ -3455,7 +3284,7 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
     "確定中文逐字稿已人工確認完成並定稿？\n"+
-    "系統會存到本堂 Google Drive，保留人工定稿與時間軸。"
+    "定稿會寫回 Google Drive，之後 AI 白話文只使用這份 Final。"
   );
   if(!ok) return;
 
@@ -3476,24 +3305,19 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
     return;
   }
 
-  // Never navigate away or claim a saved Chinese Final until the server
-  // returns a confirmed, read-back-verified Sheet revision.
-  zhFinalPendingTaskId=task.id;
-  setZhFinalizeEnabled(false);
-  setZhReviewLoadState("正在驗證本堂中文中央定稿寫入…","working");
-  const sent=submitBridgePost({
+  submitBridgePost({
     action:"review_save",
     task_id:task.id,
     kind:"zh",
     segments_json:JSON.stringify(segments),
-    terms_json:"[]",
-    source_video_id:youtubeVideoIdFromUrl(task.url)
+    terms_json:"[]"
   });
-  if(!sent){
-    zhFinalPendingTaskId="";
-    setZhFinalizeEnabled(true);
-    setZhReviewLoadState("中文定稿尚未送出；目前修改保留於畫面","error");
-  }
+
+  task.status="中文定稿儲存中";
+  save(STORE.tasks,tasks);
+  alert("已送出中文 Final。系統確認寫入後會自動解鎖 AI 白話文。");
+  openTaskDetail(task.id);
+  window.setTimeout(()=>requestTaskStatuses(),1500);
 });
 
 
@@ -3853,39 +3677,17 @@ function showNoEnglishCcFallback(taskId){
   });
 }
 
-function markVerifiedEnglishStage(taskId,source="sheet"){
-  const task=tasks.find(x=>x.id===taskId);
-  if(!task)return;
-  task.remoteStages=task.remoteStages||{};
-  task.remoteStages["en-review"]={
-    task_id:taskId,stage:"en-review",status:"done",progress:"100",
-    message:source==="sheet"
-      ?"Google Sheet 中央英文定稿已回讀驗證；Drive 待同步"
-      :"Google Drive 英文定稿已回讀驗證",
-    finished_at:new Date().toISOString(),updated_at:new Date().toISOString()
-  };
-  task.en="完成";
-  if(remoteStageStatus(task,"zh")?.status==="done"||task.completedStep>=0)
-    task.completedStep=Math.max(task.completedStep,1);
-  save(STORE.tasks,tasks);
-  renderTasks();
-}
 function syncEnglishFinalizeButton(task){
   const button=document.getElementById("finalize-en");
   if(!button || !task) return;
-  const sheetFinal=englishSheetFinalizedThisSession.has(task.id);
-  const finalized=sheetFinal || englishFinalizedThisSession.has(task.id) ||
+  const finalized=englishFinalizedThisSession.has(task.id) ||
     remoteStageStatus(task,"en-review")?.status==="done";
   const pending=englishFinalizePendingTaskId===task.id;
   button.dataset.finalized=finalized?"1":"0";
-  button.disabled=pending || (!finalized && englishCanonicalLoadedTaskId!==task.id);
-  const backup=(()=>{try{return JSON.parse(localStorage.getItem(
-    ENGLISH_FINAL_PENDING_PREFIX+task.id)||"null");}catch(_){return null;}})();
+  button.disabled=pending;
   button.textContent=pending
     ?"正在儲存…"
-    :finalized?"✓ 已定稿・進入下一步 →"
-      :backup?.backup_saved?"英文已備存・Drive 待定稿"
-      :"英文定稿";
+    :finalized?"✓ 已定稿・查看後續流程 →":"英文定稿";
 }
 
 function showEnglishDraftRecovery(taskId){
@@ -3925,100 +3727,6 @@ function requestEnglishCloudOverrides(taskId){
     action:"review_en_draft_status",task_id:taskId,include_edits:"1"
   });
 }
-// The new Cloud Run CC queue persists source-verified English in Sheet,
-// while the legacy review_load(en) still looks for Drive en.json. Restore the
-// editor from the existing read-only Bridge endpoints, without re-fetching
-// YouTube, generating AI text, or touching any Chinese Final.
-let englishCcRecoveryPromise=null;
-function readEnglishCcBridge(fields){
-  return new Promise((resolve,reject)=>{
-    if(!jsonpBridgeRequest(fields,{onResult:resolve,onError:reject}))
-      reject(new Error("bridge_not_connected"));
-  });
-}
-async function recoverEnglishCcIntoEditor(taskId){
-  if(englishCcRecoveryPromise?.taskId===taskId)
-    return englishCcRecoveryPromise.promise;
-  const pending=(async()=>{
-    const task=tasks.find(t=>t.id===taskId);
-    if(!task)throw Error("lesson_not_registered");
-    const video=youtubeVideoIdFromUrl(task.url||"");
-    if(!video)throw Error("lesson_video_missing");
-    const status=document.getElementById("en-review-share-state");
-    if(status)status.textContent="正在載入中央已保存的英文 CC 與本堂中文 Final，不重抓 YouTube…";
-    const chinese=[];
-    for(let chunk=0;chunk<30;chunk++){
-      const reply=await readEnglishCcBridge({
-        action:"review_load",task_id:taskId,kind:"zh",chunk_index:chunk
-      });
-      if(!reply?.ok||reply.type!=="review_data"||reply.kind!=="zh"||
-         reply.task_id!==taskId||!Array.isArray(reply.segments))
-        throw Error("中文 Final 來源驗證失敗");
-      chinese.push(...reply.segments);
-      if(!reply.has_more)break;
-      if(chunk===29)throw Error("中文 Final 分頁數量超出限制");
-    }
-    if(!chinese.length)throw Error("找不到本堂中文 Final");
-    // Prefer the read-only Sheet manifest. On Cloud Run deployments where
-    // Drive folder lookup is unavailable, obtain the same task's completed CC
-    // job ID from the authenticated status API instead.
-    let manifest=null;
-    try{manifest=await readEnglishCcBridge({
-      action:"youtube_capture_files",task_id:taskId
-    });}catch(_){}
-    if(manifest?.ok && (manifest.task_id!==taskId||
-       manifest.video_id!==video))throw Error("字幕清單的影片身分不符");
-    let verified=(manifest?.cc_files||[]).find(file=>
-      file.name==="en.transcript.txt" &&
-      file.task_id===taskId &&
-      file.storage==="google-sheet" &&
-      /^[0-9a-f-]{36}$/i.test(String(file.job_id||""))
-    );
-    if(!verified){
-      const state=await readEnglishCcBridge({
-        action:"status",task_id:taskId
-      });
-      const ccStage=state?.tasks?.[taskId]?.stages?.cc;
-      if(!state?.ok||ccStage?.status!=="done"||
-         !/^[0-9a-f-]{36}$/i.test(String(ccStage?.run_id||"")))
-        throw Error("中央 Sheet 尚無可使用的本堂英文 CC");
-      verified={job_id:ccStage.run_id};
-    }
-    const caption=await readEnglishCcBridge({
-      action:"youtube_cc_content",task_id:taskId,
-      job_id:verified.job_id,language:"en"
-    });
-    if(!caption?.ok||caption.task_id!==taskId||
-       caption.lang!=="en"||!String(caption.content||"").trim())
-      throw Error("中央英文 CC 回讀驗證失敗");
-    const mapper=window.SoulKeyEnglishCCAlignment?.alignmentRows;
-    if(typeof mapper!=="function")throw Error("英文 CC 對照模組未載入");
-    const aligned=mapper(chinese,caption.content,{
-      video_id:video,job_id:verified.job_id
-    });
-    if(selectedTaskId!==taskId||currentView!=="en-review" ||
-       englishDraftSavePendingId!==null ||
-       englishDraftSaveQueuedIds.size || englishReviewDirtyIds.size ||
-       currentEnglishReview.length) return;
-    englishCanonicalLoadedTaskId=taskId;
-    renderEnglishReview(aligned);
-    syncEnglishFinalizeButton(task);
-    if(status)status.textContent=
-      "已載入中央英文 CC 原文，共 "+aligned.length+
-      " 個中文對照段落。原 CC 無時間碼，對齊位置為估算；請逐段核對後確認儲存。";
-    requestEnglishCloudOverrides(taskId);
-  })().catch(error=>{
-    if(selectedTaskId!==taskId||currentView!=="en-review"||
-       currentEnglishReview.length)return;
-    const status=document.getElementById("en-review-share-state");
-    if(status)status.textContent=
-      "已保存的英文 CC 尚未載入編輯器："+String(error.message||error).slice(0,160);
-  });
-  englishCcRecoveryPromise={taskId,promise:pending};
-  try{await pending;}finally{
-    if(englishCcRecoveryPromise?.promise===pending)englishCcRecoveryPromise=null;
-  }
-}
 async function openEnglishReview(taskId){
   if(!bridgeAuthenticated){
     setDashboardBridgeState("請先連線控制中心，才能編輯英文定稿。","error");
@@ -4030,16 +3738,7 @@ async function openEnglishReview(taskId){
     alert("這堂課仍有未確認的英文修改，請先完成確認或複製備份再切換課程。");
     return;
   }
-  if(selectedTaskId===taskId &&
-     (englishReviewDirtyIds.size||englishDraftSavePendingId!==null)){
-    // Never discard a same-lesson unsaved edit just to refresh its source.
-    showView("en-review");
-    return;
-  }
-  if(selectedTaskId!==taskId)englishReviewDirtyIds.clear();
-  // Clear stale rows even when reopening the very same lesson.
-  currentEnglishReview=[];
-  englishCanonicalLoadedTaskId="";
+  if(selectedTaskId!==taskId) englishReviewDirtyIds.clear();
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
@@ -4061,15 +3760,85 @@ async function openEnglishReview(taskId){
     '<small>'+escapeHtml(task.url)+'</small>';
 
   const list=document.getElementById("en-review-list");
-  list.innerHTML='<div class="empty">正在核對本堂 Google Drive／中央英文資料，禁止使用其他堂的快取…</div>';
+  list.innerHTML='<div class="empty">正在讀取英文定稿快取…</div>';
   showView("en-review");
 
-  // Do not display cached English or a local Drive ACK before validating the
-  // current lesson's Drive/Sheet source. Previously these previews could
-  // display P259-L03 content under the P259-L04 heading after a switch.
-  if(!requestReviewData(taskId,"en",0)){
-    list.innerHTML='<div class="empty">本堂英文資料驗證失敗，沒有載入或儲存其他堂內容。</div>';
+  // Instant repeat openings on this device: preview the last known English
+  // passage layout, then independently reconcile the live GitHub snapshot.
+  const preview=readReviewCache(taskId,"en");
+  if(preview?.segments?.length){
+    renderEnglishReview(englishReviewItemsFromGithub(preview,true));
+    if(shareState) shareState.textContent="先顯示本機英文快取・正在檢查雲端最新版";
   }
+
+  // A confirmed Drive save can precede GitHub cache propagation. Do not
+  // replace acknowledged confirmations with a stale GitHub snapshot.
+  let pendingDriveAck=null;
+  try{
+    pendingDriveAck=JSON.parse(localStorage.getItem(
+      ENGLISH_DRIVE_ACK_PREFIX+taskId
+    )||"null");
+  }catch(_){}
+  if(pendingDriveAck &&
+     Array.isArray(pendingDriveAck.segments) &&
+     pendingDriveAck.segments.length){
+    renderEnglishReview(englishReviewItemsFromGithub(
+      {segments:pendingDriveAck.segments},true
+    ));
+    if(shareState){
+      shareState.textContent=
+        "英文確認已保存到 Google Drive；正在從 Drive 核對最新狀態。";
+    }
+    requestReviewData(taskId,"en",0);
+    return;
+  }
+
+  // The English cache is the preferred authoritative layout. A missing cache
+  // falls back to the Chinese review cache, then Drive, without two 7s waits.
+  for(const kind of ["en","zh"]){
+    try{
+      const payload=await fetchReviewPayload(task.id,kind);
+      if(payload.task_id && payload.task_id!==taskId) continue;
+      const items=englishReviewItemsFromGithub(payload,kind==="en");
+      if(items.length && items.some(x=>String(x.en||"").trim())){
+        if(selectedTaskId!==taskId) return;
+        if(englishDraftSavePendingId!==null || englishDraftSaveQueuedIds.size>0){
+          if(shareState) shareState.textContent=
+            "英文確認正在儲存；已略過較舊的 GitHub 快取畫面";
+          return;
+        }
+        renderEnglishReview(items);
+        writeReviewCache({
+          ...payload,task_id:taskId,kind:"en",
+          segments:items.map(x=>({
+            id:x.id,start:x.start,end:x.end,time:x.time,
+            text:x.original,en_text:x.en,source_en:x.source_en,
+            en_confirmed:x.en_confirmed,zh_ids:x.ids,pre_aligned:x.pre_aligned
+          }))
+        });
+        if(shareState){
+          const cachedVideo=String(payload.source_video_id||"").trim();
+          const currentVideo=youtubeVideoIdFromUrl(task.url);
+          const sourceDiffers=cachedVideo && currentVideo && cachedVideo!==currentVideo;
+          shareState.textContent=sourceDiffers
+            ? "提示：英文 CC 來自重新上傳前的影片；已依中文定稿整理成對照段落。若新片有剪輯變更，請先驗證影片來源。"
+            : "已按中文 Final 時間軸載入完整的中英對照段落；正式儲存仍寫入 Google Drive";
+        }
+        // GitHub is a fast PREVIEW, not the manuscript source of truth.
+        // Always fetch the latest Google Drive draft, even on another device.
+        requestReviewData(taskId,"en",0);
+        return;
+      }
+    }catch(err){
+      console.warn("GitHub English review cache unavailable, using Drive:",err);
+    }
+  }
+
+  if(selectedTaskId===taskId && requestReviewData(taskId,"en",0)){
+    list.innerHTML='<div class="empty">GitHub 尚未有英文稿，改從 Google Drive 載入…</div>';
+    return;
+  }
+  list.innerHTML='<div class="empty">無法讀取英文稿。請檢查控制中心連線與 GitHub 快取。</div>';
 }
 
 function mergeEnglishTextParts(parts){
@@ -4289,16 +4058,8 @@ function finishEnglishReviewDraftSave(data){
   window.clearTimeout(englishDraftSaveWatchdog);
   if(data.ok){
     const byId=new Map((submitted?.segments||[]).map(x=>[Number(x.id),x]));
-    const cloudStore=englishCloudOverridesByTask[currentId] || (englishCloudOverridesByTask[currentId]={});
     pendingIds.forEach(id=>{
       const saved=byId.get(id);
-      if(saved){
-        // This receipt becomes the base revision for subsequent edits to
-        // this very same sentence, preventing false edit_conflict failures.
-        cloudStore[String(id)]={en_text:String(saved.en_text||""),
-          en_confirmed:true,request_id:String(data.request_id||""),
-          updated_at:String(data.saved_at||"")};
-      }
       const current=currentEnglishReview.find(x=>Number(x.id)===id);
       const unchanged=!!saved && !!current && current.en_confirmed===true &&
         String(current.en||"")===String(saved.en_text||"");
@@ -4321,7 +4082,7 @@ function finishEnglishReviewDraftSave(data){
       }catch(_){}
     }
     if(state) state.textContent="本批 "+pendingIds.length+
-      " 筆英文已通過中央 Google Sheet 回讀驗證"+(englishDraftSaveQueuedIds.size
+      " 筆英文已通過 Google Drive 回讀驗證"+(englishDraftSaveQueuedIds.size
         ?"；繼續儲存後續確認…":"");
   }else{
     pendingIds.forEach(id=>markEnglishConfirmResult(id,false,"重試確認"));
@@ -4333,22 +4094,6 @@ function finishEnglishReviewDraftSave(data){
     window.setTimeout(()=>saveEnglishReviewDraft(next),0);
   }
 }
-function resumeQueuedEnglishSaves(){
-  if(englishDraftSavePendingId!==null || !englishDraftSaveQueuedIds.size ||
-     !selectedTaskId || !bridgeAuthenticated || !bridgeKeyValue())return;
-  const next=englishDraftSaveQueuedIds.values().next().value;
-  const item=currentEnglishReview.find(row=>Number(row.id)===Number(next));
-  if(!item)return;
-  item.en_confirmed=true;
-  window.setTimeout(()=>saveEnglishReviewDraft(next),250);
-}
-window.addEventListener("online",()=>{
-  if(bridgeKeyValue() && !bridgeAuthenticated)requestStatusHealth();
-  resumeQueuedEnglishSaves();
-});
-document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState==="visible")resumeQueuedEnglishSaves();
-});
 function saveEnglishReviewDraft(confirmedId){
   if(!selectedTaskId || !currentEnglishReview.length) return false;
   const id=Number(confirmedId);
@@ -4370,11 +4115,15 @@ function saveEnglishReviewDraft(confirmedId){
   englishDraftSavedSnapshot.save_request_id=requestId;
   englishDraftSavedSnapshot.confirmed_segment_ids=ids;
   const state=document.getElementById("en-review-share-state");
-  if(state) state.textContent="正在安全儲存 "+ids.length+" 筆英文修改…";
+  if(state) state.textContent="正在將 "+ids.length+" 筆英文確認保存到 Google Drive…";
   try{
     localStorage.setItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+currentId,
       JSON.stringify(englishDraftSavedSnapshot));
   }catch(_){}
+  // Google web apps can discard/never acknowledge large hidden iframe
+  // form POSTs. Use a small, cross-origin no-CORS POST (no third-party
+  // iframe/cookies) and authenticate success only via the Drive receipt GET.
+  // The payload contains ONLY rows confirmed in this request.
   const selected=new Set(ids.map(Number));
   const compactPayload={
     ...englishDraftSavedSnapshot,
@@ -4390,86 +4139,42 @@ function saveEnglishReviewDraft(confirmedId){
   const endpoint=bridgeEndpointValue();
   const secret=bridgeKeyValue();
   if(!endpoint || !secret || !bridgeAuthenticated){
-    // No write was attempted: keep the same confirmation in the local queue.
-    ids.forEach(x=>englishDraftSaveQueuedIds.add(x));
+    ids.forEach(x=>markEnglishConfirmResult(x,false,"重試確認"));
     englishDraftSavePendingId=null;
     englishDraftSavePendingIds=new Set();
     englishDraftSaveRequestId="";
     englishDraftSavedSnapshot=null;
-    if(state) state.textContent="暫時離線：修改和確認已留在本機；恢復連線後會重新送出。";
-    return true;
+    if(state) state.textContent="控制中心尚未連線；文字保留在本機。";
+    return false;
   }
   const body=new URLSearchParams({
     action:"review_en_draft_save",task_id:currentId,
     bridge_key:secret,payload_json:JSON.stringify(compactPayload)
   });
-  const stillPending=()=>selectedTaskId===currentId &&
-    englishDraftSaveRequestId===requestId;
+  fetch(endpoint,{
+    method:"POST",mode:"no-cors",credentials:"omit",
+    body:body,redirect:"follow",cache:"no-store"
+  }).catch(err=>{
+    if(englishDraftSaveRequestId!==requestId)return;
+    const state=document.getElementById("en-review-share-state");
+    if(state)state.textContent="網路可能無法送出儲存請求；正在核對 Drive，尚未確認成功。";
+    // The request might still be committed; the receipt probe decides.
+  });
   const probe=()=>{
-    if(stillPending())jsonpBridgeRequest({
-      action:"review_en_draft_status",task_id:currentId,request_id:requestId
-    });
+    if(selectedTaskId===currentId &&
+       englishDraftSaveRequestId===requestId)
+      jsonpBridgeRequest({
+        action:"review_en_draft_status",task_id:currentId,
+        request_id:requestId
+      });
   };
-  // Direct CORS POST returns a verifiable ACK. Reuse the *same* request ID
-  // on retries so an interrupted response can never create a second edit.
-  // The receipt polls are only a fallback if the POST ACK is lost.
-  const send=async()=>{
-    if(isAppsScriptBridge()){
-      // The original server responds with an HTML postMessage receipt.
-      submitBridgePost({action:"review_en_draft_save",task_id:currentId,
-        payload_json:JSON.stringify(compactPayload)});
-      return;
-    }
-    for(let attempt=0;attempt<3;attempt++){
-      if(!stillPending())return;
-      if(attempt)await new Promise(resolve=>
-        window.setTimeout(resolve,attempt===1?1600:4200));
-      if(!stillPending())return;
-      const controller=new AbortController();
-      const cutoff=window.setTimeout(()=>controller.abort(),20000);
-      try{
-        const response=await fetch(endpoint,{
-          method:"POST",mode:"cors",credentials:"omit",
-          headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-          body:body.toString(),redirect:"follow",cache:"no-store",
-          signal:controller.signal
-        });
-        const data=await response.json();
-        if(!stillPending())return;
-        if(data?.type==="english_review_draft_saved" &&
-           String(data.request_id||"")===requestId){
-          finishEnglishReviewDraftSave(data);
-          return;
-        }
-        if(response.status===401 || response.status===429){
-          finishEnglishReviewDraftSave({
-            type:"english_review_draft_saved",task_id:currentId,
-            request_id:requestId,ok:false,
-            message:response.status===429
-              ?"伺服器限制登入嘗試，請稍後再試"
-              :"共用 Bridge Key 驗證失敗，請重新連線"
-          });
-          return;
-        }
-        if(state)state.textContent="雲端暫時未確認儲存，正自動重試（"+
-          (attempt+1)+"/3）；本機草稿安全保留。";
-      }catch(error){
-        if(!stillPending())return;
-        if(state)state.textContent="網路中斷或回應逾時，正自動重試（"+
-          (attempt+1)+"/3）；英文修改沒有清除。";
-      }finally{window.clearTimeout(cutoff);}
-    }
-    if(stillPending()){
-      if(state)state.textContent="正在核對雲端是否已收到修改；本機草稿已保存，請勿關閉編輯頁。";
-      probe();
-    }
-  };
-  send();
-  [8000,23000,43000,65000,85000].forEach(delay=>
-    window.setTimeout(probe,delay));
+  // POST iframe messages can be lost on mobile/cross-origin browsers.
+  // Read a tiny, Drive-committed receipt independently over JSONP.
+  [2000,6000,12000,22000,35000,45000].forEach(delay=>window.setTimeout(probe,delay));
   window.clearTimeout(englishDraftSaveWatchdog);
   englishDraftSaveWatchdog=window.setTimeout(()=>{
-    if(!stillPending())return;
+    if(englishDraftSaveRequestId!==requestId ||
+       selectedTaskId!==currentId) return;
     const waiting=[...englishDraftSavePendingIds,...englishDraftSaveQueuedIds];
     waiting.forEach(x=>markEnglishConfirmResult(x,false,"重試確認"));
     englishDraftSavePendingId=null;
@@ -4477,9 +4182,8 @@ function saveEnglishReviewDraft(confirmedId){
     englishDraftSaveQueuedIds.clear();
     englishDraftSaveRequestId="";
     englishDraftSavedSnapshot=null;
-    if(state)state.textContent=
-      "雲端仍未回覆儲存憑證。所有英文修改已備份在此裝置；請按「重試確認」，不要重新翻譯。";
-  },100000);
+    if(state) state.textContent="55秒內未收到 Drive 儲存憑證。文字已保存在本機，按鈕可重試；請先核對雲端避免重複修改。";
+  },55000);
   return true;
 }
 
@@ -4656,17 +4360,10 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   // A confirmed final is a navigation action, not a second Drive write.
   if(document.getElementById("finalize-en")?.dataset.finalized==="1" ||
      remoteStageStatus(task,"en-review")?.status==="done"){
-    if(englishSheetFinalizedThisSession.has(task.id))
-      markVerifiedEnglishStage(task.id,"sheet");
     openTaskDetail(task.id);
-    requestTaskStatuses();
     return;
   }
 
-  if(englishCanonicalLoadedTaskId!==task.id){
-    alert("尚未從中央資料確認本堂英文稿，已阻止跨堂英文定稿。請重新開啟這一堂。");
-    return;
-  }
   document.querySelectorAll("#en-review-list .en-review-row").forEach(row=>{
     const item=currentEnglishReview.find(
       x=>Number(x.id)===Number(row.dataset.enSegment)
@@ -4691,7 +4388,7 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   const ok=confirm(
     task.id+"｜"+task.lesson+"\n\n"+
     "確定英文稿已人工確認完成並定稿？\n"+
-    "系統會存到本堂 Google Drive，並保留原有定稿紀錄。"
+    "系統會先確認 Google Drive 寫入成功，再顯示完成。"
   );
   if(!ok) return;
 
@@ -4701,17 +4398,7 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
     button.disabled=true;
     button.textContent="正在儲存…";
   }
-  const fullTerms=[...document.querySelectorAll("[data-term-en-input]")].map(input=>({
-    zh:String(input.dataset.termEnInput||"").trim(),
-    en:String(input.value||"").trim()
-  })).filter(x=>x.zh&&x.en);
-  try{
-    localStorage.setItem(ENGLISH_FINAL_PENDING_PREFIX+task.id,
-      JSON.stringify({task_id:task.id,kind:"en",segments,terms:fullTerms,
-        backup_saved:false,queued_at:new Date().toISOString()}));
-  }catch(_){}
-  if(state) state.textContent=
-    "正在提交英文全文；收到原服務的儲存回執後，才會進入下一步。";
+  if(state) state.textContent="正在寫入 Google Drive English Final…";
   englishFinalizePendingTaskId=task.id;
   englishFinalizePriorFinishedAt=String(
     remoteStageStatus(task,"en-review")?.finished_at || ""
@@ -4733,8 +4420,12 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
     task_id:task.id,
     kind:"en",
     segments_json:JSON.stringify(segments),
-    terms_json:JSON.stringify(fullTerms),
-    source_video_id:youtubeVideoIdFromUrl(task.url)
+    terms_json:JSON.stringify(
+      [...document.querySelectorAll("[data-term-en-input]")].map(input=>({
+        zh:String(input.dataset.termEnInput||"").trim(),
+        en:String(input.value||"").trim()
+      })).filter(x=>x.zh&&x.en)
+    )
   });
 
   if(!sent){
@@ -4748,49 +4439,8 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
   }
 });
 
-// iOS Safari may permit the owner-authorized Apps Script as a top-level
-// navigation while blocking the same service in a third-party hidden iframe.
-// A top-level POST keeps the six-digit Bridge Key out of URLs and address logs.
-// Do not call this outside a direct user gesture; opening a tab is deliberate.
-function useTopLevelP259LegacyDispatch(fields){
-  return /iPad|iPhone|iPod/i.test(navigator.userAgent||"") &&
-    fields?.action==="run_stage";
-}
-
-function submitP259LegacyTopLevelForm(endpoint,key,fields){
-  const form=document.createElement("form");
-  form.method="POST";
-  form.action=endpoint;
-  form.target="_blank";
-  form.rel="noopener noreferrer";
-  form.style.display="none";
-  for(const [name,value] of Object.entries({...fields,bridge_key:key})){
-    const input=document.createElement("input");
-    input.type="hidden";
-    input.name=name;
-    input.value=String(value ?? "");
-    form.appendChild(input);
-  }
-  document.body.appendChild(form);
-  try{
-    form.submit();
-    return true; // POST initiated, not a server ACK or GitHub success.
-  }catch(_){
-    return false;
-  }finally{
-    window.setTimeout(()=>form.remove(),1000);
-  }
-}
-
 function submitBridgePost(fields){
-  const legacyMachineJob=fields?.action==="run_stage" &&
-    (isAppsScriptBridge() || fields?.stage!=="cc" || fields?.lang==="multi-audio");
-  const endpoint=window.SoulKeyBridgeRoutes.endpoint(cfg,fields);
-  if(legacyMachineJob && !endpoint){
-    const status=document.getElementById("p259-rescue-status");
-    if(status)status.textContent="原 Apps Script Kaggle Bridge 尚未設定，沒有送出任務。";
-    return false;
-  }
+  const endpoint=bridgeEndpointValue();
   const key=bridgeKeyValue();
 
   if(!endpoint || !key || !bridgeAuthenticated ||
@@ -4806,7 +4456,7 @@ function submitBridgePost(fields){
     }
     if(bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
       alert(
-        "控制中心版本過舊（目前 "+bridgeProtocolVersion+
+        "Apps Script 控制中心版本過舊（目前 "+bridgeProtocolVersion+
         "，需要 "+REQUIRED_BRIDGE_PROTOCOL+"）。請先重新部署 Code.gs；"+
         "系統已阻止送出可能使用錯誤協定的 Kaggle 工作。"
       );
@@ -4814,56 +4464,6 @@ function submitBridgePost(fields){
     }
   }
 
-  // On iPhone use owner-authorized top-level Google navigation, not a
-  // third-party iframe. The old Bridge still controls GitHub/Kaggle, and no
-  // credential or permanent token is exposed to the page URL.
-  if(legacyMachineJob && useTopLevelP259LegacyDispatch(fields)){
-    const sent=submitP259LegacyTopLevelForm(endpoint,key,fields);
-    if(sent){
-      if(!pendingRunStageRequest){
-        const task=tasks.find(x=>x.id===fields.task_id);
-        pendingRunStageRequest={taskId:fields.task_id,stage:fields.stage,
-          submittedAt:Date.now(),previousRunId:String(remoteStageStatus(task,fields.stage)?.run_id||"")};
-      }
-      for(const wait of [3000,8000,15000,30000,60000])
-        window.setTimeout(()=>requestTaskStatuses(),wait);
-    }
-    return sent;
-  }
-
-  // Machine jobs use a private form POST to the existing Apps Script web app.
-  // A six-digit Bridge Key must never enter a query string.
-  // Google Cloud replacement returns JSON over CORS. The former Apps Script
-  // hidden iframe cannot receive that response, so deliver its ACK through the
-  // same event dispatcher used by the existing UI.
-  if(/^https:\/\/soulkey-bridge-[a-z0-9-]+\.(?:asia-east1\.run\.app|a\.run\.app)/.test(endpoint)){
-    fetch(endpoint,{
-      method:"POST",
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-      body:new URLSearchParams({...fields,bridge_key:key}),
-      mode:"cors",cache:"no-store"
-    }).then(async response=>{
-      const body=await response.json();
-      window.dispatchEvent(new MessageEvent("message",{data:body}));
-    }).catch(error=>{
-      const message="雲端寫入請求失敗："+String(error?.message||error);
-      // A failed final-submit fetch does not revoke the shared Bridge login.
-      // The full manuscript was already backed up locally before POST.
-      if(fields?.action==="review_save"){
-        window.dispatchEvent(new MessageEvent("message",{data:{
-          source:"soulkey-bridge",type:"review_saved",ok:false,
-          kind:String(fields.kind||""),task_id:String(fields.task_id||""),
-          error:"request_failed",message:message+
-            "。此裝置仍保留英文全文備份，請確認網路後重試。"
-        }}));
-        return;
-      }
-      setDashboardBridgeState(message,"error");
-      const details=document.getElementById("dashboard-bridge-message");
-      if(details)details.textContent=message;
-    });
-    return true;
-  }
   // Every POST gets its own hidden iframe. Reusing one target causes two rapid
   // submissions (for example P255-L01 + P255-L02) to race, and the second
   // navigation can replace the first before Apps Script receives it.
@@ -4903,7 +4503,6 @@ function submitBridgePost(fields){
 }
 
 function initBridgeClient(){
-  if(bridgeClientInitializing || bridgeClientReady) return;
   const frame=document.getElementById("soulkey-status-bridge");
   if(!frame) return;
 
@@ -4912,8 +4511,6 @@ function initBridgeClient(){
   if(!endpoint) return;
 
   bridgeClientReady=false;
-  bridgeClientInitializing=true;
-  window.setTimeout(()=>{bridgeClientInitializing=false;},20000);
   const sep=endpoint.includes("?") ? "&" : "?";
   frame.src=endpoint+sep+"view=client&v=20260920-13";
 }
@@ -4936,19 +4533,13 @@ function bridgeClientRequest(fields){
 }
 
 function bridgeSyncRequestFailed(action,reason){
-  if(firebaseSnapshotReadOnly)return;
   if(action==="status_health" || action==="tasks_get"){
-    const wasAuthenticated=bridgeAuthenticated;
-    // A transient background poll failure is not a revoked Bridge Key.
-    // Keep the current editor and save permission alive until the server
-    // explicitly reports unauthorized. Never discard unsaved English edits.
-    if(!wasAuthenticated) bridgeAuthenticated=false;
+    bridgeAuthenticated=false;
     const humanReason=String(reason||"無法取得控制中心回應");
     setDashboardBridgeState(
-      wasAuthenticated
-        ? "網路暫時無法同步："+humanReason+"。編輯內容已暫存在本機，可繼續修改；系統將於恢復連線後重試。"
-        : "無法同步控制中心："+humanReason+"。請按「連線控制中心」重試；原本 Google Sheet 資料不會消失。",
-      wasAuthenticated?"working":"error"
+      "無法同步控制中心："+humanReason+
+      "。請稍後按「連線控制中心」重試；原本 Google Sheet 的資料不會消失。",
+      "error"
     );
     const apiState=document.getElementById("api-state");
     if(apiState){
@@ -4958,29 +4549,11 @@ function bridgeSyncRequestFailed(action,reason){
   }
 }
 
-function legacyBridgeRead(fields,options={}){
-  if(firebaseSnapshotReadOnly)return false;
-  return window.SoulKeyBridgeRoutes.readLegacy(cfg,bridgeKeyValue(),fields,{
-    timeoutMs:fields.action==="status_health"?30000:90000,...options,
-    onError:options.onError || (error=>bridgeSyncRequestFailed(fields.action,error.message))
-  });
-}
-
-function jsonpBridgeRequest(fields,options={}){
+function jsonpBridgeRequest(fields){
   const endpoint=bridgeEndpointValue();
   const key=bridgeKeyValue();
 
   if(!endpoint || !key) return false;
-  if(window.SoulKeyBridgeRoutes.usesLegacy(fields)){
-    return legacyBridgeRead(fields,options);
-  }
-
-  // With the 10/28 working Apps Script primary Bridge, all server actions
-  // use the authenticated google.script.run iframe path.  Keep the 6-digit
-  // Bridge Key out of URL query strings, including read callbacks.
-  if(isAppsScriptBridge()){
-    return legacyBridgeRead(fields,options);
-  }
 
   const callbackName="__soulkey_jsonp_"+Date.now()+"_"+Math.random().toString(36).slice(2);
   const script=document.createElement("script");
@@ -5009,53 +4582,24 @@ function jsonpBridgeRequest(fields,options={}){
 
   window[callbackName]=(data)=>{
     if(!cleanup()) return;
-    if(typeof options.onResult==="function")options.onResult(data);
-    else window.dispatchEvent(new MessageEvent("message",{data}));
+    window.dispatchEvent(new MessageEvent("message",{data}));
   };
 
   const fail=(reason)=>{
     if(!cleanup()) return;
-    const isCentralSync=["status_health","tasks_get","status_batch"].includes(action);
-    if(isCentralSync){
-      const syncState=document.getElementById("status-sync-state");
-      const syncText=document.getElementById("status-sync-text");
-      if(syncState){
-        syncState.textContent="背景同步暫時失敗";
-        syncState.className="warn";
-      }
-      if(syncText){
-        syncText.textContent="雲端暫時無法同步："+reason;
-      }
+    const syncState=document.getElementById("status-sync-state");
+    const syncText=document.getElementById("status-sync-text");
+    if(syncState){
+      syncState.textContent="同步失敗";
+      syncState.className="warn";
     }
-    if(typeof options.onError==="function"){
-      options.onError(new Error(reason));
-      return;
+    if(syncText){
+      syncText.textContent="Apps Script 連線失敗："+reason;
     }
     bridgeSyncRequestFailed(action,reason);
     if(action==="course_files") courseFilesLoadFailed(String(fields.task_id||""),reason);
     if(action==="tts_share_links") ttsShareLinksFailed(String(fields.task_id||""),reason);
   };
-  // Six-character shared keys use CORS POST. Avoid putting a short shared
-  // passcode in URL query strings, browser history, and request access logs.
-  if(key.length===6){
-    const controller=new AbortController();
-    params.delete("callback");
-    params.delete("_t");
-    watchdog=window.setTimeout(()=>{
-      controller.abort();
-      fail("逾時 "+Math.round(timeoutMs/1000)+" 秒，請稍後再試");
-    },timeoutMs);
-    fetch(endpoint,{
-      method:"POST",mode:"cors",cache:"no-store",
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-      body:params.toString(),signal:controller.signal
-    }).then(response=>response.json()).then(data=>{
-      if(!cleanup())return;
-      if(typeof options.onResult==="function")options.onResult(data);
-      else window.dispatchEvent(new MessageEvent("message",{data}));
-    }).catch(error=>fail("控制中心連線失敗："+String(error?.message||error)));
-    return true;
-  }
   script.onerror=()=>fail("控制中心可能拒絕存取或暫時無法連線");
   watchdog=window.setTimeout(
     ()=>fail("逾時 "+Math.round(timeoutMs/1000)+" 秒，請檢查控制中心部署權限"),
@@ -5072,21 +4616,17 @@ function completeEnglishFinalizeUi(taskId,confirmationSource){
   if(!taskId || englishFinalizePendingTaskId!==taskId) return;
   englishFinalizePendingTaskId="";
   englishFinalizePriorFinishedAt="";
-  if(confirmationSource==="sheet")englishSheetFinalizedThisSession.add(taskId);
-  else englishFinalizedThisSession.add(taskId);
-  markVerifiedEnglishStage(taskId,confirmationSource);
+  englishFinalizedThisSession.add(taskId);
   window.clearTimeout(englishFinalizeWatchdog);
   const state=document.getElementById("en-review-share-state");
   const task=tasks.find(x=>x.id===taskId);
-  if(state) state.textContent=confirmationSource==="sheet"
-    ? "英文全文已完成 Google Sheet 中央定稿及回讀驗證；Google Drive 尚待同步。"
-    : "英文定稿已寫入 Google Drive"+
-      (confirmationSource==="status"?"（中央狀態已確認）":"");
+  if(state) state.textContent=
+    "英文定稿已寫入 Google Drive"+
+    (confirmationSource==="status"?"（中央狀態已確認）":"");
   syncEnglishFinalizeButton(task);
-  // Never loop back to the editor after the save acknowledgement.
+  // Refresh only after the server confirms completion. Never submit again.
   if(currentView==="en-review" && selectedTaskId===taskId){
-    openTaskDetail(taskId);
-    requestTaskStatuses();
+    window.setTimeout(()=>openEnglishReview(taskId),500);
   }
 }
 
@@ -5167,11 +4707,7 @@ function requestTaskStatuses(){
   // promptly; then refresh every remaining task in bounded batches.
   const selected=tasksForSelectedPeriod();
   const prioritized=[...selected,...tasks.filter(t=>!selected.includes(t))];
-  // Reviewing a manuscript does not require polling every lesson in
-  // the school. Do not compete with ongoing sentence saves.
-  const ids=currentView==="en-review" && selectedTaskId
-    ? [String(selectedTaskId)]
-    : [...new Set(prioritized.map(t=>String(t.id||"").trim()).filter(Boolean))];
+  const ids=[...new Set(prioritized.map(t=>String(t.id||"").trim()).filter(Boolean))];
   let sent=false;
   for(let i=0;i<ids.length;i+=20){
     const ok=jsonpBridgeRequest({
@@ -5191,7 +4727,6 @@ window.addEventListener("message",event=>{
   const data=event.data || {};
 
   if(data.source==="soulkey-bridge-client" && data.type==="ready"){
-    bridgeClientInitializing=false;
     bridgeClientReady=true;
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
@@ -5202,13 +4737,13 @@ window.addEventListener("message",event=>{
     if(syncText){
       syncText.textContent="正在讀取執行狀態…";
     }
-    // The shared read queue already holds the request that opened this
-    // client. Do not enqueue a second login on every iframe ready event.
+    requestStatusHealth();
+    requestTaskStatuses();
+    requestLanguageSettings();
     return;
   }
 
   if(data.source!=="soulkey-bridge") return;
-  if(firebaseSnapshotReadOnly)return; // stale Apps Script events must never erase verified fallback tasks
 
   if(data.type==="worker_setup"){
     if(data.ok){
@@ -5251,27 +4786,15 @@ window.addEventListener("message",event=>{
       }
       youtubeCaptureFilesLoadingTask="";
     }
-    const bridgeErrorText=data.error==="unauthorized"
-      ? "Bridge Key 驗證失敗。若使用原本 Apps Script 六碼，請確認管理者已在授權電腦執行一次「SoulKey-啟用共用6碼登入.cmd」，再核對輸入。"
-      : data.error==="rate_limited"
-        ? "登入嘗試太多，請在一小時後再試，或請管理者檢查金鑰。"
-      : "Bridge 錯誤："+reason;
-    // An unimplemented feature is not a lost login. Keep the English
-    // editor active when some unrelated Cloud Run action returns 409.
-    const revoked=["unauthorized","rate_limited"].includes(String(data.error||""));
-    if(revoked) setDashboardBridgeState(bridgeErrorText,"error");
-    // A 409 from an unavailable function is unrelated to authentication.
-    // Leave global connection state untouched and report only locally.
-    // Optional, currently unsupported Cloud Run functions must not
-    // turn a healthy connection indicator red.
-    if(revoked){
-      const syncState=document.getElementById("status-sync-state");
-      const syncText=document.getElementById("status-sync-text");
-      if(syncState){
-        syncState.textContent="驗證失敗";
-        syncState.className="warn";
-      }
-      if(syncText) syncText.textContent=bridgeErrorText;
+    setDashboardBridgeState("Bridge 錯誤："+reason,"error");
+    const syncState=document.getElementById("status-sync-state");
+    const syncText=document.getElementById("status-sync-text");
+    if(syncState){
+      syncState.textContent="Bridge 錯誤："+reason;
+      syncState.className="warn";
+    }
+    if(syncText){
+      syncText.textContent="Bridge 錯誤："+reason;
     }
   }
 
@@ -5296,7 +4819,6 @@ window.addEventListener("message",event=>{
       }
       bridgeAuthenticated=true; // first verified central snapshot
       mergeRemoteTasks(data.tasks||[]);
-      resumeQueuedEnglishSaves();
       const backendText=document.getElementById("backend-text");
       const backendDot=document.querySelector(".backend-pill .status-dot");
       if(backendText) backendText.textContent="控制中心已連線";
@@ -5350,9 +4872,6 @@ window.addEventListener("message",event=>{
 
   if(data.type==="review_data"){
     const chunkIndex=Number(data.chunk_index||0);
-    if(data.kind==="en" &&
-       (String(data.task_id||"")!==String(selectedTaskId||"") ||
-        currentView!=="en-review"))return;
     const browserElapsed=reviewElapsedMs(data.task_id,data.kind,chunkIndex);
     if(!data.ok){
       if(data.kind==="zh"){
@@ -5375,8 +4894,6 @@ window.addEventListener("message",event=>{
         }
         if(!isMissing) alert("讀取人工校正資料失敗："+reason);
       }else if(data.kind==="en"){
-        englishCanonicalLoadedTaskId="";
-        syncEnglishFinalizeButton(tasks.find(x=>x.id===data.task_id));
         // A missing *base* JSON must never hide already-loaded manuscripts:
         // Drive's independent human-edits store works without en.json.
         if(Array.isArray(currentEnglishReview) && currentEnglishReview.length &&
@@ -5385,16 +4902,9 @@ window.addEventListener("message",event=>{
           if(state)state.textContent="已載入現有中英稿；Drive 尚未有整堂 JSON，逐句修改仍可獨立儲存";
           requestEnglishCloudOverrides(data.task_id);
         }else{
-          const msg=String(data.message||data.error||"未知錯誤");
-          if(/尚未產生英文稿|尚未有.*English CC/.test(msg)){
-            const list=document.getElementById("en-review-list");
-            if(list)list.innerHTML='<div class="empty">正在從中央 Google Sheet 讀取已抓取的英文 CC，準備中英對照草稿…</div>';
-            recoverEnglishCcIntoEditor(data.task_id);
-          }else{
-            showNoEnglishCcFallback(data.task_id || selectedTaskId);
-            const status=document.getElementById("en-fallback-status");
-            if(status)status.textContent="英文資料讀取失敗："+msg;
-          }
+          showNoEnglishCcFallback(data.task_id || selectedTaskId);
+          const status=document.getElementById("en-fallback-status");
+          if(status)status.textContent="此堂英文來源尚未建立："+(data.message || data.error || "未知錯誤");
         }
       }else{
         alert("讀取人工校正資料失敗："+(data.message || data.error || "未知錯誤"));
@@ -5463,14 +4973,7 @@ window.addEventListener("message",event=>{
          englishDraftSaveQueuedIds.size>0) return;
       // Bridge's current Drive English draft wins over an old GitHub cache.
       // review_load returns {original,en,ids,...}, unlike GitHub en.json.
-      if(data.sheet_finalized){
-        englishSheetFinalizedThisSession.add(String(data.task_id));
-        markVerifiedEnglishStage(String(data.task_id),"sheet");
-        syncEnglishFinalizeButton(tasks.find(x=>x.id===data.task_id));
-      }
       const loaded=Array.isArray(data.segments)?data.segments:[];
-      englishCanonicalLoadedTaskId=loaded.length?String(data.task_id||""):"";
-      syncEnglishFinalizeButton(tasks.find(x=>x.id===data.task_id));
       const dirty=new Map(currentEnglishReview
         .filter(row=>englishReviewDirtyIds.has(Number(row.id)))
         .map(row=>[Number(row.id),row]));
@@ -5488,17 +4991,13 @@ window.addEventListener("message",event=>{
         }catch(_){}
       }
       const state=document.getElementById("en-review-share-state");
-      if(state) state.textContent=data.sheet_finalized
-        ? "已讀取中央 Google Sheet 正式英文定稿（Google Drive 尚待同步）"
-        : (data.manuscript_source==="youtube.en.json"
-          ? "已依中文 Final 時間軸載入 YouTube English CC 初稿（尚未人工定稿）"
-          : "已取得英文稿；正在核對中央 Google Sheet 逐句人工修改")+
+      if(state) state.textContent="已取得英文稿；正在核對 Drive 逐句人工修改"+
         (englishReviewDirtyIds.size?"；本機尚未儲存的修改已保留":"");
       requestEnglishCloudOverrides(data.task_id);
       // For earlier Drive-completed lessons, seed a separate GitHub /en.json
       // only once. Future opening is fast and will not touch Chinese /zh.json.
       if(bridgeAuthenticated && data.task_id &&
-         !["en.review.draft.json","youtube.en.json","google-sheet-final"].includes(String(data.manuscript_source||"")) &&
+         data.source!=="en.review.draft.json" &&
          Array.isArray(data.segments) && data.segments.length &&
          !englishCacheSeedRequested.has(data.task_id)){
         englishCacheSeedRequested.add(data.task_id);
@@ -5519,7 +5018,7 @@ window.addEventListener("message",event=>{
          Array.isArray(currentEnglishReview) && currentEnglishReview.length){
         renderEnglishReview(currentEnglishReview);
         const state=document.getElementById("en-review-share-state");
-        if(state)state.textContent="已從中央 Google Sheet 核對 "+
+        if(state)state.textContent="已從 Google Drive 核對 "+
           Object.keys(data.edits).length+" 筆逐句人工定稿";
       }
     }
@@ -5541,68 +5040,10 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="review_saved"){
-    if(data.kind==="zh" && data.ok && (data.sheet_finalized || isAppsScriptBridge()) &&
-       zhFinalPendingTaskId===String(data.task_id||"")){
-      const id=zhFinalPendingTaskId;
-      zhFinalPendingTaskId="";
-      setZhFinalizeEnabled(true);
-      setZhReviewLoadState(isAppsScriptBridge()
-        ? "本堂中文人工定稿已寫入 Google Drive，可在檔案總覽核對"
-        : "本堂中文定稿已存中央 Sheet 並回讀驗證；Drive 待同步","ok");
-      const task=tasks.find(x=>x.id===id);
-      if(task){
-        task.zh_review="完成";
-        task.status="中文中央定稿已驗證";
-        save(STORE.tasks,tasks);
-      }
-      requestTaskStatuses();
-      if(currentView==="review"&&selectedTaskId===id)openTaskDetail(id);
-      return;
-    }
-    if(data.kind==="zh" && !data.ok){
-      zhFinalPendingTaskId="";
-      setZhFinalizeEnabled(true);
-      setZhReviewLoadState("中文定稿沒有寫入："+(data.message||data.error||"未知錯誤"),"error");
-      return;
-    }
     const state=document.getElementById("en-review-share-state");
     const button=document.getElementById("finalize-en");
 
-    if(data.ok && data.kind==="en" && data.sheet_finalized){
-      const id=String(data.task_id||"");
-      markVerifiedEnglishStage(id,"sheet");
-      try{localStorage.removeItem(ENGLISH_FINAL_PENDING_PREFIX+id);}catch(_){}
-      if(englishFinalizePendingTaskId===id)completeEnglishFinalizeUi(id,"sheet");
-      else{
-        englishSheetFinalizedThisSession.add(id);
-        syncEnglishFinalizeButton(tasks.find(x=>x.id===id));
-        if(state)state.textContent=String(data.message||"英文已保存到 Google Sheet");
-      }
-    }else if(data.ok && data.drive_saved===true && data.kind==="en"){
-      const id=String(data.task_id||"");
-      markVerifiedEnglishStage(id,"drive");
-      try{localStorage.removeItem(ENGLISH_FINAL_PENDING_PREFIX+id);}catch(_){}
-      if(englishFinalizePendingTaskId===id)completeEnglishFinalizeUi(id,"callback");
-    }else if(data.backup_saved===true && data.kind==="en"){
-      const taskId=String(data.task_id||"");
-      englishFinalizePendingTaskId="";
-      englishFinalizePriorFinishedAt="";
-      window.clearTimeout(englishFinalizeWatchdog);
-      try{
-        const backup=JSON.parse(localStorage.getItem(
-          ENGLISH_FINAL_PENDING_PREFIX+taskId)||"null");
-        if(backup?.task_id===taskId){
-          backup.backup_saved=true;
-          backup.backup_id=String(data.backup_id||"");
-          backup.backup_at=new Date().toISOString();
-          localStorage.setItem(ENGLISH_FINAL_PENDING_PREFIX+taskId,JSON.stringify(backup));
-        }
-      }catch(_){}
-      syncEnglishFinalizeButton(tasks.find(x=>x.id===taskId));
-      if(state) state.textContent=
-        "英文全文 "+Number(data.segment_count||0)+" 段已備份到中央 Google Sheet，未遺失。"+
-        "Google Drive 正式檔案尚未完成，系統不會標記為定稿。";
-    }else if(data.ok){
+    if(data.ok){
       requestTaskStatuses();
 
       if(
@@ -5610,7 +5051,6 @@ window.addEventListener("message",event=>{
         englishFinalizePendingTaskId &&
         String(data.task_id||"")===String(englishFinalizePendingTaskId)
       ){
-        try{localStorage.removeItem(ENGLISH_FINAL_PENDING_PREFIX+data.task_id);}catch(_){}
         completeEnglishFinalizeUi(data.task_id,"callback");
       }
     }else{
@@ -5629,71 +5069,7 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="run_stage"){
-    if(p259RescueSending && String(data.task_id||"")==="P259-L01" && data.stage==="tts"){
-      p259RescueSending=false;
-      const btn=document.getElementById("p259-rescue-start");
-      const out=document.getElementById("p259-rescue-status");
-      if(btn) btn.disabled=false;
-      if(out) out.textContent=data.ok
-        ? "已收到 Kaggle 配音派工確認；會驗證四堂課已通過 QA 的語言，請至音檔資料夾確認成果。"
-        : "配音未派送："+String(data.message||data.error||"未知錯誤");
-    }
-    if(p259TranslationSending && String(data.task_id||"")==="P259-L01" && data.stage==="multi"){
-      p259TranslationSending=false;
-      const btn=document.getElementById("p259-translation-start");
-      const out=document.getElementById("p259-translation-status");
-      if(btn) btn.disabled=false;
-      if(out) out.textContent=data.ok
-        ? "已確認派送 Kaggle 四堂課補譯；翻譯結果須經完整 QA 後才能配音。"
-        : "補譯未派送："+String(data.message||data.error||"未知錯誤");
-    }
-    const youtube=pendingYoutubeCapture;
-    if(youtube && data.stage==="cc" &&
-       (!data.task_id || data.task_id===youtube.taskId)){
-      pendingYoutubeCapture=null;
-      const status=document.getElementById("youtube-audio-status");
-      const button=document.getElementById("youtube-audio-run");
-      if(button)button.disabled=false;
-      if(data.ok){
-        if(status)status.textContent=youtube.mode==="cc"
-          ?"中央佇列已確認，等待 GitHub Actions 抓取本堂可用的七語 CC"
-          :"中央佇列已確認";
-        setCaptureState("cc",{key:"working",label:"已排隊",
-          detail:"只在 Worker 領取後執行；結果儲存在中央 Sheet，Drive 待同步"});
-        requestTaskStatuses();
-      }else{
-        const error=String(data.message||data.error||"功能尚未恢復");
-        if(status)status.textContent="沒有建立 YouTube 抓取工作："+error;
-        setCaptureState(youtube.mode==="cc"?"cc":"audio",
-          {key:"error",label:"未送出",detail:error});
-        alert("YouTube "+(youtube.mode==="cc"?"CC 字幕":"音軌")+
-          "工作沒有送出："+error);
-      }
-      return;
-    }
-    const pending=pendingRunStageRequest;
-    if(pending && (!data.task_id || data.task_id===pending.taskId) &&
-       (!data.stage || data.stage===pending.stage))pendingRunStageRequest=null;
     if(data.ok){
-      if(pending &&
-         (!data.task_id || String(data.task_id)===pending.taskId) &&
-         (!data.stage || String(data.stage)===pending.stage)){
-        const job=tasks.find(x=>x.id===pending.taskId);
-        if(job){
-          job.status="排隊中："+(workflow.find(x=>x.key===pending.stage)?.label||pending.stage);
-          job.remoteStages=job.remoteStages||{};
-          job.remoteStages[pending.stage]={
-            task_id:job.id,stage:pending.stage,status:"queued",progress:"0",
-            message:data.queue_mode==="scheduled-github-actions"
-              ?"已寫入中央翻譯佇列，等待 GitHub CPU Worker 領取"
-              :"已收到 GitHub/Kaggle 派工回覆"
-          };
-          save(STORE.tasks,tasks);
-          renderTasks();
-          if(currentView==="task-detail"&&selectedTaskId===job.id)
-            renderTaskDetail(job);
-        }
-      }
       const audioStatus=document.getElementById("youtube-audio-status");
       if(
         currentView==="youtube-audio" &&
@@ -5704,29 +5080,8 @@ window.addEventListener("message",event=>{
       }
       requestTaskStatuses();
     }else{
-      if(pending){
-        const job=tasks.find(x=>x.id===pending.taskId);
-        if(job){
-          job.status="派工未成功（英文定稿資料不受影響）";
-          save(STORE.tasks,tasks);
-          renderTasks();
-          if(currentView==="task-detail"&&selectedTaskId===job.id)
-            renderTaskDetail(job);
-        }
-      }
-      alert("多語／音檔工作尚未送出："+(data.message || data.error || "未知錯誤")+
-        "。英文中央定稿仍已保存，沒有啟動或重跑 Kaggle。");
+      alert("Kaggle 工作送出失敗："+(data.message || data.error || "未知錯誤"));
     }
-  }
-
-  if(data.type==="youtube_cc_content"){
-    if(data.ok && String(data.content||"")){
-      const fileName=String(data.name||"captions.txt").replace(/[^A-Za-z0-9._-]/g,"_");
-      const blob=new Blob([data.content],{type:"text/plain;charset=utf-8"});
-      const link=document.createElement("a"),url=URL.createObjectURL(blob);
-      link.href=url;link.download=fileName;document.body.appendChild(link);link.click();
-      link.remove();window.setTimeout(()=>URL.revokeObjectURL(url),10000);
-    }else alert("字幕未通過本堂來源驗證，無法下載："+(data.message||data.error||"未知錯誤"));
   }
 
   if(data.type==="youtube_capture_files"){
@@ -5909,14 +5264,6 @@ window.addEventListener("message",event=>{
 
   if(data.type==="status_result"){
     if(data.ok){
-      const pending=pendingRunStageRequest;
-      const received=pending && data.tasks?.[pending.taskId]?.stages?.[pending.stage];
-      if(window.SoulKeyBridgeRoutes.dispatchReceipt(pending,received)){
-        window.dispatchEvent(new MessageEvent("message",{data:{
-          source:"soulkey-bridge",type:"run_stage",ok:true,
-          task_id:pending.taskId,stage:pending.stage,run_id:received.run_id
-        }}));
-      }
       applyRemoteStatuses(data);
     }else{
       const syncState=document.getElementById("status-sync-state");
@@ -5978,13 +5325,7 @@ window.addEventListener("message",event=>{
     const syncState=document.getElementById("status-sync-state");
     const syncText=document.getElementById("status-sync-text");
     if(data.ok){
-      driveOwnerConfigured=data.drive_owner_configured===true;
-      youtubeCCQueueEnabled=(isAppsScriptBridge() &&
-        window.SoulKeyBridgeRoutes.protocol(data.bridge_protocol)>=REQUIRED_BRIDGE_PROTOCOL) ||
-        data.youtube_cc_queue_enabled===true;
-      bridgeIsCloudRecovery=String(data.bridge_protocol||"")==="cloud-recovery";
-      syncYoutubeCaptureModeUi();
-      bridgeProtocolVersion=window.SoulKeyBridgeRoutes.protocol(data.bridge_protocol);
+      bridgeProtocolVersion=Number(data.bridge_protocol||0);
       const protocolOk=bridgeProtocolVersion>=REQUIRED_BRIDGE_PROTOCOL;
       if(syncState){
         syncState.textContent=protocolOk ? "狀態表已連線" : "控制中心版本過舊";
@@ -5993,8 +5334,8 @@ window.addEventListener("message",event=>{
       const apiState=document.getElementById("api-state");
       if(apiState){
         apiState.textContent=protocolOk
-          ? (String(data.bridge_protocol||"")==="cloud-recovery"?"Cloud Run 已連線":"Apps Script 已連線")
-          : "控制中心版本需更新";
+          ? "Apps Script 已連線"
+          : "Apps Script 需重新部署";
         apiState.className=protocolOk ? "ok" : "warn";
       }
       if(syncText){
@@ -6027,11 +5368,7 @@ window.addEventListener("message",event=>{
         requestLanguageSettings();
       }
     }else{
-      const reason=data.error==="unauthorized"
-        ? "Bridge Key 驗證失敗。原 Apps Script 六碼可在管理者完成一次「SoulKey-啟用共用6碼登入.cmd」後於此直接使用。"
-        : data.error==="rate_limited"
-          ? "登入嘗試過多，請稍後再試或通知管理者。"
-        : (data.message || data.error || "未知錯誤");
+      const reason=data.message || data.error || "未知錯誤";
       bridgeSyncRequestFailed("status_health",reason);
       if(syncState){
         syncState.textContent="狀態表連線失敗";
@@ -6143,9 +5480,6 @@ function initStatusPolling(){
 
   window.setInterval(()=>{
     if(!bridgeAuthenticated) return;
-    // Background dashboard refresh is irrelevant to a long-lived English
-    // editing session, and must not disrupt local unsaved edits.
-    if(currentView==="en-review") return;
     requestTasksFromControlCenter();
   },180000);
 }
@@ -6220,10 +5554,8 @@ function setBridgeStatus(message, state="idle"){
 }
 
 function initBridgePanel(){
-  // Restore the original server-managed Apps Script Bridge. No user tokens
-  // or permanent Google credentials are stored in the frontend.
+  // 舊版曾把 URL 寫進 localStorage，v23 起固定使用 config.js，避免舊網址干擾同步。
   localStorage.removeItem(BRIDGE_ENDPOINT_KEY);
-  if(isAppsScriptBridge()) initBridgeClient();
 
   const dashboardKey=document.getElementById("dashboard-bridge-key");
   const connectButton=document.getElementById("dashboard-bridge-connect");
@@ -6249,10 +5581,6 @@ function initBridgePanel(){
   };
 
   connectButton?.addEventListener("click",connect);
-  document.getElementById("dashboard-firebase-connect")?.addEventListener("click",restoreFirebaseSnapshot);
-  document.getElementById("dashboard-firebase-key")?.addEventListener("keydown",e=>{
-    if(e.key==="Enter"){e.preventDefault();restoreFirebaseSnapshot();}
-  });
   dashboardKey?.addEventListener("keydown",event=>{
     if(event.key==="Enter"){
       event.preventDefault();
@@ -6318,101 +5646,6 @@ async function pingBackend(){
     document.getElementById("backend-text").textContent="後端離線";
   }
 }
-
-
-// One authenticated dispatch covers all four P259 lessons. The worker reads
-// central source revisions and per-language QA before writing any audio.
-function startP259RescueAudio(){
-  const status=document.getElementById("p259-rescue-status");
-  const btn=document.getElementById("p259-rescue-start");
-  const needed=["P259-L01","P259-L02","P259-L03","P259-L04"];
-  if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL ||
-      !LEGACY_KAGGLE_ENDPOINT || firebaseSnapshotReadOnly ||
-      !needed.every(id=>confirmedRemoteTaskIds.has(id))){
-    if(status) status.textContent="尚未完成中央課程驗證，或舊版 Kaggle Bridge 未設定；沒有派工。";
-    return;
-  }
-  if(p259RescueSending || p259TranslationSending){
-    if(status) status.textContent="已有救援派工尚未確認，請先核對 GitHub 執行狀態。";
-    return;
-  }
-  if(!window.confirm("第 259 期四堂課：以既有英文定稿、已通過 QA 的翻譯先產生配音；未完成 QA 的語言繼續保留等待。確認送至舊版 Kaggle？"))return;
-  p259RescueSending=true;
-  if(btn)btn.disabled=true;
-  const rescueWarning=window.setTimeout(()=>{
-    if(p259RescueSending && status)status.textContent=
-      "尚未收到派工確認。你已證實原 Apps Script 在 Safari 可以直接開啟（Bridge v9）；請確認是否出現 Google 獨立分頁，並以 GitHub Actions 新工作為準。";
-  },25000);
-  if(status)status.textContent="正在透過舊 Apps Script Bridge 派送 Kaggle；尚未代表音檔完成…";
-  const sent=submitBridgePost({
-    action:"run_stage",task_id:"P259-L01",stage:"tts",lang:"central4",langs:""
-  });
-  if(sent && useTopLevelP259LegacyDispatch({action:"run_stage",lang:"central4",stage:"tts"})){
-    window.clearTimeout(rescueWarning);
-    if(status)status.textContent="已用 Google 獨立分頁提交配音請求；獨立頁可能只顯示 SoulKey response，尚不代表 GitHub/Kaggle 已接收。請返回此頁核對執行紀錄，不要重複按。";
-    window.setTimeout(()=>requestTaskStatuses(),15000);
-  }
-  if(!sent){
-    p259RescueSending=false;
-    if(btn)btn.disabled=false;
-    if(status)status.textContent="Google 獨立分頁派工未能送出；沒有確認 Kaggle 已啟動。";
-    return;
-  }
-  window.setTimeout(()=>{
-    if(!p259RescueSending)return;
-    window.clearTimeout(rescueWarning);
-    p259RescueSending=false;
-    if(btn)btn.disabled=false;
-    if(status)status.textContent="尚未取得 GitHub 派工確認。Safari 獨立分頁若顯示 SoulKey response，只代表已開啟回覆頁；請先核對 GitHub Actions，勿重複按。";
-  },120000);
-}
-document.getElementById("p259-rescue-start")?.addEventListener("click",startP259RescueAudio);
-function startP259RescueTranslation(){
-  const status=document.getElementById("p259-translation-status");
-  const btn=document.getElementById("p259-translation-start");
-  const needed=["P259-L01","P259-L02","P259-L03","P259-L04"];
-  if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL ||
-      !LEGACY_KAGGLE_ENDPOINT || firebaseSnapshotReadOnly ||
-      !needed.every(id=>confirmedRemoteTaskIds.has(id))){
-    if(status)status.textContent="中央課程驗證未完成，或舊版 Kaggle Bridge 未設定；沒有派工。";
-    return;
-  }
-  if(p259TranslationSending || p259RescueSending){
-    if(status)status.textContent="已有派工尚未確認，請先核對執行狀態。";
-    return;
-  }
-  if(!window.confirm("補譯第259期四堂課尚未完成的15種 AI 語言。沿用人工英文定稿與既有QA，改用 Kaggle Gemma 4 本地翻譯和 QA，接著處理已核可語言的配音。確認由原 Apps Script Bridge 啟動？"))return;
-  p259TranslationSending=true;
-  if(btn)btn.disabled=true;
-  const translationWarning=window.setTimeout(()=>{
-    if(p259TranslationSending && status)status.textContent=
-      "尚未收到補譯確認。原 Apps Script 已在 Safari 顯示 bridge-ready；請檢查 Google 獨立分頁及 GitHub 是否新增工作，勿連續重按。";
-  },25000);
-  if(status)status.textContent="正在請原 Apps Script 控制中心派送四堂課 Kaggle 補譯，等待確認…";
-  const sent=submitBridgePost({
-    action:"run_stage",task_id:"P259-L01",stage:"multi",lang:"central4",langs:""
-  });
-  if(sent && useTopLevelP259LegacyDispatch({action:"run_stage",lang:"central4",stage:"multi"})){
-    window.clearTimeout(translationWarning);
-    if(status)status.textContent="已用 Google 獨立分頁提交四堂課補譯請求；請返回核對 GitHub 新工作，尚不代表翻譯完成，勿重複按。";
-    window.setTimeout(()=>requestTaskStatuses(),15000);
-  }
-  if(!sent){
-    p259TranslationSending=false;
-    if(btn)btn.disabled=false;
-    if(status)status.textContent="Google 獨立分頁補譯未能送出；沒有確認 Kaggle 已啟動。";
-    return;
-  }
-  window.setTimeout(()=>{
-    if(!p259TranslationSending)return;
-    window.clearTimeout(translationWarning);
-    p259TranslationSending=false;
-    if(btn)btn.disabled=false;
-    if(status)status.textContent="尚未取得補譯派工確認。請以 GitHub Actions → Kaggle 實際執行與 Drive 成果為準；不是已完成。";
-  },120000);
-}
-document.getElementById("p259-translation-start")?.addEventListener("click",startP259RescueTranslation);
-
 
 updateTaskCodes();
 renderPipeline();

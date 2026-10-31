@@ -140,13 +140,11 @@ class MirrorTests(unittest.TestCase):
     def test_invalid_id_prevents_path_injection(self):
         with self.assertRaises(ValueError):
             self.ctx["publish_github_checkpoint"]("../token",{})
-    def test_workflow_routes_translation_and_tts_through_legacy_kaggle(self):
+    def test_workflow_uses_short_lived_scoped_token(self):
         y=(ROOT/".github/workflows/kaggle_web_job.yml").read_text(encoding="utf8")
-        self.assertIn("jobs:\n  launch:\n",y)
-        self.assertIn("contents: write",y)
-        self.assertIn("KAGGLE_API_TOKEN: __DOLLAR__{{ secrets.KAGGLE_API_TOKEN }}".replace("__DOLLAR__","$"),y)
-        self.assertNotIn("\n  cpu:\n",y)
-        self.assertNotIn("SOULKEY_GITHUB_ACTIONS_TOKEN:",y)
+        cpu=y.split("\n  cpu:\n",1)[1]
+        self.assertIn("contents: write",cpu)
+        self.assertIn("SOULKEY_GITHUB_ACTIONS_TOKEN: __DOLLAR__{{ github.token }}".replace("__DOLLAR__","$"),cpu)
 
 class AutoResumeTests(unittest.TestCase):
     def test_worker_routes_multi_to_checkpoint_resume(self):

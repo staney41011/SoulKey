@@ -1,5 +1,0 @@
-private-env.yaml
-private-bridge-key.txt
-.git/
-node_modules/
-*.log

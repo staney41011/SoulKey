@@ -32,7 +32,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.3.1"
+          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.2.8"
       - name: Generate P256-L02 audio from existing approved translation
         run: |
           python -u translation-system/tts_sequential_recovery.py \
@@ -64,7 +64,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.3.1"
+          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.2.8"
       - name: Generate P256-L03 audio from existing approved translation
         run: |
           python -u translation-system/tts_sequential_recovery.py \
@@ -96,7 +96,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.3.1"
+          python -m pip install -q "gdown>=5.2,<6" "edge-tts==7.2.8"
       - name: Generate P256-L04 audio from existing approved translation
         run: |
           python -u translation-system/tts_sequential_recovery.py \

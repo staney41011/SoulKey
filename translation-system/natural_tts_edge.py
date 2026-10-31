@@ -70,7 +70,7 @@ async def synthesize_block(
     pitch: str,
     output_mp3: Path,
     boundary_path: Path,
-    attempts: int = 6,
+    attempts: int = 4,
 ):
     # An upstream translation segment can contain only punctuation (e.g. ".").
     # Edge returns "No audio was received" for this non-spoken input.
@@ -108,10 +108,19 @@ async def synthesize_block(
         }
 
     import edge_tts
+    import edge_tts.communicate as edge_communicate
+    import os
 
-    # edge-tts 7.3.1 handles Microsoft's v2 Sec-MS-GEC token handshake.
-    # Do not monkeypatch its WebSocket URL: the upstream library owns both
-    # the endpoint and versioned authentication protocol.
+    # The legacy speech.platform.bing.com WebSocket began returning 403 in
+    # October 2026. The newer Edge Read Aloud synthesis endpoint has been
+    # verified with the full SoulKey 16-voice smoke test on GitHub Actions.
+    # Keep a selectable legacy setting if the provider changes again.
+    if os.getenv("SOULKEY_EDGE_ENDPOINT", "msedgeservices") == "msedgeservices":
+        from edge_tts.constants import TRUSTED_CLIENT_TOKEN
+        edge_communicate.WSS_URL = (
+            "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+            "?Ocp-Apim-Subscription-Key=" + TRUSTED_CLIENT_TOKEN
+        )
 
     output_mp3.parent.mkdir(parents=True, exist_ok=True)
     last_error = None
@@ -157,12 +166,6 @@ async def synthesize_block(
             # wait than transient socket/network failures.
             if ("429" in str(exc) and "Handshake" in type(exc).__name__):
                 await asyncio.sleep(15 * attempt)
-            elif "No audio was received" in str(exc):
-                # Edge sometimes returns zero audio for otherwise valid,
-                # previously QA-approved lecture text. Retry exactly the
-                # same content with a fresh connection after a longer wait;
-                # never substitute silence for actual spoken words.
-                await asyncio.sleep(min(45, 5 * attempt))
             else:
                 await asyncio.sleep(min(8, 2 ** attempt))
 
