@@ -1,0 +1,33 @@
+name: P259 Gemma4 26B recovery pilot L02 Italian
+on:
+  push:
+    branches: [delivery/p259-gemma4-recovery-20261101]
+    paths: [.github/workflows/p259_gemma4_pilot.yml]
+permissions:
+  contents: read
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax preflight and tool installation
+        run: |
+          python -m py_compile translation-system/gemma4_p259_recovery.py
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q google-genai gdown edge-tts==7.2.8
+      - name: Translate all 53 English segments to Italian, QA, repair and Edge TTS
+        run: |
+          python -u translation-system/gemma4_p259_recovery.py --lesson L02 --lang it
+      - name: Save deliverables or error checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-L02-it-gemma4-end-to-end
+          path: recovery-output/L02/it/*
+          if-no-files-found: warn
+          retention-days: 7
