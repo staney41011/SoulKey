@@ -621,7 +621,7 @@ def main():
             targets=["P259-L01","P259-L02","P259-L03","P259-L04"] if args.lang=="central4" else [args.task_id]
             for target in targets:
                 sync_finals(target,["zh"] if args.stage=="en" else ["zh","en"],
-                            Path("/kaggle/working/central-final-sync")/target)
+                            Path(os.environ.get("SOULKEY_WORKDIR","/kaggle/working"))/"central-final-sync"/target)
 
         # A human may have finalized a pre-reupload transcript before the
         # new URL was checked. Guard every downstream consumer as well:
@@ -742,20 +742,32 @@ def main():
             ]
 
         elif args.stage == "multi" and central_p259:
-            # P259 migration: all approved English Finals -> Kaggle local Gemma4.
-            # The *existing* Apps Script worker_runtime has already provided
-            # short-lived GOOGLE_ACCESS_TOKEN + refreshable nonce above.
-            # No Kaggle Secrets or Gemini API keys are needed for this route.
+            # Original Apps Script credentials and human Finals remain canonical.
+            # Gemini CPU is the normal route, saving Kaggle weekly GPU quota.
+            # Gemma4 GPU is explicitly opt-in as a fallback, never automatic.
             if args.lang == "central4" and args.task_id != "P259-L01":
                 raise RuntimeError("central4_requires_P259-L01_dispatch_anchor")
-            require_gpu_runtime("gemma4")
-            print("[P259-GEMMA4-BRIDGE] authorized OAuth runtime, local GPU translation",flush=True)
-            run([sys.executable, "-m", "pip", "install", "-q", "-U",
-                 "huggingface_hub", "edge-tts==7.3.1"])
+            provider=os.environ.get("SOULKEY_P259_TRANSLATION_PROVIDER","gemini").strip().lower()
+            if provider not in {"gemini","gemma4"}:
+                raise RuntimeError("p259_unknown_translation_provider")
+            if provider=="gemma4":
+                require_gpu_runtime("gemma4")
+                run([sys.executable,"-m","pip","install","-q","-U",
+                     "huggingface_hub","edge-tts==7.3.1"])
+                script="p259_gemma4_kaggle.py"
+                max_new="60"
+                print("[P259-GEMMA4-BRIDGE] explicitly selected GPU fallback",flush=True)
+            else:
+                if not gemini_api_key:
+                    raise RuntimeError("Apps Script GEMINI_API_KEY not configured for P259 CPU")
+                run([sys.executable,"-m","pip","install","-q","edge-tts==7.3.1"])
+                script="p259_gemini_central.py"
+                max_new="24"
+                print("[P259-GEMINI-CPU] Authorized GitHub CPU with central Sheet QA",flush=True)
             translation_cmd = [
                 sys.executable, "-u",
-                str(system_dir / "p259_gemma4_kaggle.py"),
-                "--period", "259", "--max-new-languages", "60",
+                str(system_dir / script),
+                "--period", "259", "--max-new-languages", max_new,
             ]
             if args.lang != "central4":
                 translation_cmd.extend(["--task-id",args.task_id])
@@ -767,19 +779,19 @@ def main():
                 if exc.returncode != 2:
                     raise
                 incomplete_qa=True
-                print("[P259-GEMMA4] Some languages need review; preserving passed languages",flush=True)
+                print("[P259-TRANSLATION] Some languages need review; preserving passed languages",flush=True)
             # Continue to audio only from verified, current-revision sources.
             audio_cmd=[
                 sys.executable, "-u",
                 str(system_dir / "central_tts_recovery.py"),
-                "--period", "259", "--max-languages", "64",
+                "--period", "259", "--max-languages", "6",
             ]
             if args.lang != "central4":
                 audio_cmd.extend(["--task-id",args.task_id])
                 audio_cmd.extend(["--langs",args.langs])
             run(audio_cmd)
             report(args.bridge_url,args.runtime_nonce,"needs_review" if incomplete_qa else "done",
-                   "第259期 Gemma4 本地翻譯與核可來源 Edge TTS 已執行；"
+                   "第259期中央核可翻譯與 Edge TTS 已執行；"
                    + ("部分語言仍需 QA 複核；" if incomplete_qa else "")
                    + "以中央 Sheet 和 Drive 的正式檔案為準")
             cmd=None
@@ -804,13 +816,13 @@ def main():
             # many current P259 English Finals are still in the central Sheet.
             if args.lang == "central4" and args.task_id != "P259-L01":
                 raise RuntimeError("central4_requires_P259-L01_dispatch_anchor")
-            print("[P259-RESCUE] Authentic old Kaggle+Apps Script Bridge; "
+            print("[P259-RESCUE] Original Apps Script authorization; "
                   "recover all four lessons, source-verified languages only", flush=True)
             run([sys.executable, "-m", "pip", "install", "-q",
                  "edge-tts==7.3.1"])
             central_audio=[sys.executable, "-u",
                  str(system_dir / "central_tts_recovery.py"),
-                 "--period", "259", "--max-languages", "64"]
+                 "--period", "259", "--max-languages", "6"]
             if args.lang != "central4":
                 if not args.langs.strip():raise RuntimeError("TTS 沒有指定任何語言")
                 central_audio.extend(["--task-id",args.task_id,"--langs",args.langs])

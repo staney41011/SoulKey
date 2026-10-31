@@ -299,8 +299,11 @@ def _ensure_edge_tts_runtime():
 
 
 
-def load_source_duration_limit(drive, source_folder, workdir):
-    """Prefer exact original-video duration from source_info.json."""
+def load_source_duration_limit(drive, source_folder, workdir, expected_youtube_url=""):
+    """Check official video metadata; never accept an unrelated video's duration."""
+    if expected_youtube_url:
+        from source_duration import trusted_video_duration
+        return trusted_video_duration(drive,source_folder,workdir,expected_youtube_url)
     item = find_file(drive, source_folder, "source_info.json")
     if not item:
         return None, "source_timestamp_fallback"

@@ -94,12 +94,58 @@ jobs:
                     type(exc).__name__)
           PY
 
+      - name: Select CPU versus Kaggle for P259
+        id: route
+        if: steps.runtime_preflight.outcome == 'success'
+        shell: bash
+        env:
+          P259_PROVIDER: ${{ vars.SOULKEY_P259_TRANSLATION_PROVIDER || 'gemini' }}
+          JOB_STAGE: ${{ inputs.stage }}
+          JOB_TASK_ID: ${{ inputs.task_id }}
+        run: |
+          set -euo pipefail
+          CPU=false
+          if [[ "$JOB_TASK_ID" =~ ^P259-L0[1-4]$ ]]; then
+            if [[ "$JOB_STAGE" == "tts" ]] || \
+               { [[ "$JOB_STAGE" == "multi" ]] && [[ "$P259_PROVIDER" == "gemini" ]]; }; then
+              CPU=true
+            fi
+          fi
+          echo "cpu=$CPU" >> "$GITHUB_OUTPUT"
+          echo "P259 CPU job: $CPU; provider=$P259_PROVIDER"
+
+      - name: Run P259 Gemini and Natural TTS on GitHub CPU
+        id: cpu_job
+        if: steps.route.outputs.cpu == 'true'
+        shell: bash
+        env:
+          SOULKEY_P259_TRANSLATION_PROVIDER: ${{ vars.SOULKEY_P259_TRANSLATION_PROVIDER || 'gemini' }}
+          SOULKEY_TASK_ID: ${{ inputs.task_id }}
+          SOULKEY_STAGE: ${{ inputs.stage }}
+          SOULKEY_LANG: ${{ inputs.lang }}
+          SOULKEY_LANGS: ${{ inputs.langs }}
+          SOULKEY_BRIDGE_URL: ${{ inputs.bridge_url }}
+          SOULKEY_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
+          SOULKEY_REPO_DIR: ${{ github.workspace }}
+          SOULKEY_WORKDIR: ${{ runner.temp }}/soulkey-cpu-work
+        run: |
+          set -euo pipefail
+          python -m pip install -q -r translation-system/requirements-gemini.txt
+          python -u translation-system/web_job_worker.py \
+            --task-id "$SOULKEY_TASK_ID" --stage "$SOULKEY_STAGE" \
+            --lang "$SOULKEY_LANG" --langs "$SOULKEY_LANGS" \
+            --bridge-url "$SOULKEY_BRIDGE_URL" \
+            --runtime-nonce "$SOULKEY_RUNTIME_NONCE"
+          echo "CPU worker returned; official delivery requires Drive readback."
+
       - name: Install Kaggle CLI
+        if: steps.route.outputs.cpu == 'false'
         run: |
           python -m pip install --upgrade pip
           python -m pip install kaggle
 
       - name: Prepare dedicated GPU Worker
+        if: steps.route.outputs.cpu == 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -137,6 +183,7 @@ jobs:
           cat "$DIR/kernel-metadata.json"
 
       - name: Build formal SoulKey job
+        if: steps.route.outputs.cpu == 'false'
         shell: bash
         env:
           JOB_TASK_ID: ${{ inputs.task_id }}
@@ -265,6 +312,7 @@ jobs:
 
       - name: Run Kaggle job with GPU retry
         id: wait_job
+        if: steps.route.outputs.cpu == 'false'
         shell: bash
         env:
           JOB_STAGE: ${{ inputs.stage }}
@@ -399,7 +447,7 @@ jobs:
           echo "Kaggle final status: $FINAL_STATUS"
 
       - name: Download Kaggle log
-        if: always() && steps.runtime_preflight.outcome == 'success'
+        if: always() && steps.route.outputs.cpu == 'false' && steps.runtime_preflight.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -424,7 +472,7 @@ jobs:
           fi
 
       - name: Report Kaggle failure to Bridge
-        if: always() && steps.runtime_preflight.outcome == 'success' && steps.wait_job.outputs.final_status != 'COMPLETE'
+        if: always() && steps.route.outputs.cpu == 'false' && steps.runtime_preflight.outcome == 'success' && steps.wait_job.outputs.final_status != 'COMPLETE'
         shell: bash
         env:
           JOB_RUNTIME_NONCE: ${{ inputs.runtime_nonce }}
@@ -439,7 +487,7 @@ jobs:
             >/dev/null || true
 
       - name: Verify Kaggle job
-        if: always()
+        if: always() && steps.route.outputs.cpu == 'false'
         shell: bash
         run: |
           set -euo pipefail
