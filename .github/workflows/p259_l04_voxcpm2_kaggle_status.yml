@@ -1,5 +1,5 @@
 name: P259 VoxCPM2 Kaggle status snapshot
-# second run: verify Kaggle benchmark after API-compatibility fix
+# third run: check long-running T4 generation at 4 minutes
 on:
   push:
     branches:
