@@ -1,0 +1,32 @@
+name: Gemma 4 Google API availability check
+on:
+  push:
+    branches:
+      - test/gemma4-google-api-p259l04-20261101
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Check credential and Gemma 4 supported models
+        run: |
+          python -m pip install -q google-genai
+          python - <<'PY'
+          import os, time
+          from google import genai
+          key=os.getenv('GEMINI_API_KEY','').strip()
+          if not key:
+              print('GEMMA4_NO_GITHUB_SECRET: Key is stored in SoulKey Apps Script, not available to this isolated workflow')
+              raise SystemExit(3)
+          client=genai.Client(api_key=key,http_options={'timeout':40000})
+          for model in ('gemma-4-26b-a4b-it','gemma-4-31b-it'):
+              start=time.monotonic()
+              try:
+                  r=client.models.generate_content(model=model,contents='Translate into Indonesian. Return only the translation: A kind thought can become a helpful action.')
+                  print('GEMMA4_OK',model,round(time.monotonic()-start,2),repr((r.text or '')[:130]))
+              except Exception as e:
+                  print('GEMMA4_ERROR',model,round(time.monotonic()-start,2),type(e).__name__,str(e)[:180])
+          PY
