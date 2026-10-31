@@ -25,7 +25,7 @@ jobs:
           if not key:
               print("NVIDIA_LLM_NO_KEY")
               raise SystemExit(3)
-          model = "mistralai/mistral-nemotron"
+          model = "deepseek-ai/deepseek-v4.1-flash"
           endpoint = "https://integrate.api.nvidia.com/v1/chat/completions"
           text = "A kind thought can become a helpful action."
           languages = {"id":"Indonesian (Bahasa Indonesia)","km":"Khmer (Cambodian)"}
