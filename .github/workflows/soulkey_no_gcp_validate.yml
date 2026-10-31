@@ -17,5 +17,7 @@ jobs:
       - run: node studio/tests/test_review_output_plan.cjs
       - run: node bridge/apps-script/tests/review-final-authority.test.cjs
       - run: node studio/tests/test_legacy_bridge_client_reply.cjs
+      - run: python -m py_compile translation-system/p259_priority.py translation-system/p259_gemma4_kaggle.py translation-system/central_tts_recovery.py
+      - run: python -m unittest discover -s translation-system/tests -p 'test_p259_priority.py' -v
       - run: python -m unittest discover -s translation-system/tests -p 'test_central_final_sync.py' -v
       - run: python -m unittest discover -s translation-system/tests -p 'test_legacy_final_import.py' -v
