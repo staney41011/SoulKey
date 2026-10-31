@@ -10,14 +10,19 @@ function setup(){
   const context={
     taskId:"P259-L01",payload:{},segments:Array.from({length:449},(_,id)=>({id,text:"ASR "+id})),
     dirty:false,englishAligned:null,englishDriveLoaded:false,englishBaseRequests:{},
+    driveFallbackZh:[],driveFallbackTotal:0,driveFallbackFinalizedAt:"",driveFallbackReviewRevision:"",driveFallbackFinalSource:false,
     finishQueued:false,requestedStepNumber:0,currentStep:1,
     $:id=>{if(!elements.has(id))elements.set(id,{disabled:true,textContent:""});return elements.get(id);},
     document:{querySelectorAll:selector=>selector===".workflow-step"?buttons:[]},
     window:{scrollTo(){}},renderZh(){},renderEn(){},setStatus(message){context.lastStatus=message;},
     centralReviewRequest:async()=>({ok:true,edits:{}}),
+    localStorage:{getItem:()=>null},restoreLocalIfNewer(){},clock:String,
+    loadAlignedEnglish(){},requestDriveReview(){},
   };
   vm.createContext(context);
   vm.runInContext(section("function maxAllowedStep(){","function filteredZhSegments(){"),context);
+  vm.runInContext(section("function repairTimings(","function maxAllowedStep(){"),context);
+  vm.runInContext(section("function applyReviewPayload(","function submit(fields){"),context);
   vm.runInContext(section("async function restoreEnglishDraftEdits(","async function loadAlignedEnglish("),context);
   vm.runInContext(section("function englishGroups(){","function writeEnglishGroup("),context);
   vm.runInContext("function receive(data){"+section('  if(data.type==="review_data"){','  if((data.type==="review_share_draft_saved"')+"}",context);
@@ -35,6 +40,22 @@ async function main(){
   assert.equal(final.englishGroups().length,59,"English passages must not be joined onto 449 ASR IDs");
   final.englishGroups().forEach((row,i)=>{assert.equal(row.en_text,"Human final "+i);assert.equal(row.text,"人工中文段落 "+i);});
   assert.equal(final.segments.length,449);assert.equal(final.englishDriveLoaded,true);
+
+  const legacyFinal=setup();legacyFinal.receive({...finalData,finalized_at:"",is_final:true,review_source:"en.final.json"});
+  assert.equal(legacyFinal.currentStep,3,"A verified legacy Final without a timestamp is still a Final");
+  const falseFinal=setup();falseFinal.receive({...finalData,finalized_at:"",is_final:true,review_source:"en.review.draft.json"});
+  assert.equal(falseFinal.currentStep,2,"A draft cannot become Final through an unrelated flag");
+
+  const chinese=setup();
+  const chineseChunk={type:"review_data",task_id:"P259-L01",kind:"zh",ok:true,is_final:true,review_source:"zh-TW.final.json",
+    total_segments:2,review_revision:"verified-revision",zh_finalized_at:"human-final-time"};
+  chinese.receive({...chineseChunk,chunk_index:0,has_more:true,segments:[{id:50,start:0,end:1,text:"Human first",confirmed:true}]});
+  chinese.receive({...chineseChunk,chunk_index:1,has_more:false,segments:[{id:51,start:1,end:2,text:"Human second",confirmed:true}]});
+  assert.equal(chinese.payload.zh_finalized_at,"human-final-time");assert.equal(chinese.currentStep,2);
+  assert.equal(chinese.segments.length,2);assert.equal(chinese.elements.get("finalize-zh").disabled,true);
+  const mixed=setup();mixed.receive({...chineseChunk,chunk_index:0,has_more:true,segments:[{id:50,text:"first revision"}]});
+  mixed.receive({...chineseChunk,chunk_index:1,has_more:false,review_revision:"new-human-revision",segments:[{id:51,text:"new revision"}]});
+  assert.equal(mixed.payload.zh_finalized_at,undefined);assert.match(mixed.lastStatus,/版本已變動/);
 
   const linked=setup();linked.requestedStepNumber=2;linked.receive(finalData);
   assert.equal(linked.currentStep,2,"An explicit English share link must still open step two");

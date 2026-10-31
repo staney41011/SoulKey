@@ -1,5 +1,17 @@
 # SoulKey｜系統操作日誌與第 259 期交付追蹤
 
+## 2026-10-31 09:55（台灣）｜原 Kaggle 本地翻譯實際增加7語；文稿41組、正式音檔31組
+
+- [PR #35](https://github.com/staney41011/SoulKey/pull/35) 已合併 `fa81e716a36e3b7428720910b6037e9e2437eb16`，CI與Pages均通過；原Studio建立新授權 [Kaggle Web Job #41107262736](https://github.com/staney41011/SoulKey/actions/runs/41107262736)。修正後的Kaggle映像已真正執行Gemma補譯與正式配音，不再是先前GLIBC啟動錯誤。
+- 中央QA讀回 **37/60**：L01 11語、L02 14語、L03 8語、L04 4語。相較先前30/60新增7語；四份人工英文Final另計，沒有將未通過或逾時的語言標記完成。
+- Drive逐檔非空與TXT/SRT/JSON成套核對：L01 **12組文稿／10正式MP3／2試聽**；L02 **15／13／2**；L03 **9／8／1**；L04 **5／0／1**。合計 **41/64組完整文稿、31/64正式MP3、6組試聽**。試聽版不列正式交付。
+- 該run於06:32回報error，歷時約4小時，停止前中央已記錄L04泰文TTS開始；該run設定14400秒上限，時間相符，確切終止原因仍需完整Kaggle日誌，不能據此當作全部完成。當前沒有執行中的其他Kaggle工作，需由原服務建立新短效授權接續，原2:28的nonce已不適合重新跑長任務。
+- 真實校稿讀回又確認舊 `en.final.json` 使用 `central_finalized_at`，缺少新版 `finalized_at`。Bridge補齊Final來源與時間相容；中文讀取優先真正的 `zh-TW.final.json`，不回退舊ASR快取。分塊帶內容revision，前端拒絕把不同版本混成一份；草稿與其他課程不誤當定稿。
+- 新增只有Google腳本管理編輯器可執行的私有 `resumeP259VerifiedWork_`（尾端底線不可從公開HtmlService呼叫）。沿用原重複派工鎖與原固定Bridge URL、四堂登記檢查及短效runtime，不新增HTTP入口、不記錄金鑰或nonce。供管理登入仍有效、工作台tab session已結束時接續，原六碼登入保持。
+- 本地23個JavaScript測試程式、61項pipeline contracts與JS語法檢查通過。此節Bridge修正需更新原同一部署後，以健康標記 `drive-authoritative-v1` 核對；GitHub提交不代表Google端已更新。
+
+---
+
 ## 2026-10-31｜Kaggle 舊映像 ABI 不符已定位；正式文稿實際增加到34組
 
 - 第一個新授權 [#41103810894](https://github.com/staney41011/SoulKey/actions/runs/41103810894) 已實際在Kaggle執行：T4 GPU存在、四堂Final同步成功，30個已過QA語言逐一匯出／讀回Drive文稿。Drive重新盤點三種格式完整且非空：L01 **10**、L02 **15**、L03 **7**、L04 **2**，共 **34/64組文稿**。正式MP3仍 **18/64**、試聽5組；QA仍 **30/60**。英文人工定稿4組已包括在34組文稿內，不重複列為AI QA。
@@ -183,9 +195,9 @@
 
 1. **正在救援**：第 259 期 P259-L01～P259-L04，4 堂 × 16 語 = **64 份目標語言文稿 + 64 組目標配音**。16 語：`en, th, es, id, vi, hi, ta, ja, ko, km, bn, ne, lo, my, it, pt`。
 2. **嚴禁把 GitHub 派工成功當作 Kaggle 或音檔交付**。分層判斷：Studio POST → Apps Script 驗證 → GitHub Workflow Dispatch → Kaggle Worker 執行 → 該語完整翻譯 QA / TTS → Google Drive 非空檔案及 manifest readback → Sheet status。
-3. **最近授權工作**：[Kaggle Web Job #41103810894](https://github.com/staney41011/SoulKey/actions/runs/41103810894)，2026-10-31 02:05（Asia/Taipei）由原Studio建立新授權。第一次執行因舊映像ABI不符失敗，修正合併後須由原Studio新派工作，避免rerun沿用舊workflow；原#41002147166已過期，禁止重跑舊nonce。
-4. **中央紀錄**：本次 `multi / running / web-job_eidS9Rrm / 02:05:41`，02:11明確error。新派工須重新讀回run ID與開始紀錄，不得聲稱翻譯在失敗後仍執行中。
-5. **交付最後快照**：QA **30/60**、完整文稿 **34/64**、正式MP3 **18/64**、試聽 **5組**；文稿包含4組英文人工Final。須讀回新的QA、Drive檔案與manifest才增加數量。
+3. **最近授權工作**：[Kaggle Web Job #41107262736](https://github.com/staney41011/SoulKey/actions/runs/41107262736)，02:28新授權、06:32結束。已實際補譯與配音，約4小時後error（設定上限14400秒，確切終止原因仍需完整日誌）；原#41002147166已過期，禁止重跑舊nonce。
+4. **接續**：使用原Studio或管理編輯器私有resume函式建立新runtime與run；不能聲稱06:32停止後仍執行中。核對新run ID、中央開始紀錄及真實輸出，再增加成果數量。
+5. **交付最後快照**：QA **37/60**、完整文稿 **41/64**、正式MP3 **31/64**、試聽 **6組**；文稿包含4組英文人工Final。須讀回新的QA、Drive檔案與manifest才增加數量。
 6. **注意**：四個GCP workflow已實際disabled，沒有排程或Cloud Run接手。部分語言仍可能需要QA複核；保留既有成果與來源revision，不降低QA或將試聽版標成正式音檔。
 7. **安全**：不重設使用者 Google OAuth、原六碼 Bridge Key、Apps Script Script Properties、Drive 既有檔案；不要把 token、金鑰放入此文件、PR、前端或 Sheet。不要未確認工作狀態就再次派送相同救援。
 

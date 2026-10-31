@@ -14,6 +14,7 @@ jobs:
       - run: node studio/tests/test_no_gcp_production.cjs
       - run: node studio/tests/test_review_editor_legacy_transport.cjs
       - run: node studio/tests/test_review_drive_final_restore.cjs
+      - run: node bridge/apps-script/tests/review-final-authority.test.cjs
       - run: node studio/tests/test_legacy_bridge_client_reply.cjs
       - run: python -m unittest discover -s translation-system/tests -p 'test_central_final_sync.py' -v
       - run: python -m unittest discover -s translation-system/tests -p 'test_legacy_final_import.py' -v
