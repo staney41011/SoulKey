@@ -1,0 +1,51 @@
+name: P259 emergency four-language voice delivery
+on:
+  push:
+    branches:
+      - delivery/p259-four-emergency-tts-20261031
+    paths:
+      - .github/workflows/p259_emergency_four_tts.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthesize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - task_id: P259-L01
+            language: km
+          - task_id: P259-L04
+            language: id
+          - task_id: P259-L04
+            language: vi
+          - task_id: P259-L04
+            language: km
+    steps:
+      - name: Checkout isolated draft branch
+        uses: actions/checkout@v4
+      - name: Install Edge 7.2.8 on CPU
+        run: |
+          python -m pip install --disable-pip-version-check -q edge-tts==7.2.8
+          ffprobe -version | head -n 1
+      - name: Produce full narration (all source segments, no cutoff)
+        env:
+          SOULKEY_EDGE_ENDPOINT: msedgeservices
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python -u emergency-delivery/synthesize_emergency.py "${{ matrix.language }}" "${{ matrix.task_id }}"
+      - name: Upload complete MP3 and review manifest
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.task_id }}-${{ matrix.language }}-full-emergency-audio
+          path: |
+            emergency-delivery/outputs/${{ matrix.task_id }}/${{ matrix.language }}/*.mp3
+            emergency-delivery/outputs/${{ matrix.task_id }}/${{ matrix.language }}/*.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
