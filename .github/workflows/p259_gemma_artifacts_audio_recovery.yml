@@ -1,0 +1,58 @@
+name: P259 batch Edge audio-only from completed Gemma QA artifacts
+on:
+  push:
+    branches: [delivery/p259-gemma4-recovery-20261101]
+    paths: [.github/workflows/p259_gemma_artifacts_audio_recovery.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  recover-audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - { lesson: L03, lang: ta }
+          - { lesson: L03, lang: ne }
+          - { lesson: L03, lang: lo }
+          - { lesson: L03, lang: my }
+          - { lesson: L03, lang: it }
+          - { lesson: L03, lang: pt }
+          - { lesson: L04, lang: id }
+          - { lesson: L04, lang: vi }
+          - { lesson: L04, lang: hi }
+          - { lesson: L04, lang: ja }
+          - { lesson: L04, lang: ko }
+          - { lesson: L04, lang: km }
+          - { lesson: L04, lang: bn }
+          - { lesson: L04, lang: it }
+          - { lesson: L04, lang: pt }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-${{ matrix.lang }}-gemma4-delivery
+          run-id: 41225469799
+          github-token: ${{ github.token }}
+          path: artifact-in
+      - name: Install previously verified audio-only compatibility runtime
+        run: |
+          python -m py_compile translation-system/p259_edge_audio_from_artifact.py
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q gdown edge-tts==7.2.8
+      - name: Check source English SHA and existing AI QA, then synthesize without retranslation
+        run: |
+          python -u translation-system/p259_edge_audio_from_artifact.py --lesson ${{ matrix.lesson }} --lang ${{ matrix.lang }} --artifact-dir artifact-in
+      - name: Preserve rendered MP3 and time-alignment review receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-${{ matrix.lesson }}-${{ matrix.lang }}-EdgeTTS-from-Gemma-artifact
+          path: audio-only-output/${{ matrix.lesson }}/${{ matrix.lang }}/*
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
