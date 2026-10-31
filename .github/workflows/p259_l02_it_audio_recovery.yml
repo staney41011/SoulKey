@@ -1,0 +1,33 @@
+name: P259 L02 Italian Edge audio recovery on validated endpoint
+on:
+  push:
+    branches: [delivery/p259-gemma4-recovery-20261101]
+    paths: [.github/workflows/p259_l02_it_audio_recovery.yml]
+permissions:
+  contents: read
+jobs:
+  recover-l02-it:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies and MS Edge patch preflight
+        run: |
+          python -m py_compile translation-system/p259_edge_audio_from_drive.py
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q gdown edge-tts==7.2.8
+      - name: Generate complete Italian audio from already delivered Gemma4 document
+        run: |
+          python -u translation-system/p259_edge_audio_from_drive.py --lesson L02 --lang it --file-id 1nQs0RPrbI_YMcq0RxqWRwGwYDJV5WboI
+      - name: Preserve generated MP3 and audit manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p259-L02-it-EdgeTTS-msedgeservices
+          path: |
+            audio-only-output/L02/it/*.mp3
+            audio-only-output/L02/it/*驗收報告.json
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
