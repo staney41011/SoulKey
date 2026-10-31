@@ -3,8 +3,8 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
 const {LANGUAGES,build,canonicalMp3Code,canonicalDriveUrl}=require("../tts-share-message.js");
-const codes=["en","es","th","id","km","vi"];
-assert.deepEqual(LANGUAGES.map(x=>x.code),codes,"only six approved public-share languages");
+const codes=["en","es","th","id","km","vi","hi","ta","ja","ko","bn","ne","lo","my","it","pt"];
+assert.deepEqual(LANGUAGES.map(x=>x.code),codes,"all sixteen configured share languages");
 const uid=n=>"1ExampleSoulKeyDriveAudioId_"+n;
 const make=(code,n,extra={})=>({
   id:uid(n),name:code+".mp3",canonical_name:code+".mp3",
@@ -22,8 +22,8 @@ const files=[make("en",0),make("es",1),make("th",2),make("km",3),make("vi",4)];
 const result=build(task(),payload(files));
 assert.equal(result.eligible,true);
 assert.equal(result.readyCount,5);
-assert.equal(result.pendingCount,1);
-assert.equal(result.expectedCount,6);
+assert.equal(result.pendingCount,11);
+assert.equal(result.expectedCount,16);
 assert.equal(result.allReady,false);
 assert.deepEqual(result.languages,codes);
 assert.match(result.message,/心念的力量229/);
@@ -31,10 +31,10 @@ assert.match(result.message,/中和老師/);
 assert.match(result.message,/Bahasa Indonesia/);
 assert.match(result.message,/Audio pending verification/);
 for(const f of files) assert.ok(result.message.includes(f.id),f.name);
-assert.ok(!result.message.includes("தமிழ்"));
-assert.ok(!result.message.includes("Português"));
-const all=build(task(),payload([...files,make("id",5)]));
-assert.equal(all.readyCount,6);
+assert.ok(result.message.includes("தமிழ்"));
+assert.ok(result.message.includes("Português"));
+const all=build(task(),payload(codes.map((code,i)=>make(code,i+80))));
+assert.equal(all.readyCount,16);
 assert.equal(all.pendingCount,0);
 assert.equal(all.allReady,true);
 const noAudio=build({...task(),remoteStages:{}},payload([]));
@@ -59,7 +59,7 @@ stage.remoteStages["tts:en"]={status:"done"};
 stage.remoteStages["tts:id"]={status:"error"};
 const partial=build(stage,payload([make("en",31),make("id",32)]));
 assert.equal(partial.readyCount,1);
-assert.equal(partial.pendingCount,5);
+assert.equal(partial.pendingCount,15);
 assert.ok(!partial.message.includes(uid(32)));
 stage.remoteStages["tts:en"]={status:"running"};
 assert.equal(build(stage,payload([make("en",31)])).readyCount,0);
@@ -77,7 +77,7 @@ lesson3.remoteStages["tts:es"]={status:"needs_review"};
 const availablePreview=build(lesson3,payload([spanishPreview]));
 assert.equal(availablePreview.readyCount,1);
 assert.equal(availablePreview.reviewCount,1);
-assert.equal(availablePreview.pendingCount,5);
+assert.equal(availablePreview.pendingCount,15);
 assert.equal(availablePreview.hasLinks,true);
 assert.equal(availablePreview.allReady,false);
 assert.ok(availablePreview.message.includes(spanishPreview.id));
@@ -123,4 +123,17 @@ assert.ok(backend.includes('if (action === "tts_share_links")'));
 assert.ok(backend.includes('function ttsShareLinks_(taskId)'));
 assert.ok(backend.includes('"tts_share_links"\n  ];') || backend.includes('"tts_share_links"\r\n  ];'),
   "New audio action must be JSONP-whitelisted");
-console.log("SOULKEY_SIX_LANGUAGE_SHARE_OK",JSON.stringify({languages:codes,available:result.readyCount,pending:result.pendingCount}));
+// Regression: P259-L04 had 7 real MP3s; legacy six-language shortlist
+// displayed exactly 3 of them. All seven must now remain discoverable.
+const lesson4={...task(),id:"P259-L04",period:259,lesson:"第4堂",
+  title:"圓融的思路丨賴義鍠丨打開心靈的鎖匙259期"};
+const seven=["en","th","es","ta","ne","lo","my"];
+const l04=build(lesson4,payload(seven.map((code,i)=>make(code,i+200))));
+assert.equal(l04.readyCount,7);
+assert.equal(l04.pendingCount,9);
+assert.equal(l04.expectedCount,16);
+for(const language of ["தமிழ்","नेपाली","ພາສາລາວ","မြန်မာဘာသာ"])
+  assert.ok(l04.message.includes(language),language);
+for(let i=0;i<seven.length;i++)
+  assert.ok(l04.message.includes(uid(i+200)),seven[i]);
+console.log("SOULKEY_SIXTEEN_LANGUAGE_SHARE_OK",JSON.stringify({languages:codes,available:l04.readyCount,pending:l04.pendingCount}));
