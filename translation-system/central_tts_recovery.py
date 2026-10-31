@@ -127,13 +127,15 @@ def main():
     qa=get("翻譯QA紀錄!A2:I5000")
     plans=get("語言任務設定!A2:J5000")
     from central_manuscript_export import publish_manuscript
+    from p259_priority import is_priority, tts_job_passes
     processed=0;ready=0;failures=0;exported=0;export_errors=0
-    for task in ready_tasks(sheets,args.period,args.task_id):
+    for task,priority_only in tts_job_passes(ready_tasks(sheets,args.period,args.task_id)):
         try:final=verified_english_final(task["task_id"],index,backups)
         except SourceNotReady as error:
             print("TTS_SKIP_NO_FINAL",task["task_id"],str(error),flush=True)
             continue
         for lang in approved_plan_rows(plans,task["task_id"]):
+            if is_priority(task["task_id"],lang)!=priority_only:continue
             if args.lang and args.lang!=lang:continue
             if requested and lang not in requested:continue
             try:approved=verified_translation(task["task_id"],lang,final,translations,qa)
