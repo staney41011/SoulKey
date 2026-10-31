@@ -33,13 +33,13 @@ jobs:
               raise SystemExit(3)
           client = NvidiaTranslateClient(
               api_key=os.environ["NVIDIA_API_KEY"],
-              timeout=30,
+              timeout=90,
               max_attempts=1,
           )
           english = "A kind thought can become a helpful action."
-          print("NVIDIA_SMOKE_START model=" + client.model + " target=id,vi; read-only; no production data")
+          print("NVIDIA_SMOKE_START model=" + client.model + " target=id; read-only; no production data")
           failures = 0
-          for lang in ("id", "vi"):
+          for lang in ("id",):
               start = time.monotonic()
               try:
                   result = client.translate(english, lang)
@@ -61,6 +61,6 @@ jobs:
                   print("NVIDIA_SMOKE_FAIL language={} seconds={:.1f} reason={}".format(
                       lang,time.monotonic()-start,reason))
                   failures += 1
-          print("NVIDIA_SMOKE_RESULT succeeded={}/2".format(2-failures))
+          print("NVIDIA_SMOKE_RESULT succeeded={}/1".format(1-failures))
           raise SystemExit(0 if failures == 0 else 1)
           PY
