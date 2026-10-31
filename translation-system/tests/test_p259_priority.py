@@ -14,9 +14,10 @@ from p259_priority import (
 
 class PriorityTests(unittest.TestCase):
     def test_exact_six_languages_and_human_english_final(self):
-        self.assertEqual(PRIORITY_LANGUAGE_CODES, ("en", "th", "es", "id", "vi", "hi"))
+        self.assertEqual(PRIORITY_LANGUAGE_CODES, ("en", "th", "es", "id", "vi", "km"))
         self.assertTrue(all(is_priority("P259-L04", x) for x in PRIORITY_LANGUAGE_CODES))
         self.assertFalse(is_priority("P259-L04", "ta"))
+        self.assertFalse(is_priority("P259-L04", "hi"))
         self.assertFalse(is_priority("P259-L03", "th"))
 
     def test_gemma_only_reorders_missing_ai_languages(self):
@@ -36,7 +37,7 @@ class PriorityTests(unittest.TestCase):
 
     def test_tts_schedules_six_once_before_other_58(self):
         tasks = [{"task_id": "P259-L01"}, {"task_id": "P259-L04"}, {"task_id": "P259-L02"}]
-        languages = ["en", "th", "es", "id", "vi", "hi", "ta", "ja"]
+        languages = ["en", "th", "es", "id", "vi", "km", "hi", "ta", "ja"]
         selected = [(task["task_id"], lang) for task, priority_only in tts_job_passes(tasks)
                     for lang in languages
                     if is_priority(task["task_id"], lang) == priority_only]

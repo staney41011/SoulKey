@@ -130,7 +130,7 @@ def run():
     ap=argparse.ArgumentParser()
     ap.add_argument("--period",type=int,default=259)
     ap.add_argument("--task-id",default="P259-L04")
-    ap.add_argument("--langs",default="id,vi,hi")
+    ap.add_argument("--langs",default="id,vi,km")
     ap.add_argument("--max-new-languages",type=int,default=3)
     opts=ap.parse_args()
     if opts.period!=259 or opts.task_id!="P259-L04":raise SystemExit("P259-L04_only")

@@ -394,7 +394,7 @@ def run():
     # Keep finished QA/Drive files intact, but translate L04 six-language targets first.
     # English is human Final, so only the five AI languages enter this queue.
     remaining=prioritize_translation_jobs(remaining)
-    print("GEMMA4_P259_PRIORITY_L04_SIX",[(task["task_id"],lang) for task,_,lang in remaining if task["task_id"]=="P259-L04" and lang in ("th","es","id","vi","hi")],flush=True)
+    print("GEMMA4_P259_PRIORITY_L04_SIX",[(task["task_id"],lang) for task,_,lang in remaining if task["task_id"]=="P259-L04" and lang in ("th","es","id","vi","km")],flush=True)
     print("GEMMA4_P259_PENDING_LANGUAGES",len(remaining),flush=True)
     if not remaining:return
     gemma=Gemma()

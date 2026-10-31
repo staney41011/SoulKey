@@ -6,7 +6,7 @@ missing translations and publishes verified audio.
 """
 
 PRIORITY_TASK_ID = "P259-L04"
-PRIORITY_LANGUAGE_CODES = ("en", "th", "es", "id", "vi", "hi")
+PRIORITY_LANGUAGE_CODES = ("en", "th", "es", "id", "vi", "km")
 
 
 def is_priority(task_id, language):
