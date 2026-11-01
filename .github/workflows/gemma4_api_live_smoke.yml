@@ -1,0 +1,59 @@
+name: Gemma 4 API isolated live smoke
+on:
+  push:
+    branches: [feat/translation-gemma4-api-20261101]
+    paths:
+      - .github/workflows/gemma4_api_live_smoke.yml
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run offline contract and optional Google AI Studio live request
+        working-directory: translation-system
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest -v tests/test_gemma4_api.py
+          if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+            echo "LIVE_API_SKIPPED_NO_REPOSITORY_SECRET"
+            exit 0
+          fi
+          python - <<'PY'
+          import os
+          from gemini_engine import GeminiClient, DEFAULT_TEXT_MODEL
+          assert DEFAULT_TEXT_MODEL == "gemma-4-26b-a4b-it"
+          schema = {
+              "type": "object",
+              "properties": {"segments": {
+                  "type": "array",
+                  "items": {
+                      "type": "object",
+                      "properties": {
+                          "id": {"type": "integer"},
+                          "text": {"type": "string"},
+                      },
+                      "required": ["id", "text"],
+                  },
+              }},
+              "required": ["segments"],
+          }
+          client = GeminiClient(api_key=os.environ["GEMINI_API_KEY"],
+                                max_attempts=3, timeout=90)
+          data, usage = client.structured(
+              'Translate into Thai, preserve id: [{"id":1,"text":"Practice kindness toward others."}]',
+              schema,
+              system_instruction="Translate faithfully; output only the requested JSON.",
+          )
+          rows = data.get("segments") or []
+          assert len(rows) == 1 and rows[0]["id"] == 1
+          assert rows[0]["text"].strip()
+          assert "kindness" not in rows[0]["text"].lower()
+          print("GEMMA4_API_LIVE_SMOKE_PASS",
+                "segments", len(rows), "tokens", usage.total_tokens)
+          PY
