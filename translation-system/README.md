@@ -1,5 +1,20 @@
 # 打開心靈的鎖匙｜全球翻譯系統
 
+## 現行正式路線（2026-11-01）：Gemma 4 為主要文字引擎
+
+- **正式文字模型：** `gemma-4-26b-a4b-it`（Google AI Studio 的 Gemini API `models.generateContent`；不是 Vertex AI／GCP）。
+- **適用階段：** 繁中 AI 語意校稿、白話文、英文、其他 15 語、翻譯 QA、逐段修復；`SOULKEY_REPAIR_MODEL` 預設同為 Gemma 4。
+- **原音辨識：** Taiwan-Breeze ASR（仍透過 Kaggle GPU）；Gemma 4 是文字生成模型，不取代聲音辨識。
+- **配音：** 既有 Natural/Edge TTS；不誤將文字模型當成 MP3 產生器。
+- **工作入口：** SoulKey Studio → Apps Script Bridge → `.github/workflows/kaggle_web_job.yml` → `web_job_worker.py` → `gemini_text_production_runner.py` 或 `gemini_multi_production_runner.py`。後兩個 Python 檔名沿用舊稱，但預設真正呼叫的是 Gemma 4。
+- **安全性：** 只使用現有 Apps Script runtime 的 `GEMINI_API_KEY`（歷史命名，實際供 Gemma 4 使用）；金鑰不進前端，也不需要新建 GCP 專案、Vertex AI、Service Account 或重新向使用者索取 Key。
+- **恢復與防覆寫：** 多語 v4 checkpoint 可讀取 `gemma4-production-multi` 和舊 `gemini-production-multi`，以英文來源 SHA-256 比對；保留已完成的正式譯文，不因模型切換全堂重跑。
+- **驗證：** `SoulKey MVP Validate` 包含 `tests/test_gemma4_api.py`；`SoulKey Gemma 4 primary API live smoke` 使用一個測試段落驗證正式 API，且不修改 Google Drive／Sheets。
+- **其他模型：** NVIDIA Riva 僅為少數語言的選用備援與第二意見；原音來源的 Gemini Video 備援與 TTS 是不同操作，不代表正式文字翻譯切回 Gemini。
+
+**歷史文件提醒：** 下方 v1/v2 的 GCP OAuth Playground、Kaggle 舊 Secrets、Qwen、本地 MMS 或「Gemini 六語」操作紀錄僅供追溯；不是現行 SoulKey Studio 的正式部署步驟。新工作勿依下方舊說明重建 GCP。
+
+
 這個資料夾是 Kaggle / Colab 共用的雲端翻譯 Runner。
 
 目前 v1 已包含：
