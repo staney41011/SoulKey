@@ -50,6 +50,20 @@ jobs:
       KAGGLE_KERNEL: cwlmrcsir/soulkey-gpu-worker
 
     steps:
+      - name: Mask short-lived Bridge authentication inputs before any other step
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          fields = data.get("inputs") or {}
+          for key in ("runtime_nonce", "bridge_url"):
+              value = str(fields.get(key) or "")
+              if value:
+                  print("::add-mask::" + value, flush=True)
+          PY
+
       - name: Install Kaggle CLI
         run: |
           python -m pip install --upgrade pip
