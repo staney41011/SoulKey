@@ -63,7 +63,7 @@ class GeminiEngineTest(unittest.TestCase):
                 "repair_instruction": "",
             }]})
         ])
-        client = GeminiClient(
+        client = GeminiClient(text_model="gemini-3.1-flash-lite",
             api_key="test",
             transport=transport,
             sleeper=lambda _: None,
@@ -81,7 +81,7 @@ class GeminiEngineTest(unittest.TestCase):
             (429, b'{"error":"rate"}'),
             response_text({"items": []}),
         ])
-        client = GeminiClient(
+        client = GeminiClient(text_model="gemini-3.1-flash-lite",
             api_key="test",
             transport=transport,
             sleeper=lambda _: None,
@@ -103,13 +103,13 @@ class GeminiEngineTest(unittest.TestCase):
                 }],
             }],
         }])
-        client = GeminiClient(api_key="test", transport=transport)
+        client = GeminiClient(text_model="gemini-3.1-flash-lite",api_key="test", transport=transport)
         audio, mime, _ = client.tts("hello")
         self.assertEqual(audio, wav)
         self.assertEqual(mime, "audio/wav")
 
     def test_missing_key_fails_closed(self):
-        client = GeminiClient(api_key="", transport=FakeTransport([]))
+        client = GeminiClient(text_model="gemini-3.1-flash-lite",api_key="", transport=FakeTransport([]))
         with self.assertRaises(GeminiAPIError):
             client.structured("x", QA_SCHEMA)
 
@@ -206,7 +206,7 @@ class GeminiEngineTest(unittest.TestCase):
                 "repair_instruction": "",
             }]}),
         ])
-        client = GeminiClient(api_key="test", transport=transport)
+        client = GeminiClient(text_model="gemini-3.1-flash-lite",api_key="test", transport=transport)
         result = translate_and_qa(
             client,
             {"segments": [{
@@ -262,7 +262,7 @@ class GeminiEngineTest(unittest.TestCase):
             }]}),
             response_text({"items": [qa_pass]}),
         ])
-        client = GeminiClient(api_key="test", transport=transport)
+        client = GeminiClient(text_model="gemini-3.1-flash-lite",api_key="test", transport=transport)
         result = translate_and_qa(
             client,
             {"segments": [{
@@ -289,7 +289,7 @@ class GeminiEngineTest(unittest.TestCase):
                 "term_candidates": [],
             }]})
         ])
-        client = GeminiClient(api_key="test", transport=transport)
+        client = GeminiClient(text_model="gemini-3.1-flash-lite",api_key="test", transport=transport)
         glossary_rows = [[
             "白陽期",
             "宗教術語",
