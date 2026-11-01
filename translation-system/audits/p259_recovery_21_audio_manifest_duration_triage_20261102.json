@@ -1,0 +1,205 @@
+{
+  "period": 259,
+  "scope": "21 Gemma4 recovery language TTS manifests in original lesson Drive audio folders",
+  "checked_at_local": "2026-11-02 06:07 Asia/Taipei (scheduled check window)",
+  "evidence_type": "Drive TTS manifest JSON readback; durations are declared by manifests, NOT independent MP3 ffprobe measurement",
+  "counts": {
+    "manifests": 21,
+    "over_30_seconds": 19,
+    "over_60_seconds": 16,
+    "over_300_seconds": 9,
+    "all_marked_needs_timeline_review": 21
+  },
+  "note": "Absolute duration gap is a triage indicator, not proof of segment alignment or audio quality. Prior L04 vi pilot 2008.08s also needs silence and human QA review. No existing human-reviewed translations or main branch changed.",
+  "items": [
+    {
+      "lesson": "L01",
+      "language": "bn",
+      "video_end_seconds": 1938.8,
+      "manifest_audio_seconds": 1768.8,
+      "delta_seconds": -170,
+      "drive_manifest_id": "17NvwThp29UpT8PI2UK2pKwwD6Lmg7MzV",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L01",
+      "language": "km",
+      "video_end_seconds": 1938.8,
+      "manifest_audio_seconds": 1803.98,
+      "delta_seconds": -134.82,
+      "drive_manifest_id": "1C-rJcPKHeTzseVVtVepgrj0YBsiQVdk_",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L01",
+      "language": "lo",
+      "video_end_seconds": 1938.8,
+      "manifest_audio_seconds": 1978.75,
+      "delta_seconds": 39.95,
+      "drive_manifest_id": "1wAkgMhu9MAFO0_EHuF0bPvO3-fPzeUJi",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L01",
+      "language": "ne",
+      "video_end_seconds": 1938.8,
+      "manifest_audio_seconds": 1904.09,
+      "delta_seconds": -34.71,
+      "drive_manifest_id": "1BtP69d-zBTi9FNCAQpELCr_wms64jcE1",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L02",
+      "language": "it",
+      "video_end_seconds": 1797.13,
+      "manifest_audio_seconds": 1739.9,
+      "delta_seconds": -57.23,
+      "drive_manifest_id": "1LRFxAXpdtpUENeX-6sCug0botztdrmh0",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L03",
+      "language": "it",
+      "video_end_seconds": 1811.95,
+      "manifest_audio_seconds": 1799.74,
+      "delta_seconds": -12.21,
+      "drive_manifest_id": "1QKnJGRit96dFL1XgjAfweWR26nmCtl0t",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L03",
+      "language": "ko",
+      "video_end_seconds": 1811.95,
+      "manifest_audio_seconds": 2089.58,
+      "delta_seconds": 277.63,
+      "drive_manifest_id": "1P0RKmQ-jDJWomO8yf1mGpPLVLT2vEy7z",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L03",
+      "language": "lo",
+      "video_end_seconds": 1811.95,
+      "manifest_audio_seconds": 1989.41,
+      "delta_seconds": 177.46,
+      "drive_manifest_id": "11UL-zFT4SB8Ns-k0YyPXaEth47MTQPqy",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L03",
+      "language": "my",
+      "video_end_seconds": 1811.95,
+      "manifest_audio_seconds": 1961.4,
+      "delta_seconds": 149.45,
+      "drive_manifest_id": "1NfzaaQULSxC0EVd2Ip_MaGRFai0uJZRL",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L03",
+      "language": "ne",
+      "video_end_seconds": 1811.95,
+      "manifest_audio_seconds": 1832.21,
+      "delta_seconds": 20.26,
+      "drive_manifest_id": "1xGtNzwAX_z3VJwv96S7PlMJlioch9pF3",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L03",
+      "language": "pt",
+      "video_end_seconds": 1811.95,
+      "manifest_audio_seconds": 1743.19,
+      "delta_seconds": -68.76,
+      "drive_manifest_id": "1kF-r7Qp-HtuAd-47PuUVEOhR0GuXCzOb",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L03",
+      "language": "ta",
+      "video_end_seconds": 1811.95,
+      "manifest_audio_seconds": 2197.03,
+      "delta_seconds": 385.08,
+      "drive_manifest_id": "1IPKQb0Vsqog3NCgZWCyTvqj9P5-day5_",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L04",
+      "language": "bn",
+      "video_end_seconds": 2008,
+      "manifest_audio_seconds": 1420.94,
+      "delta_seconds": -587.06,
+      "drive_manifest_id": "1FCSCMQeywK5Fy0-yuz-NdhzJWTpbnkte",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L04",
+      "language": "hi",
+      "video_end_seconds": 2008,
+      "manifest_audio_seconds": 1863.6,
+      "delta_seconds": -144.4,
+      "drive_manifest_id": "1EsGHVxVH9VQ3IhPY-KKLEfd-8I4U65gh",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L04",
+      "language": "id",
+      "video_end_seconds": 2008,
+      "manifest_audio_seconds": 1450.66,
+      "delta_seconds": -557.34,
+      "drive_manifest_id": "1PT2Z5yBeDEh3J9T1CpSLFI7N9VBkyhYF",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L04",
+      "language": "it",
+      "video_end_seconds": 2008,
+      "manifest_audio_seconds": 1473,
+      "delta_seconds": -535,
+      "drive_manifest_id": "1-9UEeawtbZl-Ys8DkSrZYdq5kJMb0u2M",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L04",
+      "language": "ja",
+      "video_end_seconds": 2008,
+      "manifest_audio_seconds": 1671.67,
+      "delta_seconds": -336.33,
+      "drive_manifest_id": "1xaWy18NQ2Wt22OK7RMthI6H9KLe4KMv_",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L04",
+      "language": "km",
+      "video_end_seconds": 2008,
+      "manifest_audio_seconds": 1474.7,
+      "delta_seconds": -533.3,
+      "drive_manifest_id": "14_EOXtOwEpnN4_gzE_7s9oHVo82XtWK0",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L04",
+      "language": "ko",
+      "video_end_seconds": 2008,
+      "manifest_audio_seconds": 1698.22,
+      "delta_seconds": -309.78,
+      "drive_manifest_id": "1XaBHIra-H8-IvSHlX3V4kz5Fsb2331aI",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L04",
+      "language": "pt",
+      "video_end_seconds": 2008,
+      "manifest_audio_seconds": 1416.74,
+      "delta_seconds": -591.26,
+      "drive_manifest_id": "1IrebQFrVXH3crhz5nj41m9jDVrMyjzQx",
+      "manifest_audio_status": "needs_timeline_review"
+    },
+    {
+      "lesson": "L04",
+      "language": "vi",
+      "video_end_seconds": 2008,
+      "manifest_audio_seconds": 1339.9,
+      "delta_seconds": -668.1,
+      "drive_manifest_id": "1Qu99N_svo7e3fUOlYxG8yfQT-LmcnSbt",
+      "manifest_audio_status": "needs_timeline_review"
+    }
+  ]
+}
