@@ -1,4 +1,5 @@
 name: Gemma 4 API isolated live smoke
+# Run after the missing-key test is isolated from repository secrets.
 on:
   push:
     branches: [feat/translation-gemma4-api-20261101]
