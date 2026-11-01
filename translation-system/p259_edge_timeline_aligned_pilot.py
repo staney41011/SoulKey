@@ -143,6 +143,29 @@ async def main():
                      "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", str(aligned)])
             timeline.append(aligned)
             cursor = end
+        # A duration match alone can hide excessive inserted silence.
+        # This is an estimated QA metric, not proof of perceptual quality.
+        rendered_speech = sum(
+            min(x["slot_seconds"], x["speech_seconds"] / x["tempo_required"])
+            for x in report["segments"]
+        )
+        slot_total = sum(x["slot_seconds"] for x in report["segments"])
+        gap_total = max(0.0, last - slot_total)
+        silence_total = max(0.0, last - rendered_speech)
+        max_padding = max(
+            (max(0.0, x["slot_seconds"] - x["speech_seconds"] / x["tempo_required"])
+             for x in report["segments"]), default=0.0
+        )
+        report["estimated_rendered_speech_seconds"] = round(rendered_speech, 3)
+        report["estimated_silence_seconds"] = round(silence_total, 3)
+        report["estimated_silence_ratio"] = round(silence_total / last, 4) if last else 0.0
+        report["estimated_intersegment_gap_seconds"] = round(gap_total, 3)
+        report["max_segment_padding_seconds"] = round(max_padding, 3)
+        report["qa_warnings"] = []
+        if report["estimated_silence_ratio"] > 0.20:
+            report["qa_warnings"].append("HIGH_ESTIMATED_SILENCE_RATIO_GT_20_PERCENT")
+        if max_padding > 12.0:
+            report["qa_warnings"].append("LONG_SINGLE_SEGMENT_PADDING_GT_12_SECONDS")
         report["overrun_segments"] = overruns
         if overruns:
             report["status"] = "blocked_speech_exceeds_slot_speed_cap"
@@ -160,7 +183,9 @@ async def main():
         report["audio_sha256"] = hashlib.sha256(mp3.read_bytes()).hexdigest()
         if abs(sec - last) > 1.0 or mp3.stat().st_size < 100000:
             raise ValueError("FINAL_AUDIO_DURATION_OR_SIZE_MISMATCH")
-        report["status"] = "mechanical_timeline_pass_human_review_required"
+        report["status"] = ("mechanical_timeline_pass_silence_review_required"
+                            if report["qa_warnings"] else
+                            "mechanical_timeline_pass_human_review_required")
         print("PILOT_MECHANICAL_PASS", len(ts), sec, flush=True)
     except Exception as exc:
         report["error"] = f"{type(exc).__name__}: {exc}"
