@@ -1,6 +1,7 @@
 name: SoulKey Gemini Persistent Code Test
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - ".github/workflows/soulkey_gemini_persistent_code_test.yml"
@@ -138,7 +139,7 @@ jobs:
           PY
 
       - name: Live Gemini structured-output smoke
-        if: ${{ env.GEMINI_API_KEY != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && env.GEMINI_API_KEY != '' }}
         working-directory: translation-system
         run: |
           python - <<'PY'
@@ -185,7 +186,7 @@ jobs:
           PY
 
       - name: Note unavailable live secret
-        if: ${{ env.GEMINI_API_KEY == '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && env.GEMINI_API_KEY == '' }}
         run: echo "LIVE GEMINI SKIPPED - GitHub Actions GEMINI_API_KEY is not configured"
 
       - name: Checkpoint selection logic
