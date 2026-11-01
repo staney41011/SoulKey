@@ -314,6 +314,45 @@ def prepare_asr_runtime():
     return str(model_dir)
 
 
+
+def preflight_source_lesson_folders(task_ids):
+    """Check registered task + full Drive layout *before* spending Kaggle GPU.
+
+    This is read-only: folder creation belongs to Studio / Apps Script Bridge.
+    """
+    from config import SPREADSHEET_ID, TASK_SHEET_RANGE
+    from google_io import build_google_services, read_values
+    from lesson_paths import resolve_lesson_folders
+
+    drive, sheets = build_google_services()
+    rows = read_values(sheets, SPREADSHEET_ID, TASK_SHEET_RANGE)
+    registered = {
+        str(row[0]).strip(): row
+        for row in rows if row and str(row[0]).strip()
+    }
+    for task_id in task_ids:
+        row = registered.get(task_id)
+        if not row:
+            raise RuntimeError(
+                f"[PREFLIGHT] {task_id} 未登錄於中央任務佇列；"
+                "請先在 SoulKey Studio 儲存課程。"
+            )
+        try:
+            period = int(str(row[1]).strip())
+            lesson_label = str(row[2]).strip()
+            if not lesson_label:
+                raise ValueError("missing lesson number")
+            resolve_lesson_folders(drive, sheets, period, lesson_label)
+        except (ValueError, TypeError, RuntimeError) as exc:
+            raise RuntimeError(
+                f"[PREFLIGHT] {task_id} 雲端課程資料夾尚未就緒；"
+                f"請先在 SoulKey Studio 建立該期資料夾、"
+                f"確認「期數設定」有對應的 Drive URL，"
+                f"再啟動 Kaggle。原始錯誤：{exc}"
+            ) from exc
+        print(f"[PREFLIGHT] {task_id} registered + Drive folders OK", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-id", required=True)
@@ -426,6 +465,15 @@ def main():
             "--disable-pip-version-check", "-q",
             "-r", str(requirements_file),
         ])
+
+        # Fail early on missing period/lesson folders, before GPU/ASR setup.
+        if args.stage in {"zh", "asr", "batch"}:
+            requested_ids = (
+                [x.strip() for x in args.langs.split(",") if x.strip()]
+                if args.stage == "batch" and args.langs.strip()
+                else [args.task_id]
+            )
+            preflight_source_lesson_folders(requested_ids)
 
         def prepare_youtube_runtime():
             print(
