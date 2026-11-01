@@ -63,6 +63,7 @@ jobs:
           python -m unittest -v tests/test_multilingual_manuscript_speech_safety.py
           python -m unittest -v tests/test_gemini_engine.py
           python -m unittest -v tests/test_gemma4_api.py
+          python -m unittest -v tests/test_source_folder_preflight.py
 
       - name: Isolated Voice A/B offline regression
         run: |
