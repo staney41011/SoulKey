@@ -1131,7 +1131,7 @@ def main():
                 translation_folder_id=folders["translation"],
                 workdir=workdir,
             )
-            if checkpoint and checkpoint.get("engine") == "gemini-production-multi":
+            if checkpoint and checkpoint.get("engine") in {"gemini-production-multi", "gemma4-production-multi"}:
                 checkpoint_sha = str(checkpoint.get("source_sha256") or "").strip()
                 if checkpoint_sha != source_sha256:
                     reason = (
