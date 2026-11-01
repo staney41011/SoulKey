@@ -57,7 +57,7 @@ LANGUAGE_NAMES = {
     "pt": "Portuguese (Brazil)",
 }
 LEGACY_COLS = {"th": "K", "es": "L", "id": "M", "vi": "N"}
-REPAIR_MODEL = os.getenv("GEMINI_REPAIR_MODEL", "gemini-3.8-flash")
+REPAIR_MODEL = os.getenv("SOULKEY_REPAIR_MODEL", DEFAULT_TEXT_MODEL)
 CHECKPOINT_SCHEMA_VERSION = 4
 
 MULTI_SCHEMA = {
@@ -164,7 +164,7 @@ def write_language_set(
     source_segments,
     translations,
     model,
-    engine="gemini",
+    engine="gemma4",
     source_sha256="",
 ):
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -978,7 +978,7 @@ def checkpoint_payload(
         "version": CHECKPOINT_SCHEMA_VERSION,
         "schema_version": CHECKPOINT_SCHEMA_VERSION,
         "task_id": task_id,
-        "engine": "gemini-production-multi",
+        "engine": "gemma4-production-multi",
         "model": DEFAULT_TEXT_MODEL,
         "source_segments": source_count,
         "source_sha256": source_sha256,
@@ -1453,11 +1453,11 @@ def main():
             for data in qa_batches.values()
         )
         if nvidia_fallback_used:
-            output_engine = "gemini+nvidia-riva-fallback"
+            output_engine = "gemma4+nvidia-riva-fallback"
         elif nvidia_repair_used:
-            output_engine = "gemini+nvidia-second-opinion"
+            output_engine = "gemma4+nvidia-second-opinion"
         else:
-            output_engine = "gemini"
+            output_engine = "gemma4"
 
         # Keep one explicit boolean for the QA report / task summary.
         # A refactor split NVIDIA usage into fallback vs second-opinion flags,
@@ -1512,7 +1512,7 @@ def main():
         updates = {
             f"任務佇列!S{task['sheet_row']}": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             f"任務佇列!T{task['sheet_row']}": (
-                "Gemini翻譯+QA完成；語言=" + ",".join(requested)
+                "Gemma 4 翻譯+QA完成；語言=" + ",".join(requested)
                 + f"；{len(source_segments)}段；QA unresolved=0"
                 + ("；NVIDIA second-opinion=used" if nvidia_used else "")
             ),
