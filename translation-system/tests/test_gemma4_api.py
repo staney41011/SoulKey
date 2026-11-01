@@ -126,6 +126,18 @@ class Gemma4ApiTest(unittest.TestCase):
         with self.assertRaises(GeminiAPIError):
             self.make_client(mock).structured("Translate", SCHEMA)
 
+    def test_primary_runner_accepts_gemma4_checkpoint_resume(self):
+        # The Gemma 4 writer and resume guard must recognize the same engine.
+        from pathlib import Path
+        runner = (Path(__file__).resolve().parents[1] /
+                  "gemini_multi_production_runner.py").read_text(encoding="utf-8")
+        self.assertIn('"engine": "gemma4-production-multi"', runner)
+        self.assertIn(
+            'checkpoint.get("engine") in {"gemini-production-multi", "gemma4-production-multi"}',
+            runner,
+        )
+        self.assertIn('checkpoint_sha != source_sha256', runner)
+
     def test_no_secret_does_not_make_network_request(self):
         mock = FakeTransport([])
         with patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
