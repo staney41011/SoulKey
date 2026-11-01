@@ -1,0 +1,48 @@
+name: SoulKey Gemma 4 primary API live smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/gemma4_primary_live_smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gemma4-one-segment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      SOULKEY_TEXT_MODEL: gemma-4-26b-a4b-it
+      SOULKEY_REPAIR_MODEL: gemma-4-26b-a4b-it
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate hosted Gemma 4 structured translation (no Drive, no GCP)
+        run: |
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0,"translation-system")
+          from gemini_engine import DEFAULT_TEXT_MODEL, GeminiClient
+          assert DEFAULT_TEXT_MODEL == "gemma-4-26b-a4b-it"
+          if not os.getenv("GEMINI_API_KEY"):
+              raise SystemExit("API_KEY_MISSING: configure GitHub Actions GEMINI_API_KEY")
+          schema = {
+              "type":"object",
+              "properties":{"segments":{"type":"array","items":{
+                  "type":"object","properties":{
+                      "id":{"type":"integer"},"text":{"type":"string"}
+                  },"required":["id","text"]}}},
+              "required":["segments"],
+          }
+          client=GeminiClient(max_attempts=2, timeout=55)
+          payload, usage = client.structured(
+              'Translate this one segment faithfully to Thai. '
+              'Return one result retaining id 7: '
+              '[{"id":7,"text":"善念帶來希望。"}]',
+              schema, system_instruction="Translate only; do not omit meaning.",
+          )
+          rows=payload.get("segments") or []
+          if len(rows)!=1 or int(rows[0].get("id",-1))!=7 or not str(rows[0].get("text") or "").strip():
+              raise SystemExit("GEMMA4_INVALID_STRUCTURE")
+          print("GEMMA4_LIVE_PASS model="+DEFAULT_TEXT_MODEL+" segments=1 tokens="+str(usage.total_tokens))
+          PY
