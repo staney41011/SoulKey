@@ -1,0 +1,37 @@
+{
+  "task_id": "P259-L04",
+  "language": "vi",
+  "review_status": "AI_QA_ONLY_HUMAN_REVIEW_REQUIRED",
+  "scope": "isolated_branch_pilot_not_formal_delivery",
+  "source_sha256": "9ff5afe19eab78f75bb2f42292d2fbae913e8183983c5773a7876a0ee2afd928",
+  "source_segments": 67,
+  "original_target_seconds": 2008,
+  "mp3_sha256": "5ec0576e29d3882657b1f3112b0a85e6b2e99f35af33882ab2dbcb176b0ea664",
+  "mp3_size_bytes": 32129900,
+  "ffprobe_duration_seconds": 2008.08,
+  "original_report_estimated_rendered_speech_seconds": 1338.247,
+  "original_report_estimated_padding_seconds": 669.753,
+  "original_report_estimated_padding_ratio": 0.3335,
+  "longest_estimated_segment_padding_seconds": 20.504,
+  "silencedetect": {
+    "tool": "ffmpeg silencedetect",
+    "threshold": "-45dB",
+    "minimum_duration_seconds": 0.4,
+    "regions": 246,
+    "total_silence_seconds": 925.72,
+    "ratio_of_audio": 0.461,
+    "longest_region_seconds": 21.58,
+    "note": "Measured silence includes natural pauses within speech, so it is not equal to inserted padding."
+  },
+  "finding": "Mechanical duration matching passes but does not establish listenability; prolonged silence requires listening review against source video.",
+  "required_next_steps": [
+    "Compare silence locations against source-video pauses",
+    "Human review of translation and audible speech quality",
+    "Do not mark formal or overwrite approved files until Drive readback, QA, and timeline review"
+  ],
+  "evidence_run": "https://github.com/staney41011/SoulKey/actions/runs/41288344570",
+  "qa_gate_commit": "5bd7521a083f2e0d7c507fcb669cd1919afeb81a",
+  "main_modified": false,
+  "gemini_called_for_this_audit": false,
+  "gcp_used": false
+}
