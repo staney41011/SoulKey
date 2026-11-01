@@ -317,7 +317,7 @@ class GeminiClient:
                     raise
                 payload["generationConfig"].pop("responseSchema")
                 payload["contents"][0]["parts"][0]["text"] += (
-                    "\\nReturn ONLY a complete JSON object matching this schema:\\n"
+                    "\nReturn ONLY a complete JSON object matching this schema:\n"
                     + json.dumps(schema, ensure_ascii=False)
                 )
                 response = self._request(payload, url=endpoint)
@@ -337,7 +337,7 @@ class GeminiClient:
                 )
             if content_text.startswith("```"):
                 content_text = re.sub(
-                    r"^\\s*```(?:json)?\\s*|\\s*```\\s*$",
+                    r"^\s*```(?:json)?\s*|\s*```\s*$",
                     "", content_text, flags=re.IGNORECASE,
                 ).strip()
             try:
