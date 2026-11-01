@@ -815,7 +815,7 @@ def translate_and_qa(
             })
 
     return {
-        "engine": "gemini",
+        "engine": "gemma4" if client.text_model.startswith("gemma-4-") else "gemini",
         "model": client.text_model,
         "target_code": target_code,
         "target_language": target_language,
@@ -914,7 +914,7 @@ def semantic_polish_zh(
             })
 
     return {
-        "engine": "gemini",
+        "engine": "gemma4" if client.text_model.startswith("gemma-4-") else "gemini",
         "model": client.text_model,
         "segments": out,
         "changed_count": sum(1 for x in out if x["changed"]),
