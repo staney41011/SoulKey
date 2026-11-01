@@ -229,7 +229,7 @@ function doPost(e) {
           const registered = taskInfo_(taskId);
           const period = Number(registered.period || 0);
           const lesson = Number(
-            (String(registered.lesson || "").match(/\\d+/) || [])[0] || 0
+            (String(registered.lesson || "").match(/\d+/) || [])[0] || 0
           );
           if (!period || lesson < 1 || lesson > 4) {
             throw new Error("課程期數或堂次格式不正確");
