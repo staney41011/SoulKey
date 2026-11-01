@@ -1,6 +1,8 @@
 """Offline regression for SoulKey Gemma 4 API migration; no API key needed."""
 import json
+import os
 import unittest
+from unittest.mock import patch
 
 from gemini_engine import DEFAULT_TEXT_MODEL, GeminiAPIError, GeminiClient
 
@@ -126,10 +128,11 @@ class Gemma4ApiTest(unittest.TestCase):
 
     def test_no_secret_does_not_make_network_request(self):
         mock = FakeTransport([])
-        with self.assertRaisesRegex(GeminiAPIError, "GEMINI_API_KEY"):
-            self.make_client(mock).__class__(
-                api_key="", transport=mock
-            ).structured("Translate", SCHEMA)
+        with patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
+            with self.assertRaisesRegex(GeminiAPIError, "GEMINI_API_KEY"):
+                GeminiClient(api_key="", transport=mock).structured(
+                    "Translate", SCHEMA
+                )
         self.assertEqual(mock.calls, [])
 
 
