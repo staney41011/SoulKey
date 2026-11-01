@@ -13,7 +13,7 @@ from translation_text_safety import has_spoken_content
 
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-DEFAULT_TEXT_MODEL = os.getenv("GEMINI_TEXT_MODEL", "gemini-3.1-flash-lite")
+DEFAULT_TEXT_MODEL = os.getenv("SOULKEY_TEXT_MODEL", "gemma-4-26b-a4b-it")
 DEFAULT_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts")
 DEFAULT_VIDEO_MODEL = os.getenv("GEMINI_VIDEO_MODEL", "gemini-3.8-flash")
 
@@ -190,7 +190,7 @@ class GeminiClient:
                 "找不到 GEMINI_API_KEY。Shadow 版不會自動讀取或提交任何 API key。"
             )
 
-    def _request(self, payload):
+    def _request(self, payload, *, url=GEMINI_API_URL):
         self.require_key()
         headers = {
             "Content-Type": "application/json",
@@ -201,7 +201,7 @@ class GeminiClient:
         for attempt in range(1, self.max_attempts + 1):
             try:
                 status, raw = self.transport(
-                    GEMINI_API_URL,
+                    url,
                     headers,
                     payload,
                     self.timeout,
@@ -273,8 +273,95 @@ class GeminiClient:
         model=None,
         thinking_level="low",
     ):
+        selected_model = model or self.text_model
+        if selected_model.startswith("gemma-4-"):
+            # Gemma 4 is hosted by Google AI Studio's Gemini API, but uses
+            # generateContent, NOT the Gemini Interactions endpoint.
+            if not re.fullmatch(r"[A-Za-z0-9._-]+", selected_model):
+                raise GeminiAPIError("Invalid Gemma 4 model identifier")
+            endpoint = (
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                + selected_model + ":generateContent"
+            )
+            payload = {
+                "contents": [{
+                    "role": "user",
+                    "parts": [{"text": str(prompt)}],
+                }],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "responseSchema": schema,
+                    "temperature": 0.1,
+                    "thinkingConfig": {
+                        "thinkingLevel": (
+                            "high" if thinking_level == "high" else "minimal"
+                        ),
+                    },
+                },
+            }
+            if system_instruction:
+                payload["systemInstruction"] = {
+                    "parts": [{"text": str(system_instruction)}],
+                }
+            try:
+                response = self._request(payload, url=endpoint)
+            except GeminiAPIError as exc:
+                # Some hosted configurations accept JSON mode but reject
+                # responseSchema. Keep the same requested shape in the prompt
+                # and fail closed on invalid/unparseable output below.
+                message = str(exc).lower()
+                if not (
+                    "http 400" in message
+                    and ("schema" in message or "responsemime" in message)
+                ):
+                    raise
+                payload["generationConfig"].pop("responseSchema")
+                payload["contents"][0]["parts"][0]["text"] += (
+                    "\nReturn ONLY a complete JSON object matching this schema:\n"
+                    + json.dumps(schema, ensure_ascii=False)
+                )
+                response = self._request(payload, url=endpoint)
+
+            candidates = response.get("candidates") or []
+            first = candidates[0] if candidates else {}
+            parts = (first.get("content") or {}).get("parts") or []
+            content_text = "".join(
+                str(part.get("text") or "")
+                for part in parts
+                if not part.get("thought")
+            ).strip()
+            if not content_text:
+                raise GeminiAPIError(
+                    "Gemma 4 Structured Output empty: "
+                    + str(first.get("finishReason") or "no candidate")
+                )
+            if content_text.startswith("```"):
+                content_text = re.sub(
+                    r"^\s*```(?:json)?\s*|\s*```\s*$",
+                    "", content_text, flags=re.IGNORECASE,
+                ).strip()
+            try:
+                parsed = json.loads(content_text)
+            except json.JSONDecodeError as exc:
+                raise GeminiAPIError(
+                    f"Gemma 4 Structured Output invalid JSON: {exc}"
+                ) from exc
+            if not isinstance(parsed, dict):
+                raise GeminiAPIError(
+                    "Gemma 4 Structured Output must be a JSON object"
+                )
+            usage = response.get("usageMetadata") or {}
+            return parsed, GeminiUsage(
+                input_tokens=int(usage.get("promptTokenCount") or 0),
+                output_tokens=int(usage.get("candidatesTokenCount") or 0),
+                thought_tokens=int(usage.get("thoughtsTokenCount") or 0),
+                total_tokens=int(usage.get("totalTokenCount") or 0),
+            )
+
+        # Legacy Gemini Interactions API remains only for distinct
+        # video/TTS operations; translation defaults to Gemma 4 above.
         payload = {
-            "model": model or self.text_model,
+            "model": selected_model,
             "input": str(prompt),
             "response_format": {
                 "type": "text",
@@ -728,7 +815,7 @@ def translate_and_qa(
             })
 
     return {
-        "engine": "gemini",
+        "engine": "gemma4" if client.text_model.startswith("gemma-4-") else "gemini",
         "model": client.text_model,
         "target_code": target_code,
         "target_language": target_language,
@@ -827,7 +914,7 @@ def semantic_polish_zh(
             })
 
     return {
-        "engine": "gemini",
+        "engine": "gemma4" if client.text_model.startswith("gemma-4-") else "gemini",
         "model": client.text_model,
         "segments": out,
         "changed_count": sum(1 for x in out if x["changed"]),
