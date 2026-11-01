@@ -307,7 +307,7 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
         "zh-TW.polished",
         polished,
         {
-            "engine": "gemini",
+            "engine": "gemma4",
             "model": client.text_model,
             "transcript_source": source_payload.get("transcript_source") or "unknown",
             "source": "segments.json",
@@ -331,7 +331,7 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
     report_path.write_text(
         json.dumps(
             {
-                "engine": "gemini",
+                "engine": "gemma4",
                 "model": client.text_model,
                 "changed_count": result["changed_count"],
                 "term_candidates": result["term_candidates"],
@@ -406,7 +406,7 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
             f"任務佇列!I{task['sheet_row']}": "完成",
             f"任務佇列!S{task['sheet_row']}": now_text(),
             f"任務佇列!T{task['sheet_row']}": (
-                f"Gemini中文校稿完成；修改{result['changed_count']}段；"
+                f"Gemma 4 中文校稿完成；修改{result['changed_count']}段；"
                 + (
                     "GitHub人工定稿快取已建立；待人工中文定稿"
                     if review_cache_ready
@@ -416,7 +416,7 @@ def stage_polish(client, drive, sheets, task, folders, glossary_rows, workdir):
         },
     )
     return (
-        f"Gemini中文校稿完成；修改{result['changed_count']}段；"
+        f"Gemma 4 中文校稿完成；修改{result['changed_count']}段；"
         + ("review_cache=ready" if review_cache_ready else "review_cache=drive_fallback")
     )
 
@@ -438,7 +438,7 @@ def stage_vernacular(client, drive, sheets, task, folders, glossary_rows, workdi
         "zh-TW.vernacular",
         rows,
         {
-            "engine": "gemini",
+            "engine": "gemma4",
             "model": client.text_model,
             "source": "zh-TW.final.json",
             "source_sha256": source_fingerprint(source_segments),
@@ -459,11 +459,11 @@ def stage_vernacular(client, drive, sheets, task, folders, glossary_rows, workdi
         {
             f"任務佇列!S{task['sheet_row']}": now_text(),
             f"任務佇列!T{task['sheet_row']}": (
-                "Gemini白話文完成；待人工白話文定稿"
+                "Gemma 4 白話文完成；待人工白話文定稿"
             ),
         },
     )
-    return "Gemini白話文完成；待人工白話文定稿"
+    return "Gemma 4 白話文完成；待人工白話文定稿"
 
 
 def stage_en(client, drive, sheets, task, folders, glossary_rows, workdir):
@@ -496,7 +496,7 @@ def stage_en(client, drive, sheets, task, folders, glossary_rows, workdir):
         "en",
         rows,
         {
-            "engine": "gemini",
+            "engine": "gemma4",
             "model": client.text_model,
             "source": source_name,
             "source_sha256": source_fingerprint(payload.get("segments") or []),
@@ -518,11 +518,11 @@ def stage_en(client, drive, sheets, task, folders, glossary_rows, workdir):
             f"任務佇列!J{task['sheet_row']}": "完成",
             f"任務佇列!S{task['sheet_row']}": now_text(),
             f"任務佇列!T{task['sheet_row']}": (
-                f"Gemini英文完成；來源={source_name}；待人工English Final"
+                f"Gemma 4 英文完成；來源={source_name}；待人工English Final"
             ),
         },
     )
-    return f"Gemini英文完成；來源={source_name}；待人工English Final"
+    return f"Gemma 4 英文完成；來源={source_name}；待人工English Final"
 
 
 def main():
