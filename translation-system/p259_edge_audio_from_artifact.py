@@ -43,5 +43,10 @@ def main():
     (out/"audio.mp3").rename(out/name)
     report={"task_id":doc["task_id"],"language":args.lang,"source_sha256":sha,"qa_status":qa["translation_status"],"audio_status":"needs_timeline_review","source_segments":len(segs),"video_end_seconds":float(segs[-1]["end"]),**result}
     (out/"TTS_QA_驗收報告.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    # Do not upload temporary audio chunks or the ffmpeg concat list. The verified
+    # full MP3 and receipt are the sole deliverables; this greatly reduces artifacts.
+    import shutil
+    (out / "concat.txt").unlink(missing_ok=True)
+    shutil.rmtree(out / "parts", ignore_errors=True)
     print("ARTIFACT_AUDIO_COMPLETE",args.lesson,args.lang,result["bytes"],result["audio_seconds"],flush=True)
 if __name__=="__main__":main()
