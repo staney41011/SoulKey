@@ -24,6 +24,18 @@ class PipelineContracts(unittest.TestCase):
         self.assertNotIn('(code + " " + name).replace(/[^0-9]/g, "")', bridge)
         self.assertIn('ensurePeriodStructure_(period, Number(', bridge)
 
+    def test_bridge_repairs_folder_before_sending_asr_worker(self):
+        bridge = read("bridge/apps-script/Code.gs")
+        dispatch = bridge.split('if (action === "run_stage")', 1)[1].split(
+            'if (action === "tasks_upsert")', 1
+        )[0]
+        self.assertIn('ensurePeriodStructure_(period, lesson);', dispatch)
+        self.assertIn('error: "period_folder_unavailable"', dispatch)
+        self.assertLess(
+            dispatch.index('ensurePeriodStructure_(period, lesson);'),
+            dispatch.index('dispatchWorkflowIdempotently_('),
+        )
+
     def test_bridge_protocol_prevents_frontend_deployment_drift(self):
         bridge = read("bridge/apps-script/Code.gs")
         app = read("studio/app-20260923-48.js")
