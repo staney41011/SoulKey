@@ -351,7 +351,7 @@ def main():
         )
         if gemini_api_key:
             os.environ["GEMINI_API_KEY"] = gemini_api_key
-            print("[RUNTIME] Gemini API Key：Apps Script 已提供", flush=True)
+            print("[RUNTIME] Google AI Studio API Key (Gemma 4)：Apps Script 已提供", flush=True)
         elif needs_gemini and not (
             args.stage == "en" and args.lang == "cc-refresh"
         ):
@@ -371,7 +371,7 @@ def main():
         else:
             print(
                 "[RUNTIME] NVIDIA API Key：未設定；"
-                "維持 Gemini-only 翻譯 QA，不影響主流程。",
+                "維持 Gemma 4 API 翻譯 QA，不影響主流程。",
                 flush=True,
             )
 
@@ -886,7 +886,7 @@ def main():
                 ("部分語言超過原片時長；已保留智慧精簡審核報告，未發布超時 MP3"
                  if audio_result=="needs_review"
                  else "所有勾選語言智慧配音 MP3 已通過時長與 Drive 驗證")
-                + "；Gemini翻譯=" + (translate_langs or "無")
+                + "；Gemma4翻譯=" + (translate_langs or "無")
                 + "；音檔=" + (audio_langs or "無"),
             )
             cmd = None
