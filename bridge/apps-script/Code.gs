@@ -222,6 +222,31 @@ function doPost(e) {
         });
       }
 
+      // Self-heal missing period/lesson Drive folders before dispatch.
+      // A formerly registered course may predate folder provisioning.
+      if (stage === "zh" || stage === "asr" || stage === "metadata") {
+        try {
+          const registered = taskInfo_(taskId);
+          const period = Number(registered.period || 0);
+          const lesson = Number(
+            (String(registered.lesson || "").match(/\\d+/) || [])[0] || 0
+          );
+          if (!period || lesson < 1 || lesson > 4) {
+            throw new Error("課程期數或堂次格式不正確");
+          }
+          ensurePeriodStructure_(period, lesson);
+        } catch (folderError) {
+          return postMessage_({
+            source: "soulkey-bridge",
+            type: "run_stage",
+            ok: false,
+            error: "period_folder_unavailable",
+            message: "無法建立或核對課程 Drive 資料夾；尚未派工。"
+              + String(folderError && folderError.message || folderError).slice(0, 240)
+          });
+        }
+      }
+
       if (!githubToken) {
         return postMessage_({
           source: "soulkey-bridge",
