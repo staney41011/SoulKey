@@ -25,7 +25,8 @@ MODULE = ast.Module(
           if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in NAMES],
     type_ignores=[],
 )
-NS = {"SUPPORTED_TARGETS": {"th", "es", "id", "vi"}, "os": os, "time": time}
+NS = {"SUPPORTED_TARGETS": {"th", "es", "id", "vi", "hi", "ja", "ko", "it", "pt"},
+      "os": os, "time": time}
 for n in TREE.body:
     if isinstance(n, ast.Assign):
         for target in n.targets:
@@ -174,7 +175,11 @@ class Gemma4MultilingualRecoveryTest(unittest.TestCase):
         groups = translation_target_groups(LANGS)
         self.assertEqual(len(groups), 5)
         self.assertTrue(all(0 < len(x) <= 3 for x in groups))
-        self.assertEqual([x for group in groups for x in group], LANGS)
+        prioritized = ([x for x in LANGS if x in NS["SUPPORTED_TARGETS"]]
+                       + [x for x in LANGS if x not in NS["SUPPORTED_TARGETS"]])
+        self.assertEqual([x for group in groups for x in group], prioritized)
+        self.assertEqual([x for group in groups[:3] for x in group],
+                         prioritized[:9])
 
     def test_missing_language_resume_can_skip_completed_group(self):
         source = [{"id": 0, "text": "part zero"}, {"id": 1, "text": "part one"}]
