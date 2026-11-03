@@ -4,6 +4,7 @@ import os
 import time
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 # Compile only the pure production functions. CI's fast syntax job does not
 # install Google OAuth libraries; avoid importing Google services here.
@@ -16,6 +17,7 @@ NAMES = {
     "translation_target_groups",
     "row_missing_languages",
     "merge_translation_rows",
+    "translate_batch_with_missing_id_recovery",
     "TranslationFailoverClient",
 }
 MODULE = ast.Module(
@@ -37,6 +39,7 @@ row_missing_languages = NS["row_missing_languages"]
 translate_batch_with_provider_fallback = NS["translate_batch_with_provider_fallback"]
 translation_target_groups = NS["translation_target_groups"]
 TranslationFailoverClient = NS["TranslationFailoverClient"]
+translate_batch_with_missing_id_recovery = NS["translate_batch_with_missing_id_recovery"]
 
 
 class RecordingGemma4:
@@ -105,6 +108,61 @@ class FailoverRegressionTest(unittest.TestCase):
             client.structured("test", {"required": ["segments"]})
         self.assertFalse(client.fallback_used)
         self.assertEqual(client.cooldown_until, 0)
+
+
+class MissingSegmentIdRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.batch = [
+            {"id": 18, "text": "First approved English paragraph."},
+            {"id": 22, "text": "Second approved English paragraph."},
+        ]
+        self.langs = ["ko", "it", "pt"]
+
+    def test_sparse_ids_missing_second_segment_retry_only_id22(self):
+        calls = []
+        def fake(client, nvidia, batch, glossary, langs):
+            ids = [x["id"] for x in batch]
+            calls.append(ids)
+            returned = [18] if len(calls) == 1 else ids
+            return [
+                {"segment_id": sid, **{lang: f"{sid} {lang}" for lang in langs}}
+                for sid in returned
+            ], "gemini"
+        with patch.dict(NS, {"translate_batch_with_provider_fallback": fake}):
+            rows, engine = translate_batch_with_missing_id_recovery(
+                None, None, self.batch, "", self.langs
+            )
+        self.assertEqual(calls, [[18, 22], [22]])
+        self.assertEqual([x["segment_id"] for x in rows], [18, 22])
+        self.assertEqual(engine, "gemini")
+
+    def test_missing_id_after_all_attempts_fails_closed(self):
+        def fake(client, nvidia, batch, glossary, langs):
+            ids = [x["id"] for x in batch]
+            return [
+                {"segment_id": 18, **{lang: "value" for lang in langs}}
+            ] if 18 in ids else [], "gemini"
+        with patch.dict(NS, {"translate_batch_with_provider_fallback": fake}):
+            with self.assertRaisesRegex(RuntimeError, "still missing"):
+                translate_batch_with_missing_id_recovery(
+                    None, None, self.batch, "", self.langs, max_retries=2
+                )
+
+    def test_wrong_or_duplicate_id_rejected(self):
+        for returned in ([{"segment_id": 31}],
+                         [{"segment_id": 18}, {"segment_id": 18}]):
+            def fake(client, nvidia, batch, glossary, langs):
+                return [
+                    {**x, **{lang: "value" for lang in langs}}
+                    for x in returned
+                ], "gemini"
+            with self.subTest(rows=returned), patch.dict(
+                NS, {"translate_batch_with_provider_fallback": fake}
+            ):
+                with self.assertRaisesRegex(RuntimeError, "(unexpected|duplicate)"):
+                    translate_batch_with_missing_id_recovery(
+                        None, None, self.batch, "", self.langs
+                    )
 
 
 class Gemma4MultilingualRecoveryTest(unittest.TestCase):
