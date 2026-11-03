@@ -338,6 +338,71 @@ def is_transient_gemini_error(exc):
     return any(marker.lower() in text for marker in TRANSIENT_GEMINI_MARKERS)
 
 
+class TranslationFailoverClient:
+    """Gemma 4 first, then a stable Google AI Studio model when unavailable.
+
+    The short circuit breaker prevents every target-language subgroup from
+    wasting several minutes on a provider that is returning repeated 500s.
+    It periodically gives Gemma 4 another chance. Never marks a failed
+    response as translated, and preserves all original QA requirements.
+    """
+
+    def __init__(self, client, fallback_model=None, cooldown_seconds=600):
+        self.client = client
+        self.text_model = client.text_model
+        self.fallback_model = str(
+            fallback_model if fallback_model is not None
+            else os.getenv("SOULKEY_GEMMA4_FAILOVER_MODEL", "gemini-3.5-flash-lite")
+        ).strip()
+        self.cooldown_seconds = cooldown_seconds
+        self.cooldown_until = 0.0
+        self.fallback_used = False
+        self.models_used = set()
+
+    def structured(self, prompt, schema, **kwargs):
+        requested_model = str(kwargs.get("model") or self.text_model)
+        fallback_allowed = (
+            self.fallback_model and self.fallback_model.lower() not in
+            {"none", "off", "false"} and
+            requested_model != self.fallback_model
+        )
+        primary_on_cooldown = (
+            fallback_allowed and requested_model == self.text_model and
+            time.monotonic() < self.cooldown_until
+        )
+        if not primary_on_cooldown:
+            try:
+                result = self.client.structured(prompt, schema, **kwargs)
+                self.models_used.add(requested_model)
+                return result
+            except Exception as exc:
+                if not fallback_allowed or not is_transient_gemini_error(exc):
+                    raise
+                print(
+                    f"[MODEL-FAILOVER] {requested_model} unavailable: "
+                    f"{type(exc).__name__}; using {self.fallback_model}",
+                    flush=True,
+                )
+        kwargs = dict(kwargs)
+        kwargs["model"] = self.fallback_model
+        try:
+            result = self.client.structured(prompt, schema, **kwargs)
+        except Exception as exc:
+            # Reset the breaker if the fallback is inaccessible; a later
+            # attempt should be allowed to try the primary again.
+            self.cooldown_until = 0
+            print(
+                f"[MODEL-FAILOVER] {self.fallback_model} also failed: "
+                f"{type(exc).__name__}: {str(exc)[:240]}",
+                flush=True,
+            )
+            raise
+        self.cooldown_until = time.monotonic() + self.cooldown_seconds
+        self.fallback_used = True
+        self.models_used.add(self.fallback_model)
+        return result
+
+
 def selected_translation_schema(langs):
     langs = [str(x) for x in langs]
     props = {"segment_id": {"type": "integer"}}
@@ -1090,12 +1155,15 @@ def main():
     api_key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
     if not api_key:
         api_key = get_secret("GEMINI_API_KEY")
-    client = GeminiClient(
+    # Limit one failing primary request to 40 seconds rather than the
+    # previous 4 x 120-second nested retry loops. The failover client uses
+    # the same AI Studio key and does not require GCP infrastructure.
+    client = TranslationFailoverClient(GeminiClient(
         api_key=api_key,
         text_model=DEFAULT_TEXT_MODEL,
-        max_attempts=4,
-        timeout=120,
-    )
+        max_attempts=1,
+        timeout=40,
+    ))
 
     nvidia_api_key = str(os.environ.get("NVIDIA_API_KEY") or "").strip()
     if not nvidia_api_key:
@@ -1499,6 +1567,13 @@ def main():
             output_engine = "gemma4+nvidia-second-opinion"
         else:
             output_engine = "gemma4"
+        if client.fallback_used:
+            output_engine += "+" + client.fallback_model + "-failover"
+        print(
+            "[MODEL-SUMMARY] models=" + ",".join(sorted(client.models_used))
+            + "; fallback_used=" + str(client.fallback_used),
+            flush=True,
+        )
 
         # Keep one explicit boolean for the QA report / task summary.
         # A refactor split NVIDIA usage into fallback vs second-opinion flags,
@@ -1534,6 +1609,8 @@ def main():
                     "engine": output_engine,
                     "model": DEFAULT_TEXT_MODEL,
                     "nvidia_second_opinion_used": nvidia_used,
+                    "fallback_model_used": client.fallback_used,
+                    "models_used": sorted(client.models_used),
                     "qa_batches": qa_batches,
                     "unresolved": [],
                 },
