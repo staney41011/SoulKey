@@ -352,7 +352,7 @@ class TranslationFailoverClient:
         self.text_model = client.text_model
         self.fallback_model = str(
             fallback_model if fallback_model is not None
-            else os.getenv("SOULKEY_GEMMA4_FAILOVER_MODEL", "gemini-3.5-flash-lite")
+            else os.getenv("SOULKEY_GEMMA4_FAILOVER_MODEL", "gemini-3.5-flash")
         ).strip()
         self.cooldown_seconds = cooldown_seconds
         self.cooldown_until = 0.0
