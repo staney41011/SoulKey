@@ -324,7 +324,7 @@ class GeminiClient:
     ):
         selected_model = model or self.text_model
         if selected_model.startswith("gemma-4-") or selected_model in {
-            "gemini-3.5-flash-lite", "gemini-3.8-flash",
+            "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash",
         }:
             # Gemma 4 and failover Gemini models share the Developer API
             # generateContent endpoint. No GCP/Vertex AI infrastructure.
