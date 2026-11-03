@@ -326,6 +326,10 @@ TRANSIENT_GEMINI_MARKERS = (
     "rate limit",
     "timeout",
     "temporarily unavailable",
+    # Hosted Gemma may emit two JSON objects / truncated JSON under load.
+    # Retry with a smaller prompt rather than publishing malformed text.
+    "structured output invalid json",
+    "structured output empty",
 )
 
 
@@ -401,6 +405,8 @@ def gemini_translate_with_backoff(client, batch, glossary, langs, waits=(30, 60,
             if not is_transient_gemini_error(exc) or attempt > len(waits):
                 raise
             wait_seconds = waits[attempt - 1]
+            if "structured output" in str(exc).lower():
+                wait_seconds = min(wait_seconds, 5 * (2 ** (attempt - 1)))
             print(
                 f"[GEMINI-FALLBACK] transient failure; retry "
                 f"{attempt + 1}/{len(waits)+1} after {wait_seconds}s: "
@@ -999,6 +1005,16 @@ def row_missing_languages(row, requested):
     ]
 
 
+def translation_target_groups(requested, max_languages=3):
+    """Bound Gemma response schemas to a few target languages per request."""
+    if max_languages < 1:
+        raise ValueError("max_languages must be positive")
+    return [
+        requested[i:i + max_languages]
+        for i in range(0, len(requested), max_languages)
+    ]
+
+
 def incomplete_source_segments(source_segments, translations, requested):
     result = []
     for src in source_segments:
@@ -1038,10 +1054,11 @@ def main():
         raise RuntimeError("Gemini production multi 沒有指定任何目標語言")
     if args.batch_size < 1:
         raise RuntimeError("--batch-size 必須大於 0")
-    # Nine target languages yield substantially larger responses. Limit only
-    # those requests to eight source segments, preserving legacy batch speed.
-    effective_batch_size = min(args.batch_size, 4) if len(requested)>10 else (
-        min(args.batch_size,8) if len(requested)>6 else args.batch_size
+    # Gemma 4 timed out on P260-L01's long English paragraphs when one
+    # request demanded all 15 target languages. Bound BOTH dimensions;
+    # checkpoints below persist every language subgroup independently.
+    effective_batch_size = min(args.batch_size, 2) if len(requested)>10 else (
+        min(args.batch_size, 4) if len(requested)>6 else args.batch_size
     )
 
     # Infer only selected languages; QA, repair, publishing, and completion
@@ -1309,55 +1326,79 @@ def main():
                 flush=True,
             )
 
-            rows, translation_engine = translate_batch_with_provider_fallback(
-                client,
-                nvidia_client,
-                batch,
-                glossary,
-                missing_langs,
-            )
-            expected = sorted(ids)
-            got = sorted(int(x["segment_id"]) for x in rows)
-            if expected != got:
-                raise RuntimeError(
-                    f"Translation ids 不完整：expected={expected}, got={got}"
+            translation_engines = []
+            for group in translation_target_groups(missing_langs):
+                # A previous attempt may have saved an earlier subgroup.
+                # Resume only languages still missing on at least one row.
+                group_missing = [
+                    lang for lang in group
+                    if any(
+                        lang in row_missing_languages(
+                            translations.get(sid), [lang]
+                        )
+                        for sid in ids
+                    )
+                ]
+                if not group_missing:
+                    continue
+                print(
+                    f"[GEMMA4-GROUP] {ids[0]}-{ids[-1]} "
+                    f"languages={','.join(group_missing)}",
+                    flush=True,
                 )
-
-            merge_translation_rows(
-                translations,
-                rows,
-                missing_langs,
-            )
+                rows, engine = translate_batch_with_provider_fallback(
+                    client, nvidia_client, batch, glossary, group_missing
+                )
+                expected = sorted(ids)
+                got = sorted(int(x["segment_id"]) for x in rows)
+                if expected != got:
+                    raise RuntimeError(
+                        f"Translation ids 不完整：expected={expected}, got={got}"
+                    )
+                merge_translation_rows(translations, rows, group_missing)
+                for sid in ids:
+                    missing_in_group = row_missing_languages(
+                        translations.get(sid), group_missing
+                    )
+                    if missing_in_group:
+                        raise RuntimeError(
+                            f"segment {sid} 合併後仍缺少 "
+                            + ",".join(missing_in_group)
+                        )
+                translation_engines.append(engine)
+                # Commit each small group. A 500/timeout in the next group
+                # cannot discard the translations already accepted.
+                seq += 1
+                save_persistent_checkpoint(
+                    args.task_id,
+                    checkpoint_payload(
+                        args.task_id, len(source_segments), translations,
+                        qa_batches, seq, source_sha256, requested,
+                    ),
+                    drive=drive,
+                    translation_folder_id=folders["translation"],
+                    workdir=workdir,
+                    require_persistent=True,
+                )
+                print(
+                    f"[OK] Translation checkpoint saved for "
+                    f"{','.join(group_missing)}", flush=True
+                )
 
             for sid in ids:
                 missing_after_merge = row_missing_languages(
-                    translations.get(sid),
-                    requested,
+                    translations.get(sid), requested
                 )
                 if missing_after_merge:
                     raise RuntimeError(
                         f"segment {sid} 合併後仍缺少 "
                         + ",".join(missing_after_merge)
                     )
-
-            seq += 1
-            save_persistent_checkpoint(
-                args.task_id,
-                checkpoint_payload(
-                    args.task_id,
-                    len(source_segments),
-                    translations,
-                    qa_batches,
-                    seq,
-                    source_sha256,
-                    requested,
-                ),
-                drive=drive,
-                translation_folder_id=folders["translation"],
-                workdir=workdir,
-                require_persistent=True,
+            translation_engine = (
+                "nvidia-riva-fallback"
+                if "nvidia-riva-fallback" in translation_engines
+                else "gemini"
             )
-            print("[OK] Translation persistent checkpoint saved", flush=True)
 
             failures, local, semantic, repairs, repair_models = (
                 repair_batch_until_clean(
@@ -1561,13 +1602,22 @@ def main():
         return 0
 
     except Exception as exc:
-        mark_error(
-            args.task_id,
-            "multi",
-            sheets=sheets,
-            run_id=run_id,
-            exc=exc,
-        )
+        # Reporting failure must never obscure the original provider error
+        # when the Google Sheets access token expires mid-run.
+        try:
+            mark_error(
+                args.task_id,
+                "multi",
+                sheets=sheets,
+                run_id=run_id,
+                exc=exc,
+            )
+        except Exception as status_exc:
+            print(
+                f"[WARN] Multi failure status could not be reported: "
+                f"{type(status_exc).__name__}: {status_exc}",
+                file=sys.stderr,
+            )
         print(f"[ERROR] {type(exc).__name__}: {exc}", file=sys.stderr)
         traceback.print_exc()
         return 1
