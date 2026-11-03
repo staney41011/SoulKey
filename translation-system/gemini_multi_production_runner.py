@@ -517,21 +517,31 @@ def nvidia_translate_batch(nvidia_client, batch, langs):
         sid = int(src["id"])
         english = str(src["text"] or "").strip()
         for lang in supported:
-            candidate = nvidia_client.translate(english, lang).strip()
-            issue = local_language_issue(candidate, english, lang)
-            if issue:
-                raise RuntimeError(
-                    f"NVIDIA fallback local QA failed: {sid}/{lang}/{issue}"
+            try:
+                candidate = nvidia_client.translate(english, lang).strip()
+                issue = local_language_issue(candidate, english, lang)
+                if issue:
+                    raise RuntimeError(
+                        f"NVIDIA fallback local QA failed: {sid}/{lang}/{issue}"
+                    )
+                numeric_issues = translated_number_issues(
+                    english, candidate, lang
                 )
-            numeric_issues = translated_number_issues(
-                english, candidate, lang
-            )
-            if numeric_issues:
-                raise RuntimeError(
-                    f"NVIDIA fallback numeric QA failed: "
-                    f"{sid}/{lang}/{','.join(numeric_issues)}"
+                if numeric_issues:
+                    raise RuntimeError(
+                        f"NVIDIA fallback numeric QA failed: "
+                        f"{sid}/{lang}/{','.join(numeric_issues)}"
+                    )
+                rows[sid][lang] = candidate
+            except (KeyError, ValueError, RuntimeError) as exc:
+                # A provider may reject one target language. The rest of
+                # the batch remains useful, but missing languages MUST be
+                # filled by another provider before publication.
+                print(
+                    f"[NVIDIA-FALLBACK] {sid}/{lang} unavailable: "
+                    f"{type(exc).__name__}; pending LLM recovery",
+                    flush=True,
                 )
-            rows[sid][lang] = candidate
     return rows
 
 
@@ -575,7 +585,10 @@ def translate_batch_with_provider_fallback(
             batch,
             supported,
         )
-        unsupported = [lang for lang in requested if lang not in SUPPORTED_TARGETS]
+        unsupported = [
+            lang for lang in requested
+            if any(lang not in rows_by_id.get(int(src["id"]), {}) for src in batch)
+        ]
 
         if unsupported:
             print(
@@ -1094,12 +1107,20 @@ def row_missing_languages(row, requested):
 
 
 def translation_target_groups(requested, max_languages=3):
-    """Bound Gemma response schemas to a few target languages per request."""
+    """Finish Riva-supported targets first so successful work is checkpointed.
+
+    Otherwise a single unsupported target (Khmer/Tamil/etc) can block
+    saving a completed Japanese or Korean translation in the same group.
+    """
     if max_languages < 1:
         raise ValueError("max_languages must be positive")
+    ordered = (
+        [x for x in requested if x in SUPPORTED_TARGETS] +
+        [x for x in requested if x not in SUPPORTED_TARGETS]
+    )
     return [
-        requested[i:i + max_languages]
-        for i in range(0, len(requested), max_languages)
+        ordered[i:i + max_languages]
+        for i in range(0, len(ordered), max_languages)
     ]
 
 
