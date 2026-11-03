@@ -37,7 +37,7 @@ jobs:
           import json,os,urllib.request,urllib.error
           key=os.getenv("NVIDIA_API_KEY","")
           if not key:raise SystemExit("NVIDIA_KEY_MISSING")
-          model="qwen/qwen3-next-80b-a3b-instruct"
+          model="deepseek-ai/deepseek-v4-flash"
           body={
             "model":model,
             "messages":[
