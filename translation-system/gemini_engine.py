@@ -143,6 +143,55 @@ class GeminiAPIError(RuntimeError):
     pass
 
 
+def parse_concatenated_structured_json(content, schema):
+    """Recover only unambiguous concatenated segment JSON objects.
+
+    Some Gemma 4 responses contain two top-level JSON objects despite
+    responseSchema. Merge distinct segment IDs only when their content does
+    not conflict. Malformed/truncated or other schema types still fail closed.
+    """
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as original:
+        if "Extra data" not in str(original):
+            raise
+        required = schema.get("required") or []
+        if required != ["segments"]:
+            raise
+        decoder = json.JSONDecoder()
+        remaining = content.strip()
+        objects = []
+        while remaining:
+            if len(objects) >= 8:
+                raise original
+            value, index = decoder.raw_decode(remaining)
+            if not isinstance(value, dict) or not isinstance(value.get("segments"), list):
+                raise original
+            if set(value) != {"segments"}:
+                raise original
+            objects.append(value)
+            remaining = remaining[index:].strip()
+        if len(objects) < 2:
+            raise original
+        merged = {}
+        order = []
+        for obj in objects:
+            for seg in obj["segments"]:
+                if not isinstance(seg, dict):
+                    raise original
+                key = seg.get("segment_id", seg.get("id"))
+                if not isinstance(key, int):
+                    raise original
+                if key in merged and merged[key] != seg:
+                    raise original
+                if key not in merged:
+                    order.append(key)
+                    merged[key] = seg
+        if not order:
+            raise original
+        return {"segments": [merged[key] for key in order]}
+
+
 @dataclass
 class GeminiUsage:
     input_tokens: int = 0
@@ -274,9 +323,11 @@ class GeminiClient:
         thinking_level="low",
     ):
         selected_model = model or self.text_model
-        if selected_model.startswith("gemma-4-"):
-            # Gemma 4 is hosted by Google AI Studio's Gemini API, but uses
-            # generateContent, NOT the Gemini Interactions endpoint.
+        if selected_model.startswith("gemma-4-") or selected_model in {
+            "gemini-3.5-flash-lite", "gemini-3.8-flash",
+        }:
+            # Gemma 4 and failover Gemini models share the Developer API
+            # generateContent endpoint. No GCP/Vertex AI infrastructure.
             if not re.fullmatch(r"[A-Za-z0-9._-]+", selected_model):
                 raise GeminiAPIError("Invalid Gemma 4 model identifier")
             endpoint = (
@@ -291,14 +342,17 @@ class GeminiClient:
                 "generationConfig": {
                     "responseMimeType": "application/json",
                     "responseSchema": schema,
-                    "temperature": 0.1,
                     "thinkingConfig": {
                         "thinkingLevel": (
-                            "high" if thinking_level == "high" else "minimal"
+                            ("high" if thinking_level == "high" else "minimal")
+                            if selected_model.startswith("gemma-4-")
+                            else ("high" if thinking_level == "high" else "low")
                         ),
                     },
                 },
             }
+            if selected_model.startswith("gemma-4-"):
+                payload["generationConfig"]["temperature"] = 0.1
             if system_instruction:
                 payload["systemInstruction"] = {
                     "parts": [{"text": str(system_instruction)}],
@@ -341,8 +395,10 @@ class GeminiClient:
                     "", content_text, flags=re.IGNORECASE,
                 ).strip()
             try:
-                parsed = json.loads(content_text)
-            except json.JSONDecodeError as exc:
+                parsed = parse_concatenated_structured_json(
+                    content_text, schema
+                )
+            except (json.JSONDecodeError, ValueError) as exc:
                 raise GeminiAPIError(
                     f"Gemma 4 Structured Output invalid JSON: {exc}"
                 ) from exc
