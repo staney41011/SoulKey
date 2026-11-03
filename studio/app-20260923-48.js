@@ -3188,7 +3188,7 @@ function renderZhVisible(){
   setZhReviewLoadState(
     zhReviewLoading
       ? "GitHub 最新版仍在同步"
-      : "GitHub 直讀完成・已確認 "+confirmedCount+"/"+currentZhReviewAll.length+" 段",
+      : "全文已載入 "+currentZhReviewAll.length+" 段・目前顯示 "+visible.length+" 段・人工已確認 "+confirmedCount+" 段",
     zhReviewLoading ? "working" : "ok"
   );
   bindZhReviewRows();
