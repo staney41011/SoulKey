@@ -423,7 +423,24 @@ def selected_translation_schema(langs):
     }
 
 
+def selected_glossary_text(glossary, langs):
+    """Remove unrelated target-language columns from the 120-row glossary."""
+    wanted = set(langs)
+    output = []
+    for line in str(glossary or "").splitlines():
+        parts = [part.strip() for part in line.split("|")]
+        relevant = [
+            part for part in parts
+            if part.startswith("- source=") or part == "LOCKED" or
+            part.split("=", 1)[0] in wanted
+        ]
+        if len(relevant) > 1:
+            output.append(" | ".join(relevant))
+    return "\n".join(output) or "(no applicable glossary entries)"
+
+
 def selected_translation_prompt(batch, glossary, langs):
+    glossary = selected_glossary_text(glossary, langs)
     payload = [{"segment_id": int(x["id"]), "english": x["text"]} for x in batch]
     names = ", ".join(f"{lang} {LANGUAGE_NAMES[lang]}" for lang in langs)
     return f"""
@@ -445,7 +462,7 @@ SOURCE:
 """
 
 
-def gemini_translate_with_backoff(client, batch, glossary, langs, waits=(30, 60, 120)):
+def gemini_translate_with_backoff(client, batch, glossary, langs, waits=(4, 12)):
     last_exc = None
     schema = MULTI_SCHEMA if list(langs) == LANGS else selected_translation_schema(langs)
     prompt = (
@@ -570,7 +587,7 @@ def translate_batch_with_provider_fallback(
                 batch,
                 glossary,
                 unsupported,
-                waits=(60, 120, 300),
+                waits=(5, 15),
             )
             for item in parsed.get("segments") or []:
                 sid = int(item["segment_id"])
@@ -832,34 +849,38 @@ def audit_batch(client, batch, translations, langs, wait_seconds=0):
     if wait_seconds:
         time.sleep(wait_seconds)
 
-    prompt = qa_prompt(batch, rows, langs)
-    qa = None
-    waits = [30, 60, 120]
-    for attempt in range(1, len(waits) + 2):
-        try:
-            qa, _ = client.structured(
-                prompt,
-                QA_SCHEMA,
-                system_instruction=(
-                    "Verify translation meaning only from the supplied English DATA. "
-                    "Do not infer facts from outside the batch."
-                ),
-                thinking_level="low",
-            )
-            break
-        except Exception as exc:
-            if not is_transient_gemini_error(exc) or attempt > len(waits):
-                raise
-            wait_seconds_retry = waits[attempt - 1]
-            print(
-                f"[QA-AUTO-RESUME] Gemini QA transient failure; retry "
-                f"{attempt + 1}/{len(waits)+1} after {wait_seconds_retry}s: "
-                f"{type(exc).__name__}: {exc}",
-                flush=True,
-            )
-            time.sleep(wait_seconds_retry)
-
-    semantic = (qa or {}).get("failures") or []
+    # The original 15-language QA prompt was huge and shared the
+    # same provider timeout problem as translation. Audit independent
+    # three-language groups, but still require every language to pass.
+    semantic = []
+    for group in translation_target_groups(langs):
+        prompt = qa_prompt(batch, rows, group)
+        qa = None
+        waits = [4, 12]
+        for attempt in range(1, len(waits) + 2):
+            try:
+                qa, _ = client.structured(
+                    prompt,
+                    QA_SCHEMA,
+                    system_instruction=(
+                        "Verify translation meaning only from the supplied English DATA. "
+                        "Do not infer facts from outside the batch."
+                    ),
+                    thinking_level="low",
+                )
+                break
+            except Exception as exc:
+                if not is_transient_gemini_error(exc) or attempt > len(waits):
+                    raise
+                wait_seconds_retry = waits[attempt - 1]
+                print(
+                    f"[QA-AUTO-RESUME] group={','.join(group)}; retry "
+                    f"{attempt + 1}/{len(waits)+1} after {wait_seconds_retry}s: "
+                    f"{type(exc).__name__}: {str(exc)[:240]}",
+                    flush=True,
+                )
+                time.sleep(wait_seconds_retry)
+        semantic.extend((qa or {}).get("failures") or [])
     failures = combine_failures(local, semantic, langs)
     return failures, local, semantic
 
