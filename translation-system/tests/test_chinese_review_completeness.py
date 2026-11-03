@@ -20,6 +20,25 @@ class ChineseReviewCompletenessTests(unittest.TestCase):
         self.assertTrue(all(items[i]["confirmed"] for i in range(150, 200)))
         self.assertTrue(data["review_required"])
 
+    def test_p260_l01_chinese_and_english_finals_are_full_and_aligned(self):
+        zh_path = ROOT / "studio-review-cache" / "P260-L01" / "zh.json"
+        en_path = ROOT / "studio-review-cache" / "P260-L01" / "en.json"
+        zh = json.loads(zh_path.read_text(encoding="utf-8"))
+        en = json.loads(en_path.read_text(encoding="utf-8"))
+        self.assertEqual(zh["total_segments"], 436)
+        self.assertEqual(len(zh["segments"]), 436)
+        self.assertEqual([x["id"] for x in zh["segments"]], list(range(436)))
+        self.assertTrue(all(x["confirmed"] is True for x in zh["segments"]))
+        self.assertGreater(zh["segments"][-1]["end"], 1900)
+        self.assertEqual(en["total_segments"], 58)
+        self.assertEqual(len(en["segments"]), 58)
+        self.assertEqual(len({x["id"] for x in en["segments"]}), 58)
+        self.assertTrue(all(x["en_confirmed"] is True and x["en_text"]
+                            for x in en["segments"]))
+        self.assertGreater(en["segments"][-1]["end"], 1900)
+        self.assertEqual(zh["zh_finalized_at"], en["zh_finalized_at"])
+        self.assertTrue(en["en_finalized_at"])
+
     def test_frontend_renders_merged_chunks_and_blocks_incomplete_final(self):
         script = (ROOT / "studio" / "app-20260923-48.js").read_text(encoding="utf-8")
         self.assertIn("renderSegments(zhFreshSegments)", script)
