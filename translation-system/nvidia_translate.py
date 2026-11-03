@@ -14,10 +14,13 @@ NVIDIA_TRANSLATE_MODEL = os.getenv(
     "nvidia/riva-translate-4b-instruct-v2",
 )
 
-# NVIDIA Riva Translate v2 officially supports English -> these
-# nine SoulKey targets.  It does NOT support Tamil/Khmer/Bengali/
-# Nepali/Lao/Burmese; keep those on validated LLM providers.
-SUPPORTED_TARGETS = {"th", "es", "id", "vi", "hi", "ja", "ko", "it", "pt"}
+# Original four-target set retained for old integrations and their
+# compatibility checks. The production multi-language worker explicitly
+# opts into all nine Riva v2 targets below.
+SUPPORTED_TARGETS = {"th", "es", "id", "vi"}
+# Official English-to-target Riva Translate v2 coverage for SoulKey.
+# Not available: Tamil, Khmer, Bengali, Nepali, Lao or Burmese.
+SUPPORTED_TARGETS_V2 = {"th", "es", "id", "vi", "hi", "ja", "ko", "it", "pt"}
 
 
 def nvidia_target_code(lang: str):
