@@ -1,0 +1,64 @@
+name: SoulKey NVIDIA translation fallback live smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/nvidia_translate_live_smoke.yml
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe Riva official Japanese support
+        run: |
+          python - <<'PY'
+          import os,sys
+          sys.path.insert(0,"translation-system")
+          from nvidia_translate import NvidiaTranslateClient,nvidia_target_code
+          key=os.getenv("NVIDIA_API_KEY","")
+          if not key:raise SystemExit("NVIDIA_KEY_MISSING")
+          assert nvidia_target_code("ja")=="ja"
+          c=NvidiaTranslateClient(api_key=key,max_attempts=1,timeout=40)
+          text=c.translate("Kindness begins with understanding.","ja")
+          if not any("\u3040"<=ch<="\u30ff" or "\u4e00"<=ch<="\u9fff" for ch in text):
+              raise SystemExit("RIVA_JA_INVALID_TARGET_SCRIPT")
+          print("NVIDIA_RIVA_JA_PASS")
+          PY
+      - name: Probe NVIDIA multilingual chat model for Khmer
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request,urllib.error
+          key=os.getenv("NVIDIA_API_KEY","")
+          if not key:raise SystemExit("NVIDIA_KEY_MISSING")
+          model="qwen/qwen3-next-80b-a3b-instruct"
+          body={
+            "model":model,
+            "messages":[
+              {"role":"system","content":"You are a precise translator. Return only Khmer text, without explanation."},
+              {"role":"user","content":"Translate to Khmer: Kindness begins with understanding."}
+            ],"temperature":0.1,"max_tokens":128,"stream":False
+          }
+          request=urllib.request.Request(
+            "https://integrate.api.nvidia.com/v1/chat/completions",
+            data=json.dumps(body).encode(),method="POST",
+            headers={"Authorization":"Bearer "+key,
+                     "Content-Type":"application/json","Accept":"application/json"})
+          try:
+            with urllib.request.urlopen(request,timeout=40) as response:
+              payload=json.loads(response.read().decode())
+          except urllib.error.HTTPError as e:
+            print("NVIDIA_CHAT_HTTP_"+str(e.code))
+            raise SystemExit(1)
+          msg=(payload.get("choices") or [{}])[0].get("message") or {}
+          answer=str(msg.get("content") or "").strip()
+          if not any("\u1780"<=ch<="\u17ff" for ch in answer):
+            raise SystemExit("NVIDIA_CHAT_KHMER_INVALID_TARGET_SCRIPT")
+          print("NVIDIA_QWEN_KM_PASS")
+          PY
