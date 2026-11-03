@@ -2264,25 +2264,46 @@ function seedReviewCache_(taskId, githubToken) {
         flags:[],confirmed:true,source_en:"",en_text:"",
         en_confirmed:false};
     });
-  // A re-seed must never roll back text that a human already finalized.
-  // Quick Review can request this action on every opening.
+  // A partial saved Final is not authoritative for the whole video.
+  // Keep every source segment and overlay only the actually edited IDs.
+  // Human-resegmented complete finals can still keep their own structure.
+  let partialChineseFinal=false;
   if(chineseFinal && Array.isArray(chineseFinal.segments) &&
      chineseFinal.segments.length){
-    // Final dictates text AND segmentation, never polish-report row count.
-    // Human-resegmented lessons must retain every revised paragraph.
+    const source=(raw && Array.isArray(raw.segments)) ? raw.segments : [];
+    const finalList=chineseFinal.segments;
+    if(source.length>finalList.length && items.length===source.length){
+      const first=finalList[0], last=finalList[finalList.length-1];
+      const originFirst=source[0], originLast=source[source.length-1];
+      partialChineseFinal=Number(first.start||0)>Number(originFirst.start||0)+30 ||
+        Number(last.end||0)<Number(originLast.end||0)-30;
+    }
     const earlier=new Map(items.map(function(x,i){
       return [Number(x.id===undefined?i:x.id),x];
     }));
-    items=chineseFinal.segments.map(function(x,i){
-      const id=Number(x.id===undefined?i:x.id);
-      const prior=earlier.get(id)||{};
-      const start=Number(x.start||0);
-      return Object.assign({},prior,{
-        id:id,start:start,end:Number(x.end===undefined?start:x.end),
-        time:formatPlainTime_(start),
-        text:String(x.text||""),confirmed:true
+    if(partialChineseFinal){
+      const edits=new Map(finalList.map(function(x,i){
+        return [Number(x.id===undefined?i:x.id),x];
+      }));
+      items=items.map(function(x,i){
+        const id=Number(x.id===undefined?i:x.id);
+        const edited=edits.get(id);
+        if(!edited || Math.abs(Number(edited.start||0)-Number(x.start||0))>2)
+          return x;
+        return Object.assign({},x,{text:String(edited.text||""),confirmed:true});
       });
-    });
+    }else{
+      items=finalList.map(function(x,i){
+        const id=Number(x.id===undefined?i:x.id);
+        const prior=earlier.get(id)||{};
+        const start=Number(x.start||0);
+        return Object.assign({},prior,{
+          id:id,start:start,end:Number(x.end===undefined?start:x.end),
+          time:formatPlainTime_(start),
+          text:String(x.text||""),confirmed:true
+        });
+      });
+    }
   }
   const youtubeCc = readJsonFile_(folders.source, "youtube.en.json");
   if (youtubeCc) {
@@ -5006,6 +5027,33 @@ function loadZhReviewChunk_(folders, taskId, chunkIndex, startedAt) {
     segments = chunk && Array.isArray(chunk.segments) ? chunk.segments : [];
   }
 
+  // If a historical finalize stored only one batch, reopen all chunks,
+  // retaining those manually corrected lines, not the truncated Final.
+  const final = readJsonFile_(folders.transcript, "zh-TW.final.json");
+  const expected = Number(manifest.total_segments || 0);
+  if (final && Array.isArray(final.segments) &&
+      final.segments.length && expected > final.segments.length) {
+    const first = final.segments[0];
+    const last = final.segments[final.segments.length - 1];
+    const source = readJsonFile_(folders.transcript, "segments.json");
+    const sourceList = source && Array.isArray(source.segments) ? source.segments : [];
+    const incomplete = sourceList.length === expected && (
+      Number(first.start||0) > Number(sourceList[0].start||0) + 30 ||
+      Number(last.end||0) < Number(sourceList[expected-1].end||0) - 30
+    );
+    if (incomplete) {
+      const edits = new Map(final.segments.map(function(x,i) {
+        return [Number(x.id === undefined ? i : x.id),x];
+      }));
+      segments = segments.map(function(x) {
+        const edited=edits.get(Number(x.id));
+        return edited && Math.abs(Number(edited.start||0)-Number(x.start||0))<=2
+          ? Object.assign({},x,{text:String(edited.text||""),confirmed:true})
+          : x;
+      });
+    }
+  }
+
   return {
     ok: true,
     task_id: taskId,
@@ -5299,6 +5347,23 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
     taskColumn = 10;
   } else {
     return { ok: false, error: "unsupported_review_kind" };
+  }
+
+  if (kind === "zh") {
+    // Never allow a 50-row review batch to overwrite a 312-row transcript.
+    const manifest=readJsonFile_(folders.transcript,"zh-TW.review.manifest.json");
+    const expected=manifest ? Number(manifest.total_segments||0) : 0;
+    if (expected>0) {
+      const ids=new Set(normalized.map(function(x){return x.id;}));
+      const complete=normalized.length===expected && ids.size===expected &&
+        normalized.every(function(x,i){return x.id===i && x.end>=x.start;});
+      if(!complete) {
+        return {ok:false,error:"incomplete_zh_final",
+          expected_segments:expected,received_segments:normalized.length,
+          message:"中文逐字稿尚未完整載入（"+normalized.length+"/"+expected+
+            " 段），未儲存也未覆寫原稿。請重新抓取完整段落後再定稿。"};
+      }
+    }
   }
 
   if (kind === "en") {
