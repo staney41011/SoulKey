@@ -126,6 +126,43 @@ class Gemma4ApiTest(unittest.TestCase):
         with self.assertRaises(GeminiAPIError):
             self.make_client(mock).structured("Translate", SCHEMA)
 
+    def test_concatenated_segment_json_recovers_nonconflicting_ids(self):
+        first = {"segments": [{"id": 0, "text": "A"}]}
+        second = {"segments": [{"id": 1, "text": "B"}]}
+        content = json.dumps(first) + "\n" + json.dumps(second)
+        wrapped = {"candidates": [{"content": {"parts": [{"text": content}]}}]}
+        mock = FakeTransport([(200, json.dumps(wrapped).encode())])
+        parsed, _ = self.make_client(mock).structured("Translate", SCHEMA)
+        self.assertEqual([x["id"] for x in parsed["segments"]], [0, 1])
+
+    def test_concatenated_conflicting_json_rejected(self):
+        content = (
+            json.dumps({"segments": [{"id": 0, "text": "true"}]})
+            + json.dumps({"segments": [{"id": 0, "text": "conflict"}]})
+        )
+        wrapped = {"candidates": [{"content": {"parts": [{"text": content}]}}]}
+        mock = FakeTransport([(200, json.dumps(wrapped).encode())])
+        with self.assertRaisesRegex(GeminiAPIError, "invalid JSON"):
+            self.make_client(mock).structured("Translate", SCHEMA)
+
+    def test_gemini35_failover_uses_direct_generatecontent(self):
+        success = gemma_response({"segments": [{"id": 1, "text": "こんにちは"}]})
+        mock = FakeTransport([(200, json.dumps(success).encode())])
+        parsed, _ = self.make_client(mock).structured(
+            "Translate", SCHEMA, model="gemini-3.5-flash-lite",
+            thinking_level="low",
+        )
+        self.assertEqual(parsed["segments"][0]["id"], 1)
+        url, _, payload = mock.calls[0]
+        self.assertTrue(url.endswith(
+            "/models/gemini-3.5-flash-lite:generateContent"
+        ))
+        self.assertEqual(
+            payload["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "low",
+        )
+        self.assertNotIn("temperature", payload["generationConfig"])
+
     def test_primary_runner_accepts_gemma4_checkpoint_resume(self):
         # The Gemma 4 writer and resume guard must recognize the same engine.
         from pathlib import Path
