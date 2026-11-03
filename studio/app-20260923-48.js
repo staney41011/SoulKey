@@ -128,6 +128,18 @@ function setZhReviewLoadState(message,state="idle"){
   el.textContent=message;
 }
 
+function zhReviewHasCompleteCoverage(){
+  const expected=Number(zhReviewTotal||0);
+  const segments=currentZhReviewAll;
+  if(!expected || !Array.isArray(segments) || segments.length!==expected)
+    return false;
+  const ids=new Set(segments.map(x=>Number(x.id)));
+  return ids.size===expected &&
+    segments.every((x,i)=>Number(x.id)===i &&
+      Number.isFinite(Number(x.start)) &&
+      Number(x.end)>=Number(x.start));
+}
+
 function setZhFinalizeEnabled(enabled){
   const btn=document.getElementById("finalize-zh");
   if(btn) btn.disabled=!enabled;
@@ -954,11 +966,21 @@ async function loadZhReviewFromGithub(taskId,options={}){
       x=>x.classList.toggle("active",x.dataset.filter==="all")
     );
     renderSegments(incoming);
-    setZhFinalizeEnabled(true);
+    const complete=zhReviewHasCompleteCoverage();
+    setZhFinalizeEnabled(complete);
     setZhReviewLoadState(
-      "GitHub 直讀完成・"+incoming.length+" 段",
-      "ok"
+      complete
+        ? "GitHub 直讀完成・"+incoming.length+" 段"
+        : "快取不完整："+incoming.length+"/"+zhReviewTotal+" 段；改由 Drive 補齊",
+      complete ? "ok" : "error"
     );
+    if(!complete) {
+      // Do not allow a cache with missing IDs to be treated as a Final.
+      if(requestReviewData(taskId,"zh",0)) {
+        zhReviewLoading=true;
+        setZhFinalizeEnabled(false);
+      }
+    }
   }catch(err){
     const isAbort=err && err.name==="AbortError";
 
@@ -3300,8 +3322,9 @@ document.getElementById("finalize-zh").addEventListener("click",()=>{
     text:String(item.text||"").trim()
   }));
 
-  if(!segments.length){
-    alert("目前沒有可定稿的中文段落。");
+  if(!zhReviewHasCompleteCoverage()){
+    alert("中文逐字稿尚未完整載入："+segments.length+"/"+zhReviewTotal+
+      " 段。未送出定稿，請重新抓取全部內容。");
     return;
   }
 
@@ -4918,7 +4941,8 @@ window.addEventListener("message",event=>{
       zhFreshSegments.push(...incoming);
 
       if(!zhReviewCachedPreview){
-        renderSegments(incoming,{append:chunkIndex>0});
+        // Render accumulated segments, not just the newest 50-row chunk.
+        renderSegments(zhFreshSegments);
       }
 
       const loaded=zhFreshSegments.length;
@@ -4945,12 +4969,12 @@ window.addEventListener("message",event=>{
           return x;
         });
 
-        if(zhReviewCachedPreview){
-          renderSegments(merged);
-        }else{
-          currentZhReview=merged;
-          currentZhReviewAll=merged;
-        }
+        // Always render the fully merged transcript at the end of chunking.
+        // Previously the browser showed only the final chunk even though
+        // zhFreshSegments contained the full document.
+        renderSegments(merged);
+        currentZhReview=merged;
+        currentZhReviewAll=merged;
 
         writeReviewCache({
           task_id:data.task_id,
@@ -4961,8 +4985,15 @@ window.addEventListener("message",event=>{
 
         zhReviewCachedPreview=false;
         zhReviewLoading=false;
-        setZhFinalizeEnabled(true);
-        setZhReviewLoadState("雲端最新・共 "+currentZhReviewAll.length+" 段","ok");
+        const complete=zhReviewHasCompleteCoverage();
+        setZhFinalizeEnabled(complete);
+        setZhReviewLoadState(
+          complete
+            ? "雲端最新・已完整載入 "+currentZhReviewAll.length+" 段"
+            : "載入不完整："+currentZhReviewAll.length+"/"+zhReviewTotal+
+              " 段；已封鎖定稿，請重新抓取",
+          complete ? "ok" : "error"
+        );
       }
     }else if(data.kind==="vernacular"){
       renderVernacularReview(data.segments||[]);
