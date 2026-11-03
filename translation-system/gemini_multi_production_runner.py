@@ -34,7 +34,7 @@ from google_io import (
 )
 from lesson_paths import digits, resolve_lesson_folders
 from translation_text_safety import filter_nonspoken_segments
-from nvidia_translate import NvidiaTranslateClient, SUPPORTED_TARGETS
+from nvidia_translate import NvidiaTranslateClient, SUPPORTED_TARGETS_V2 as SUPPORTED_TARGETS
 from status_io import new_run_id, mark_done, mark_error, mark_running
 
 
@@ -523,12 +523,14 @@ def nvidia_translate_batch(nvidia_client, batch, langs):
                 raise RuntimeError(
                     f"NVIDIA fallback local QA failed: {sid}/{lang}/{issue}"
                 )
-            normalized = normalize_unicode_digits(candidate)
-            for number in re.findall(r"\d+(?:\.\d+)?", english):
-                if number not in normalized:
-                    raise RuntimeError(
-                        f"NVIDIA fallback missing number: {sid}/{lang}/{number}"
-                    )
+            numeric_issues = translated_number_issues(
+                english, candidate, lang
+            )
+            if numeric_issues:
+                raise RuntimeError(
+                    f"NVIDIA fallback numeric QA failed: "
+                    f"{sid}/{lang}/{','.join(numeric_issues)}"
+                )
             rows[sid][lang] = candidate
     return rows
 
@@ -542,8 +544,8 @@ def translate_batch_with_provider_fallback(
 ):
     """Keep Gemini primary; use NVIDIA only after transient Gemini exhaustion.
 
-    NVIDIA Riva v2 covers th/es/id/vi. Other requested languages
-    (hi/ta/ja/ko) are completed by Gemini after supported targets.
+    NVIDIA Riva v2 covers nine SoulKey targets including Japanese,
+    Korean, Hindi, Italian and Portuguese; the remaining six stay on LLMs.
     """
     try:
         parsed = gemini_translate_with_backoff(
