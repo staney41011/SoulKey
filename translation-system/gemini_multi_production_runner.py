@@ -613,6 +613,74 @@ def translate_batch_with_provider_fallback(
         rows = [rows_by_id[int(src["id"])] for src in batch]
         return rows, "nvidia-riva-fallback"
 
+def translate_batch_with_missing_id_recovery(
+    client, nvidia_client, batch, glossary, requested, max_retries=2
+):
+    """Recover omitted IDs without discarding translated sibling segments.
+
+    The approved English Final may use sparse IDs (such as 18 and 22).
+    A structured provider can return only one of the two. Retry the
+    missing source ID alone and reject unexpected IDs, duplicate IDs,
+    or unfilled target languages. Never synthesize a translation.
+    """
+    expected_ids = [int(src["id"]) for src in batch]
+    if len(expected_ids) != len(set(expected_ids)):
+        raise RuntimeError("duplicate approved source segment ids")
+    accepted = {}
+    pending = list(batch)
+    engines = []
+
+    for attempt in range(max_retries + 1):
+        if not pending:
+            break
+        rows, engine = translate_batch_with_provider_fallback(
+            client, nvidia_client, pending, glossary, requested
+        )
+        engines.append(engine)
+        pending_ids = {int(src["id"]) for src in pending}
+        observed = set()
+        for row in rows:
+            sid = int(row["segment_id"])
+            if sid not in pending_ids:
+                raise RuntimeError(
+                    f"Translation unexpected id {sid}; requested={sorted(pending_ids)}"
+                )
+            if sid in observed or sid in accepted:
+                raise RuntimeError(f"Translation duplicate id: {sid}")
+            observed.add(sid)
+            unfilled = row_missing_languages(row, requested)
+            if unfilled:
+                print(
+                    f"[MISSING-TRANSLATION] segment={sid}; "
+                    f"languages={','.join(unfilled)}; retry only missing ID",
+                    flush=True,
+                )
+                continue
+            accepted[sid] = row
+        pending = [
+            src for src in pending
+            if int(src["id"]) not in accepted
+        ]
+        if pending:
+            print(
+                f"[MISSING-ID-RECOVERY] retry {attempt + 1}/{max_retries + 1}; "
+                f"missing={','.join(str(x['id']) for x in pending)}",
+                flush=True,
+            )
+
+    if pending:
+        raise RuntimeError(
+            "Translation ids still missing after targeted retries: "
+            + ",".join(str(x["id"]) for x in pending)
+        )
+    rows = [accepted[sid] for sid in expected_ids]
+    engine = (
+        "nvidia-riva-fallback" if "nvidia-riva-fallback" in engines
+        else "gemini"
+    )
+    return rows, engine
+
+
 def normalize_unicode_digits(text):
     out = []
     for ch in str(text or ""):
@@ -1458,15 +1526,9 @@ def main():
                     f"languages={','.join(group_missing)}",
                     flush=True,
                 )
-                rows, engine = translate_batch_with_provider_fallback(
+                rows, engine = translate_batch_with_missing_id_recovery(
                     client, nvidia_client, batch, glossary, group_missing
                 )
-                expected = sorted(ids)
-                got = sorted(int(x["segment_id"]) for x in rows)
-                if expected != got:
-                    raise RuntimeError(
-                        f"Translation ids 不完整：expected={expected}, got={got}"
-                    )
                 merge_translation_rows(translations, rows, group_missing)
                 for sid in ids:
                     missing_in_group = row_missing_languages(
