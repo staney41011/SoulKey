@@ -14,10 +14,10 @@ NVIDIA_TRANSLATE_MODEL = os.getenv(
     "nvidia/riva-translate-4b-instruct-v2",
 )
 
-# NVIDIA Riva Translate v2 supports these four SoulKey targets.
-# Hindi (hi), Tamil (ta), Japanese (ja), and Korean (ko) are excluded;
-# Gemini handles languages not available in NVIDIA's supported target list.
-SUPPORTED_TARGETS = {"th", "es", "id", "vi"}
+# NVIDIA Riva Translate v2 officially supports English -> these
+# nine SoulKey targets.  It does NOT support Tamil/Khmer/Bengali/
+# Nepali/Lao/Burmese; keep those on validated LLM providers.
+SUPPORTED_TARGETS = {"th", "es", "id", "vi", "hi", "ja", "ko", "it", "pt"}
 
 
 def nvidia_target_code(lang: str):
@@ -29,7 +29,9 @@ def nvidia_target_code(lang: str):
         if variant not in {"es-US", "es-ES"}:
             variant = "es-US"
         return variant
-    if lang in {"th", "id", "vi"}:
+    if lang == "pt":
+        return "pt-BR"
+    if lang in {"th", "id", "vi", "hi", "ja", "ko", "it"}:
         return lang
     raise ValueError(f"NVIDIA Riva Translate 不支援 SoulKey 語言：{lang}")
 
@@ -62,9 +64,9 @@ def _message_text(payload):
 class NvidiaTranslateClient:
     """Optional second-opinion translator for SoulKey.
 
-    This client never owns the full six-language workflow. It is used only for
-    th/es/id/vi when Gemini QA has already found a problem. A failed NVIDIA call
-    is therefore non-fatal to the main Gemini pipeline.
+    The multilingual worker may use Riva as a fallback for its nine
+    officially supported languages, and as QA second opinion. Results are
+    validated before checkpoint publication.
     """
 
     def __init__(
