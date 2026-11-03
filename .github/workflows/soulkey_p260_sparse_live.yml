@@ -1,0 +1,49 @@
+name: SoulKey P260-L01 sparse-ID recovery live smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/soulkey_p260_sparse_live.yml
+permissions:
+  contents: read
+jobs:
+  verify-sparse-ids:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Google API dependencies
+        run: python -m pip install -q google-api-python-client google-auth google-auth-httplib2
+      - name: Verify targeted recovery for approved English IDs 18 and 22
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          sys.path.insert(0,"translation-system")
+          from gemini_engine import GeminiClient, DEFAULT_TEXT_MODEL
+          from gemini_multi_production_runner import (
+              TranslationFailoverClient, translate_batch_with_missing_id_recovery,
+              row_missing_languages)
+          from nvidia_translate import NvidiaTranslateClient
+          data=json.load(open("studio-review-cache/P260-L01/en.json",encoding="utf-8"))
+          source=[
+              {"id":int(x["id"]),"text":str(x["en_text"])}
+              for x in data["segments"] if int(x["id"]) in {18,22}
+          ]
+          assert [x["id"] for x in source]==[18,22], "APPROVED_SOURCE_IDS_MISSING"
+          langs=["ko","it","pt"]
+          client=TranslationFailoverClient(GeminiClient(
+              api_key=os.environ["GEMINI_API_KEY"],text_model=DEFAULT_TEXT_MODEL,
+              max_attempts=1,timeout=35))
+          key=os.getenv("NVIDIA_API_KEY","").strip()
+          nvidia=NvidiaTranslateClient(key,max_attempts=1,timeout=30) if key else None
+          rows,engine=translate_batch_with_missing_id_recovery(
+              client,nvidia,source,"(no glossary entries)",langs,max_retries=2)
+          assert [int(x["segment_id"]) for x in rows]==[18,22],"SPARSE_IDS_INCOMPLETE"
+          assert all(not row_missing_languages(x,langs) for x in rows),"LANGUAGE_MISSING"
+          print("SPARSE_ID_RECOVERY_PASS ids=18,22 languages=ko,it,pt engine="+engine)
+          print("LIVE_CHECK_SUCCESS; NO_DRIVE_WRITES")
+          PY
