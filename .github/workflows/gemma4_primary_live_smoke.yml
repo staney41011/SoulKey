@@ -18,6 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate hosted Gemma 4 structured translation (no Drive, no GCP)
+        continue-on-error: true
         run: |
           python - <<'PY'
           import os, sys
@@ -45,4 +46,38 @@ jobs:
           if len(rows)!=1 or int(rows[0].get("id",-1))!=7 or not str(rows[0].get("text") or "").strip():
               raise SystemExit("GEMMA4_INVALID_STRUCTURE")
           print("GEMMA4_LIVE_PASS model="+DEFAULT_TEXT_MODEL+" segments=1 tokens="+str(usage.total_tokens))
+          PY
+
+      - name: Validate Gemini 3.5/3.8 failover for a single approved segment
+        run: |
+          python - <<'PY'
+          import os,sys
+          sys.path.insert(0,"translation-system")
+          from gemini_engine import GeminiClient
+          if not os.environ.get("GEMINI_API_KEY"):
+              raise SystemExit("GEMINI_API_KEY_MISSING")
+          schema={"type":"object","properties":{"segments":{"type":"array","items":{
+            "type":"object","properties":{"id":{"type":"integer"},"text":{"type":"string"}},
+            "required":["id","text"]}}},"required":["segments"]}
+          client=GeminiClient(max_attempts=1,timeout=28)
+          success=False
+          for model in ("gemini-3.5-flash-lite","gemini-3.8-flash"):
+              try:
+                  out,_=client.structured(
+                      'Translate to Japanese: "Thank you for helping everyone." '
+                      'Return exactly one segment with id 7.',
+                      schema,model=model,thinking_level="low")
+                  segs=out.get("segments") or []
+                  if len(segs)!=1 or segs[0].get("id")!=7 or not str(segs[0].get("text") or "").strip():
+                      raise ValueError("INVALID_SCHEMA")
+                  print("LIVE_FAILOVER_PASS model="+model+" segments=1")
+                  success=True
+                  break
+              except Exception as exc:
+                  # Provider error codes only: never print API keys, prompt or raw output.
+                  reason=str(exc)
+                  import re
+                  m=re.search(r"HTTP [0-9]{3}",reason)
+                  print("LIVE_FAILOVER_REJECT model="+model+" "+(m.group(0) if m else type(exc).__name__))
+          if not success:raise SystemExit("NO_WORKING_AI_STUDIO_FALLBACK")
           PY
