@@ -12,6 +12,7 @@ on:
       - "translation-system/tests/test_gemini_video_fallback.py"
       - "translation-system/gemini_text_production_runner.py"
       - "translation-system/gemini_multi_production_runner.py"
+      - "translation-system/tests/test_multi_subgroup_recovery.py"
       - "translation-system/nvidia_translate.py"
       - "translation-system/gemini_tts_production_runner.py"
       - "translation-system/web_job_worker.py"
@@ -45,6 +46,10 @@ jobs:
             translation-system/web_job_worker.py \
             translation-system/tts_runner.py \
             translation-system/tts_engine.py
+
+      - name: Gemma 4 primary retry and sparse-ID recovery regression
+        working-directory: translation-system
+        run: python -m unittest -v tests.test_multi_subgroup_recovery
 
       - name: Gemini video overload fallback regression
         run: python translation-system/tests/test_gemini_video_fallback.py
