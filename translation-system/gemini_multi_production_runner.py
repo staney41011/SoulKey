@@ -1576,10 +1576,8 @@ def main():
                             flush=True,
                         )
 
-        # Repair unresolved QA from a previous interrupted run before
-        # translating new segments. This is the key checkpoint-resume path:
-        # never restart an already translated batch merely because one QA pair
-        # remained unresolved.
+        # Resume only failed language/segment pairs from earlier checkpoints.
+        # A single unrepairable language must never block other languages.
         for key, data in list(qa_batches.items()):
             unresolved_rows = [
                 item for item in (data.get("unresolved") or [])
@@ -1587,71 +1585,67 @@ def main():
             ]
             if not unresolved_rows:
                 continue
-
-            ids = [int(x) for x in (data.get("segment_ids") or [])]
-            if not ids or any(sid not in translations for sid in ids):
+            ids = [int(x) for x in data.get("segment_ids") or []]
+            if not ids or any(sid not in source_map for sid in ids):
                 continue
-
-            print(
-                f"[RESUME-QA] {key}: unresolved={len(unresolved_rows)}",
-                flush=True,
-            )
             batch = [source_map[sid] for sid in ids]
-            initial = {}
-            for item in unresolved_rows:
-                initial[(int(item["segment_id"]), str(item["lang"]))] = list(
-                    item.get("issues") or []
+            for lang in sorted({
+                str(item.get("lang") or "") for item in unresolved_rows
+            }):
+                # Translation-stage errors are handled by the normal
+                # per-language translation loop after this QA recovery.
+                if any(lang in row_missing_languages(
+                    translations.get(sid), [lang]
+                ) for sid in ids):
+                    continue
+                initial = {
+                    (int(item["segment_id"]), lang): list(item.get("issues") or [])
+                    for item in unresolved_rows
+                    if str(item.get("lang") or "") == lang
+                }
+                print(
+                    f"[RESUME-QA-LANGUAGE] batch={key} lang={lang}; "
+                    f"failures={len(initial)}",
+                    flush=True,
                 )
-
-            failures, local, semantic, repairs, models = repair_batch_until_clean(
-                client,
-                batch,
-                translations,
-                source_map,
-                glossary,
-                requested,
-                wait_seconds=args.wait_seconds,
-                initial_failures=initial,
-                max_rounds=4,
-                nvidia_client=nvidia_client,
-            )
-            data["local_failures"] = local
-            data["semantic_failures"] = semantic
-            data.setdefault("repairs", []).extend(repairs)
-            data["repair_model"] = ",".join(x for x in models if x)
-            data["unresolved"] = [
-                {"segment_id": sid, "lang": lang, "issues": issues}
-                for (sid, lang), issues in sorted(failures.items())
-            ]
-            qa_batches[key] = data
-
-            seq += 1
-            save_persistent_checkpoint(
-                args.task_id,
-                checkpoint_payload(
+                try:
+                    failures, local, semantic, repairs, models = (
+                        repair_batch_until_clean(
+                            client, batch, translations, source_map,
+                            glossary, [lang], wait_seconds=args.wait_seconds,
+                            initial_failures=initial, max_rounds=2,
+                            nvidia_client=nvidia_client,
+                        )
+                    )
+                    data.setdefault("repairs", []).extend(repairs)
+                    data["repair_model"] = ",".join(x for x in models if x)
+                    data.setdefault("local_failures", []).extend(local)
+                    data.setdefault("semantic_failures", []).extend(semantic)
+                    record_language_result(data, lang, ids, failures=failures)
+                except Exception as exc:
+                    record_language_result(
+                        data, lang, ids, error=exc, stage="resume_qa"
+                    )
+                    print(
+                        f"[DEFER-LANGUAGE] previous QA failed: "
+                        f"batch={key} lang={lang} cause={type(exc).__name__}",
+                        flush=True,
+                    )
+                qa_batches[key] = data
+                seq += 1
+                save_persistent_checkpoint(
                     args.task_id,
-                    len(source_segments),
-                    translations,
-                    qa_batches,
-                    seq,
-                    source_sha256,
-                    requested,
-                ),
-                drive=drive,
-                translation_folder_id=folders["translation"],
-                workdir=workdir,
-                require_persistent=True,
-            )
-            print(
-                f"[RESUME-QA] {key} saved; unresolved={len(failures)}",
-                flush=True,
-            )
-
-            if failures:
-                raise RuntimeError(
-                    "Checkpoint Targeted Repair 仍有 QA failure：" +
-                    json.dumps(data["unresolved"], ensure_ascii=False)
+                    checkpoint_payload(
+                        args.task_id, len(source_segments), translations,
+                        qa_batches, seq, source_sha256, requested,
+                    ),
+                    drive=drive,
+                    translation_folder_id=folders["translation"],
+                    workdir=workdir,
+                    require_persistent=True,
                 )
+                # If this language is still failing, we will continue the
+                # other languages and publish only fully QA-passed outputs.
 
         remaining = incomplete_source_segments(
             source_segments,
