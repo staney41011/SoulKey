@@ -1024,7 +1024,7 @@ def audit_batch(client, batch, translations, langs, wait_seconds=0):
     # same provider timeout problem as translation. Audit independent
     # three-language groups, but still require every language to pass.
     semantic = []
-    for group in translation_target_groups(langs):
+    for group in translation_target_groups(langs, batch=batch):
         prompt = qa_prompt(batch, rows, group)
         qa = None
         # Production wrapper has its own bounded primary retries.
@@ -1265,14 +1265,22 @@ def row_missing_languages(row, requested):
     ]
 
 
-def translation_target_groups(requested, max_languages=3):
-    """Finish Riva-supported targets first so successful work is checkpointed.
+def translation_target_groups(requested, max_languages=3, batch=None):
+    """Checkpoint Riva-supported languages first; shrink groups for long text.
 
-    Otherwise a single unsupported target (Khmer/Tamil/etc) can block
-    saving a completed Japanese or Korean translation in the same group.
+    Live provider verification (2026-11-04): 851 source characters into
+    three languages timed out at 95s, while the exact same English segment
+    into one language completed in about 7.5s. Bound output size based on
+    source length instead of merely increasing the retry count.
     """
     if max_languages < 1:
         raise ValueError("max_languages must be positive")
+    if batch:
+        source_chars = sum(len(str(src.get("text") or "")) for src in batch)
+        if source_chars >= 650:
+            max_languages = min(max_languages, 1)
+        elif source_chars >= 450:
+            max_languages = min(max_languages, 2)
     ordered = (
         [x for x in requested if x in SUPPORTED_TARGETS] +
         [x for x in requested if x not in SUPPORTED_TARGETS]
@@ -1615,7 +1623,7 @@ def main():
             )
 
             translation_engines = []
-            for group in translation_target_groups(missing_langs):
+            for group in translation_target_groups(missing_langs, batch=batch):
                 # A previous attempt may have saved an earlier subgroup.
                 # Resume only languages still missing on at least one row.
                 group_missing = [
@@ -1631,6 +1639,7 @@ def main():
                     continue
                 print(
                     f"[GEMMA4-GROUP] {ids[0]}-{ids[-1]} "
+                    f"source_chars={sum(len(str(s.get('text') or '')) for s in batch)} "
                     f"languages={','.join(group_missing)}",
                     flush=True,
                 )
