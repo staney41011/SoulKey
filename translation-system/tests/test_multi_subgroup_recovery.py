@@ -15,6 +15,8 @@ NAMES = {
     "is_transient_gemini_error",
     "is_hard_quota_error",
     "build_translation_batches",
+    "record_language_result",
+    "verified_languages_for_delivery",
     "translate_batch_with_provider_fallback",
     "translation_target_groups",
     "row_missing_languages",
@@ -39,6 +41,8 @@ LANGS = NS["LANGS"]
 is_transient_gemini_error = NS["is_transient_gemini_error"]
 is_hard_quota_error = NS["is_hard_quota_error"]
 build_translation_batches = NS["build_translation_batches"]
+record_language_result = NS["record_language_result"]
+verified_languages_for_delivery = NS["verified_languages_for_delivery"]
 merge_translation_rows = NS["merge_translation_rows"]
 row_missing_languages = NS["row_missing_languages"]
 translate_batch_with_provider_fallback = NS["translate_batch_with_provider_fallback"]
@@ -319,6 +323,89 @@ class Gemma4MultilingualRecoveryTest(unittest.TestCase):
         self.assertFalse(is_transient_gemini_error(
             RuntimeError("Authentication failed: invalid API key")
         ))
+
+
+class LanguageIsolationAndPartialDeliveryTests(unittest.TestCase):
+    def setUp(self):
+        self.source = [
+            {"id": 64, "text": "The fifth floor is important."},
+            {"id": 72, "text": "Everyone may continue."},
+        ]
+        self.translations = {
+            64: {"segment_id": 64, "km": "wrong eighth floor",
+                 "th": "ชั้นห้า", "vi": "tầng năm"},
+            72: {"segment_id": 72, "km": "sample",
+                 "th": "ดำเนินต่อไป", "vi": "tiếp tục"},
+        }
+        self.qa = {
+            "64-72": {
+                "segment_ids": [64, 72],
+                "verified_languages": ["th", "vi"],
+                "unresolved": [{
+                    "segment_id": 64, "lang": "km",
+                    "issues": ["fifth floor was mistranslated as eighth"],
+                }],
+            },
+        }
+
+    def test_failed_khmer_does_not_block_other_verified_languages(self):
+        ready = verified_languages_for_delivery(
+            self.source, self.translations, self.qa,
+            ["th", "km", "vi"]
+        )
+        self.assertEqual(ready, ["th", "vi"])
+        self.assertNotIn("km", ready)
+
+    def test_repair_failure_only_modifies_its_language(self):
+        data = self.qa["64-72"]
+        record_language_result(
+            data, "km", [64, 72],
+            failures={(64, "km"): ["incorrect_floor_number"]}
+        )
+        self.assertEqual(data["verified_languages"], ["th", "vi"])
+        self.assertEqual(len(data["unresolved"]), 1)
+        self.assertEqual(data["unresolved"][0]["lang"], "km")
+        self.assertEqual(verified_languages_for_delivery(
+            self.source, self.translations, self.qa,
+            ["th", "km", "vi"]), ["th", "vi"])
+
+    def test_eventual_fix_clears_khmer_and_allows_delivery(self):
+        data = self.qa["64-72"]
+        record_language_result(data, "km", [64, 72])
+        self.assertEqual(data["unresolved"], [])
+        self.assertIn("km", data["verified_languages"])
+        self.assertEqual(verified_languages_for_delivery(
+            self.source, self.translations, self.qa,
+            ["th", "km", "vi"]), ["th", "km", "vi"])
+
+    def test_missing_source_segment_cannot_be_published(self):
+        self.translations[72].pop("vi")
+        ready = verified_languages_for_delivery(
+            self.source, self.translations, self.qa,
+            ["th", "km", "vi"]
+        )
+        self.assertEqual(ready, ["th"])
+
+    def test_api_failure_records_deferred_pair_without_fake_qa_pass(self):
+        data = {"segment_ids": [64, 72], "verified_languages": ["th"]}
+        record_language_result(
+            data, "km", [64],
+            error=RuntimeError("HTTP 503 service_unavailable"),
+            stage="translation"
+        )
+        self.assertEqual(data["verified_languages"], ["th"])
+        self.assertEqual(data["unresolved"][0]["segment_id"], 64)
+        self.assertEqual(data["unresolved"][0]["lang"], "km")
+        self.assertEqual(data["unresolved"][0]["stage"], "translation")
+
+    def test_main_loop_continues_and_partials_are_not_done(self):
+        self.assertIn("except Exception as group_exc:", SOURCE)
+        self.assertIn("[DEFER-LANGUAGE]", SOURCE)
+        self.assertIn("for lang in requested:", SOURCE)
+        self.assertIn("if partial:", SOURCE)
+        self.assertIn("mark_needs_review(", SOURCE)
+        self.assertIn("return 76", SOURCE)
+        self.assertIn("for lang in delivery_languages:", SOURCE)
 
 
 if __name__ == "__main__":
