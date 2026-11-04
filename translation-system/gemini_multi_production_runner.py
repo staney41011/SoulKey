@@ -1617,11 +1617,25 @@ def main():
                     translations.get(sid), [lang]
                 ) for sid in ids):
                     continue
-                initial = {
-                    (int(item["segment_id"]), lang): list(item.get("issues") or [])
-                    for item in unresolved_rows
+                actionable = [
+                    item for item in unresolved_rows
                     if str(item.get("lang") or "") == lang
-                }
+                ]
+                # Only a semantic/number mistake needs targeted rewriting.
+                # A timeout/service error needs a fresh QA audit instead.
+                repair_items = [
+                    item for item in actionable
+                    if str(item.get("stage") or "qa") == "qa"
+                    and not any(
+                        str(issue).lower().startswith(("qa:", "resume_qa:"))
+                        for issue in (item.get("issues") or [])
+                    )
+                ]
+                initial = (
+                    {(int(item["segment_id"]), lang): list(item.get("issues") or [])
+                     for item in repair_items}
+                    if len(repair_items) == len(actionable) else None
+                )
                 print(
                     f"[RESUME-QA-LANGUAGE] batch={key} lang={lang}; "
                     f"failures={len(initial)}",
@@ -1852,7 +1866,7 @@ def main():
                         )
                 except Exception as exc:
                     record_language_result(
-                        data, lang, ids, error=exc, stage="qa"
+                        data, lang, ids, error=exc, stage="qa_error"
                     )
                     print(
                         f"[DEFER-LANGUAGE] {key}/{lang} QA error "
