@@ -1,6 +1,7 @@
 """Offline regression for the P260-L01 Gemma 4 multi-language recovery."""
 import ast
 import os
+import subprocess
 import time
 from pathlib import Path
 import unittest
@@ -398,6 +399,44 @@ class LanguageIsolationAndPartialDeliveryTests(unittest.TestCase):
         self.assertEqual(data["unresolved"][0]["segment_id"], 64)
         self.assertEqual(data["unresolved"][0]["lang"], "km")
         self.assertEqual(data["unresolved"][0]["stage"], "translation")
+
+    def test_retry_preserves_accepted_checkpoint_translations(self):
+        original = {
+            64: {"segment_id": 64, "km": "原本已審核的翻譯"},
+            72: {"segment_id": 72},
+        }
+        merge_translation_rows(original, [
+            {"segment_id": 64, "km": "unexpected replacement"},
+            {"segment_id": 72, "km": "new missing translation"},
+        ], ["km"])
+        self.assertEqual(original[64]["km"], "原本已審核的翻譯")
+        self.assertEqual(original[72]["km"], "new missing translation")
+
+    def test_partial_exit_does_not_replay_entire_worker(self):
+        worker_source = (
+            Path(__file__).resolve().parents[1] / "web_job_worker.py"
+        ).read_text(encoding="utf-8")
+        worker_ast = ast.parse(worker_source)
+        fn = next(x for x in worker_ast.body
+                  if isinstance(x, ast.FunctionDef)
+                  and x.name == "run_checkpointed_multi")
+        calls = []
+
+        def failed_run(cmd):
+            calls.append(cmd)
+            raise subprocess.CalledProcessError(76, cmd)
+
+        env = {"run": failed_run, "subprocess": subprocess, "time": time}
+        exec(compile(ast.fix_missing_locations(
+            ast.Module(body=[fn], type_ignores=[])
+        ), "<worker retry policy>", "exec"), env)
+        with patch.object(time, "sleep") as mocked_sleep:
+            with self.assertRaises(subprocess.CalledProcessError):
+                env["run_checkpointed_multi"](["multi"], retry_waits=(15, 40))
+        self.assertEqual(len(calls), 1)
+        mocked_sleep.assert_not_called()
+        self.assertIn('report(', worker_source)
+        self.assertIn('"needs_review"', worker_source)
 
     def test_main_loop_continues_and_partials_are_not_done(self):
         self.assertIn("except Exception as group_exc:", SOURCE)
