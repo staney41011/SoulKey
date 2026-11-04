@@ -339,21 +339,37 @@ def is_transient_gemini_error(exc):
 
 
 class TranslationFailoverClient:
-    """Gemma 4 first, then a stable Google AI Studio model when unavailable.
+    """Retry hosted Gemma 4 before trying an independent model.
 
-    The short circuit breaker prevents every target-language subgroup from
-    wasting several minutes on a provider that is returning repeated 500s.
-    It periodically gives Gemma 4 another chance. Never marks a failed
-    response as translated, and preserves all original QA requirements.
+    Every language subgroup starts with Gemma 4, including subgroups following
+    a fallback success. This avoids a persistent breaker silently switching
+    most of a course to the free-tier Gemini fallback.
+
+    A daily rate-limit error is not resolved by an immediate retry: in that
+    case stop retrying the exhausted model and try the configured fallback.
+    Successful translations are still checkpointed by the calling runner.
     """
 
-    def __init__(self, client, fallback_model=None, cooldown_seconds=600):
+    def __init__(
+        self,
+        client,
+        fallback_model=None,
+        cooldown_seconds=600,
+        primary_attempts=None,
+    ):
         self.client = client
         self.text_model = client.text_model
         self.fallback_model = str(
             fallback_model if fallback_model is not None
             else os.getenv("SOULKEY_GEMMA4_FAILOVER_MODEL", "gemini-3.5-flash")
         ).strip()
+        raw_attempts = (
+            primary_attempts if primary_attempts is not None
+            else os.getenv("SOULKEY_GEMMA4_PRIMARY_ATTEMPTS", "3")
+        )
+        self.primary_attempts = max(1, min(5, int(raw_attempts)))
+        # Kept for compatibility with previously exposed status fields.
+        # Never use the old cooldown to skip Gemma 4 on future subgroups.
         self.cooldown_seconds = cooldown_seconds
         self.cooldown_until = 0.0
         self.fallback_used = False
@@ -361,47 +377,82 @@ class TranslationFailoverClient:
 
     def structured(self, prompt, schema, **kwargs):
         requested_model = str(kwargs.get("model") or self.text_model)
-        fallback_allowed = (
-            self.fallback_model and self.fallback_model.lower() not in
-            {"none", "off", "false"} and
-            requested_model != self.fallback_model
+        fallback_allowed = bool(
+            requested_model == self.text_model
+            and self.fallback_model
+            and self.fallback_model.lower() not in {"none", "off", "false"}
+            and requested_model != self.fallback_model
         )
-        primary_on_cooldown = (
-            fallback_allowed and requested_model == self.text_model and
-            time.monotonic() < self.cooldown_until
+        primary_attempts = (
+            self.primary_attempts
+            if requested_model.startswith("gemma-4-")
+            else 1
         )
-        if not primary_on_cooldown:
+        last_primary_error = None
+
+        for attempt in range(1, primary_attempts + 1):
             try:
                 result = self.client.structured(prompt, schema, **kwargs)
                 self.models_used.add(requested_model)
+                if attempt > 1:
+                    print(
+                        f"[GEMMA4-RECOVERED] primary succeeded on "
+                        f"attempt {attempt}/{primary_attempts}",
+                        flush=True,
+                    )
                 return result
             except Exception as exc:
-                if not fallback_allowed or not is_transient_gemini_error(exc):
+                last_primary_error = exc
+                if not is_transient_gemini_error(exc):
                     raise
+                error_text = str(exc).lower()
+                if "http 429" in error_text and (
+                    "requests per day" in error_text
+                    or "per day" in error_text
+                    or "retry in" in error_text
+                ):
+                    # Do not waste same-day quota on repeated requests.
+                    print(
+                        "[GEMMA4-QUOTA] skipping identical immediate retries",
+                        flush=True,
+                    )
+                    break
+                if attempt >= primary_attempts:
+                    break
+                wait = min(2 ** attempt, 8)
                 print(
-                    f"[MODEL-FAILOVER] {requested_model} unavailable: "
-                    f"{type(exc).__name__}; using {self.fallback_model}",
+                    f"[GEMMA4-RETRY] {requested_model} temporary failure "
+                    f"{attempt}/{primary_attempts}; retry in {wait}s: "
+                    f"{type(exc).__name__}",
                     flush=True,
                 )
-        kwargs = dict(kwargs)
-        kwargs["model"] = self.fallback_model
+                time.sleep(wait)
+
+        if not fallback_allowed:
+            raise last_primary_error
+
+        print(
+            f"[MODEL-FAILOVER] {requested_model} exhausted "
+            f"{attempt}/{primary_attempts} primary attempts; "
+            f"using {self.fallback_model}",
+            flush=True,
+        )
+        fallback_kwargs = dict(kwargs)
+        fallback_kwargs["model"] = self.fallback_model
         try:
-            result = self.client.structured(prompt, schema, **kwargs)
+            result = self.client.structured(prompt, schema, **fallback_kwargs)
         except Exception as exc:
-            # Reset the breaker if the fallback is inaccessible; a later
-            # attempt should be allowed to try the primary again.
-            self.cooldown_until = 0
+            # On the next subgroup/retry Gemma 4 must be tried again.
+            self.cooldown_until = 0.0
             print(
                 f"[MODEL-FAILOVER] {self.fallback_model} also failed: "
                 f"{type(exc).__name__}: {str(exc)[:240]}",
                 flush=True,
             )
             raise
-        self.cooldown_until = time.monotonic() + self.cooldown_seconds
         self.fallback_used = True
         self.models_used.add(self.fallback_model)
         return result
-
 
 def selected_translation_schema(langs):
     langs = [str(x) for x in langs]
