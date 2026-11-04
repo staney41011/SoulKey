@@ -686,7 +686,11 @@ def build_translation_batches(remaining, max_segments=2, max_chars=900):
     chars = 0
     for source in remaining:
         size = len(str(source.get("text") or ""))
-        if batch and (len(batch) >= max_segments or chars + size > max_chars):
+        if batch and (
+            len(batch) >= max_segments
+            or chars + size > max_chars
+            or size >= max_chars * 0.75
+        ):
             batches.append(batch)
             batch = []
             chars = 0
