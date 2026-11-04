@@ -1665,61 +1665,110 @@ def main():
         )
 
         for batch_no, batch in enumerate(batches, start=1):
-            ids = [int(x["id"]) for x in batch]
+            ids = [int(src["id"]) for src in batch]
             key = f"{ids[0]}-{ids[-1]}"
             missing_langs = [
                 lang for lang in requested
-                if any(
-                    lang in row_missing_languages(
-                        translations.get(int(src["id"])),
-                        requested,
-                    )
-                    for src in batch
-                )
+                if any(lang in row_missing_languages(
+                    translations.get(sid), [lang]
+                ) for sid in ids)
             ]
             print(
-                f"\n[BATCH {batch_no}/{len(batches)}] {ids[0]} -> {ids[-1]} "
-                f"/ fill={','.join(missing_langs)}",
+                f"\\n[BATCH {batch_no}/{len(batches)}] "
+                f"{ids[0]} -> {ids[-1]} / fill={','.join(missing_langs)}",
                 flush=True,
             )
-
+            data = qa_batches.setdefault(key, {
+                "segment_ids": ids,
+                "translation_engine": "",
+                "local_failures": [],
+                "semantic_failures": [],
+                "repairs": [],
+                "repair_model": "",
+                "unresolved": [],
+                "verified_languages": [],
+            })
+            data["segment_ids"] = ids
             translation_engines = []
+
+            # Translate in small language groups for throughput. If a group
+            # fails, isolate each language and move to the next language,
+            # instead of crashing an entire lecture.
             for group in translation_target_groups(missing_langs, batch=batch):
-                # A previous attempt may have saved an earlier subgroup.
-                # Resume only languages still missing on at least one row.
                 group_missing = [
                     lang for lang in group
-                    if any(
-                        lang in row_missing_languages(
-                            translations.get(sid), [lang]
-                        )
-                        for sid in ids
-                    )
+                    if any(lang in row_missing_languages(
+                        translations.get(sid), [lang]
+                    ) for sid in ids)
                 ]
                 if not group_missing:
                     continue
                 print(
                     f"[GEMMA4-GROUP] {ids[0]}-{ids[-1]} "
-                    f"source_chars={sum(len(str(s.get('text') or '')) for s in batch)} "
                     f"languages={','.join(group_missing)}",
                     flush=True,
                 )
-                rows, engine = translate_batch_with_missing_id_recovery(
-                    client, nvidia_client, batch, glossary, group_missing
-                )
-                merge_translation_rows(translations, rows, group_missing)
-                for sid in ids:
-                    missing_in_group = row_missing_languages(
-                        translations.get(sid), group_missing
+
+                # A group may be affected by one difficult target language.
+                # On group failure, retry only the missing languages one by one.
+                try:
+                    rows, engine = translate_batch_with_missing_id_recovery(
+                        client, nvidia_client, batch, glossary, group_missing
                     )
-                    if missing_in_group:
-                        raise RuntimeError(
-                            f"segment {sid} 合併後仍缺少 "
-                            + ",".join(missing_in_group)
+                    merge_translation_rows(translations, rows, group_missing)
+                    translation_engines.append(engine)
+                    print(
+                        f"[OK] translated {','.join(group_missing)}",
+                        flush=True,
+                    )
+                except Exception as group_exc:
+                    if len(group_missing) > 1:
+                        print(
+                            f"[LANG-ISOLATE] group={','.join(group_missing)} "
+                            f"failed ({type(group_exc).__name__}); "
+                            "retry each target separately",
+                            flush=True,
                         )
-                translation_engines.append(engine)
-                # Commit each small group. A 500/timeout in the next group
-                # cannot discard the translations already accepted.
+                    for lang in group_missing:
+                        needed = [
+                            src for src in batch
+                            if lang in row_missing_languages(
+                                translations.get(int(src["id"])), [lang]
+                            )
+                        ]
+                        if not needed:
+                            continue
+                        try:
+                            if len(group_missing) == 1:
+                                raise group_exc
+                            rows, engine = translate_batch_with_missing_id_recovery(
+                                client, nvidia_client, needed, glossary, [lang]
+                            )
+                            merge_translation_rows(translations, rows, [lang])
+                            translation_engines.append(engine)
+                            print(
+                                f"[OK] isolated translation recovered {lang}",
+                                flush=True,
+                            )
+                        except Exception as exc:
+                            record_language_result(
+                                data, lang, ids,
+                                error=exc, stage="translation",
+                            )
+                            print(
+                                f"[DEFER-LANGUAGE] {key}/{lang} "
+                                f"translation failed: {type(exc).__name__}; "
+                                "continuing next language",
+                                flush=True,
+                            )
+                data["translation_engine"] = (
+                    "nvidia-riva-fallback"
+                    if "nvidia-riva-fallback" in translation_engines
+                    else "gemma4"
+                )
+                qa_batches[key] = data
+                # Successful translation as well as skipped-language status
+                # must be durable before any later QA/provider call.
                 seq += 1
                 save_persistent_checkpoint(
                     args.task_id,
@@ -1733,79 +1782,94 @@ def main():
                     require_persistent=True,
                 )
                 print(
-                    f"[OK] Translation checkpoint saved for "
-                    f"{','.join(group_missing)}", flush=True
+                    f"[CHECKPOINT] language group "
+                    f"{','.join(group_missing)} saved",
+                    flush=True,
                 )
 
-            for sid in ids:
-                missing_after_merge = row_missing_languages(
-                    translations.get(sid), requested
-                )
-                if missing_after_merge:
-                    raise RuntimeError(
-                        f"segment {sid} 合併後仍缺少 "
-                        + ",".join(missing_after_merge)
+            # QA is isolated per language. A bad Khmer number, for example,
+            # cannot prevent Thai, Spanish, Japanese, etc. from being audited.
+            for lang in requested:
+                missing = [
+                    sid for sid in ids
+                    if lang in row_missing_languages(
+                        translations.get(sid), [lang]
                     )
-            translation_engine = (
-                "nvidia-riva-fallback"
-                if "nvidia-riva-fallback" in translation_engines
-                else "gemini"
-            )
+                ]
+                if missing:
+                    record_language_result(
+                        data, lang, missing,
+                        error=RuntimeError("translation missing"),
+                        stage="translation",
+                    )
+                    continue
+                if lang in (data.get("verified_languages") or []):
+                    continue
+                try:
+                    failures, local, semantic, repairs, models = (
+                        repair_batch_until_clean(
+                            client, batch, translations, source_map,
+                            glossary, [lang],
+                            wait_seconds=args.wait_seconds,
+                            max_rounds=2,
+                            nvidia_client=nvidia_client,
+                        )
+                    )
+                    data.setdefault("repairs", []).extend(repairs)
+                    data.setdefault("local_failures", []).extend(local)
+                    data.setdefault("semantic_failures", []).extend(semantic)
+                    data["repair_model"] = ",".join(x for x in models if x)
+                    record_language_result(data, lang, ids, failures=failures)
+                    if failures:
+                        print(
+                            f"[DEFER-LANGUAGE] {key}/{lang} QA still "
+                            f"unresolved={len(failures)}; continuing",
+                            flush=True,
+                        )
+                    else:
+                        print(
+                            f"[QA-LANGUAGE-PASS] {key}/{lang}",
+                            flush=True,
+                        )
+                except Exception as exc:
+                    record_language_result(
+                        data, lang, ids, error=exc, stage="qa"
+                    )
+                    print(
+                        f"[DEFER-LANGUAGE] {key}/{lang} QA error "
+                        f"{type(exc).__name__}; continuing",
+                        flush=True,
+                    )
 
-            failures, local, semantic, repairs, repair_models = (
-                repair_batch_until_clean(
-                    client,
-                    batch,
-                    translations,
-                    source_map,
-                    glossary,
-                    requested,
-                    wait_seconds=args.wait_seconds,
-                    max_rounds=4,
-                    nvidia_client=nvidia_client,
+                qa_batches[key] = data
+                seq += 1
+                save_persistent_checkpoint(
+                    args.task_id,
+                    checkpoint_payload(
+                        args.task_id, len(source_segments), translations,
+                        qa_batches, seq, source_sha256, requested,
+                    ),
+                    drive=drive,
+                    translation_folder_id=folders["translation"],
+                    workdir=workdir,
+                    require_persistent=True,
                 )
-            )
 
-            qa_batches[key] = {
-                "segment_ids": ids,
-                "translation_engine": translation_engine,
-                "local_failures": local,
-                "semantic_failures": semantic,
-                "repairs": repairs,
-                "repair_model": ",".join(x for x in repair_models if x),
-                "unresolved": [
-                    {"segment_id": sid, "lang": lang, "issues": issues}
-                    for (sid, lang), issues in sorted(failures.items())
-                ],
-            }
-
+            # Persist translation-missing / deferred language markers when
+            # the batch had no successful QA calls.
+            qa_batches[key] = data
             seq += 1
             save_persistent_checkpoint(
                 args.task_id,
                 checkpoint_payload(
-                    args.task_id,
-                    len(source_segments),
-                    translations,
-                    qa_batches,
-                    seq,
-                    source_sha256,
-                    requested,
+                    args.task_id, len(source_segments), translations,
+                    qa_batches, seq, source_sha256, requested,
                 ),
                 drive=drive,
                 translation_folder_id=folders["translation"],
                 workdir=workdir,
                 require_persistent=True,
             )
-            print(
-                f"[OK] QA checkpoint saved; unresolved={len(failures)}",
-                flush=True,
-            )
-
-            if failures:
-                raise RuntimeError(
-                    "Targeted Repair 後仍有翻譯 QA failure：" +
-                    json.dumps(qa_batches[key]["unresolved"], ensure_ascii=False)
-                )
 
             if batch_no < len(batches) and args.wait_seconds:
                 time.sleep(args.wait_seconds)
