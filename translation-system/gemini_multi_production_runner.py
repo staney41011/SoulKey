@@ -1375,7 +1375,11 @@ def merge_translation_rows(translations, generated_rows, generated_langs):
             value = str(generated.get(lang) or "").strip()
             if not value:
                 raise RuntimeError(f"segment {sid} 缺少 {lang}")
-            current[lang] = value
+            # Never overwrite previously checkpointed translations. Failed
+            # semantic QA is repaired by the targeted repair path, not by
+            # retranslation of a sibling source segment.
+            if not str(current.get(lang) or "").strip():
+                current[lang] = value
         translations[sid] = current
 
 
