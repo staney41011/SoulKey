@@ -338,6 +338,16 @@ def is_transient_gemini_error(exc):
     return any(marker.lower() in text for marker in TRANSIENT_GEMINI_MARKERS)
 
 
+def is_hard_quota_error(exc):
+    """A daily/RPD ceiling cannot be fixed with a seconds-long retry."""
+    message = str(exc).lower()
+    return "http 429" in message and any(
+        phrase in message for phrase in (
+            "requests per day", "per day", "retry in", "daily quota",
+        )
+    )
+
+
 class TranslationFailoverClient:
     """Retry hosted Gemma 4 before trying an independent model.
 
@@ -405,12 +415,7 @@ class TranslationFailoverClient:
                 last_primary_error = exc
                 if not is_transient_gemini_error(exc):
                     raise
-                error_text = str(exc).lower()
-                if "http 429" in error_text and (
-                    "requests per day" in error_text
-                    or "per day" in error_text
-                    or "retry in" in error_text
-                ):
+                if is_hard_quota_error(exc):
                     # Do not waste same-day quota on repeated requests.
                     print(
                         "[GEMMA4-QUOTA] skipping identical immediate retries",
@@ -514,6 +519,10 @@ SOURCE:
 
 
 def gemini_translate_with_backoff(client, batch, glossary, langs, waits=(4, 12)):
+    # The production Gemma wrapper already tries its primary three times.
+    # Do not multiply that into nine 95-second requests per subgroup.
+    if isinstance(client, TranslationFailoverClient):
+        waits = ()
     last_exc = None
     schema = MULTI_SCHEMA if list(langs) == LANGS else selected_translation_schema(langs)
     prompt = (
@@ -535,7 +544,9 @@ def gemini_translate_with_backoff(client, batch, glossary, langs, waits=(4, 12))
             return parsed
         except Exception as exc:
             last_exc = exc
-            if not is_transient_gemini_error(exc) or attempt > len(waits):
+            if (not is_transient_gemini_error(exc)
+                    or is_hard_quota_error(exc)
+                    or attempt > len(waits)):
                 raise
             wait_seconds = waits[attempt - 1]
             if "structured output" in str(exc).lower():
@@ -663,6 +674,28 @@ def translate_batch_with_provider_fallback(
 
         rows = [rows_by_id[int(src["id"])] for src in batch]
         return rows, "nvidia-riva-fallback"
+
+def build_translation_batches(remaining, max_segments=2, max_chars=900):
+    """Bound long-lecture payloads without losing sparse source IDs.
+
+    For 15 target languages a pair of 800-character paragraphs becomes a
+    single-source-segment request; short paragraphs can still share a call.
+    """
+    batches = []
+    batch = []
+    chars = 0
+    for source in remaining:
+        size = len(str(source.get("text") or ""))
+        if batch and (len(batch) >= max_segments or chars + size > max_chars):
+            batches.append(batch)
+            batch = []
+            chars = 0
+        batch.append(source)
+        chars += size
+    if batch:
+        batches.append(batch)
+    return batches
+
 
 def translate_batch_with_missing_id_recovery(
     client, nvidia_client, batch, glossary, requested, max_retries=2
@@ -990,7 +1023,8 @@ def audit_batch(client, batch, translations, langs, wait_seconds=0):
     for group in translation_target_groups(langs):
         prompt = qa_prompt(batch, rows, group)
         qa = None
-        waits = [4, 12]
+        # Production wrapper has its own bounded primary retries.
+        waits = [] if isinstance(client, TranslationFailoverClient) else [4, 12]
         for attempt in range(1, len(waits) + 2):
             try:
                 qa, _ = client.structured(
@@ -1004,7 +1038,9 @@ def audit_batch(client, batch, translations, langs, wait_seconds=0):
                 )
                 break
             except Exception as exc:
-                if not is_transient_gemini_error(exc) or attempt > len(waits):
+                if (not is_transient_gemini_error(exc)
+                        or is_hard_quota_error(exc)
+                        or attempt > len(waits)):
                     raise
                 wait_seconds_retry = waits[attempt - 1]
                 print(
@@ -1318,15 +1354,25 @@ def main():
     api_key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
     if not api_key:
         api_key = get_secret("GEMINI_API_KEY")
-    # Limit one failing primary request to 40 seconds rather than the
-    # previous 4 x 120-second nested retry loops. The failover client uses
-    # the same AI Studio key and does not require GCP infrastructure.
+    # Hosted Gemma 4 succeeds with one-segment requests but can exceed
+    # 40 seconds for a multi-language lecture paragraph. Allow longer
+    # responses and keep bounded three-attempt retries at the model layer.
+    # Avoid nested retry multiplication and preserve batch checkpoints.
+    gemma_timeout = max(45, min(150, int(
+        os.getenv("SOULKEY_GEMMA4_TIMEOUT_SECONDS", "95")
+    )))
     client = TranslationFailoverClient(GeminiClient(
         api_key=api_key,
         text_model=DEFAULT_TEXT_MODEL,
         max_attempts=1,
-        timeout=40,
+        timeout=gemma_timeout,
     ))
+    print(
+        f"[GEMMA4-CONFIG] model={DEFAULT_TEXT_MODEL}; "
+        f"timeout={gemma_timeout}s; "
+        f"primary_attempts={client.primary_attempts}",
+        flush=True,
+    )
 
     nvidia_api_key = str(os.environ.get("NVIDIA_API_KEY") or "").strip()
     if not nvidia_api_key:
@@ -1363,7 +1409,7 @@ def main():
         "multi",
         sheets=sheets,
         run_id=run_id,
-        message="Gemini 六語翻譯 + QA 執行中",
+        message=f"Gemma 4 {len(requested)}語翻譯 + QA 執行中",
         progress=5,
     )
 
@@ -1533,10 +1579,17 @@ def main():
             translations,
             requested,
         )
-        batches = [
-            remaining[i:i + effective_batch_size]
-            for i in range(0, len(remaining), effective_batch_size)
-        ]
+        batches = build_translation_batches(
+            remaining,
+            max_segments=effective_batch_size,
+            max_chars=(900 if len(requested) > 10 else 1600),
+        )
+        print(
+            f"[GEMMA4-PAYLOAD] segments={len(remaining)}; "
+            f"bounded_batches={len(batches)}; "
+            f"max_segments={effective_batch_size}",
+            flush=True,
+        )
 
         for batch_no, batch in enumerate(batches, start=1):
             ids = [int(x["id"]) for x in batch]
@@ -1854,6 +1907,15 @@ def main():
             )
         print(f"[ERROR] {type(exc).__name__}: {exc}", file=sys.stderr)
         traceback.print_exc()
+        if is_hard_quota_error(exc):
+            # Stop same-workflow immediate retries of a daily exhausted model.
+            # The authorized user can resume from Drive after quota reset.
+            print(
+                "[QUOTA-PAUSED] daily model quota exhausted; "
+                "checkpoint preserved; no immediate retry",
+                file=sys.stderr,
+            )
+            return 75
         return 1
 
 
