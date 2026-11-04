@@ -35,7 +35,7 @@ from google_io import (
 from lesson_paths import digits, resolve_lesson_folders
 from translation_text_safety import filter_nonspoken_segments
 from nvidia_translate import NvidiaTranslateClient, SUPPORTED_TARGETS_V2 as SUPPORTED_TARGETS
-from status_io import new_run_id, mark_done, mark_error, mark_running
+from status_io import new_run_id, mark_done, mark_error, mark_running, mark_needs_review
 
 
 LANGS = ["th", "es", "id", "vi", "hi", "ta", "ja", "ko", "km", "bn", "ne", "lo", "my", "it", "pt"]
@@ -1255,6 +1255,73 @@ def checkpoint_payload(
         "qa_batches": qa_batches,
     }
 
+
+
+def record_language_result(data, lang, segment_ids, failures=None, error=None, stage="qa"):
+    """A single failed target is deferred; other languages remain runnable.
+
+    Never mark an unverified translation as QA-passed. Persist the unresolved
+    (segment_id, language, stage, reason) for the next checkpointed run.
+    """
+    data.setdefault("segment_ids", list(segment_ids))
+    data.setdefault("verified_languages", [])
+    data.setdefault("unresolved", [])
+    data["unresolved"] = [
+        row for row in data["unresolved"]
+        if str(row.get("lang") or "") != lang
+    ]
+    verified = set(data["verified_languages"])
+    verified.discard(lang)
+    if error is not None:
+        issue = f"{stage}: {type(error).__name__}: {str(error)[:220]}"
+        data["unresolved"].extend({
+            "segment_id": int(sid), "lang": lang, "stage": stage,
+            "issues": [issue],
+        } for sid in segment_ids)
+    elif failures:
+        for (sid, failed_lang), issues in sorted(failures.items()):
+            if failed_lang == lang:
+                data["unresolved"].append({
+                    "segment_id": int(sid), "lang": lang,
+                    "stage": "qa", "issues": list(issues),
+                })
+    else:
+        verified.add(lang)
+    data["verified_languages"] = sorted(verified)
+    return data
+
+
+def verified_languages_for_delivery(source_segments, translations, qa_batches, requested):
+    """A language can be published only with every source ID and QA pass."""
+    expected = {int(src["id"]) for src in source_segments}
+    ready = []
+    for lang in requested:
+        if any(
+            not str(translations.get(sid, {}).get(lang) or "").strip()
+            for sid in expected
+        ):
+            continue
+        audited = set()
+        for data in qa_batches.values():
+            batch_ids = {int(sid) for sid in data.get("segment_ids") or []}
+            if not batch_ids:
+                continue
+            if lang in set(data.get("verified_languages") or []):
+                audited.update(batch_ids)
+            elif "verified_languages" not in data:
+                # Legacy checkpoint: QA batches were atomic across all
+                # requested languages. Their unresolved list is authoritative.
+                unresolved_langs = {
+                    str(row.get("lang") or "")
+                    for row in data.get("unresolved") or []
+                }
+                if lang not in unresolved_langs and (
+                    "semantic_failures" in data and "local_failures" in data
+                ):
+                    audited.update(batch_ids)
+        if expected.issubset(audited):
+            ready.append(lang)
+    return ready
 
 
 def row_missing_languages(row, requested):
