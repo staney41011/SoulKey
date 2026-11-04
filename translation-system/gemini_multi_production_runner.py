@@ -1542,6 +1542,25 @@ def main():
                             item for item in (data.get("unresolved") or [])
                             if str(item.get("lang") or "") in requested
                         ]
+                        # Prior releases completed QA atomically for a batch.
+                        # Preserve languages that already passed when
+                        # upgrading to per-language isolated QA state.
+                        if ("verified_languages" not in data
+                                and "semantic_failures" in data
+                                and "local_failures" in data):
+                            ids = [int(i) for i in data.get("segment_ids") or []]
+                            unresolved_langs = {
+                                str(row.get("lang") or "")
+                                for row in data["unresolved"]
+                            }
+                            data["verified_languages"] = [
+                                lang for lang in checkpoint_languages
+                                if lang in requested
+                                and lang not in unresolved_langs
+                                and ids
+                                and all(str(translations.get(sid, {}).get(lang)
+                                            or "").strip() for sid in ids)
+                            ]
                     seq = int(checkpoint.get("checkpoint_seq") or 0)
 
                     missing_counts = {
