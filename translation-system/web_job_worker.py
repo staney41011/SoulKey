@@ -199,7 +199,17 @@ def run_checkpointed_multi(cmd, retry_waits=(15,40), refresh_credentials=None):
                 refresh_credentials()
             run(cmd)
             return
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as exc:
+            # The runner uses exit 75 for daily quota exhaustion.
+            # Seconds-long replays cannot reset requests-per-day limits;
+            # preserve the checkpoint and return a clear failure instead.
+            if exc.returncode == 75:
+                print(
+                    "[FINISH:MULTI-QUOTA-PAUSE] daily AI quota reached; "
+                    "stop immediate restarts; keep Drive checkpoint",
+                    flush=True,
+                )
+                raise
             if attempt==len(retry_waits):
                 raise
             delay=retry_waits[attempt]
