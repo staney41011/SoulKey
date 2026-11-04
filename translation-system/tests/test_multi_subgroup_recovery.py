@@ -236,7 +236,8 @@ class Gemma4MultilingualRecoveryTest(unittest.TestCase):
         # Ensure the real main loop uses and persists these groups, not merely
         # that the helper exists.
         self.assertIn("for group in translation_target_groups(missing_langs, batch=batch)", SOURCE)
-        self.assertIn("Translation checkpoint saved for", SOURCE)
+        self.assertIn("[CHECKPOINT] language group", SOURCE)
+        self.assertIn("[DEFER-LANGUAGE]", SOURCE)
         groups = translation_target_groups(LANGS)
         self.assertEqual(len(groups), 5)
         self.assertTrue(all(0 < len(x) <= 3 for x in groups))
