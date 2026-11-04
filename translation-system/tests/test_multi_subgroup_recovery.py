@@ -13,6 +13,8 @@ SOURCE = (Path(__file__).resolve().parents[1] /
 TREE = ast.parse(SOURCE)
 NAMES = {
     "is_transient_gemini_error",
+    "is_hard_quota_error",
+    "build_translation_batches",
     "translate_batch_with_provider_fallback",
     "translation_target_groups",
     "row_missing_languages",
@@ -35,6 +37,8 @@ for n in TREE.body:
 exec(compile(ast.fix_missing_locations(MODULE), "<SoulKey multi functions>", "exec"), NS)
 LANGS = NS["LANGS"]
 is_transient_gemini_error = NS["is_transient_gemini_error"]
+is_hard_quota_error = NS["is_hard_quota_error"]
+build_translation_batches = NS["build_translation_batches"]
 merge_translation_rows = NS["merge_translation_rows"]
 row_missing_languages = NS["row_missing_languages"]
 translate_batch_with_provider_fallback = NS["translate_batch_with_provider_fallback"]
@@ -263,6 +267,33 @@ class Gemma4MultilingualRecoveryTest(unittest.TestCase):
             if any(lang in row_missing_languages(translated.get(s["id"]), [lang])
                    for s in source)
         ], [])
+
+    def test_long_lecture_batches_stay_small_and_keep_sparse_ids(self):
+        sources = [
+            {"id": 18, "text": "short"},
+            {"id": 22, "text": "x" * 851},
+            {"id": 27, "text": "y" * 350},
+            {"id": 34, "text": "z" * 400},
+            {"id": 46, "text": "last"},
+        ]
+        batches = build_translation_batches(
+            sources, max_segments=2, max_chars=900
+        )
+        self.assertEqual([[s["id"] for s in b] for b in batches],
+                         [[18], [22], [27, 34], [46]])
+        self.assertTrue(all(len(batch) <= 2 for batch in batches))
+
+    def test_quota_error_detection_and_bounded_retries(self):
+        self.assertTrue(is_hard_quota_error(RuntimeError(
+            "HTTP 429: Rate limit exceeded: 20 requests per day"
+        )))
+        self.assertFalse(is_hard_quota_error(RuntimeError(
+            "HTTP 429: too many requests per minute"
+        )))
+        self.assertFalse(is_hard_quota_error(RuntimeError("HTTP 503")))
+        self.assertIn("timeout=gemma_timeout", SOURCE)
+        self.assertIn('SOULKEY_GEMMA4_TIMEOUT_SECONDS", "95"', SOURCE)
+        self.assertIn("max_chars=(900 if len(requested) > 10 else 1600)", SOURCE)
 
     def test_invalid_structured_json_is_transient_retry(self):
         self.assertTrue(is_transient_gemini_error(
