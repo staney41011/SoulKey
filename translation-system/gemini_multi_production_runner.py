@@ -1903,22 +1903,33 @@ def main():
         incomplete = {
             sid: langs for sid, langs in incomplete.items() if langs
         }
-        if incomplete:
-            raise RuntimeError(
-                "仍有未翻譯語言：" +
-                json.dumps(incomplete, ensure_ascii=False)
-            )
-
         unresolved = []
         for data in qa_batches.values():
             unresolved.extend(
                 item for item in (data.get("unresolved") or [])
                 if str(item.get("lang") or "") in requested
             )
-        if unresolved:
-            raise RuntimeError("既有 checkpoint 仍有 unresolved QA failure")
+        delivery_languages = verified_languages_for_delivery(
+            source_segments, translations, qa_batches, requested
+        )
+        pending_languages = [
+            lang for lang in requested if lang not in delivery_languages
+        ]
+        partial = bool(pending_languages or incomplete or unresolved)
+        print(
+            "[LANGUAGE-RESULT] approved=" + ",".join(delivery_languages)
+            + "; deferred=" + ",".join(pending_languages)
+            + f"; unresolved_issues={len(unresolved)}",
+            flush=True,
+        )
 
-        rows = [translations[int(x["id"])] for x in source_segments]
+        # A language can be exported only if every source segment has
+        # a translation AND every segment has passed QA for that language.
+        # Other languages may be delivered independently.
+        rows = [
+            translations.get(int(x["id"]), {"segment_id": int(x["id"])})
+            for x in source_segments
+        ]
         nvidia_repair_used = any(
             str(repair.get("engine") or "") == "nvidia-riva"
             for data in qa_batches.values()
@@ -1950,7 +1961,7 @@ def main():
 
         outdir = workdir / "final"
         outdir.mkdir(parents=True, exist_ok=True)
-        for lang in requested:
+        for lang in delivery_languages:
             for path in write_language_set(
                 outdir,
                 lang,
@@ -1979,7 +1990,11 @@ def main():
                     "fallback_model_used": client.fallback_used,
                     "models_used": sorted(client.models_used),
                     "qa_batches": qa_batches,
-                    "unresolved": [],
+                    "unresolved": unresolved,
+                    "incomplete": incomplete,
+                    "approved_languages": delivery_languages,
+                    "pending_languages": pending_languages,
+                    "status": "needs_review" if partial else "complete",
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -1997,13 +2012,14 @@ def main():
         updates = {
             f"任務佇列!S{task['sheet_row']}": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             f"任務佇列!T{task['sheet_row']}": (
-                "Gemma 4 翻譯+QA完成；語言=" + ",".join(requested)
-                + f"；{len(source_segments)}段；QA unresolved=0"
+                "Gemma 4 已通過翻譯+QA=" + (",".join(delivery_languages) or "無")
+                + "；待補=" + (",".join(pending_languages) or "無")
+                + f"；來源={len(source_segments)}段；QA unresolved={len(unresolved)}"
                 + ("；NVIDIA second-opinion=used" if nvidia_used else "")
             ),
         }
         for lang, col in LEGACY_COLS.items():
-            if lang in requested:
+            if lang in delivery_languages:
                 updates[f"任務佇列!{col}{task['sheet_row']}"] = "完成"
         update_cells(sheets, SPREADSHEET_ID, updates)
 
@@ -2016,7 +2032,9 @@ def main():
             source_sha256,
             requested,
         )
-        final_cp["status"] = "complete"
+        final_cp["status"] = "needs_review" if partial else "complete"
+        final_cp["approved_languages"] = delivery_languages
+        final_cp["pending_languages"] = pending_languages
         save_persistent_checkpoint(
             args.task_id,
             final_cp,
@@ -2026,19 +2044,44 @@ def main():
             require_persistent=True,
         )
 
+        if partial:
+            mark_needs_review(
+                args.task_id,
+                "multi",
+                sheets=sheets,
+                run_id=run_id,
+                progress=int(100 * len(delivery_languages) / len(requested)),
+                message=(
+                    "已交付並通過 QA 的語言="
+                    + (",".join(delivery_languages) or "無")
+                    + "；待補語言=" + ",".join(pending_languages)
+                    + "；可從檢查點補翻，其他語言不受影響"
+                ),
+            )
+            print(
+                "[PARTIAL-LANGUAGE-COMPLETE] approved="
+                + ",".join(delivery_languages)
+                + "; deferred=" + ",".join(pending_languages),
+                flush=True,
+            )
+            # Worker reports needs_review to Studio, not 'done'. TTS
+            # dependency paths must not assume every language is available.
+            return 76
+
         mark_done(
             args.task_id,
             "multi",
             sheets=sheets,
             run_id=run_id,
             message=(
-                "Gemini 翻譯 + QA 完成；langs=" + ",".join(requested)
+                "Gemma 4 翻譯 + QA 全部完成；langs="
+                + ",".join(requested)
                 + "；unresolved=0"
                 + ("；NVIDIA=second-opinion" if nvidia_used else "")
             ),
         )
         print(
-            "[DONE] Gemini 正式翻譯完成；langs="
+            "[DONE] Gemma 4 全語言正式翻譯完成；langs="
             + ",".join(requested)
             + "；QA unresolved=0",
             flush=True,
