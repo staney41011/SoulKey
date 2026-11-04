@@ -231,7 +231,7 @@ class Gemma4MultilingualRecoveryTest(unittest.TestCase):
     def test_all_15_languages_use_bounded_subgroups(self):
         # Ensure the real main loop uses and persists these groups, not merely
         # that the helper exists.
-        self.assertIn("for group in translation_target_groups(missing_langs)", SOURCE)
+        self.assertIn("for group in translation_target_groups(missing_langs, batch=batch)", SOURCE)
         self.assertIn("Translation checkpoint saved for", SOURCE)
         groups = translation_target_groups(LANGS)
         self.assertEqual(len(groups), 5)
@@ -267,6 +267,23 @@ class Gemma4MultilingualRecoveryTest(unittest.TestCase):
             if any(lang in row_missing_languages(translated.get(s["id"]), [lang])
                    for s in source)
         ], [])
+
+    def test_live_verified_length_based_language_groups(self):
+        long = [{"id": 396, "text": "x" * 851}]
+        medium = [{"id": 27, "text": "x" * 510}]
+        short = [{"id": 13, "text": "x" * 200}]
+        a = translation_target_groups(LANGS, batch=long)
+        b = translation_target_groups(LANGS, batch=medium)
+        c = translation_target_groups(LANGS, batch=short)
+        self.assertEqual(len(a), 15)
+        self.assertTrue(all(len(group) == 1 for group in a))
+        self.assertTrue(all(len(group) <= 2 for group in b))
+        self.assertEqual(len(c), 5)
+        self.assertEqual(
+            [lang for g in a for lang in g],
+            [lang for g in translation_target_groups(LANGS) for lang in g]
+        )
+        self.assertIn("translation_target_groups(langs, batch=batch)", SOURCE)
 
     def test_long_lecture_batches_stay_small_and_keep_sparse_ids(self):
         sources = [
