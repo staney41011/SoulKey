@@ -1,0 +1,43 @@
+name: SoulKey Gemma 4 bounded translation diagnostic
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/soulkey_gemma4_retry_diagnostic.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gemma4-single:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test one production-shaped Gemma 4 response with a longer timeout
+        run: |
+          python - <<'PY'
+          import os,sys,re,time
+          sys.path.insert(0,"translation-system")
+          from gemini_engine import GeminiClient
+          if not os.getenv("GEMINI_API_KEY"):
+              raise SystemExit("FAIL:NO_GEMINI_API_KEY")
+          client=GeminiClient(max_attempts=1,timeout=95)
+          schema={"type":"object","properties":{"segments":{"type":"array","items":{"type":"object","properties":{"segment_id":{"type":"integer"},"ta":{"type":"string"}},"required":["segment_id","ta"]}}},"required":["segments"]}
+          prompt=('Translate this English lecture excerpt into natural Tamil. '
+                  'Preserve all meaning and the segment ID. Output JSON only. '
+                  'SOURCE: [{"segment_id":13,"english":"Everyone, please take your seats."}]')
+          start=time.monotonic()
+          try:
+              payload,_=client.structured(prompt,schema,
+                system_instruction="You are a precise multilingual lecture translator.",
+                thinking_level="low")
+              rows=payload.get("segments") or []
+              assert len(rows)==1 and int(rows[0].get("segment_id",-1))==13 and str(rows[0].get("ta") or "").strip(),"INVALID_TRANSLATION"
+              print("GEMMA4_DIAGNOSTIC_PASS model=gemma-4-26b-a4b-it seconds="+str(round(time.monotonic()-start,1)))
+          except Exception as exc:
+              m=re.search(r"HTTP [0-9]{3}",str(exc))
+              print("GEMMA4_DIAGNOSTIC_FAIL type="+type(exc).__name__+" http="+(m.group(0) if m else "none")+" seconds="+str(round(time.monotonic()-start,1)))
+              raise SystemExit(1)
+          PY
