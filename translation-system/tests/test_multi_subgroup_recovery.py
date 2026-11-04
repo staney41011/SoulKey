@@ -65,16 +65,25 @@ NS["gemini_translate_with_backoff"] = fake_gemini_translate_with_backoff
 class FakeModel:
     text_model = "gemma-4-26b-a4b-it"
 
-    def __init__(self, fail_primary=False, fail_alternate=False):
-        self.fail_primary = fail_primary
+    def __init__(
+        self,
+        primary_failures=0,
+        fail_alternate=False,
+        primary_error="HTTP 500 Internal Error",
+    ):
+        self.primary_failures = primary_failures
         self.fail_alternate = fail_alternate
+        self.primary_error = primary_error
+        self.primary_calls = 0
         self.calls = []
 
     def structured(self, prompt, schema, **kwargs):
         model = kwargs.get("model") or self.text_model
         self.calls.append(model)
-        if model == self.text_model and self.fail_primary:
-            raise RuntimeError("HTTP 500 Internal Error")
+        if model == self.text_model:
+            self.primary_calls += 1
+            if self.primary_calls <= self.primary_failures:
+                raise RuntimeError(self.primary_error)
         if model != self.text_model and self.fail_alternate:
             raise RuntimeError("HTTP 404 model unavailable")
         return {"segments": [{"segment_id": 1, "ja": "こんにちは"}]}, None
@@ -83,32 +92,80 @@ class FakeModel:
 class FailoverRegressionTest(unittest.TestCase):
     def test_gemma4_success_is_kept_as_primary(self):
         fake = FakeModel()
-        client = TranslationFailoverClient(fake)
+        client = TranslationFailoverClient(fake, primary_attempts=3)
         client.structured("test", {"required": ["segments"]})
         self.assertEqual(fake.calls, ["gemma-4-26b-a4b-it"])
         self.assertFalse(client.fallback_used)
 
-    def test_primary_500_fails_over_and_short_circuits(self):
-        fake = FakeModel(fail_primary=True)
-        client = TranslationFailoverClient(fake, fallback_model="gemini-3.5-flash-lite")
-        result, _ = client.structured("test", {"required": ["segments"]})
+    def test_gemma4_retries_twice_then_succeeds_without_gemini(self):
+        fake = FakeModel(primary_failures=2)
+        client = TranslationFailoverClient(fake, primary_attempts=3)
+        with patch.object(time, "sleep", return_value=None):
+            result, _ = client.structured("test", {"required": ["segments"]})
         self.assertEqual(result["segments"][0]["segment_id"], 1)
-        client.structured("test", {"required": ["segments"]})
-        self.assertEqual(fake.calls, [
-            "gemma-4-26b-a4b-it",
-            "gemini-3.5-flash-lite",
-            "gemini-3.5-flash-lite",
-        ])
+        self.assertEqual(fake.calls, ["gemma-4-26b-a4b-it"] * 3)
+        self.assertFalse(client.fallback_used)
+
+    def test_gemma4_exhausts_three_then_fails_over_and_tries_again_next_group(self):
+        fake = FakeModel(primary_failures=99)
+        client = TranslationFailoverClient(
+            fake, fallback_model="gemini-3.5-flash", primary_attempts=3
+        )
+        with patch.object(time, "sleep", return_value=None):
+            result, _ = client.structured("group one", {"required": ["segments"]})
+            client.structured("group two", {"required": ["segments"]})
+        self.assertEqual(result["segments"][0]["segment_id"], 1)
+        self.assertEqual(fake.calls, (
+            ["gemma-4-26b-a4b-it"] * 3 + ["gemini-3.5-flash"]
+        ) * 2)
         self.assertTrue(client.fallback_used)
-        self.assertIn("gemini-3.5-flash-lite", client.models_used)
+        self.assertIn("gemini-3.5-flash", client.models_used)
 
     def test_failover_unavailable_is_not_reported_as_success(self):
-        fake = FakeModel(fail_primary=True, fail_alternate=True)
-        client = TranslationFailoverClient(fake, fallback_model="gemini-3.5-flash-lite")
-        with self.assertRaisesRegex(RuntimeError, "HTTP 404"):
-            client.structured("test", {"required": ["segments"]})
+        fake = FakeModel(primary_failures=99, fail_alternate=True)
+        client = TranslationFailoverClient(
+            fake, fallback_model="gemini-3.5-flash", primary_attempts=3
+        )
+        with patch.object(time, "sleep", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "HTTP 404"):
+                client.structured("test", {"required": ["segments"]})
         self.assertFalse(client.fallback_used)
         self.assertEqual(client.cooldown_until, 0)
+        self.assertEqual(fake.calls,
+                         ["gemma-4-26b-a4b-it"] * 3 + ["gemini-3.5-flash"])
+
+    def test_daily_quota_does_not_retry_exhausted_gemma(self):
+        fake = FakeModel(
+            primary_failures=99,
+            primary_error="HTTP 429: limit 20 requests per day, retry in 6h",
+        )
+        client = TranslationFailoverClient(
+            fake, fallback_model="gemini-3.5-flash", primary_attempts=3
+        )
+        client.structured("test", {"required": ["segments"]})
+        self.assertEqual(fake.calls,
+                         ["gemma-4-26b-a4b-it", "gemini-3.5-flash"])
+
+    def test_authentication_error_never_tries_fallback(self):
+        fake = FakeModel(
+            primary_failures=99,
+            primary_error="HTTP 401 authentication failed",
+        )
+        client = TranslationFailoverClient(fake, primary_attempts=3)
+        with self.assertRaisesRegex(RuntimeError, "HTTP 401"):
+            client.structured("test", {"required": ["segments"]})
+        self.assertEqual(fake.calls, ["gemma-4-26b-a4b-it"])
+
+    def test_disabled_fallback_still_attempts_gemma_three_times(self):
+        fake = FakeModel(primary_failures=99)
+        client = TranslationFailoverClient(
+            fake, fallback_model="off", primary_attempts=3
+        )
+        with patch.object(time, "sleep", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "HTTP 500"):
+                client.structured("test", {"required": ["segments"]})
+        self.assertEqual(fake.calls, ["gemma-4-26b-a4b-it"] * 3)
+        self.assertFalse(client.fallback_used)
 
 
 class MissingSegmentIdRecoveryTests(unittest.TestCase):
