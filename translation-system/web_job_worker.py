@@ -203,10 +203,11 @@ def run_checkpointed_multi(cmd, retry_waits=(15,40), refresh_credentials=None):
             # The runner uses exit 75 for daily quota exhaustion.
             # Seconds-long replays cannot reset requests-per-day limits;
             # preserve the checkpoint and return a clear failure instead.
-            if exc.returncode == 75:
+            if exc.returncode in {75, 76}:
                 print(
-                    "[FINISH:MULTI-QUOTA-PAUSE] daily AI quota reached; "
-                    "stop immediate restarts; keep Drive checkpoint",
+                    "[FINISH:MULTI-PAUSE] translation halted or partially "
+                    "completed; keep checkpoints and do not restart "
+                    f"(exit={exc.returncode})",
                     flush=True,
                 )
                 raise
@@ -964,12 +965,26 @@ def main():
             )
             cmd=None
         if cmd and args.stage=="multi":
-            run_checkpointed_multi(
-                cmd,
-                refresh_credentials=lambda:refresh_worker_drive_credentials(
-                    args.bridge_url, args.runtime_nonce
-                ),
-            )
+            try:
+                run_checkpointed_multi(
+                    cmd,
+                    refresh_credentials=lambda:refresh_worker_drive_credentials(
+                        args.bridge_url, args.runtime_nonce
+                    ),
+                )
+            except subprocess.CalledProcessError as exc:
+                if exc.returncode != 76:
+                    raise
+                print(
+                    "[WEB-WORKER:MULTI-NEEDS-REVIEW] Some language QA "
+                    "remains pending; other fully verified languages "
+                    "were preserved and published",
+                    flush=True,
+                )
+                report(
+                    args.bridge_url, args.runtime_nonce, "needs_review",
+                    "部分語言暫緩、其餘語言已繼續；詳見各語言 QA 檢查點",
+                )
             cmd=None
         if cmd:
             run(cmd)
