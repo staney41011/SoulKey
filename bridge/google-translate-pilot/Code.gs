@@ -264,8 +264,16 @@ function soulkeyP260Tick() {
   }
   const result=sk260Translate_({pilot:false});
   if(result.statuses&&result.statuses.every(function(s){return s.cells===s.expected;})){
-    soulkeyP260Stop();
-    result.all_drafts_ready_for_QA=true;
+    // 完成後自動輸出到隔離的待QA資料夾；輸出失敗時下次觸發器會重試。
+    try {
+      const exportResult=soulkeyP260ExportDrafts();
+      result.exported_drafts=exportResult.exported;
+      result.all_drafts_ready_for_QA=true;
+      soulkeyP260Stop();
+    } catch(err) {
+      result.ok=false;
+      result.export_error=String(err&&err.message||err).slice(0,240);
+    }
   }
   return result;
 }
