@@ -19,7 +19,7 @@ const SK260 = Object.freeze({
   langs: ["th","es","id","vi","hi","ta","ja","ko","km","bn","ne","lo","my","it","pt"],
   pilotLangs: ["th","vi","km"],
   dailyLimit: 4200, // 保留配額餘裕；Google 一般帳號官方上限5,000次/日
-  maxCallsPerTick: 70,
+  maxCallsPerTick: 120,
   maxMillisPerTick: 240000,
   lessons: [
     {task:"P260-L01",source:"17HLPxB4223SOvipcnygtrjTaWK8TkG26"},
@@ -185,74 +185,92 @@ function sk260QuotaState_() {
   }
   return {started_at:started,used:Number(props.getProperty("SK260_USED")||0),props:props};
 }
+/**
+ * v2 批次寫回：一整段 15 語只寫一次 Google Sheet，避免每格獨立寫入造成延遲。
+ * 在每段處理前預留本段所需的配額，避免腳本意外中止時重複超額請求。
+ * 失敗可由下次觸發器從缺失語言續跑；成功格子不重做。
+ */
 function sk260Translate_(options) {
   const lock=LockService.getScriptLock();
   if(!lock.tryLock(5000)) return {ok:false,reason:"busy"};
   try {
-    const start=Date.now(), opts=options||{},langs=opts.langs||SK260.langs;
-    const maxCalls=Math.max(1,Math.min(120,Number(opts.maxCalls||SK260.maxCallsPerTick)));
-    const maxMilliseconds=Math.min(250000,Number(opts.maxMillis||SK260.maxMillisPerTick));
-    const maxSegments=opts.pilot?3:Infinity;
-    const selected={};
-    SK260.lessons.forEach(function(l){selected[l.task]=0;});
-    const rows=sk260ReadRows_(),tab=sk260Book_().getSheetByName(SK260.dataTab);
+    const start=Date.now(),opts=options||{},langs=opts.langs||SK260.langs;
+    const maxCalls=Math.max(1,Math.min(160,Number(opts.maxCalls||SK260.maxCallsPerTick)));
+    const maxMillis=Math.min(240000,Number(opts.maxMillis||SK260.maxMillisPerTick));
+    const limitSegments=opts.pilot?3:Infinity;
+    const seen={};
+    const rows=sk260ReadRows_();
+    const book=sk260Book_(),tab=book.getSheetByName(SK260.dataTab);
     const quota=sk260QuotaState_();
-    let calls=0,success=0,failed=0;
+    let calls=0,success=0,failed=0,changedRows=0;
     const errors=[];
-    const touched={};
-    for(let i=0;i<rows.length;i++) {
+    for(let i=0;i<rows.length;i++){
+      if(calls>=maxCalls||quota.used>=SK260.dailyLimit||
+         Date.now()-start>=maxMillis||errors.length>=6) break;
       const item=rows[i],r=item.v,task=String(r[0]||"");
-      if(!Object.prototype.hasOwnProperty.call(selected,task)) continue;
-      // PILOT：四堂都各翻前3個英文定稿段落
-      if(opts.pilot && selected[task]>=maxSegments) continue;
-      selected[task]++;
+      if(!SK260.lessons.some(function(x){return x.task===task;})) continue;
+      seen[task]=(seen[task]||0)+1;
+      if(opts.pilot&&seen[task]>limitSegments) continue;
       const english=String(r[4]||"").trim();
       if(!english||String(r[5]||"")!==sk260Sha_(english)) continue;
-      for(let li=0;li<langs.length;li++) {
-        const lang=langs[li],idx=SK260.langs.indexOf(lang);
-        if(idx<0||String(r[6+idx]||"").trim()) continue;
-        if(calls>=maxCalls||Date.now()-start>maxMilliseconds||
-           quota.used>=SK260.dailyLimit) break;
-        // 在呼叫前就佔額度，意外中斷也不超額。
-        quota.used++;
-        quota.props.setProperty("SK260_USED",String(quota.used));
+      const missing=[];
+      langs.forEach(function(lang){
+        const idx=SK260.langs.indexOf(lang);
+        if(idx>=0&&!String(r[6+idx]||"").trim()) missing.push({lang:lang,idx:idx});
+      });
+      if(!missing.length) continue;
+      const budget=Math.min(missing.length,maxCalls-calls,
+        SK260.dailyLimit-quota.used);
+      if(budget<=0) break;
+      // 提前預留這一段的配額。最壞情況會少用、但不會超用。
+      quota.used+=budget;
+      quota.props.setProperty("SK260_USED",String(quota.used));
+      let lastIssue="";
+      for(let j=0;j<budget;j++){
+        if(Date.now()-start>=maxMillis) break;
+        const lang=missing[j].lang,idx=missing[j].idx;
         calls++;
         try {
-          // 不合併段落以免漏字、錯位；定稿單段目前都少於1000字元。
           const translated=String(LanguageApp.translate(english,"en",lang)||"").trim();
-          if(!translated||translated.length<2) throw new Error("空白翻譯");
-          tab.getRange(item.row,7+idx).setValue(translated);
+          if(translated.length<2) throw new Error("空白翻譯");
           r[6+idx]=translated;
-          const done=SK260.langs.reduce(function(n,l,j){
-            return n+(String(r[6+j]||"").trim()?1:0);
-          },0);
-          tab.getRange(item.row,22,1,4).setValues([[
-            done,done===15?"待Gemma QA":"初譯中",sk260Now_(),""
-          ]]);
           success++;
-          touched[task]=true;
         } catch(e) {
           failed++;
-          const err=String(e&&e.message||e).slice(0,220);
-          errors.push(task+"/"+r[1]+"/"+lang+": "+err);
-          tab.getRange(item.row,25).setValue(lang+": "+err);
+          lastIssue=lang+": "+String(e&&e.message||e).slice(0,180);
+          errors.push(task+"/"+r[1]+"/"+lastIssue);
           if(errors.length>=6) break;
         }
       }
-      if(calls>=maxCalls||Date.now()-start>maxMilliseconds||
-         quota.used>=SK260.dailyLimit||errors.length>=6) break;
+      const done=SK260.langs.reduce(function(n,l,j){
+        return n+(String(r[6+j]||"").trim()?1:0);
+      },0);
+      // 一段最多 19 個儲存格，一次 setValues；不覆蓋英文/來源SHA/時間軸。
+      const output=r.slice(6,21).map(function(x){return String(x||"");});
+      output.push(done,done===15?"待Gemma QA":"初譯中",
+        sk260Now_(),lastIssue);
+      tab.getRange(item.row,7,1,19).setValues([output]);
+      changedRows++;
     }
     SpreadsheetApp.flush();
+    // 進度表的來源 revision 在 Seed 階段已被核對，不必每批重新讀4份 Drive JSON。
+    const jobTab=book.getSheetByName(SK260.jobsTab);
+    const existing=jobTab.getLastRow()>1?
+      jobTab.getRange(2,1,jobTab.getLastRow()-1,SK260_JOB_HEADERS.length).getValues():[];
+    const byTask={};
+    existing.forEach(function(x){byTask[String(x[0])]=x;});
     const statuses=sk260RefreshJobs_(SK260.lessons.map(function(l){
-      const x=sk260Source_(l);
-      return {task:l.task,revision:x.revision,segments:x.segments.length,source:l.source};
+      const row=byTask[l.task];
+      return {task:l.task,revision:row?String(row[1]):"",
+        segments:row?Number(row[2]):0,source:l.source};
     }));
     return {ok:failed===0,calls:calls,success:success,failed:failed,
-      quota_used_today:quota.used,daily_safety_limit:SK260.dailyLimit,
+      changed_rows:changedRows,quota_reserved:quota.used,
       elapsed_seconds:Math.round((Date.now()-start)/1000),
       statuses:statuses,errors:errors.slice(0,6)};
-  } finally { lock.releaseLock(); }
+  } finally {lock.releaseLock();}
 }
+
 /** 第一次先少量翻譯四堂 × 三段 × 泰／越／柬 = 36格。 */
 function soulkeyP260Pilot() {
   soulkeyP260Seed();
@@ -283,6 +301,10 @@ function soulkeyP260Tick() {
     console.error(reason);
     throw e;
   }
+  // 10分鐘一批太慢，首次 v2 執行成功後轉為每5分鐘；只更換一次觸發器。
+  if(result.calls>0&&result.success>0&&!result.errors.length){
+    sk260InstallFastTrigger_();
+  }
   if(result.statuses&&result.statuses.every(function(s){return s.cells===s.expected;})){
     // 完成後自動輸出到隔離的待QA資料夾；輸出失敗時下次觸發器會重試。
     try {
@@ -297,6 +319,19 @@ function soulkeyP260Tick() {
   }
   return result;
 }
+function sk260InstallFastTrigger_(){
+  const props=PropertiesService.getScriptProperties();
+  if(props.getProperty("SK260_FAST_TRIGGER_V2")==="yes") return;
+  const existing=ScriptApp.getProjectTriggers().filter(function(t){
+    return t.getHandlerFunction()==="soulkeyP260Tick";
+  });
+  // 先建立新的，再刪除舊的；即使刪除出錯也有後繼的排程。
+  const fast=ScriptApp.newTrigger("soulkeyP260Tick")
+    .timeBased().everyMinutes(5).create();
+  existing.forEach(function(t){ScriptApp.deleteTrigger(t);});
+  props.setProperty("SK260_FAST_TRIGGER_V2","yes");
+}
+
 /** 四堂全文15語測試：啟動10分鐘續跑觸發器，不會啟動配音。 */
 function soulkeyP260StartFull() {
   soulkeyP260Seed();
@@ -305,7 +340,8 @@ function soulkeyP260StartFull() {
   ScriptApp.getProjectTriggers().forEach(function(t){
     if(t.getHandlerFunction()==="soulkeyP260Tick") ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger("soulkeyP260Tick").timeBased().everyMinutes(10).create();
+  ScriptApp.newTrigger("soulkeyP260Tick").timeBased().everyMinutes(5).create();
+  props.setProperty("SK260_FAST_TRIGGER_V2","yes");
   // 首次授權可能還在進行，不在同一次6分鐘限額內再跑長批翻譯。
   return {ok:true,trigger:"every_10_min",status:soulkeyP260Status()};
 }
