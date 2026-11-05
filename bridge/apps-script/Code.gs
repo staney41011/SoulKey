@@ -111,7 +111,11 @@ function doPost(e) {
         }
         props.deleteProperty(leaseKey);
       }
-      return json_(soulkeyAutoAudioReconcile_());
+      const audio=soulkeyAutoAudioReconcile_();
+      let multi={ok:true,queued:false};
+      try {multi=soulkeyAutoMultiReconcile_();}
+      catch(e){multi={ok:false,error:String(e&&e.message||e)};}
+      return json_(Object.assign({},audio,{multi_reconcile:multi}));
     }
 
     if (action === "worker_report") {
@@ -876,6 +880,89 @@ function workerRuntime_(nonce) {
  * Each invocation queues at most one lesson; the TTS callback queues the
  * next lesson. Per-lesson retry lease protects GitHub Actions concurrency.
  */
+/**
+ * Idempotent recovery for Gemma 4 multilingual QA after cancelled/expired
+ * GitHub jobs. English Finals, old outputs and persistent Drive checkpoints
+ * remain authoritative. An active CPU multi worker holds one global slot,
+ * so another lesson cannot wait until its short-lived runtime token expires.
+ */
+function soulkeyAutoMultiReconcile_() {
+  const props=PropertiesService.getScriptProperties();
+  const githubToken=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+  if(!githubToken) return {ok:false,reason:"github_token_not_configured"};
+  const now=Date.now();
+  const slotKey="AUTO_MULTI_GLOBAL_V2";
+  let slot={};
+  try{slot=JSON.parse(props.getProperty(slotKey)||"{}");}catch(_){}
+  if(Number(slot.expires_at_ms||0)>now){
+    return {ok:true,queued:false,reason:"multi_slot_active",task_id:slot.task_id};
+  }
+  const allTasks=readTasks_().filter(function(t){
+    return Number(t.period)>=260 && String(t.en||"").trim()==="完成"
+      && /^P\d+-L\d+$/.test(String(t.id||""));
+  });
+  // Restart previously cancelled P260-L03/L04 before retrying partial L01/L02.
+  allTasks.sort(function(a,b){
+    const priority={ "P260-L03":0,"P260-L04":1,"P260-L01":2,"P260-L02":3 };
+    const pa=Object.prototype.hasOwnProperty.call(priority,a.id)?priority[a.id]:4;
+    const pb=Object.prototype.hasOwnProperty.call(priority,b.id)?priority[b.id]:4;
+    return pa-pb || Number(b.period)-Number(a.period) ||
+      String(a.id).localeCompare(String(b.id));
+  });
+  const maxTasks=Math.min(allTasks.length,12);
+  for(let i=0;i<maxTasks;i++){
+    const task=allTasks[i];
+    try {
+      const cooldownKey="AUTO_MULTI_V2_"+task.id;
+      let cooldown={};
+      try{cooldown=JSON.parse(props.getProperty(cooldownKey)||"{}");}catch(_){}
+      if(Number(cooldown.expires_at_ms||0)>now) continue;
+      const folders=lessonFolders_(task.id);
+      if(!cachedFileId_(folders.translation,"en.final.json")) continue;
+      const allLangs=readLanguagePlan_(task.id)
+        .filter(function(x){
+          return x.transcript_enabled && x.language_code!=="en";
+        })
+        .map(function(x){return String(x.language_code||"").trim();})
+        .filter(Boolean);
+      if(!allLangs.length) continue;
+      const qa=readJsonFile_(folders.translation,"gemini.qa.json")||{};
+      const approved=new Set(
+        (qa.status==="complete"||qa.status==="needs_review") &&
+        Array.isArray(qa.approved_languages) ? qa.approved_languages : []
+      );
+      const missing=allLangs.filter(function(x){return !approved.has(x);});
+      if(!missing.length) continue;
+      // Translate/check all selected languages so gemini.qa.json maintains
+      // the complete QA manifest. The checkpoint skips already approved rows.
+      const languages=allLangs.join(",");
+      const dispatch=dispatchWorkflowIdempotently_(
+        githubToken,task.id,"multi","",languages,
+        "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
+      );
+      if(!dispatch.ok) return {ok:false,task_id:task.id,reason:dispatch.error||"dispatch_failed"};
+      const until=now+5.5*60*60*1000;
+      props.setProperty(slotKey,JSON.stringify({
+        task_id:task.id,expires_at_ms:until,queued_at:new Date(now).toISOString()
+      }));
+      props.setProperty(cooldownKey,JSON.stringify({
+        expires_at_ms:until,missing_at_queue:missing.length
+      }));
+      if(!dispatch.duplicate){
+        appendExecutionStatus_(task.id,"multi","queued",
+          String(dispatch.workflow_run_id||dispatch.nonce.slice(0,12)),0,
+          "自動續跑 Gemma 4 多語 QA："+missing.join(","),
+          "","","","","","");
+      }
+      return {ok:true,task_id:task.id,queued:!dispatch.duplicate,
+        pending_languages:missing.join(",")};
+    }catch(e){
+      Logger.log("[AUTO-MULTI] "+task.id+" "+String(e&&e.message||e).slice(0,300));
+    }
+  }
+  return {ok:true,queued:false};
+}
+
 function soulkeyAutoAudioReconcile_() {
   const props=PropertiesService.getScriptProperties();
   const githubToken=String(props.getProperty("GITHUB_TOKEN")||"").trim();
@@ -981,6 +1068,21 @@ function workerReport_(nonce, status, message) {
 
   if (["done", "error", "needs_review"].indexOf(normalized) >= 0) {
     releaseDispatchLease_(job, nonce);
+    if(job.stage==="multi"){
+      const props=PropertiesService.getScriptProperties();
+      const slotKey="AUTO_MULTI_GLOBAL_V2";
+      let slot={};
+      try{slot=JSON.parse(props.getProperty(slotKey)||"{}");}catch(_){}
+      if(slot.task_id===job.task_id){
+        props.deleteProperty(slotKey);
+        const cooldownKey="AUTO_MULTI_V2_"+job.task_id;
+        if(normalized==="done") props.deleteProperty(cooldownKey);
+        else props.setProperty(cooldownKey,JSON.stringify({
+          expires_at_ms:Date.now()+90*60*1000,
+          last_terminal_status:normalized
+        }));
+      }
+    }
   }
   // A single approved language need not wait for all fifteen siblings.
   // Also reconcile on legitimate multi heartbeats to recover earlier lessons
@@ -993,6 +1095,10 @@ function workerReport_(nonce, status, message) {
        ["done","error","needs_review"].indexOf(normalized)>=0)) {
     try { autoAudio=soulkeyAutoAudioReconcile_(); }
     catch(e){Logger.log("[AUTO-AUDIO] "+String(e&&e.message||e));}
+  }
+  if(job.stage==="multi"&&["done","error","needs_review"].indexOf(normalized)>=0){
+    try {soulkeyAutoMultiReconcile_();}
+    catch(e){Logger.log("[AUTO-MULTI] "+String(e&&e.message||e));}
   }
 
   return {
