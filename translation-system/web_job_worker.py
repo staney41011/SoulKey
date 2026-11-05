@@ -809,14 +809,14 @@ def main():
             ]
 
         elif args.stage == "pilot_tts":
-            if args.task_id != "P260-L04":
-                raise RuntimeError("Sheets TTS test restricted to P260-L04")
+            if args.task_id not in {"P260-L01", "P260-L02", "P260-L04"}:
+                raise RuntimeError("Sheets-sourced formal TTS is only authorized for lessons 1, 2 and 4 of period 260")
             allowed={"th","es","id","vi","hi","ta","ja","ko","km",
                      "bn","ne","lo","my","it","pt"}
             selection=[x.strip() for x in args.langs.split(",") if x.strip()]
             if not selection or len(set(selection))!=len(selection) or any(x not in allowed for x in selection):
                 raise RuntimeError("Invalid pilot language selection")
-            print("[PILOT-TTS] isolated Google Sheets draft experiment; no formal QA/status mutation",
+            print("[SHEETS-FORMAL-TTS] user-authorized official audio from Google Sheets; Gemma4 semantic QA not claimed",
                   flush=True)
             cmd=[sys.executable,
                  str(system_dir/"google_sheet_pilot_tts_runner.py"),
@@ -980,7 +980,7 @@ def main():
             run(cmd)
         if args.stage == "pilot_tts":
             report(args.bridge_url,args.runtime_nonce,"done",
-                   "Sheets draft TTS experiment finished; isolated Drive TEST folder")
+                   "Google Sheets sourced formal audio batch finished; see per-language Drive MP3 and technical QA receipts")
         if args.stage in {"en", "cc"}:
             seed_english_review_cache(
                 args.bridge_url, args.runtime_nonce, args.task_id
