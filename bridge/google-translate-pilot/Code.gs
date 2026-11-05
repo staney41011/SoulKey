@@ -104,6 +104,13 @@ function soulkeyP260Seed() {
       if(!previous) {
         newRows.push(row);
         added++;
+      } else if(!String(previous.values[5]||"").trim() &&
+                String(previous.values[4]||"").trim()===s.text &&
+                Number(previous.values[2])===s.start &&
+                Number(previous.values[3])===s.end) {
+        // 手動匯入的 Google Translate 試譯：內容未變時只補上hash，不抹除翻譯。
+        tab.getRange(previous.row,6).setValue(s.hash);
+        preserved++;
       } else if(String(previous.values[5])!==s.hash ||
                 Number(previous.values[2])!==s.start ||
                 Number(previous.values[3])!==s.end) {
