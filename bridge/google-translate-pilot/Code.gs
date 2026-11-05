@@ -175,14 +175,14 @@ function sk260ReadRows_() {
     .map(function(x,i){return {row:i+2,v:x};}):[];
 }
 function sk260QuotaState_() {
-  const key=Utilities.formatDate(new Date(),"Asia/Taipei","yyyy-MM-dd");
-  const props=PropertiesService.getScriptProperties();
-  const date=props.getProperty("SK260_DAY");
-  if(date!==key) {
-    props.setProperties({"SK260_DAY":key,"SK260_USED":"0"});
-    return {key:key,used:0,props:props};
+  // Google 官方：配額在首次請求後約24小時重設，不是台灣時間午夜。
+  const now=Date.now(), props=PropertiesService.getScriptProperties();
+  const started=Number(props.getProperty("SK260_QUOTA_WINDOW_START")||0);
+  if(!started||now-started>=86400000) {
+    props.setProperties({"SK260_QUOTA_WINDOW_START":String(now),"SK260_USED":"0"});
+    return {started_at:now,used:0,props:props};
   }
-  return {key:key,used:Number(props.getProperty("SK260_USED")||0),props:props};
+  return {started_at:started,used:Number(props.getProperty("SK260_USED")||0),props:props};
 }
 function sk260Translate_(options) {
   const lock=LockService.getScriptLock();
@@ -278,7 +278,8 @@ function soulkeyP260StartFull() {
     if(t.getHandlerFunction()==="soulkeyP260Tick") ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger("soulkeyP260Tick").timeBased().everyMinutes(10).create();
-  return soulkeyP260Tick();
+  // 首次授權可能還在進行，不在同一次6分鐘限額內再跑長批翻譯。
+  return {ok:true,trigger:"every_10_min",status:soulkeyP260Status()};
 }
 function soulkeyP260Stop() {
   PropertiesService.getScriptProperties().setProperty("SK260_PHASE","paused");
