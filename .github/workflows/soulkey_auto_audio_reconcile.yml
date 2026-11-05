@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/20 * * * *"
   workflow_dispatch:
+    inputs:
+      reset_task:
+        description: Requeue a verified-cancelled P260 audio job (optional)
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -21,6 +27,7 @@ jobs:
         shell: bash
         env:
           AUDIO_KEY: ${{ secrets.SOULKEY_AUDIO_RECONCILE_KEY }}
+          RESET_TASK: ${{ inputs.reset_task || '' }}
           BRIDGE_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
         run: |
           set -euo pipefail
@@ -30,6 +37,7 @@ jobs:
           fi
           RESPONSE=$(curl -fsSL --retry 2 --max-time 70 \
             --data-urlencode "action=audio_reconcile" \
+            --data-urlencode "reset_task=$RESET_TASK" \
             --data-urlencode "audio_key=$AUDIO_KEY" \
             "$BRIDGE_URL")
           RESULT="$RESPONSE" python - <<'PY'

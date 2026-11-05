@@ -98,6 +98,19 @@ function doPost(e) {
       if (!expected || !supplied || supplied !== expected) {
         return json_({ok:false,error:"unauthorized"});
       }
+      // Recovery control is only for already CANCELLED queued jobs;
+      // used manually with the private webhook secret, never by cron.
+      const resetTask = String((e && e.parameter && e.parameter.reset_task) || "");
+      if (/^P260-L0[1-4]$/.test(resetTask)) {
+        const leaseKey="AUTO_AUDIO_V2_"+resetTask;
+        let lease={};
+        try{lease=JSON.parse(props.getProperty(leaseKey)||"{}");}catch(_){}
+        if(lease.signature){
+          props.deleteProperty(dispatchLeaseKey_(
+            resetTask,"tts","",lease.signature));
+        }
+        props.deleteProperty(leaseKey);
+      }
       return json_(soulkeyAutoAudioReconcile_());
     }
 
