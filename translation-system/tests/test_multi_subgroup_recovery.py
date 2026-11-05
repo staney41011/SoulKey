@@ -17,6 +17,8 @@ NAMES = {
     "is_hard_quota_error",
     "build_translation_batches",
     "record_language_result",
+    "audited_ids_by_language",
+    "pending_source_segments",
     "verified_languages_for_delivery",
     "translate_batch_with_provider_fallback",
     "translation_target_groups",
@@ -387,6 +389,25 @@ class LanguageIsolationAndPartialDeliveryTests(unittest.TestCase):
             ["th", "km", "vi"]
         )
         self.assertEqual(ready, ["th"])
+
+    def test_resume_includes_saved_translations_without_completed_qa(self):
+        audited = NS["audited_ids_by_language"](self.qa, ["th", "km", "vi"])
+        self.assertEqual(audited["th"], {64, 72})
+        self.assertEqual(audited["km"], set())
+        self.assertEqual(
+            NS["pending_source_segments"](
+                self.source, self.translations, ["th", "km", "vi"], audited
+            ),
+            self.source,
+        )
+        record_language_result(self.qa["64-72"], "km", [64, 72])
+        audited = NS["audited_ids_by_language"](self.qa, ["th", "km", "vi"])
+        self.assertEqual(
+            NS["pending_source_segments"](
+                self.source, self.translations, ["th", "km", "vi"], audited
+            ),
+            [],
+        )
 
     def test_api_failure_records_deferred_pair_without_fake_qa_pass(self):
         data = {"segment_ids": [64, 72], "verified_languages": ["th"]}

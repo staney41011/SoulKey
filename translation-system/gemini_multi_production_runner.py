@@ -1291,9 +1291,25 @@ def record_language_result(data, lang, segment_ids, failures=None, error=None, s
     return data
 
 
+def audited_ids_by_language(qa_batches, requested):
+    audited = {lang: set() for lang in requested}
+    for data in qa_batches.values():
+        batch_ids = {int(sid) for sid in data.get("segment_ids") or []}
+        verified = data.get("verified_languages")
+        if verified is None and "semantic_failures" in data and "local_failures" in data:
+            # Legacy checkpoint: QA was atomic across the requested languages.
+            unresolved = {row.get("lang") for row in data.get("unresolved") or []}
+            verified = [lang for lang in requested if lang not in unresolved]
+        for lang in verified or []:
+            if lang in audited:
+                audited[lang].update(batch_ids)
+    return audited
+
+
 def verified_languages_for_delivery(source_segments, translations, qa_batches, requested):
     """A language can be published only with every source ID and QA pass."""
     expected = {int(src["id"]) for src in source_segments}
+    audited = audited_ids_by_language(qa_batches, requested)
     ready = []
     for lang in requested:
         if any(
@@ -1301,25 +1317,7 @@ def verified_languages_for_delivery(source_segments, translations, qa_batches, r
             for sid in expected
         ):
             continue
-        audited = set()
-        for data in qa_batches.values():
-            batch_ids = {int(sid) for sid in data.get("segment_ids") or []}
-            if not batch_ids:
-                continue
-            if lang in set(data.get("verified_languages") or []):
-                audited.update(batch_ids)
-            elif "verified_languages" not in data:
-                # Legacy checkpoint: QA batches were atomic across all
-                # requested languages. Their unresolved list is authoritative.
-                unresolved_langs = {
-                    str(row.get("lang") or "")
-                    for row in data.get("unresolved") or []
-                }
-                if lang not in unresolved_langs and (
-                    "semantic_failures" in data and "local_failures" in data
-                ):
-                    audited.update(batch_ids)
-        if expected.issubset(audited):
+        if expected.issubset(audited[lang]):
             ready.append(lang)
     return ready
 
@@ -1358,11 +1356,13 @@ def translation_target_groups(requested, max_languages=3, batch=None):
     ]
 
 
-def incomplete_source_segments(source_segments, translations, requested):
+def pending_source_segments(source_segments, translations, requested, audited):
     result = []
     for src in source_segments:
         sid = int(src["id"])
-        if row_missing_languages(translations.get(sid), requested):
+        if row_missing_languages(translations.get(sid), requested) or any(
+            sid not in audited[lang] for lang in requested
+        ):
             result.append(src)
     return result
 
@@ -1388,7 +1388,7 @@ def main():
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--langs", default="th,es,id,vi,hi,ta,ja,ko,km,bn,ne,lo,my,it,pt")
     parser.add_argument("--batch-size", type=int, default=12)
-    parser.add_argument("--wait-seconds", type=int, default=15)
+    parser.add_argument("--wait-seconds", type=int, default=0)
     parser.add_argument("--reset-checkpoint", action="store_true")
     args = parser.parse_args()
 
@@ -1500,6 +1500,51 @@ def main():
         translations = {}
         qa_batches = {}
         seq = 0
+        last_progress_at = float("-inf")
+
+        def report_progress():
+            nonlocal last_progress_at
+            now = time.monotonic()
+            if now - last_progress_at < 120:
+                return
+            last_progress_at = now
+            audited = audited_ids_by_language(qa_batches, requested)
+            expected_ids = set(source_map)
+            translated = 0
+            verified = 0
+            for sid in expected_ids:
+                missing = set(row_missing_languages(translations.get(sid), requested))
+                translated += len(requested) - len(missing)
+                verified += sum(
+                    sid in audited[lang] for lang in requested if lang not in missing
+                )
+            total = len(expected_ids) * len(requested)
+            message = f"Gemma 4 已翻譯 {translated}/{total} 組，已通過 QA {verified}/{total} 組"
+            progress = 5 + 90 * (translated + verified) // max(1, 2 * total)
+            print(f"[MULTI-PROGRESS] {message}", flush=True)
+            try:
+                mark_running(
+                    args.task_id, "multi", sheets=sheets, run_id=run_id,
+                    message=message, progress=progress,
+                )
+            except Exception as exc:
+                print(f"[WARN] Multi progress status unavailable: {type(exc).__name__}", flush=True)
+
+        def save_progress():
+            nonlocal seq
+            seq += 1
+            save_persistent_checkpoint(
+                args.task_id,
+                checkpoint_payload(
+                    args.task_id, len(source_segments), translations,
+                    qa_batches, seq, source_sha256, requested,
+                ),
+                drive=drive,
+                translation_folder_id=folders["translation"],
+                workdir=workdir,
+                require_persistent=True,
+            )
+            report_progress()
 
         if not args.reset_checkpoint:
             checkpoint, source = load_persistent_checkpoint(
@@ -1599,6 +1644,8 @@ def main():
                             flush=True,
                         )
 
+        report_progress()
+
         # Resume only failed language/segment pairs from earlier checkpoints.
         # A single unrepairable language must never block other languages.
         for key, data in list(qa_batches.items()):
@@ -1642,7 +1689,7 @@ def main():
                 )
                 print(
                     f"[RESUME-QA-LANGUAGE] batch={key} lang={lang}; "
-                    f"failures={len(initial)}",
+                    f"failures={len(initial or {})}",
                     flush=True,
                 )
                 try:
@@ -1669,25 +1716,16 @@ def main():
                         flush=True,
                     )
                 qa_batches[key] = data
-                seq += 1
-                save_persistent_checkpoint(
-                    args.task_id,
-                    checkpoint_payload(
-                        args.task_id, len(source_segments), translations,
-                        qa_batches, seq, source_sha256, requested,
-                    ),
-                    drive=drive,
-                    translation_folder_id=folders["translation"],
-                    workdir=workdir,
-                    require_persistent=True,
-                )
+                save_progress()
                 # If this language is still failing, we will continue the
                 # other languages and publish only fully QA-passed outputs.
 
-        remaining = incomplete_source_segments(
+        audited = audited_ids_by_language(qa_batches, requested)
+        remaining = pending_source_segments(
             source_segments,
             translations,
             requested,
+            audited,
         )
         batches = build_translation_batches(
             remaining,
@@ -1704,6 +1742,8 @@ def main():
         for batch_no, batch in enumerate(batches, start=1):
             ids = [int(src["id"]) for src in batch]
             key = f"{ids[0]}-{ids[-1]}"
+            if key in qa_batches and qa_batches[key].get("segment_ids") != ids:
+                key = ",".join(str(sid) for sid in ids)
             missing_langs = [
                 lang for lang in requested
                 if any(lang in row_missing_languages(
@@ -1806,18 +1846,7 @@ def main():
                 qa_batches[key] = data
                 # Successful translation as well as skipped-language status
                 # must be durable before any later QA/provider call.
-                seq += 1
-                save_persistent_checkpoint(
-                    args.task_id,
-                    checkpoint_payload(
-                        args.task_id, len(source_segments), translations,
-                        qa_batches, seq, source_sha256, requested,
-                    ),
-                    drive=drive,
-                    translation_folder_id=folders["translation"],
-                    workdir=workdir,
-                    require_persistent=True,
-                )
+                save_progress()
                 print(
                     f"[CHECKPOINT] language group "
                     f"{','.join(group_missing)} saved",
@@ -1840,12 +1869,13 @@ def main():
                         stage="translation",
                     )
                     continue
-                if lang in (data.get("verified_languages") or []):
+                qa_batch = [src for src in batch if int(src["id"]) not in audited[lang]]
+                if not qa_batch:
                     continue
                 try:
                     failures, local, semantic, repairs, models = (
                         repair_batch_until_clean(
-                            client, batch, translations, source_map,
+                            client, qa_batch, translations, source_map,
                             glossary, [lang],
                             wait_seconds=args.wait_seconds,
                             max_rounds=2,
@@ -1864,6 +1894,7 @@ def main():
                             flush=True,
                         )
                     else:
+                        audited[lang].update(ids)
                         print(
                             f"[QA-LANGUAGE-PASS] {key}/{lang}",
                             flush=True,
@@ -1879,34 +1910,12 @@ def main():
                     )
 
                 qa_batches[key] = data
-                seq += 1
-                save_persistent_checkpoint(
-                    args.task_id,
-                    checkpoint_payload(
-                        args.task_id, len(source_segments), translations,
-                        qa_batches, seq, source_sha256, requested,
-                    ),
-                    drive=drive,
-                    translation_folder_id=folders["translation"],
-                    workdir=workdir,
-                    require_persistent=True,
-                )
+                save_progress()
 
             # Persist translation-missing / deferred language markers when
             # the batch had no successful QA calls.
             qa_batches[key] = data
-            seq += 1
-            save_persistent_checkpoint(
-                args.task_id,
-                checkpoint_payload(
-                    args.task_id, len(source_segments), translations,
-                    qa_batches, seq, source_sha256, requested,
-                ),
-                drive=drive,
-                translation_folder_id=folders["translation"],
-                workdir=workdir,
-                require_persistent=True,
-            )
+            save_progress()
 
             if batch_no < len(batches) and args.wait_seconds:
                 time.sleep(args.wait_seconds)

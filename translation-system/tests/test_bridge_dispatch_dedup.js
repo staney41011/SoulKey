@@ -79,3 +79,33 @@ const retry = fn('private-token', 'P257-L02', 'asr', '', '');
 assert.equal(retry.ok, true, 'failed dispatch is immediately retryable');
 assert.ok(releases >= 6, 'every lock use must release');
 console.log('BRIDGE_DEDUP_OK: duplicate rejected, release and failed dispatch retry work');
+
+const runtimeFrom = source.indexOf('function getRuntimeJob_(');
+const runtimeUntil = source.indexOf('function workerRuntime_(', runtimeFrom);
+const activeTtl = source.match(/^const ACTIVE_RUNTIME_TTL_MS = .*;$/m);
+assert.ok(activeTtl && runtimeFrom > 0 && runtimeUntil > runtimeFrom);
+let clock = 1_800_000_000_000;
+sandbox.Date = class extends Date {
+  static now() { return clock; }
+};
+vm.runInContext(activeTtl[0] + '\n' + source.slice(runtimeFrom, runtimeUntil), sandbox);
+const queuedNonce = 'queued-job';
+const queueDeadline = clock + 60_000;
+storage.set('JOB_' + queuedNonce, JSON.stringify({
+  task_id: 'P260-L04',
+  expires_at: new Date(queueDeadline).toISOString(),
+}));
+const active = sandbox.activateRuntimeJob_(queuedNonce);
+assert.equal(Date.parse(active.expires_at), clock + 6 * 60 * 60 * 1000);
+clock = queueDeadline + 1000;
+assert.equal(sandbox.activateRuntimeJob_(queuedNonce).expires_at, active.expires_at,
+  'refresh must not extend the active deadline');
+clock = Date.parse(active.expires_at) + 1000;
+assert.equal(sandbox.activateRuntimeJob_(queuedNonce), null,
+  'an expired job must not be reactivated');
+storage.set('JOB_expired-queue', JSON.stringify({
+  expires_at: new Date(queueDeadline).toISOString(),
+}));
+assert.equal(sandbox.activateRuntimeJob_('expired-queue'), null,
+  'a job that missed its queue deadline may not start');
+console.log('BRIDGE_RUNTIME_OK: queued and active expiry are independently enforced');
