@@ -1,0 +1,59 @@
+name: SoulKey Sheets Formal TTS Dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: P260 lesson
+        type: choice
+        options:
+          - P260-L01
+          - P260-L02
+          - P260-L04
+        required: true
+      langs:
+        description: Comma-separated non-English language codes
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Issue authenticated formal audio dispatch
+        shell: bash
+        env:
+          AUDIO_KEY: ${{ secrets.SOULKEY_AUDIO_RECONCILE_KEY }}
+          TASK_ID: ${{ inputs.task_id }}
+          LANGS: ${{ inputs.langs }}
+          BRIDGE_URL: https://script.google.com/macros/s/AKfycby1BX9ruV14vfGfqtpSrB55BEKgbxJKJo3NVkB0ZP64Ll6P_Zmo-1KM4m7j2MN9BRrhmQ/exec
+        run: |
+          set -euo pipefail
+          if [[ -z "$AUDIO_KEY" || -z "$LANGS" ]]; then
+            echo "Missing signed dispatch secret or language selection"
+            exit 1
+          fi
+          RESPONSE=$(curl -fsSL --retry 2 --max-time 75 \
+            --data-urlencode "action=audio_reconcile" \
+            --data-urlencode "audio_key=$AUDIO_KEY" \
+            --data-urlencode "sheet_formal_task=$TASK_ID" \
+            --data-urlencode "pilot_l04_langs=$LANGS" \
+            "$BRIDGE_URL")
+          RESULT="$RESPONSE" python - <<'PY'
+          import json,os
+          value=json.loads(os.environ["RESULT"])
+          task=os.environ["TASK_ID"]
+          expected=os.environ["LANGS"]
+          print("FORMAL_TTS_DISPATCH_RETURN keys="+",".join(sorted(value.keys())))
+          if not value.get("ok") or value.get("task_id")!=task or value.get("stage")!="pilot_tts":
+              raise SystemExit("Formal TTS dispatch was not confirmed; response="+str({k:v for k,v in value.items() if k in ("ok","error","reason","task_id","stage")}))
+          if value.get("langs")!=expected:
+              raise SystemExit("Unexpected dispatched language selection")
+          print("FORMAL_TTS_DISPATCH_ACCEPTED task="+task+" langs="+expected+
+                " queued="+str(bool(value.get("queued")))+
+                " duplicate="+str(bool(value.get("duplicate"))))
+          PY
