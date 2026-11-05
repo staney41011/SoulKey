@@ -1,0 +1,43 @@
+name: SoulKey Auto Audio Reconcile
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-auto-audio-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Wake authenticated Bridge to resume approved audio
+        shell: bash
+        env:
+          AUDIO_KEY: ${{ secrets.SOULKEY_AUDIO_RECONCILE_KEY }}
+          BRIDGE_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
+        run: |
+          set -euo pipefail
+          if [[ -z "$AUDIO_KEY" ]]; then
+            echo "Audio reconciliation secret is missing"
+            exit 1
+          fi
+          RESPONSE=$(curl -fsSL --retry 2 --max-time 70 \
+            --data-urlencode "action=audio_reconcile" \
+            --data-urlencode "audio_key=$AUDIO_KEY" \
+            "$BRIDGE_URL")
+          RESULT="$RESPONSE" python - <<'PY'
+          import json,os
+          value=json.loads(os.environ["RESULT"])
+          if not value.get("ok"):
+              raise SystemExit("Bridge audio reconciliation failed: "+str(value.get("reason") or value.get("error")))
+          print("AUDIO_RECONCILE_OK task="+str(value.get("task_id") or "none")+
+                " languages="+str(value.get("langs") or "none")+
+                " queued="+str(bool(value.get("task_id"))))
+          PY

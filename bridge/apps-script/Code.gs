@@ -91,6 +91,16 @@ function doPost(e) {
   try {
     const action = String((e && e.parameter && e.parameter.action) || "").trim();
 
+    if (action === "audio_reconcile") {
+      const props = PropertiesService.getScriptProperties();
+      const expected = String(props.getProperty("SOULKEY_AUDIO_RECONCILE_KEY") || "");
+      const supplied = String((e && e.parameter && e.parameter.audio_key) || "");
+      if (!expected || !supplied || supplied !== expected) {
+        return json_({ok:false,error:"unauthorized"});
+      }
+      return json_(soulkeyAutoAudioReconcile_());
+    }
+
     if (action === "worker_report") {
       const nonce = String((e && e.parameter && e.parameter.nonce) || "").trim();
       const status = String((e && e.parameter && e.parameter.status) || "").trim();
@@ -1703,9 +1713,13 @@ function reviewFinish_(taskId, planJson) {
     };
   }
 
+  // Restore pre-10/28 automatic pipeline: run the Gemma 4 CPU multi stage
+  // first. The Bridge callback queues independently approved-language TTS.
+  // If this plan needs audio only, start verified TTS without retranslation.
+  const initialStage = translateLangs.length ? "multi" : "tts";
+  const initialLangs = (translateLangs.length ? translateLangs : audioLangs).join(",");
   const dispatch = dispatchWorkflowIdempotently_(
-    githubToken, normalizedTaskId, "finish",
-    audioLangs.join(","), translateLangs.join(",")
+    githubToken, normalizedTaskId, initialStage, "", initialLangs
   );
   if (dispatch.duplicate) {
     return {
@@ -1731,7 +1745,7 @@ function reviewFinish_(taskId, planJson) {
 
   appendExecutionStatus_(
     normalizedTaskId,
-    "finish",
+    initialStage,
     "queued",
     String(dispatch.workflow_run_id || dispatch.nonce.slice(0, 12)),
     0,
