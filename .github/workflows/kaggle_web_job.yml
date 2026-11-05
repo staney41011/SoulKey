@@ -33,10 +33,12 @@ on:
 permissions:
   contents: write
 
-# Keep API/TTS CPU work independent from Kaggle ASR/GPU work.
+# Gemma 4 translation and approved-language TTS have independent CPU queues.
+# A long multilingual QA must never hold up already approved voice delivery.
+# Kaggle GPU ASR remains isolated from both.
 # queue: max prevents newer runs silently canceling older pending lessons.
 concurrency:
-  group: ${{ ((inputs.stage == 'multi' || inputs.stage == 'tts') && vars.SOULKEY_CPU_WORKER_ENABLED != 'false') && 'soulkey-github-cpu' || 'soulkey-kaggle-web-worker' }}
+  group: ${{ (inputs.stage == 'tts' && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' && 'soulkey-github-tts') || (inputs.stage == 'multi' && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' && 'soulkey-github-multi') || 'soulkey-kaggle-web-worker' }}
   queue: max
   cancel-in-progress: false
 
