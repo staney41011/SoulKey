@@ -811,26 +811,37 @@ def process_task(task_id, system_dir):
         # files is not proof they were produced from the current English Final.
         # The runner validates the English-source fingerprint and normally exits
         # quickly from its persistent checkpoint when nothing changed.
-        run_gemini_stage_with_backoff(
-            [
-                sys.executable,
-                system_dir / "gemini_multi_production_runner.py",
-                "--task-id", task_id,
-                "--langs", ",".join(TARGET_LANGS),
-            ],
-            f"{task_id} multilingual translation",
-        )
+        partial_multi = False
+        try:
+            run_gemini_stage_with_backoff(
+                [
+                    sys.executable,
+                    system_dir / "gemini_multi_production_runner.py",
+                    "--task-id", task_id,
+                    "--langs", ",".join(TARGET_LANGS),
+                ],
+                f"{task_id} multilingual translation",
+            )
+
+        except subprocess.CalledProcessError as exc:
+            if exc.returncode != 76:
+                raise
+            partial_multi = True
+            print("[BATCH] multi partially approved; continue verified language audio",
+                  flush=True)
 
         # 6. Audio stage: SoulKey Natural TTS v2 from approved Final translations.
         # YouTube auto-dub is benchmark-only and never satisfies formal audio.
-        run([
+        audio_cmd = [
             sys.executable, system_dir / "tts_runner.py",
             "--task-id", task_id,
             "--langs", ",".join(LANGS),
             "--max-tasks", "1",
             "--smart-fit-pilot",
-            "--strict-delivery",
-        ])
+        ]
+        if not partial_multi:
+            audio_cmd.append("--strict-delivery")
+        run(audio_cmd)
 
         # Audio is complete when either:
         # 1) YouTube supplied a multilingual / auto-dubbed MP3 selected as the

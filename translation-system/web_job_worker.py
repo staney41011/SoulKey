@@ -793,40 +793,10 @@ def main():
             if not langs:
                 raise RuntimeError("TTS 沒有指定任何語言")
 
-            # Dependency repair:
-            # Every non-English TTS must be based on translations generated
-            # from the CURRENT en.final.json. The multi runner invalidates its
-            # checkpoint automatically when the English Final fingerprint
-            # changes, so this preflight is cheap when current and performs a
-            # full retranslation when stale.
-            translate_langs = [
-                lang for lang in requested_audio_langs if lang != "en"
-            ]
-            if translate_langs:
-                if not gemini_api_key:
-                    raise RuntimeError(
-                        "非英文 TTS 需要先驗證/更新 multi，"
-                        "但 Apps Script 沒有提供 GEMINI_API_KEY"
-                    )
-                print(
-                    "[TTS:DEPENDENCY] 先同步目前 English Final → "
-                    + ",".join(translate_langs),
-                    flush=True,
-                )
-                run_checkpointed_multi([
-                    sys.executable,
-                    str(system_dir / "gemini_multi_production_runner.py"),
-                    "--task-id", args.task_id,
-                    "--langs", ",".join(translate_langs),
-                ], refresh_credentials=lambda:refresh_worker_drive_credentials(
-                    args.bridge_url, args.runtime_nonce
-                ))
-
-            print(
-                "[TTS] Natural TTS v2 使用 CPU + Internet；不申請 GPU。",
-                flush=True,
-            )
-
+            # Per-language QA+current-English revision are enforced by tts_runner.
+            # Never repeat all Gemma 4 translations before speaking one language.
+            print("[TTS] Direct verified language handoff; no full-lesson retranslation",
+                  flush=True)
             cmd = [
                 sys.executable,
                 str(system_dir / "tts_runner.py"),
@@ -971,6 +941,10 @@ def main():
                     refresh_credentials=lambda:refresh_worker_drive_credentials(
                         args.bridge_url, args.runtime_nonce
                     ),
+                )
+                report(
+                    args.bridge_url, args.runtime_nonce, "done",
+                    "Gemma 4 multilingual text QA completed; auto TTS handoff ready",
                 )
             except subprocess.CalledProcessError as exc:
                 if exc.returncode != 76:

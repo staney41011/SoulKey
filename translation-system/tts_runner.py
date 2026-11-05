@@ -278,6 +278,26 @@ def validate_translation_revision(lang, payload, selected_name, en_source_sha256
         )
 
 
+def load_qa_approved_languages(drive, translation_folder, workdir):
+    """Only a completed per-language semantic QA is eligible for automatic TTS.
+
+    A 'multi' task may be needs_review because *other* languages are pending;
+    that must not block a language already delivered from the current Final.
+    """
+    item = find_file(drive, translation_folder, "gemini.qa.json")
+    if not item:
+        return set()
+    path = Path(workdir) / "tts-current-multi-qa.json"
+    download_drive_file(drive, item["id"], path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("status") not in ("complete", "needs_review"):
+        return set()
+    approved = payload.get("approved_languages") or []
+    if not isinstance(approved, list):
+        return set()
+    return {str(x).strip() for x in approved if str(x).strip()}
+
+
 def _ensure_edge_tts_runtime():
     if importlib.util.find_spec("edge_tts") is not None:
         return
@@ -792,11 +812,15 @@ def main():
             )
             en_source_sha256 = None
             latest_multi = None
+            qa_approved_languages = set()
             if any(lang != "en" for lang in langs):
                 latest_multi = latest_stage_status(
                     sheets,
                     task["task_id"],
                     "multi",
+                )
+                qa_approved_languages = load_qa_approved_languages(
+                    drive, folders["translation"], workdir,
                 )
                 en_source_sha256 = load_english_final_fingerprint(
                     drive,
@@ -833,7 +857,7 @@ def main():
                 try:
                     if lang != "en":
                         multi_status = str((latest_multi or {}).get("status") or "")
-                        if multi_status != "done":
+                        if multi_status != "done" and lang not in qa_approved_languages:
                             raise UpstreamTranslationNotReady(
                                 "最新 multi 狀態不是 done"
                                 + (f"（目前={multi_status}）" if multi_status else "（目前無狀態）")

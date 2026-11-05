@@ -83,7 +83,7 @@ function doGet(e) {
     message: "bridge-ready",
     status_sheet: STATUS_SHEET_NAME,
     web_job_workflow: WORKFLOW_WEB_JOB,
-    bridge_protocol: BRIDGE_PROTOCOL_VERSION
+    bridge_protocol: BRIDGE_PROTOCOL_VERSION, bridge_client_transport: "top-postmessage-v1", bridge_review_final_transport: "drive-authoritative-v1"
   });
 }
 
@@ -225,31 +225,6 @@ function doPost(e) {
         });
       }
 
-      // Self-heal missing period/lesson Drive folders before dispatch.
-      // A formerly registered course may predate folder provisioning.
-      if (stage === "zh" || stage === "asr" || stage === "metadata") {
-        try {
-          const registered = taskInfo_(taskId);
-          const period = Number(registered.period || 0);
-          const lesson = Number(
-            (String(registered.lesson || "").match(/\d+/) || [])[0] || 0
-          );
-          if (!period || lesson < 1 || lesson > 4) {
-            throw new Error("課程期數或堂次格式不正確");
-          }
-          ensurePeriodStructure_(period, lesson);
-        } catch (folderError) {
-          return postMessage_({
-            source: "soulkey-bridge",
-            type: "run_stage",
-            ok: false,
-            error: "period_folder_unavailable",
-            message: "無法建立或核對課程 Drive 資料夾；尚未派工。"
-              + String(folderError && folderError.message || folderError).slice(0, 240)
-          });
-        }
-      }
-
       if (!githubToken) {
         return postMessage_({
           source: "soulkey-bridge",
@@ -258,6 +233,28 @@ function doPost(e) {
           error: "server_not_configured",
           message: "GITHUB_TOKEN 尚未設定"
         });
+      }
+
+      // Ensure folders before dispatch; older saved tasks may lack a period folder.
+      if (stage === "zh" || stage === "asr" || stage === "metadata") {
+        try {
+          const registered = taskInfo_(taskId);
+          const period = Number(registered.period || 0);
+          const lesson = Number(
+            (String(registered.lesson || "").match(/\d+/) || [])[0] || 0
+          );
+          if (!period || lesson < 1 || lesson > 4) {
+            throw new Error("Invalid lesson number or period");
+          }
+          ensurePeriodStructure_(period, lesson);
+        } catch (folderError) {
+          return postMessage_({
+            source: "soulkey-bridge", type: "run_stage", ok: false,
+            error: "period_folder_unavailable",
+            message: "Cloud lesson folder unavailable. Job not dispatched: "
+              + String(folderError && folderError.message || folderError).slice(0, 240)
+          });
+        }
       }
 
       const dispatch = dispatchWorkflowIdempotently_(
@@ -444,7 +441,7 @@ function doPost(e) {
         sheet: STATUS_SHEET_NAME,
         rows: Math.max(0, sheet.getLastRow() - 1),
         youtube_cookies_configured: !!props.getProperty("YOUTUBE_COOKIES_B64"),
-        bridge_protocol: BRIDGE_PROTOCOL_VERSION,
+        bridge_protocol: BRIDGE_PROTOCOL_VERSION, bridge_client_transport: "top-postmessage-v1", bridge_review_final_transport: "drive-authoritative-v1",
         server_time: new Date().toISOString()
       });
     }
@@ -531,7 +528,7 @@ function bridgeRequest(request) {
         sheet: STATUS_SHEET_NAME,
         rows: Math.max(0, sheet.getLastRow() - 1),
         youtube_cookies_configured: !!props.getProperty("YOUTUBE_COOKIES_B64"),
-        bridge_protocol: BRIDGE_PROTOCOL_VERSION,
+        bridge_protocol: BRIDGE_PROTOCOL_VERSION, bridge_client_transport: "top-postmessage-v1", bridge_review_final_transport: "drive-authoritative-v1",
         server_time: new Date().toISOString()
       };
     }
@@ -842,9 +839,89 @@ function workerRuntime_(nonce) {
     gemini_api_key: String(props.getProperty("GEMINI_API_KEY") || ""),
     nvidia_api_key: String(props.getProperty("NVIDIA_API_KEY") || ""),
     youtube_cookies_b64: String(props.getProperty("YOUTUBE_COOKIES_B64") || ""),
-    bridge_protocol: BRIDGE_PROTOCOL_VERSION,
+    bridge_protocol: BRIDGE_PROTOCOL_VERSION, bridge_client_transport: "top-postmessage-v1", bridge_review_final_transport: "drive-authoritative-v1",
     expires_at: job.expires_at
   };
+}
+
+/**
+ * Restore pre-10/28 automatic text-to-speech handoff.
+ * A language may be spoken only when approved by Gemma 4 semantic QA,
+ * or is the original approved English Final. Unapproved Google Translate
+ * pilot cells and stale translation files are never used for formal audio.
+ *
+ * Each invocation queues at most one lesson; the TTS callback queues the
+ * next lesson. Per-lesson retry lease protects GitHub Actions concurrency.
+ */
+function soulkeyAutoAudioReconcile_() {
+  const props=PropertiesService.getScriptProperties();
+  const githubToken=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+  if(!githubToken) return {ok:false,reason:"github_token_not_configured"};
+  const now=Date.now();
+  const tasks=readTasks_()
+    .filter(function(t){return Number(t.period)>=260 &&
+      String(t.en||"").trim()==="完成" &&
+      /^P\d+-L\d+$/.test(String(t.id||""));})
+    .sort(function(a,b){return Number(b.period)-Number(a.period) ||
+      String(a.id).localeCompare(String(b.id));}).slice(0,8);
+  for(let i=0;i<tasks.length;i++){
+    const task=tasks[i];
+    try {
+      const folders=lessonFolders_(task.id);
+      if(!cachedFileId_(folders.translation,"en.final.json")) continue;
+      const plan=readLanguagePlan_(task.id);
+      const selected=plan.filter(function(p){return p.audio_enabled;})
+        .map(function(p){return String(p.language_code||"").trim();});
+      if(!selected.length) continue;
+      const qa=readJsonFile_(folders.translation,"gemini.qa.json")||{};
+      const accepted=new Set(
+        qa.status==="needs_review"||qa.status==="complete"
+        ? (Array.isArray(qa.approved_languages)?qa.approved_languages:[])
+        : []);
+      const audioFolder=cachedChildFolder_(folders.lesson,"04_音檔");
+      const allowed=selected.filter(function(lang){
+        if(lang!=="en"&&!accepted.has(lang)) return false;
+        // Already delivered or left for human duration review: don't retry.
+        const completed=cachedFileId_(audioFolder,lang+".tts_manifest.json") &&
+          (cachedFileId_(audioFolder,lang+".mp3") ||
+           cachedFileId_(audioFolder,lang+".preview.mp3"));
+        return !completed;
+      });
+      if(!allowed.length) continue;
+      const signature=allowed.join(",");
+      const leaseKey="AUTO_AUDIO_V2_"+task.id;
+      let lease={};
+      try{lease=JSON.parse(props.getProperty(leaseKey)||"{}");}catch(_){}
+      if(lease.signature===signature &&
+          Number(lease.expires_at_ms||0)>now) continue;
+      // Never run an unapproved language simply because another language
+      // already passed. Downstream TTS also verifies the English SHA.
+      const dispatched=dispatchWorkflowIdempotently_(
+        githubToken,task.id,"tts","",signature,
+        "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec");
+      if(!dispatched.ok) {
+        Logger.log("[AUTO-AUDIO] dispatch failed "+task.id+" "+
+          String(dispatched.error||"unknown"));
+        return {ok:false,task_id:task.id,reason:dispatched.error||"dispatch_failed"};
+      }
+      props.setProperty(leaseKey,JSON.stringify({
+        signature:signature,expires_at_ms:now+3*60*60*1000,
+        queued_at:new Date(now).toISOString()
+      }));
+      if(!dispatched.duplicate){
+        appendExecutionStatus_(task.id,"tts","queued",
+          String(dispatched.workflow_run_id||dispatched.nonce.slice(0,12)),
+          0,"自動配音派工："+signature,"","","","","","");
+      }
+      Logger.log("[AUTO-AUDIO] queued "+task.id+" "+signature);
+      return {ok:true,task_id:task.id,langs:signature,
+        duplicate:!!dispatched.duplicate};
+    }catch(err){
+      Logger.log("[AUTO-AUDIO] "+task.id+" "+
+        String(err&&err.message||err).slice(0,240));
+    }
+  }
+  return {ok:true,queued:false};
 }
 
 function workerReport_(nonce, status, message) {
@@ -882,12 +959,25 @@ function workerReport_(nonce, status, message) {
   if (["done", "error", "needs_review"].indexOf(normalized) >= 0) {
     releaseDispatchLease_(job, nonce);
   }
+  // A single approved language need not wait for all fifteen siblings.
+  // Also reconcile on legitimate multi heartbeats to recover earlier lessons
+  // whose multi stage finished before this deployment.
+  let autoAudio=null;
+  if ((job.stage==="multi" &&
+       ["running","done","needs_review"].indexOf(normalized)>=0) ||
+      (job.stage==="en" && normalized==="done") ||
+      (job.stage==="tts" &&
+       ["done","error","needs_review"].indexOf(normalized)>=0)) {
+    try { autoAudio=soulkeyAutoAudioReconcile_(); }
+    catch(e){Logger.log("[AUTO-AUDIO] "+String(e&&e.message||e));}
+  }
 
   return {
     ok: true,
     task_id: job.task_id,
     stage: job.stage,
-    status: normalized
+    status: normalized,
+    auto_audio: autoAudio
   };
 }
 
@@ -2447,7 +2537,27 @@ function dispatchLeaseKey_(taskId, stage, lang, langs) {
     .replace(/=+$/g, "");
 }
 
-function dispatchWorkflowIdempotently_(githubToken, taskId, stage, lang, langs) {
+function resumeP259VerifiedWork_() {
+  const taskId = "P259-L01";
+  const registered = readTasks_().map(function(item) { return item.id; });
+  if ([1, 2, 3, 4].some(function(n) { return registered.indexOf("P259-L0" + n) < 0; })) {
+    throw new Error("第259期四堂課尚未完整登記，未派工");
+  }
+  const githubToken = String(PropertiesService.getScriptProperties().getProperty("GITHUB_TOKEN") || "").trim();
+  if (!githubToken) throw new Error("原 GitHub 派工設定尚未完成");
+  const bridgeUrl = "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec";
+  const dispatch = dispatchWorkflowIdempotently_(githubToken, taskId, "multi", "central4", "", bridgeUrl);
+  if (!dispatch.ok) throw new Error("原 Kaggle 派工未成功，請核對 GitHub 回應狀態");
+  const receipt = {ok: true, task_id: taskId, stage: "multi", duplicate: !!dispatch.duplicate,
+    run_id: String(dispatch.workflow_run_id || "")};
+  if (!dispatch.duplicate) appendExecutionStatus_(taskId, "multi", "queued",
+    receipt.run_id || "admin-P259-" + Date.now(), 0,
+    "管理編輯器已由原 Bridge 接續四堂課；沿用已驗證文稿與音檔", "", "", "");
+  Logger.log(JSON.stringify(receipt));
+  return receipt;
+}
+
+function dispatchWorkflowIdempotently_(githubToken, taskId, stage, lang, langs, bridgeUrl) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -2471,7 +2581,7 @@ function dispatchWorkflowIdempotently_(githubToken, taskId, stage, lang, langs) 
         task_id: taskId, stage: stage,
         lang: lang || "", langs: langs || "",
         runtime_nonce: nonce,
-        bridge_url: ScriptApp.getService().getUrl()
+        bridge_url: bridgeUrl || ScriptApp.getService().getUrl()
       }
     );
     if (!dispatch.ok) {
@@ -5020,7 +5130,51 @@ function buildZhReviewManifest_(folder, raw, polished) {
   return manifest;
 }
 
+function loadChineseFinalReviewChunk_(official, taskId, chunkIndex, startedAt) {
+  if ((official.task_id && String(official.task_id) !== String(taskId)) ||
+      !Array.isArray(official.segments) || !official.segments.length) {
+    return { ok: false, task_id: taskId, kind: "zh",
+      error: "invalid_chinese_final", message: "中文 Final 資料不完整，保留原稿，請核對來源" };
+  }
+  const items = official.segments;
+  const chunkSize = 200;
+  const chunkCount = Math.max(1, Math.ceil(items.length / chunkSize));
+  const safeIndex = Math.max(0, Math.min(Number(chunkIndex || 0), chunkCount - 1));
+  const finalizedAt = String(official.finalized_at || official.central_finalized_at || "");
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(official));
+  return {
+    ok: true, task_id: taskId, kind: "zh", is_final: true,
+    review_source: "zh-TW.final.json", finalized_at: finalizedAt,
+    zh_finalized_at: finalizedAt,
+    review_revision: Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, ""),
+    load_ms: Date.now() - startedAt, chunk_index: safeIndex, chunk_count: chunkCount,
+    total_segments: items.length, has_more: safeIndex + 1 < chunkCount,
+    segments: items.slice(safeIndex * chunkSize, (safeIndex + 1) * chunkSize).map(function(item, index) {
+      const result = Object.assign({}, item);
+      result.id = Number(item.id !== undefined ? item.id : safeIndex * chunkSize + index);
+      result.text = String(item.text || "");
+      result.raw = String(item.raw !== undefined ? item.raw : result.text);
+      result.confirmed = true;
+      return result;
+    })
+  };
+}
+
 function loadZhReviewChunk_(folders, taskId, chunkIndex, startedAt) {
+  const official = readJsonFile_(folders.transcript, "zh-TW.final.json");
+  if (official) {
+    // Preserve full manually-resegmented finals, but never load only a
+    // middle chunk as the entire 23-minute transcript.
+    const rawForCoverage=readJsonFile_(folders.transcript,"segments.json");
+    const rawItems=rawForCoverage && Array.isArray(rawForCoverage.segments)
+      ? rawForCoverage.segments : [];
+    const humanItems=Array.isArray(official.segments) ? official.segments : [];
+    const partial=rawItems.length>humanItems.length && humanItems.length>0 &&
+      (Number(humanItems[0].start||0)>Number(rawItems[0].start||0)+30 ||
+       Number(humanItems[humanItems.length-1].end||0)<
+          Number(rawItems[rawItems.length-1].end||0)-30);
+    if(!partial) return loadChineseFinalReviewChunk_(official,taskId,chunkIndex,startedAt);
+  }
   let manifest = readJsonFile_(folders.transcript, "zh-TW.review.manifest.json");
 
   // 舊任務第一次開啟時，才由既有 ASR + polish_report 建立一次分塊快取。
@@ -5197,7 +5351,10 @@ function loadReview_(taskId, kind, chunkIndex) {
         task_id: taskId,
         kind: kind,
         source: "en.final.json",
-        finalized_at: String(englishFinal.finalized_at || ""),
+        review_source: "en.final.json",
+        is_final: true,
+        finalized_at: String(englishFinal.finalized_at || englishFinal.central_finalized_at || ""),
+        zh_finalized_at: String(original.finalized_at || original.central_finalized_at || ""),
         load_ms: Date.now() - startedAt,
         segments: englishFinal.segments.map(function(x, i) {
           const start = Number(x.start || 0);
@@ -5544,6 +5701,7 @@ function bridgeClientHtml_() {
 (function(){
   function send(payload){
     try { window.parent.postMessage(payload, "*"); } catch (e) {}
+    try { window.top.postMessage(payload, "https://staney41011.github.io"); } catch (e) {}
   }
 
   send({source: "soulkey-bridge-client", type: "ready"});
