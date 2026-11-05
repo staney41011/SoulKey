@@ -5,6 +5,16 @@ on:
     - cron: "*/20 * * * *"
   workflow_dispatch:
     inputs:
+      sheet_formal_task:
+        description: Destination lesson for Google Sheets sourced official audio
+        required: false
+        type: string
+        default: "P260-L04"
+      pilot_l04_langs:
+        description: Google Sheets sourced official audio language list
+        required: false
+        type: string
+        default: ""
       reset_task:
         description: Requeue a verified-cancelled P260 audio job (optional)
         type: string
@@ -27,6 +37,8 @@ jobs:
         shell: bash
         env:
           AUDIO_KEY: ${{ secrets.SOULKEY_AUDIO_RECONCILE_KEY }}
+          SHEET_FORMAL_TASK: ${{ inputs.sheet_formal_task || 'P260-L04' }}
+          PILOT_L04_LANGS: ${{ inputs.pilot_l04_langs || '' }}
           RESET_TASK: ${{ inputs.reset_task || '' }}
           BRIDGE_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
         run: |
@@ -38,6 +50,8 @@ jobs:
           RESPONSE=$(curl -fsSL --retry 2 --max-time 70 \
             --data-urlencode "action=audio_reconcile" \
             --data-urlencode "reset_task=$RESET_TASK" \
+            --data-urlencode "sheet_formal_task=$SHEET_FORMAL_TASK" \
+            --data-urlencode "pilot_l04_langs=$PILOT_L04_LANGS" \
             --data-urlencode "audio_key=$AUDIO_KEY" \
             "$BRIDGE_URL")
           RESULT="$RESPONSE" python - <<'PY'

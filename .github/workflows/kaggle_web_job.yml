@@ -38,13 +38,13 @@ permissions:
 # Kaggle GPU ASR remains isolated from both.
 # queue: max prevents newer runs silently canceling older pending lessons.
 concurrency:
-  group: ${{ (inputs.stage == 'tts' && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' && 'soulkey-github-tts') || (inputs.stage == 'multi' && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' && 'soulkey-github-multi') || 'soulkey-kaggle-web-worker' }}
+  group: ${{ (inputs.stage == 'pilot_tts' && 'soulkey-github-sheets-tts-test') || (inputs.stage == 'tts' && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' && 'soulkey-github-tts') || (inputs.stage == 'multi' && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' && 'soulkey-github-multi') || 'soulkey-kaggle-web-worker' }}
   queue: max
   cancel-in-progress: false
 
 jobs:
   launch:
-    if: ${{ (inputs.stage != 'multi' && inputs.stage != 'tts') || vars.SOULKEY_CPU_WORKER_ENABLED == 'false' }}
+    if: ${{ (inputs.stage != 'multi' && inputs.stage != 'tts' && inputs.stage != 'pilot_tts') || vars.SOULKEY_CPU_WORKER_ENABLED == 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
@@ -396,7 +396,7 @@ jobs:
 
   cpu:
     # Only API translation and TTS: they do not need Kaggle or CUDA.
-    if: ${{ (inputs.stage == 'multi' || inputs.stage == 'tts') && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' }}
+    if: ${{ (inputs.stage == 'multi' || inputs.stage == 'tts' || inputs.stage == 'pilot_tts') && vars.SOULKEY_CPU_WORKER_ENABLED != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     permissions:
@@ -428,7 +428,7 @@ jobs:
           sudo apt-get install -y -qq ffmpeg
           python -m pip install --disable-pip-version-check -q \
             -r translation-system/requirements-gemini.txt
-          if [[ "${{ inputs.stage }}" == "tts" ]]; then
+          if [[ "${{ inputs.stage }}" == "tts" || "${{ inputs.stage }}" == "pilot_tts" ]]; then
             python -m pip install --disable-pip-version-check -q edge-tts==7.2.8
           fi
           ffprobe -version | head -n 1

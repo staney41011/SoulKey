@@ -21,6 +21,7 @@ MACHINE_STAGES = {
     "en",
     "multi",
     "tts",
+    "pilot_tts",
     "finish",
     "cc",
     "batch",
@@ -807,6 +808,21 @@ def main():
                 "--strict-delivery",
             ]
 
+        elif args.stage == "pilot_tts":
+            if args.task_id != "P260-L04":
+                raise RuntimeError("Sheets TTS test restricted to P260-L04")
+            allowed={"th","es","id","vi","hi","ta","ja","ko","km",
+                     "bn","ne","lo","my","it","pt"}
+            selection=[x.strip() for x in args.langs.split(",") if x.strip()]
+            if not selection or len(set(selection))!=len(selection) or any(x not in allowed for x in selection):
+                raise RuntimeError("Invalid pilot language selection")
+            print("[PILOT-TTS] isolated Google Sheets draft experiment; no formal QA/status mutation",
+                  flush=True)
+            cmd=[sys.executable,
+                 str(system_dir/"google_sheet_pilot_tts_runner.py"),
+                 "--task-id",args.task_id,
+                 "--langs",",".join(selection)]
+
         elif args.stage == "batch":
             task_ids = ",".join(
                 x.strip() for x in args.langs.split(",") if x.strip()
@@ -962,6 +978,9 @@ def main():
             cmd=None
         if cmd:
             run(cmd)
+        if args.stage == "pilot_tts":
+            report(args.bridge_url,args.runtime_nonce,"done",
+                   "Sheets draft TTS experiment finished; isolated Drive TEST folder")
         if args.stage in {"en", "cc"}:
             seed_english_review_cache(
                 args.bridge_url, args.runtime_nonce, args.task_id

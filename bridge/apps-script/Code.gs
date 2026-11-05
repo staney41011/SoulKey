@@ -28,7 +28,7 @@ const TASK_COL = {
 };
 
 const MACHINE_STAGES = [
-  "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish", "cc", "batch"
+  "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "pilot_tts", "finish", "cc", "batch"
 ];
 const RUNTIME_TTL_MS = 8 * 60 * 60 * 1000;
 // The Actions queue and the running worker have separate time limits.
@@ -97,6 +97,38 @@ function doPost(e) {
       const supplied = String((e && e.parameter && e.parameter.audio_key) || "");
       if (!expected || !supplied || supplied !== expected) {
         return json_({ok:false,error:"unauthorized"});
+      }
+      // Explicit user-authorized experiment only; not run by scheduled cron.
+      const pilotLangs=String((e&&e.parameter&&e.parameter.pilot_l04_langs)||"").trim();
+      const pilotTask=String((e&&e.parameter&&e.parameter.sheet_formal_task)||"P260-L04").trim();
+      if(pilotLangs){
+        if(["P260-L01","P260-L02","P260-L04"].indexOf(pilotTask)<0)
+          return json_({ok:false,error:"task_not_authorized_for_sheets_tts"});
+        const permitted=["th","es","id","vi","hi","ta","ja","ko",
+          "km","bn","ne","lo","my","it","pt"];
+        const requested=pilotLangs.split(",").map(function(x){return x.trim();})
+          .filter(Boolean);
+        if(!requested.length||requested.length>15||
+           new Set(requested).size!==requested.length||
+           requested.some(function(x){return permitted.indexOf(x)<0;})){
+          return json_({ok:false,error:"invalid_pilot_language_list"});
+        }
+        const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+        if(!token) return json_({ok:false,error:"github_token_missing"});
+        const dispatch=dispatchWorkflowIdempotently_(
+          token,pilotTask,"pilot_tts","",requested.join(","),
+          "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
+        );
+        if(!dispatch.ok) return json_({ok:false,error:dispatch.error||"pilot_dispatch_failed"});
+        if(!dispatch.duplicate){
+          appendExecutionStatus_(pilotTask,"pilot_tts","queued",
+            String(dispatch.workflow_run_id||dispatch.nonce.slice(0,12)),0,
+            "Google Sheets 初譯正式配音（保留未做 Gemma4 文字QA註記）："+requested.join(","),
+            "","","","","","");
+        }
+        return json_({ok:true,task_id:pilotTask,stage:"pilot_tts",
+          langs:requested.join(","),duplicate:!!dispatch.duplicate,
+          queued:!dispatch.duplicate});
       }
       // Recovery control is only for already CANCELLED queued jobs;
       // used manually with the private webhook secret, never by cron.
