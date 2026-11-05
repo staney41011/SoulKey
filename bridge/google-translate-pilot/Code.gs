@@ -155,7 +155,8 @@ function sk260RefreshJobs_(sources) {
     const full=related.length===item.segments &&
       count===item.segments*SK260.langs.length;
     const previous=byTask[item.task];
-    const enabled=previous?String(previous.values[9]||"").toLowerCase():"test";
+    const enabled=PropertiesService.getScriptProperties().getProperty("SK260_PHASE")==="full"
+      ?"full":(previous?String(previous.values[9]||"").toLowerCase():"pilot");
     const state=full?"待Gemma QA":count?"初譯中":"等待初譯";
     const row=[item.task,item.revision,item.segments,count,
       item.segments*SK260.langs.length,state,sk260Now_(),
@@ -262,7 +263,26 @@ function soulkeyP260Tick() {
   if(PropertiesService.getScriptProperties().getProperty("SK260_PHASE")!=="full"){
     return {ok:false,reason:"not_enabled"};
   }
-  const result=sk260Translate_({pilot:false});
+  let result;
+  try {
+    result=sk260Translate_({pilot:false});
+  } catch(e) {
+    const reason=String(e&&e.stack||e).slice(0,500);
+    // 在試驗工作表留下錯誤，避免僅在 Apps Script 執行紀錄才看得到。
+    const sheet=sk260Book_().getSheetByName(SK260.jobsTab);
+    if(sheet&&sheet.getLastRow()>1){
+      const ids=sheet.getRange(2,1,sheet.getLastRow()-1,1).getValues();
+      ids.forEach(function(row,i){
+        if(/^P260-L0[1-4]$/.test(String(row[0]||""))){
+          sheet.getRange(i+2,6).setValue("測試執行錯誤");
+          sheet.getRange(i+2,7).setValue(sk260Now_());
+          sheet.getRange(i+2,8).setValue(reason);
+        }
+      });
+    }
+    console.error(reason);
+    throw e;
+  }
   if(result.statuses&&result.statuses.every(function(s){return s.cells===s.expected;})){
     // 完成後自動輸出到隔離的待QA資料夾；輸出失敗時下次觸發器會重試。
     try {
