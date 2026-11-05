@@ -31,6 +31,9 @@ const MACHINE_STAGES = [
   "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "finish", "cc", "batch"
 ];
 const RUNTIME_TTL_MS = 8 * 60 * 60 * 1000;
+// The Actions queue and the running worker have separate time limits.
+// The longest existing worker job is capped at 350 minutes.
+const ACTIVE_RUNTIME_TTL_MS = 6 * 60 * 60 * 1000;
 const BRIDGE_PROTOCOL_VERSION = 9;
 
 function doGet(e) {
@@ -798,8 +801,29 @@ function getRuntimeJob_(nonce) {
   return payload;
 }
 
+function activateRuntimeJob_(nonce) {
+  const current = getRuntimeJob_(nonce);
+  if (!current || current.activated_at) return current;
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const job = getRuntimeJob_(nonce);
+    if (!job || job.activated_at) return job;
+
+    const now = Date.now();
+    job.activated_at = new Date(now).toISOString();
+    job.expires_at = new Date(now + ACTIVE_RUNTIME_TTL_MS).toISOString();
+    PropertiesService.getScriptProperties()
+      .setProperty("JOB_" + nonce, JSON.stringify(job));
+    return job;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function workerRuntime_(nonce) {
-  const job = getRuntimeJob_(nonce);
+  const job = activateRuntimeJob_(nonce);
   if (!job) {
     return {
       ok: false,
