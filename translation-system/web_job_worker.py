@@ -809,8 +809,8 @@ def main():
             ]
 
         elif args.stage == "pilot_tts":
-            if args.task_id not in {"P260-L01", "P260-L02", "P260-L04"}:
-                raise RuntimeError("Sheets-sourced formal TTS is only authorized for lessons 1, 2 and 4 of period 260")
+            if args.task_id not in {"P260-L01", "P260-L02", "P260-L03", "P260-L04"}:
+                raise RuntimeError("Sheets-sourced formal TTS is only authorized for lessons 1, 2, 3 and 4 of period 260")
             allowed={"th","es","id","vi","hi","ta","ja","ko","km",
                      "bn","ne","lo","my","it","pt"}
             selection=[x.strip() for x in args.langs.split(",") if x.strip()]

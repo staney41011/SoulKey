@@ -21,7 +21,7 @@ from tts_runner import (LANGUAGE_NAMES, row_to_task, load_source_duration_limit,
                         upload_natural_outputs, existing_natural_output,
                         verify_uploaded_natural_output, _load_tts_manifest)
 
-ALLOWED={"P260-L01":58,"P260-L02":36,"P260-L04":48}
+ALLOWED={"P260-L01":58,"P260-L02":36,"P260-L03":50,"P260-L04":48}
 LANGS="th,es,id,vi,hi,ta,ja,ko,km,bn,ne,lo,my,it,pt"
 
 def sha(text):

@@ -102,7 +102,7 @@ function doPost(e) {
       const pilotLangs=String((e&&e.parameter&&e.parameter.pilot_l04_langs)||"").trim();
       const pilotTask=String((e&&e.parameter&&e.parameter.sheet_formal_task)||"P260-L04").trim();
       if(pilotLangs){
-        if(["P260-L01","P260-L02","P260-L04"].indexOf(pilotTask)<0)
+        if(["P260-L01","P260-L02","P260-L03","P260-L04"].indexOf(pilotTask)<0)
           return json_({ok:false,error:"task_not_authorized_for_sheets_tts"});
         const permitted=["th","es","id","vi","hi","ta","ja","ko",
           "km","bn","ne","lo","my","it","pt"];

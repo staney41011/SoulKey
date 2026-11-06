@@ -9,6 +9,7 @@ on:
         options:
           - P260-L01
           - P260-L02
+          - P260-L03
           - P260-L04
         required: true
       langs:
