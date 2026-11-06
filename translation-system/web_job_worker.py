@@ -976,11 +976,24 @@ def main():
                     "部分語言暫緩、其餘語言已繼續；詳見各語言 QA 檢查點",
                 )
             cmd=None
+        pilot_partial=False
+        if cmd and args.stage=="pilot_tts":
+            try:
+                run(cmd)
+            except subprocess.CalledProcessError as exc:
+                if exc.returncode != 3:
+                    raise
+                pilot_partial=True
+                report(args.bridge_url,args.runtime_nonce,"needs_review",
+                       "Google Sheets formal audio partly complete; "
+                       "timing review or per-language retry required")
+            cmd=None
         if cmd:
             run(cmd)
-        if args.stage == "pilot_tts":
+        if args.stage == "pilot_tts" and not pilot_partial:
             report(args.bridge_url,args.runtime_nonce,"done",
-                   "Google Sheets sourced formal audio batch finished; see per-language Drive MP3 and technical QA receipts")
+                   "All requested Google Sheets sourced formal audio "
+                   "completed and passed Drive technical checks")
         if args.stage in {"en", "cc"}:
             seed_english_review_cache(
                 args.bridge_url, args.runtime_nonce, args.task_id

@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sys
+import subprocess
 from pathlib import Path
 from google_io import build_google_services, find_file, download_drive_file, upload_or_replace_file, read_values
 from lesson_paths import resolve_lesson_folders
@@ -19,7 +20,8 @@ from status_io import new_run_id, mark_running, mark_done, mark_needs_review, ma
 from tts_runner import (LANGUAGE_NAMES, row_to_task, load_source_duration_limit,
                         render_natural_language, segments_fingerprint,
                         upload_natural_outputs, existing_natural_output,
-                        verify_uploaded_natural_output, _load_tts_manifest)
+                        verify_uploaded_natural_output, _load_tts_manifest,
+                        local_audio_receipt, wav_to_mp3)
 
 ALLOWED={"P260-L01":58,"P260-L02":36,"P260-L03":50,"P260-L04":48}
 LANGS="th,es,id,vi,hi,ta,ja,ko,km,bn,ne,lo,my,it,pt"
@@ -58,6 +60,129 @@ def draft_source(drive, folder, task_id, language, work, english_file, english_m
         if float(row["end"])<=float(row["start"]):
             raise RuntimeError("Malformed translation timestamp")
     return segments,item["id"]
+
+# Preserve every spoken word: an optional minor tempo fit adjusts only
+# playback duration, never the translated text or any speech block.
+# More severe over-length recordings remain review-only, not formal MP3.
+SHEETS_SAFE_TEMPO_MAX = 1.18
+SHEETS_SAFE_TEMPO_MARGIN = 1.012
+
+
+def fit_full_review_without_cutting_content(result, output_dir, source_limit):
+    if result["status"] != "needs_review":
+        return result
+    timeline = dict(result["timeline"])
+    natural = float(timeline.get("natural_duration") or 0)
+    source_limit = float(source_limit)
+    if natural <= source_limit or source_limit <= 0:
+        return result
+    required = natural / source_limit
+    speed = round(required * SHEETS_SAFE_TEMPO_MARGIN, 6)
+    if speed > SHEETS_SAFE_TEMPO_MAX:
+        print(f"[SHEETS-FIT] needed {required:.3f}x exceeds "
+              f"safe full-content limit {SHEETS_SAFE_TEMPO_MAX:.2f}x; "
+              "retain preview for review", flush=True)
+        return result
+    output_dir = Path(output_dir)
+    source_mp3 = Path(result["preview_mp3"])
+    if not source_mp3.is_file() or source_mp3.stat().st_size < 1024:
+        raise RuntimeError("Full spoken preview not available for safe duration fit")
+    wav = output_dir / (source_mp3.stem.split(".")[0]+".wav")
+    mp3 = output_dir / (source_mp3.stem.split(".")[0]+".mp3")
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(source_mp3),
+        "-af", f"atempo={speed:.6f}",
+        "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le",
+        str(wav),
+    ], check=True)
+    wav_to_mp3(wav, mp3)
+    found = subprocess.run([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", str(mp3),
+    ], check=True, capture_output=True, text=True)
+    encoded_duration = float(found.stdout.strip())
+    if encoded_duration > source_limit - min(1.0, source_limit * 0.005):
+        print(f"[SHEETS-FIT] encoded {encoded_duration:.2f}s exceeds "
+              f"safe limit {source_limit-1.0:.2f}s; retain preview", flush=True)
+        wav.unlink(missing_ok=True)
+        mp3.unlink(missing_ok=True)
+        return result
+    timeline.update({
+        "final_duration": round(encoded_duration, 3),
+        "speech_end": round(encoded_duration, 3),
+        "over_source": 0,
+        "needs_review": False,
+        "applied_speedup": speed,
+        "required_speedup": round(required, 6),
+        "duration_fit_method": "ffmpeg_atempo_full_content_pitch_preserving",
+        "source_speech_retained": True,
+        "encoded_mp3_duration": round(encoded_duration, 3),
+    })
+    manifest_path = Path(result["manifest"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update({
+        "status": "done", "timeline": timeline,
+        "duration_fit_revision": "sheets_safe_tempo_full_content_v1",
+        "duration_fit_method": "pitch_preserving_tempo_no_text_omissions",
+        "max_speedup": SHEETS_SAFE_TEMPO_MAX,
+        "audio_receipts": {
+            "mp3": local_audio_receipt(mp3),
+            "wav": local_audio_receipt(wav),
+        },
+    })
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2),
+                             encoding="utf-8")
+    report_path = Path(result["alignment_report"])
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["timeline"] = timeline
+    report["wav"] = {"duration": round(encoded_duration, 3)}
+    report["mp3"] = {"duration": round(encoded_duration, 3)}
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2),
+                           encoding="utf-8")
+    result.update({"status": "done", "wav": wav, "mp3": mp3, "timeline": timeline})
+    print(f"[SHEETS-FIT] full-content tempo={speed:.3f}x; "
+          f"final={encoded_duration:.1f}s limit={source_limit:.1f}s", flush=True)
+    return result
+
+
+def restore_existing_review(drive, audio_folder, lang, workdir, manifest,
+                            draft_id, source_fingerprint, duration_limit):
+    if not manifest or manifest.get("status") != "needs_review":
+        return None
+    if (manifest.get("translation_source") != "Google Sheets LanguageApp.translate"
+            or manifest.get("translation_source_drive_id") != draft_id
+            or manifest.get("source_sha256") != source_fingerprint
+            or abs(float(manifest.get("duration_limit_seconds") or 0)
+                   - float(duration_limit)) > 0.5):
+        return None
+    audio = find_file(drive, audio_folder, f"{lang}.preview.mp3")
+    report = find_file(drive, audio_folder, f"{lang}.alignment_report.json")
+    if not audio or not report:
+        return None
+    workdir=Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    audio_file=workdir/f"{lang}.preview.mp3"
+    report_file=workdir/f"{lang}.alignment_report.json"
+    manifest_file=workdir/f"{lang}.tts_manifest.json"
+    download_drive_file(drive, audio["id"], audio_file)
+    receipt=(manifest.get("audio_receipts") or {}).get("preview_mp3") or {}
+    if receipt.get("size") != audio_file.stat().st_size or (
+       receipt.get("md5") != local_audio_receipt(audio_file)["md5"]):
+        raise RuntimeError("Prior review MP3 MD5 or size mismatch: refusing to publish")
+    download_drive_file(drive, report["id"], report_file)
+    manifest_file.write_text(json.dumps(manifest, ensure_ascii=False, indent=2),
+                             encoding="utf-8")
+    return {
+        "status":"needs_review",
+        "preview_mp3":audio_file,
+        "wav":workdir/f"{lang}.wav",
+        "mp3":workdir/f"{lang}.mp3",
+        "manifest":manifest_file,
+        "alignment_report":report_file,
+        "timeline":manifest["timeline"],
+    }
+
 
 def main():
     ap=argparse.ArgumentParser()
@@ -120,11 +245,17 @@ def main():
                     continue
             mark_running(task_id,"tts:"+lang,sheets=sheets,run_id=run_id,
                          message="Google Sheets approved source -> formal Natural TTS generating")
-            result=render_natural_language(
-                segments,lang,per_language_work,
-                source_duration=video_duration,duration_limit_basis=basis,
-                smart_fit_pilot=False,
-            )
+            result=restore_existing_review(
+                drive, audio_folder, lang, per_language_work, old,
+                draft_id, fingerprint, video_duration)
+            if result is None:
+                result=render_natural_language(
+                    segments,lang,per_language_work,
+                    source_duration=video_duration,duration_limit_basis=basis,
+                    smart_fit_pilot=False,
+                )
+            result=fit_full_review_without_cutting_content(
+                result, per_language_work, video_duration)
             manifest_path=Path(result["manifest"])
             manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["translation_source"]="Google Sheets LanguageApp.translate"
@@ -175,7 +306,14 @@ def main():
     },ensure_ascii=False,indent=2),encoding="utf-8")
     upload_or_replace_file(drive,audio_folder,status_path,status_path.name)
     print("[SHEETS-FORMAL] results "+json.dumps(results,ensure_ascii=False),flush=True)
-    return 2 if all(x["state"]=="error" for x in results) else 0
+    # A batch is not "done" when even one requested language still
+    # needs a timing revision or failed delivery; keep the others committed.
+    states=[x["state"] for x in results]
+    if all(x=="error" for x in states):
+        return 2
+    if any(x in ("needs_review","error") for x in states):
+        return 3
+    return 0
 
 if __name__=="__main__":
     raise SystemExit(main())
