@@ -9,7 +9,9 @@
  */
 const SK_AUDIO_REPO="staney41011/SoulKey-Private-Runner";
 const SK_AUDIO_WORKFLOW="soulkey_private_tts.yml";
-const SK_AUDIO_LANGUAGES=["en"].concat(SK_NEXT_LANGS);
+// App Script may initialize NativeAudio before NativeNext. Keep globals independent.
+const SK_AUDIO_LANGUAGES=["en","th","es","id","vi","hi","ta","ja","ko",
+  "km","bn","ne","lo","my","it","pt"];
 
 function skAudioHash_(text){
   return soulkeyNextSha_(text);
