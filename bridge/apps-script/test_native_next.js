@@ -19,6 +19,9 @@ const ctx=vm.createContext({
   },
   LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},
   Logger:{log:()=>{}},
+  SpreadsheetApp:{openById:()=>({getSheetByName:()=>({
+    getDataRange:()=>({getDisplayValues:()=>[["header"]]})
+  })})},
   readTasks_:()=>[]
 });
 for(const f of ["NativeNext.gs","NativeQuality.gs","NativeAudio.gs"]){
@@ -50,4 +53,12 @@ audit.filter(a=>a.selected_for_ai).forEach(a=>decisions[String(a.id)]={grade:"A"
 assert.equal(ctx.skNQSummary_(audit,decisions).state,"approved_risk_based");
 assert.equal(ctx.soulkeyNextStop().ok,true);
 assert.equal(triggers.length,0);
-console.log("PASS native P261+ schedule and QA regression");
+const ready=ctx.soulkeyRecoveryAuthorize();
+assert.equal(ready.ok,true);
+assert.equal(ready.google_sheets_access,true);
+assert.equal(ready.translation_trigger_count,1);
+assert.equal(ready.qa_trigger_count,1);
+assert.equal(ready.audio_trigger_count,1);
+assert.equal(ready.github_token_configured,false);
+assert.equal(ready.gemma_api_key_configured,false);
+console.log("PASS native P261+ schedule, OAuth recovery and QA regression");
