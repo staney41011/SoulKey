@@ -60,7 +60,10 @@ function doGet(e) {
     "review_en_draft_status",
     "youtube_capture_files",
     "course_files",
-    "tts_share_links"
+    "tts_share_links",
+    "native_pipeline_get",
+    "period_latest",
+    "glossary_list"
   ];
 
   if (callback && jsonpActions.indexOf(action) >= 0) {
@@ -326,6 +329,16 @@ function doPost(e) {
         });
       }
 
+      const registeredTask=readTasks_().find(function(x){return x.id===taskId;});
+      if(registeredTask && Number(registeredTask.period)>=261 &&
+         ["multi","tts","sheet_qa","pilot_tts","finish"].indexOf(stage)>=0){
+        return postMessage_({
+          source:"soulkey-bridge",type:"run_stage",ok:false,
+          error:"p261_native_pipeline_only",task_id:taskId,
+          message:"第261期起由內部 Sheets／Gemma4／私人配音排程接手，禁止重複派送舊版任務"
+        });
+      }
+
       if (!githubToken) {
         return postMessage_({
           source: "soulkey-bridge",
@@ -420,6 +433,25 @@ function doPost(e) {
       result.source = "soulkey-bridge";
       result.type = "english_cache_seeded";
       return postMessage_(result);
+    }
+
+    if (action === "native_manual_review_save") {
+      return postMessage_(soulkeyStudioManualCorrection_({
+        task_id:String((e&&e.parameter&&e.parameter.task_id)||""),
+        lang:String((e&&e.parameter&&e.parameter.lang)||""),
+        segment_id:String((e&&e.parameter&&e.parameter.segment_id)||""),
+        corrected_text:String((e&&e.parameter&&e.parameter.corrected_text)||""),
+        revision_key:String((e&&e.parameter&&e.parameter.revision_key)||"")
+      }));
+    }
+    if (action === "glossary_upsert") {
+      const term=soulkeyStudioGlossaryUpsert_({
+        name:String((e&&e.parameter&&e.parameter.name)||""),
+        en:String((e&&e.parameter&&e.parameter.en)||""),
+        category:String((e&&e.parameter&&e.parameter.category)||""),
+        description:String((e&&e.parameter&&e.parameter.description)||"")
+      });
+      return postMessage_(term);
     }
 
     if (action === "tasks_upsert") {
@@ -618,6 +650,17 @@ function bridgeRequest(request) {
         error: "unauthorized",
         message: "Bridge Key 不正確"
       };
+    }
+
+    if (action === "native_pipeline_get") {
+      return soulkeyStudioNativeStatus_(request.task_id);
+    }
+    if (action === "period_latest") {
+      return soulkeyStudioCurrentPeriod_();
+    }
+    if (action === "glossary_list") {
+      return {source:"soulkey-bridge",type:"glossary_list",ok:true,
+        terms:soulkeyStudioGlossaryRows_()};
     }
 
     if (action === "status_health") {
@@ -4603,7 +4646,8 @@ function ttsShareLinks_(taskId) {
   }
   const folders = lessonFolders_(id);
   const audioFolder = cachedChildFolder_(folders.lesson, "04_音檔");
-  const codes = ["en","es","th","id","km","vi"];
+  const codes = ["en","th","es","id","vi","hi","ta","ja",
+    "ko","km","bn","ne","lo","my","it","pt"];
   const files = [];
   codes.forEach(function(code) {
     const canonical = code + ".mp3";
@@ -4616,6 +4660,29 @@ function ttsShareLinks_(taskId) {
     ];
     // Return both official and review audio, if present. A newer review
     // result must not disappear just because an older official MP3 exists.
+    if(Number((id.match(/^P(\d+)-/)||[])[1]||0)>=261){
+      const receipt=readJsonFile_(folders.translation,
+        "sheets.native_tts."+code+".json");
+      // Native receipts live in the translation folder. A versioned MP3 is
+      // only shown when the stored Drive ID and actual file agree.
+      if(receipt && receipt.mp3_drive_id &&
+         ["done","needs_review"].indexOf(String(receipt.status))>=0){
+        try{
+          const f=DriveApp.getFileById(receipt.mp3_drive_id);
+          const versioned=id+"-"+code+"-"+
+            String(receipt.source_sha256||"").slice(0,16)+
+            (receipt.status==="done"?".mp3":".preview.mp3");
+          if(f.getName()===versioned && Number(f.getSize())>0){
+            files.push({id:f.getId(),name:f.getName(),
+              canonical_name:code+(receipt.status==="done"?".mp3":".preview.mp3"),
+              needs_timing_review:receipt.status!=="done",
+              audio_kind:receipt.status==="done"?"formal_aligned":"standalone_preview",
+              url:f.getUrl(),size:Number(f.getSize()),group_key:"audio",group_label:"音檔"});
+          }
+        }catch(err){Logger.log("[NATIVE-SHARE] "+code+" "+String(err).slice(0,100));}
+      }
+      return;
+    }
     candidates.forEach(function(entry) {
       const names=[formalDriveName_(id,entry.canonical),entry.canonical];
       let file=null;

@@ -177,6 +177,8 @@ function soulkeyNextQAOneBatch_(){
       const lesson=lessons[i];
       for(let j=0;j<SK_NEXT_LANGS.length;j++){
         const lang=SK_NEXT_LANGS[j];
+        if(soulkeyNextSelectedCodes_(lesson.task,"translation")
+           .indexOf(lang)<0)continue;
         let draft;
         try{draft=skNQDraft_(lesson,lang);}catch(e){
           Logger.log("[NEXT-QA] "+lesson.task+" "+lang+": "+e);

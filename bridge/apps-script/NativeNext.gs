@@ -23,6 +23,20 @@ function soulkeyNextSha_(value) {
 function soulkeyNextNow_() {
   return Utilities.formatDate(new Date(),"Asia/Taipei","yyyy-MM-dd HH:mm:ss");
 }
+// A central language plan is authoritative. New lessons without a saved plan
+// retain the existing default of all 15 translations and 16 audio tracks.
+function soulkeyNextSelectedCodes_(taskId,kind){
+  const all=kind==="audio"?["en"].concat(SK_NEXT_LANGS):SK_NEXT_LANGS.slice();
+  const plan=readLanguagePlan_(taskId);
+  if(!plan.length)return all;
+  const picked=plan.filter(function(x){
+    if(kind==="audio")return x.audio_enabled&&x.audio_source==="tts";
+    return (x.transcript_enabled&&x.transcript_source==="ai")||
+      (x.audio_enabled&&x.audio_source==="tts"&&x.language_code!=="en");
+  }).map(function(x){return x.language_code;});
+  return all.filter(function(code){return picked.indexOf(code)>=0;});
+}
+
 function soulkeyNextSources_(){
   const tasks=readTasks_().filter(function(t){
     return Number(t.period)>=261 && t.en==="完成" &&
@@ -118,7 +132,9 @@ function soulkeyNextExport_(sources,allRows){
     const byId={};
     lessonRows.forEach(function(row){byId[String(row[1])]=row;});
     let draftsFolder;
+    const selected=soulkeyNextSelectedCodes_(source.task,"translation");
     SK_NEXT_LANGS.forEach(function(lang,langIndex){
+      if(selected.indexOf(lang)<0)return;
       const rows=source.segments.map(function(seg){return byId[String(seg.id)];});
       if(rows.some(function(row,i){return !row ||
           String(row[5]||"")!==source.segments[i].source_hash ||
@@ -214,7 +230,9 @@ function soulkeyNextTick(){
       const original=s.segments.find(function(x){return x.id===Number(row[1]);});
       if(!original||String(row[5])!==original.source_hash)continue;
       let changed=false,issue="";
+      const selected=soulkeyNextSelectedCodes_(s.task,"translation");
       for(let langIndex=0;langIndex<15;langIndex++){
+        if(selected.indexOf(SK_NEXT_LANGS[langIndex])<0)continue;
         if(requests>=SK_NEXT_LIMIT_PER_TICK||
            quota.used>=SK_NEXT_DAILY_LIMIT||
            Date.now()-start>SK_NEXT_MAX_MS)break;
@@ -238,7 +256,7 @@ function soulkeyNextTick(){
         row[21]=SK_NEXT_LANGS.reduce(function(n,l,j){
           return n+(String(row[6+j]||"").trim()?1:0);
         },0);
-        row[22]=Number(row[21])===15?"待Gemma QA":"翻譯中";
+        row[22]=Number(row[21])===selected.length?"待Gemma QA":"翻譯中";
         row[23]=soulkeyNextNow_();row[24]=issue;
         tab.getRange(i+2,7,1,19).setValues([row.slice(6,25)]);
       }

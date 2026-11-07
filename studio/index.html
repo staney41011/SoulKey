@@ -65,7 +65,7 @@
     })();
   </script>
   <title>SoulKey Studio｜全球翻譯工作台</title>
-  <link rel="stylesheet" href="./styles.css?v=20261020-review-preview-v2">
+  <link rel="stylesheet" href="./styles.css?v=20261107-p261-integrated">
 </head>
 <body>
   <div class="shell">
@@ -235,6 +235,24 @@
           </div>
           <div id="detail-current-body" class="detail-current-body"></div>
         </div>
+
+        <section class="panel native-pipeline-panel" id="native-pipeline-panel" hidden>
+          <div class="panel-head">
+            <div><p class="eyebrow">SHEETS · GEMMA 4 · EDGE TTS</p>
+              <h3 id="native-pipeline-heading">新版 15 語品質與配音進度</h3></div>
+            <button class="ghost" data-native-refresh type="button">更新進度</button>
+          </div>
+          <p id="native-pipeline-summary" aria-live="polite"></p>
+          <p id="native-pipeline-blockers" class="native-release-gate"></p>
+          <div class="native-table-scroll">
+            <table class="native-status-table">
+              <thead><tr><th>語言</th><th>初譯</th>
+                <th>Gemma 4 品質</th><th>正式音檔</th></tr></thead>
+              <tbody id="native-pipeline-rows"></tbody>
+            </table>
+          </div>
+          <small class="muted">「風險式 QA 通過」代表高風險段落與固定抽樣審核，不代表全文逐句品質保證。尚未通過不可發布。</small>
+        </section>
 
         <div class="panel" id="detail-language-plan">
           <div class="panel-head">
@@ -814,6 +832,7 @@
   <script src="./config.js?v=20260922-34"></script>
   <script src="./tts-share-message.js?v=20261020-review-preview-v2"></script>
   <script src="./language-delivery.js?v=20261020-review-preview-v2"></script>
-  <script src="./app-20260923-48.js?v=20261103-complete-zh-review-v2"></script>
+  <script src="./native-pipeline.js?v=20261107-p261-integrated"></script>
+  <script src="./app-20260923-48.js?v=20261107-p261-integrated"></script>
 </body>
 </html>

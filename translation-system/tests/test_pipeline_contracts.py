@@ -61,7 +61,10 @@ class PipelineContracts(unittest.TestCase):
         # Hybrid deployment routes TTS/multi to CPU and ASR to Kaggle.
         # Verify both groups exist instead of requiring a single legacy group.
         self.assertIn('soulkey-kaggle-web-worker', workflow)
-        self.assertIn('soulkey-github-cpu', workflow)
+        self.assertIn('soulkey-github-tts', workflow)
+        self.assertIn('soulkey-github-multi', workflow)
+        self.assertIn('soulkey-github-sheets-qa-', workflow)
+        self.assertIn('soulkey-github-sheets-tts-', workflow)
         self.assertIn('queue: max', workflow)
         self.assertIn('cancel-in-progress: false', workflow)
         self.assertIn('SOULKEY_CPU_WORKER_ENABLED', workflow)
@@ -365,11 +368,13 @@ class PipelineContracts(unittest.TestCase):
         )[0]
         self.assertNotIn("require_gpu_runtime", tts_branch)
         self.assertNotIn("prepare_youtube_runtime()", tts_branch)
-        self.assertIn("Natural TTS v2", tts_branch)
+        self.assertIn('str(system_dir / "tts_runner.py")', tts_branch)
+        self.assertIn('"--strict-delivery"', tts_branch)
+        self.assertNotIn("gemini_multi_production_runner.py", tts_branch)
 
         finish_branch = worker.split('elif args.stage == "finish":', 1)[1]
         self.assertNotIn('require_gpu_runtime("tts")', finish_branch)
-        self.assertIn("Natural TTS v2", finish_branch)
+        self.assertIn('str(system_dir / "tts_runner.py")', finish_branch)
 
         self.assertIn('gpu_stages = {"zh", "asr", "batch"}', workflow)
         self.assertNotIn('^(zh|asr|tts)$', workflow)
@@ -428,16 +433,17 @@ class PipelineContracts(unittest.TestCase):
         self.assertIn("if not text:", engine)
         self.assertIn("continue", engine)
 
-    def test_tts_worker_self_heals_multi_before_non_english_audio(self):
+    def test_tts_worker_never_retranslates_in_parallel_with_sheets(self):
         worker = read("translation-system/web_job_worker.py")
         self.assertIn('"zh", "polish", "vernacular", "en", "multi", "tts", "batch"', worker)
-        self.assertIn("[TTS:DEPENDENCY]", worker)
-        self.assertIn("gemini_multi_production_runner.py", worker)
-        tts_branch = worker.split('elif args.stage == "tts":', 1)[1].split('elif args.stage == "batch":', 1)[0]
-        self.assertLess(
-            tts_branch.index("gemini_multi_production_runner.py"),
-            tts_branch.index("tts_runner.py"),
-        )
+        tts_branch = worker.split('elif args.stage == "tts":', 1)[1].split(
+            'elif args.stage == "batch":', 1
+        )[0]
+        self.assertIn("tts_runner.py", tts_branch)
+        self.assertNotIn("gemini_multi_production_runner.py", tts_branch)
+        self.assertNotIn("[TTS:DEPENDENCY]", tts_branch)
+        self.assertIn('elif args.stage == "sheet_qa":', worker)
+        self.assertIn('elif args.stage == "pilot_tts":', worker)
 
     def test_tts_waits_for_matching_multi_revision(self):
         runner = read("translation-system/tts_runner.py")

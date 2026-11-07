@@ -309,6 +309,8 @@ function soulkeyNextAudioTick(){
       const lesson=sources[i];
       for(let j=0;j<SK_AUDIO_LANGUAGES.length;j++){
         const lang=SK_AUDIO_LANGUAGES[j];
+        if(soulkeyNextSelectedCodes_(lesson.task,"audio")
+           .indexOf(lang)<0)continue;
         let requested;
         try{requested=skAudioPayload_(lesson,lang,terms);}catch(e){
           Logger.log("[NEXT-AUDIO] "+lesson.task+"/"+lang+" "+

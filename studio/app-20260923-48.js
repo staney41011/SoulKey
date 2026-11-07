@@ -314,6 +314,8 @@ function updateBackButton(){
 
 function latestPeriodForNewTask(){
   const periods=availablePeriods();
+  const central=Number(window.SoulKeyNativeUI?.latestPeriod||0);
+  if(central && (periods.length===0 || central>periods[0]))return central;
   if(periods.length) return periods[0];
 
   const fallback=Number(selectedPeriod)||Number(document.getElementById("period")?.value)||1;
@@ -2012,6 +2014,8 @@ function refreshLanguageDeliveryStatus(task){
       if(target) target.innerHTML=languageDeliverableHtml(result,kind);
     });
   });
+  if(window.SoulKeyNativeUI?.isNative(task))
+    window.SoulKeyNativeUI.decorateLanguageRows(task.id);
   if(course?.ok){
     const status=document.getElementById("language-plan-status");
     const selected=list.querySelectorAll("[data-plan-enabled]:checked").length;
@@ -2421,6 +2425,8 @@ function renderTaskDetail(task){
   // review editor. Concurrent source reads do not use GPU or Google Drive.
   prefetchReviewPayloads(task.id);
   renderLanguagePlan(task);
+  window.SoulKeyNativeUI?.render(task,{
+    request:jsonpBridgeRequest,submit:submitBridgePost});
   const next=nextStageFor(task);
   const nextIndex=task.completedStep+1;
 
@@ -2531,12 +2537,16 @@ function renderTaskDetail(task){
 
   const nextBtn=document.getElementById("detail-next-btn");
   const nextRemote=next ? remoteStageStatus(task,next.key) : null;
-  nextBtn.disabled=!next || !!(nextRemote && ["queued","running"].includes(nextRemote.status));
+  const nativeNext=window.SoulKeyNativeUI?.isNative(task) &&
+    ["multi","tts"].includes(next?.key);
+  nextBtn.disabled=!next ||
+    (!nativeNext && !!(nextRemote && ["queued","running"].includes(nextRemote.status)));
   const humanReviewNext=next && next.key==="en-review";
   const zhNeedsReview=next && next.key==="zh" && nextRemote && nextRemote.status==="needs_review";
   nextBtn.textContent=next
     ? (zhNeedsReview ? "進入：人工中文定稿" : humanReviewNext ? "進入："+next.label : "執行下一步："+next.label)
     : "已全部完成";
+  if(nativeNext)nextBtn.textContent="查看新版多語／QA／配音進度";
   nextBtn.onclick=()=>{
     if(!next) return;
     if(next.key==="zh" && nextRemote && nextRemote.status==="needs_review") return openTaskReview(task.id);
@@ -2756,6 +2766,14 @@ function confirmNextStage(taskId){
   normalizeTask(task);
   const next=nextStageFor(task);
   if(!next) return;
+  if(window.SoulKeyNativeUI?.isNative(task) &&
+      ["multi","tts"].includes(next.key)){
+    window.SoulKeyNativeUI.refresh(task.id,true);
+    document.getElementById("native-pipeline-panel")?.scrollIntoView({
+      behavior:"smooth",block:"start"
+    });
+    return;
+  }
 
   const currentRemote=remoteStageStatus(task,next.key);
   if(next.key==="zh" && currentRemote && currentRemote.status==="needs_review") return openTaskReview(task.id);
@@ -3001,7 +3019,7 @@ function renderTerms(filter=""){
   ).join("");
 
   document.querySelectorAll("[data-delete-term]").forEach(b=>b.addEventListener("click",()=>{
-    if(!confirm("刪除這個本機詞彙？")) return;
+    if(!confirm("只從目前裝置移除這筆詞彙；中央詞庫不會刪除。確定嗎？")) return;
     terms=terms.filter(t=>t.id!==b.dataset.deleteTerm);
     save(STORE.terms,terms);
     renderTerms(document.getElementById("term-search").value);
@@ -3033,8 +3051,18 @@ document.getElementById("save-term").addEventListener("click",e=>{
     status:"正式詞庫"
   };
 
+  t.status="等待中央同步";
   terms.push(t);
   save(STORE.terms,terms);
+  const termSent=submitBridgePost({
+    action:"glossary_upsert",name:t.name,en:t.en,
+    category:t.category,description:t.description
+  });
+  if(!termSent){
+    t.status="僅本機・未同步";
+    save(STORE.terms,terms);
+    alert("中央詞庫目前未連線，本詞彙僅儲存在此裝置，不能視為 Gemma 4 已採用。");
+  }
   renderTerms();
   renderTasks();
   form.reset();
@@ -4720,6 +4748,9 @@ function applyRemoteStatuses(payload){
 
 function requestTaskStatuses(){
   if(!bridgeAuthenticated) return false;
+  const current=tasks.find(x=>x.id===selectedTaskId);
+  if(currentView==="task-detail" && window.SoulKeyNativeUI?.isNative(current))
+    window.SoulKeyNativeUI.refresh(current.id);
   const key=bridgeKeyValue();
   const endpoint=bridgeEndpointValue();
   if(!key || !endpoint || !tasks.length) return false;
@@ -4821,6 +4852,29 @@ window.addEventListener("message",event=>{
     }
   }
 
+  if(data.type==="glossary_saved"){
+    const entry=terms.find(x=>x.name===data.name);
+    if(entry){
+      entry.status=data.ok?"中央已同步":"同步失敗："+String(data.error||"未知錯誤");
+      save(STORE.terms,terms);
+      renderTerms();
+    }
+    if(!data.ok)alert("專有名詞未能同步中央："+String(data.error||"未知錯誤"));
+  }
+  if(data.type==="glossary_list" && data.ok){
+    const cloud=(data.terms||[]).map((t,i)=>({
+      id:"cloud-"+i,name:t.name,category:t.category,en:t.en,
+      description:t.description,aliases:t.note||"",
+      status:t.locked?"中央已鎖定":"中央詞庫"
+    }));
+    const existing=new Set(cloud.map(t=>t.name));
+    const extra=terms.filter(t=>!existing.has(t.name)).map(t=>({
+      ...t,status:"僅本機・待中央同步"
+    }));
+    terms=[...cloud,...extra];
+    save(STORE.terms,terms);
+    renderTerms();
+  }
   if(data.type==="tasks_saved"){
     if(data.ok){
       const saved=Array.isArray(data.tasks) ? data.tasks : [];
@@ -4842,6 +4896,8 @@ window.addEventListener("message",event=>{
       }
       bridgeAuthenticated=true; // first verified central snapshot
       mergeRemoteTasks(data.tasks||[]);
+      window.SoulKeyNativeUI?.requestPeriod(jsonpBridgeRequest);
+      jsonpBridgeRequest({action:"glossary_list"});
       const backendText=document.getElementById("backend-text");
       const backendDot=document.querySelector(".backend-pill .status-dot");
       if(backendText) backendText.textContent="控制中心已連線";
