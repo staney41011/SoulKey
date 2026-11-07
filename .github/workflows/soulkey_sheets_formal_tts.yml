@@ -5,13 +5,9 @@ on:
     inputs:
       task_id:
         description: P260 lesson
-        type: choice
-        options:
-          - P260-L01
-          - P260-L02
-          - P260-L03
-          - P260-L04
+        type: string
         required: true
+        default: P260-L04
       langs:
         description: Comma-separated non-English language codes
         type: string

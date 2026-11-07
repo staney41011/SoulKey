@@ -1,0 +1,61 @@
+name: SoulKey Sheets-first Gemma4 Quality Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: Lesson (P260-L01) or auto for next eligible
+        type: string
+        required: false
+        default: auto
+      langs:
+        description: Comma-separated target languages (empty for all 15)
+        type: string
+        required: false
+        default: ""
+  schedule:
+    - cron: "17 */4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-sheets-quality-dispatch
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch Google Sheets initial -> independent Gemma 4 QA
+        env:
+          AUDIO_KEY: ${{ secrets.SOULKEY_AUDIO_RECONCILE_KEY }}
+          TASK_ID: ${{ inputs.task_id || 'auto' }}
+          LANGS: ${{ inputs.langs || '' }}
+          BRIDGE_URL: https://script.google.com/macros/s/AKfycby1BX9ruV14vfGfqtpSrB55BEKgbxJKJo3NVkB0ZP64Ll6P_Zmo-1KM4m7j2MN9BRrhmQ/exec
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$AUDIO_KEY" ]]; then
+            echo "Missing authenticated SoulKey reconcile secret"
+            exit 1
+          fi
+          RESPONSE=$(curl -fsSL --retry 2 --max-time 80 \
+            --data-urlencode "action=audio_reconcile" \
+            --data-urlencode "audio_key=$AUDIO_KEY" \
+            --data-urlencode "sheet_quality_task=$TASK_ID" \
+            --data-urlencode "sheet_quality_langs=$LANGS" \
+            "$BRIDGE_URL")
+          RESULT="$RESPONSE" python - <<'PY'
+          import json,os
+          result=json.loads(os.environ["RESULT"])
+          if not result.get("ok") or result.get("stage")!="sheet_qa":
+              raise SystemExit("Sheets-first QA dispatch not confirmed: "+
+                  str({k:v for k,v in result.items() if k in
+                       ("ok","stage","error","reason","task_id")}))
+          print("SHEETS_QA_DISPATCH_ACCEPTED task="+str(result.get("task_id") or "none")+
+                " queued="+str(bool(result.get("queued")))+
+                " reason="+str(result.get("reason") or ""))
+          PY

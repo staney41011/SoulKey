@@ -58,7 +58,11 @@ class DriveTTSBlockCache:
                 download_drive_file(self.drive, item["id"], local)
                 with zipfile.ZipFile(local) as archive:
                     manifest = json.loads(archive.read("manifest.json"))
-                    if any(manifest.get(k) != v for k, v in self.context.items()):
+                    # The whole-language SHA can change because one sentence
+                    # was corrected by Gemma 4. Reuse is still safe only when
+                    # each individual audio block's exact text SHA matches.
+                    if any(manifest.get(k) != v for k,v in self.context.items()
+                           if k != "source_sha256"):
                         continue
                     if int(manifest.get("group", -1)) != group:
                         continue
@@ -71,7 +75,9 @@ class DriveTTSBlockCache:
                         index = int(row["block_index"])
                         block = self.by_index[index]
                         if row.get("text_sha256") != block.text_sha256:
-                            raise ValueError("Final text revision does not match")
+                            # Exactly this speech block changed. It must be
+                            # synthesized anew; its unaffected siblings survive.
+                            continue
                         name = f"blocks/{index:04d}.mp3"
                         if int(row.get("size") or 0) > MAX_BLOCK_BYTES:
                             raise ValueError("oversized checkpoint block")
@@ -92,13 +98,15 @@ class DriveTTSBlockCache:
                         tmp = dest.with_suffix(".restore.tmp")
                         tmp.write_bytes(blob)
                         os.replace(tmp, dest)
-                    self.restored_groups.add(group)
+                    if len(blobs) == len(expected):
+                        self.restored_groups.add(group)
                     recovered.update({
                         int(row["block_index"]): {
                             "block_index": int(row["block_index"]),
                             "text_sha256": row["text_sha256"],
                             "duration": float(row["duration"]),
                         } for row in entries
+                        if int(row["block_index"]) in blobs
                     })
             except (OSError, ValueError, KeyError, TypeError, RuntimeError,
                     zipfile.BadZipFile) as exc:

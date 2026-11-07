@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -22,6 +23,7 @@ MACHINE_STAGES = {
     "multi",
     "tts",
     "pilot_tts",
+    "sheet_qa",
     "finish",
     "cc",
     "batch",
@@ -393,7 +395,7 @@ def main():
         gemini_api_key = str(runtime.get("gemini_api_key") or "").strip()
         needs_gemini = (
             args.stage in {
-                "zh", "polish", "vernacular", "en", "multi", "tts", "batch"
+                "zh", "polish", "vernacular", "en", "multi", "tts", "batch", "sheet_qa"
             }
             or (
                 args.stage == "finish"
@@ -454,7 +456,7 @@ def main():
             print("[BOOT] SoulKey 已由 Kaggle bootstrap 同步，略過第二次 git pull。", flush=True)
 
         gemini_only_stages = {
-            "polish", "vernacular", "en", "multi"
+            "polish", "vernacular", "en", "multi", "sheet_qa"
         }
         finish_needs_audio = (
             args.stage == "finish"
@@ -808,9 +810,25 @@ def main():
                 "--strict-delivery",
             ]
 
+        elif args.stage == "sheet_qa":
+            selected=[x.strip() for x in args.langs.split(",") if x.strip()]
+            allowed={"th","es","id","vi","hi","ta","ja","ko","km",
+                     "bn","ne","lo","my","it","pt"}
+            if not selected or len(selected)>15 or any(x not in allowed for x in selected):
+                raise RuntimeError("Sheet QA requires valid requested language codes")
+            print("[SHEETS-QA] Independent semantic audit; audio is not blocked by QA",
+                  flush=True)
+            cmd=[
+                sys.executable,str(system_dir/"sheets_quality_runner.py"),
+                "--task-id",args.task_id,
+                "--langs",",".join(dict.fromkeys(selected)),
+                "--max-model-calls",os.getenv("SOULKEY_QA_API_BUDGET","24")
+            ]
+
         elif args.stage == "pilot_tts":
-            if args.task_id not in {"P260-L01", "P260-L02", "P260-L03", "P260-L04"}:
-                raise RuntimeError("Sheets-sourced formal TTS is only authorized for lessons 1, 2, 3 and 4 of period 260")
+            task_match=re.fullmatch(r"P(\d+)-L(\d+)",args.task_id)
+            if not task_match or int(task_match.group(1))<260:
+                raise RuntimeError("Sheets-sourced TTS requires a P260+ registered lesson")
             allowed={"th","es","id","vi","hi","ta","ja","ko","km",
                      "bn","ne","lo","my","it","pt"}
             selection=[x.strip() for x in args.langs.split(",") if x.strip()]
@@ -976,6 +994,22 @@ def main():
                     "部分語言暫緩、其餘語言已繼續；詳見各語言 QA 檢查點",
                 )
             cmd=None
+        sheet_qa_partial=False
+        if cmd and args.stage=="sheet_qa":
+            try:
+                run(cmd)
+            except subprocess.CalledProcessError as exc:
+                if exc.returncode != 3:
+                    raise
+                sheet_qa_partial=True
+                report(args.bridge_url,args.runtime_nonce,"needs_review",
+                       "Sheets risk-based Gemma4 QA saved checkpoint; "
+                       "unreviewed/high-risk sections require continuation")
+            cmd=None
+        if args.stage=="sheet_qa" and not sheet_qa_partial:
+            report(args.bridge_url,args.runtime_nonce,"done",
+                   "Requested Sheets translations passed risk-based Gemma4 QA; "
+                   "publication gate separately checks all languages and audio revisions")
         pilot_partial=False
         if cmd and args.stage=="pilot_tts":
             try:

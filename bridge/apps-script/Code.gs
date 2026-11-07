@@ -28,7 +28,7 @@ const TASK_COL = {
 };
 
 const MACHINE_STAGES = [
-  "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "pilot_tts", "finish", "cc", "batch"
+  "zh", "metadata", "asr", "polish", "vernacular", "en", "multi", "tts", "pilot_tts", "sheet_qa", "finish", "cc", "batch"
 ];
 const RUNTIME_TTL_MS = 8 * 60 * 60 * 1000;
 // The Actions queue and the running worker have separate time limits.
@@ -98,11 +98,49 @@ function doPost(e) {
       if (!expected || !supplied || supplied !== expected) {
         return json_({ok:false,error:"unauthorized"});
       }
+      // Sheets-first Gemma4 QA is independent from translation and TTS CPU.
+      const sheetQATask=String((e&&e.parameter&&e.parameter.sheet_quality_task)||"").trim();
+      const sheetQALangs=String((e&&e.parameter&&e.parameter.sheet_quality_langs)||"").trim();
+      if(sheetQATask){
+        const permitted=["th","es","id","vi","hi","ta","ja","ko",
+          "km","bn","ne","lo","my","it","pt"];
+        const selected=(sheetQALangs||permitted.join(","))
+          .split(",").map(function(x){return x.trim();}).filter(Boolean);
+        if(!selected.length||selected.length>15||
+           new Set(selected).size!==selected.length||
+           selected.some(function(x){return permitted.indexOf(x)<0;})){
+          return json_({ok:false,error:"invalid_sheet_quality_languages"});
+        }
+        if(sheetQATask==="auto"){
+          return json_(soulkeyAutoSheetQualityReconcile_(selected));
+        }
+        if(!/^P\d+-L\d+$/.test(sheetQATask) ||
+           Number((sheetQATask.match(/^P(\d+)-/)||[])[1]||0)<260){
+          return json_({ok:false,error:"invalid_sheet_quality_task"});
+        }
+        const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+        if(!token) return json_({ok:false,error:"github_token_missing"});
+        const dispatched=dispatchWorkflowIdempotently_(
+          token,sheetQATask,"sheet_qa","",selected.join(","),
+          "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
+        );
+        if(!dispatched.ok) return json_({ok:false,error:dispatched.error||"quality_dispatch_failed"});
+        if(!dispatched.duplicate){
+          appendExecutionStatus_(sheetQATask,"sheet_qa","queued",
+            String(dispatched.workflow_run_id||dispatched.nonce.slice(0,12)),0,
+            "Sheets-first Gemma4 independent QA: "+selected.join(","),
+            "","","","","","");
+        }
+        return json_({ok:true,stage:"sheet_qa",task_id:sheetQATask,
+          langs:selected.join(","),queued:!dispatched.duplicate,
+          duplicate:!!dispatched.duplicate});
+      }
       // Explicit user-authorized experiment only; not run by scheduled cron.
       const pilotLangs=String((e&&e.parameter&&e.parameter.pilot_l04_langs)||"").trim();
       const pilotTask=String((e&&e.parameter&&e.parameter.sheet_formal_task)||"P260-L04").trim();
       if(pilotLangs){
-        if(["P260-L01","P260-L02","P260-L03","P260-L04"].indexOf(pilotTask)<0)
+        const m=pilotTask.match(/^P(\d+)-L(\d+)$/);
+        if(!m||Number(m[1])<260)
           return json_({ok:false,error:"task_not_authorized_for_sheets_tts"});
         const permitted=["th","es","id","vi","hi","ta","ja","ko",
           "km","bn","ne","lo","my","it","pt"];
@@ -147,7 +185,11 @@ function doPost(e) {
       let multi={ok:true,queued:false};
       try {multi=soulkeyAutoMultiReconcile_();}
       catch(e){multi={ok:false,error:String(e&&e.message||e)};}
-      return json_(Object.assign({},audio,{multi_reconcile:multi}));
+      let sheetSync={ok:true,queued:false};
+      try {sheetSync=soulkeyAutoSheetAudioRefresh_();}
+      catch(e){sheetSync={ok:false,error:String(e&&e.message||e)};}
+      return json_(Object.assign({},audio,{
+        multi_reconcile:multi,sheets_audio_refresh:sheetSync}));
     }
 
     if (action === "worker_report") {
@@ -990,6 +1032,107 @@ function soulkeyAutoMultiReconcile_() {
         pending_languages:missing.join(",")};
     }catch(e){
       Logger.log("[AUTO-MULTI] "+task.id+" "+String(e&&e.message||e).slice(0,300));
+    }
+  }
+  return {ok:true,queued:false};
+}
+
+// Scheduled QA dispatcher: selects only recently registered lessons with
+// approved English and a Google Sheets export. It never edits formal TTS.
+function soulkeyAutoSheetQualityReconcile_(languages) {
+  const props=PropertiesService.getScriptProperties();
+  const githubToken=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+  if(!githubToken) return {ok:false,stage:"sheet_qa",reason:"github_token_missing"};
+  const now=Date.now();
+  const all=(readTasks_()||[]).filter(function(t){
+    return Number(t.period)>=260 && String(t.en||"").trim()==="完成" &&
+      /^P\d+-L\d+$/.test(String(t.id||""));
+  }).sort(function(a,b){
+    return Number(b.period)-Number(a.period) || String(a.id).localeCompare(String(b.id));
+  }).slice(0,8);
+  for(let i=0;i<all.length;i++){
+    const task=all[i];
+    const key="AUTO_SHEETS_QA_V1_"+task.id;
+    let retry={};
+    try{retry=JSON.parse(props.getProperty(key)||"{}");}catch(_){}
+    if(Number(retry.expires_at_ms||0)>now) continue;
+    try{
+      const folders=lessonFolders_(task.id);
+      if(!cachedFileId_(folders.translation,"en.final.json")) continue;
+      const gate=readJsonFile_(folders.translation,"sheets.qa.publish_gate.json");
+      if(gate && gate.semantic_review_ready===true) continue;
+      const dispatched=dispatchWorkflowIdempotently_(
+        githubToken,task.id,"sheet_qa","",languages.join(","),
+        "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
+      );
+      if(!dispatched.ok) return {ok:false,stage:"sheet_qa",
+        task_id:task.id,reason:dispatched.error||"dispatch_failed"};
+      props.setProperty(key,JSON.stringify({
+        expires_at_ms:now+4*60*60*1000,
+        queued_at:new Date(now).toISOString()}));
+      if(!dispatched.duplicate){
+        appendExecutionStatus_(task.id,"sheet_qa","queued",
+          String(dispatched.workflow_run_id||dispatched.nonce.slice(0,12)),0,
+          "Scheduled Sheets-first Gemma4 risk-based QA","","","","","","");
+      }
+      return {ok:true,stage:"sheet_qa",task_id:task.id,
+        queued:!dispatched.duplicate,duplicate:!!dispatched.duplicate,
+        langs:languages.join(",")};
+    }catch(e){
+      Logger.log("[SHEETS-QA AUTO] "+task.id+" "+String(e&&e.message||e).slice(0,200));
+    }
+  }
+  return {ok:true,stage:"sheet_qa",queued:false,reason:"up_to_date_or_cooldown"};
+}
+
+// Only refresh audio for a language already approved by independent
+// Sheets/Gemma4 QA whose verified MP3 still uses an older text SHA.
+function soulkeyAutoSheetAudioRefresh_() {
+  const props=PropertiesService.getScriptProperties();
+  const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+  if(!token) return {ok:false,reason:"github_token_missing"};
+  const now=Date.now();
+  const allowed=["th","es","id","vi","hi","ta","ja","ko",
+    "km","bn","ne","lo","my","it","pt"];
+  const tasks=(readTasks_()||[]).filter(function(t){
+    return Number(t.period)>=260 &&
+       String(t.en||"").trim()==="完成" &&
+       /^P\d+-L\d+$/.test(String(t.id||""));
+  }).sort(function(a,b){
+    return Number(b.period)-Number(a.period)||String(a.id).localeCompare(String(b.id));
+  }).slice(0,8);
+  for(let i=0;i<tasks.length;i++){
+    const task=tasks[i];
+    try{
+      const folders=lessonFolders_(task.id);
+      const gate=readJsonFile_(folders.translation,"sheets.qa.publish_gate.json");
+      if(!gate || gate.task_id!==task.id || !Array.isArray(gate.audio_blockers))
+        continue;
+      const requested=Array.from(new Set(gate.audio_blockers
+        .map(function(x){return String(x.lang||"");})
+        .filter(function(x){return allowed.indexOf(x)>=0;})));
+      if(!requested.length) continue;
+      const signature=requested.join(",");
+      const leaseKey="AUTO_SHEETS_AUDIO_SYNC_V1_"+task.id;
+      let lease={};
+      try{lease=JSON.parse(props.getProperty(leaseKey)||"{}");}catch(_){}
+      if(Number(lease.expires_at_ms||0)>now && lease.signature===signature)
+        continue;
+      const result=dispatchWorkflowIdempotently_(
+        token,task.id,"pilot_tts","",signature,
+        "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
+      );
+      if(!result.ok) return {ok:false,reason:result.error||"dispatch_failed"};
+      props.setProperty(leaseKey,JSON.stringify({
+        signature:signature,expires_at_ms:now+3*60*60*1000}));
+      if(!result.duplicate)
+        appendExecutionStatus_(task.id,"pilot_tts","queued",
+          String(result.workflow_run_id||result.nonce.slice(0,12)),0,
+          "Automatically rebuild only QA-corrected speech blocks: "+signature,
+          "","","","","","");
+      return {ok:true,task_id:task.id,queued:!result.duplicate,langs:signature};
+    }catch(e){
+      Logger.log("[SHEETS-AUDIO] "+task.id+" "+String(e&&e.message||e).slice(0,180));
     }
   }
   return {ok:true,queued:false};

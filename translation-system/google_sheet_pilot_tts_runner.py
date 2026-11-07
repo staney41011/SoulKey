@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sys
+import re
 import subprocess
 from pathlib import Path
 from google_io import build_google_services, find_file, download_drive_file, upload_or_replace_file, read_values
@@ -22,6 +23,9 @@ from tts_runner import (LANGUAGE_NAMES, row_to_task, load_source_duration_limit,
                         upload_natural_outputs, existing_natural_output,
                         verify_uploaded_natural_output, _load_tts_manifest,
                         local_audio_receipt, wav_to_mp3)
+from sheets_quality_core import stable_sha
+from natural_tts_planner import build_speech_blocks
+from natural_tts_drive_cache import DriveTTSBlockCache
 
 ALLOWED={"P260-L01":58,"P260-L02":36,"P260-L03":50,"P260-L04":48}
 LANGS="th,es,id,vi,hi,ta,ja,ko,km,bn,ne,lo,my,it,pt"
@@ -184,12 +188,56 @@ def restore_existing_review(drive, audio_folder, lang, workdir, manifest,
     }
 
 
+def select_quality_approved_source(drive,translation_folder,lang,work,
+                                   english_id,draft_id,draft):
+    "Use corrected text only from a current, revision-matched QA result."
+    report_item=find_file(drive,translation_folder,f"sheets.qa.{lang}.json")
+    approved_item=find_file(drive,translation_folder,f"sheets.qa.approved.{lang}.json")
+    if not report_item or not approved_item:
+        return draft,None
+    report_path=Path(work)/f"sheets.qa.{lang}.json"
+    approved_path=Path(work)/f"sheets.qa.approved.{lang}.json"
+    download_drive_file(drive,report_item["id"],report_path)
+    download_drive_file(drive,approved_item["id"],approved_path)
+    report=json.loads(report_path.read_text(encoding="utf-8"))
+    approved=json.loads(approved_path.read_text(encoding="utf-8"))
+    if (report.get("state")!="approved_risk_based"
+        or approved.get("status")!="approved_risk_based"
+        or report.get("review_scope")!="all_segments_structural_plus_risk_based_gemma4_sample"
+        or approved.get("revision_key")!=report.get("revision_key")
+        or report.get("draft_sha")!=stable_sha(draft)
+        or approved.get("source_file_id")!=english_id
+        or approved.get("draft_file_id")!=draft_id):
+        print(f"[SHEETS-QA] {lang}: outdated or incomplete audit; "
+              "retaining original draft for preliminary TTS",flush=True)
+        return draft,None
+    revised=approved.get("segments") or []
+    original={int(x["id"]):x for x in draft}
+    if len(revised)!=len(draft) or {int(x["id"]) for x in revised}!=set(original):
+        raise RuntimeError("Quality-corrected translation has mismatched segments")
+    for seg in revised:
+        before=original[int(seg["id"])]
+        if (seg.get("source_hash")!=before.get("source_hash")
+           or abs(float(seg["start"])-float(before["start"]))>.06
+           or abs(float(seg["end"])-float(before["end"]))>.06
+           or not str(seg.get("text") or "").strip()):
+            raise RuntimeError("Quality correction changed English origin/timeline")
+    if approved.get("source_sha256")!=segments_fingerprint(revised):
+        raise RuntimeError("Quality-corrected revision fingerprint is invalid")
+    print(f"[SHEETS-QA] {lang}: approved risk-based revision selected; "
+          f"corrected={len(approved.get('corrected_ids') or [])}",flush=True)
+    return revised,report.get("revision_key")
+
+
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--task-id",required=True,choices=sorted(ALLOWED))
+    ap.add_argument("--task-id",required=True)
     ap.add_argument("--langs",required=True)
     a=ap.parse_args()
     task_id=a.task_id
+    task_match=re.fullmatch(r"P(\d+)-L(\d+)",task_id)
+    if not task_match or int(task_match.group(1))<260:
+        ap.error("Only centrally registered P260+ lessons use Sheets-first TTS")
     langs=list(dict.fromkeys(x.strip() for x in a.langs.split(",") if x.strip()))
     if not langs or len(langs)>15 or any(x not in LANGS.split(",") for x in langs):
         ap.error("Selection must be subset of 15 supported Google Sheets translations")
@@ -214,8 +262,10 @@ def main():
     english_payload=json.loads(english_file.read_text(encoding="utf-8"))
     english_segments=english_payload.get("segments") or []
     english_map={int(x["id"]):x for x in english_segments}
-    if len(english_map)!=ALLOWED[task_id]:
-        raise RuntimeError("Current English final does not match initial draft revision")
+    if not english_map or (
+            task_id in ALLOWED and len(english_map)!=ALLOWED[task_id]):
+        raise RuntimeError("Current English final has incorrect segment count")
+    expected_segments=len(english_map)
     video_duration,basis=load_source_duration_limit(drive,folders["source"],work)
     if not video_duration:
         raise RuntimeError("Missing original video duration")
@@ -228,16 +278,20 @@ def main():
         try:
             segments,draft_id=draft_source(
                 drive,draft_folder["id"],task_id,lang,work,english["id"],
-                english_map,ALLOWED[task_id])
+                english_map,expected_segments)
+            segments,quality_key=select_quality_approved_source(
+                drive,folders["translation"],lang,work,english["id"],
+                draft_id,segments)
             fingerprint=segments_fingerprint(segments)
             per_language_work=work/lang
             per_language_work.mkdir(parents=True,exist_ok=True)
             # IMPORTANT: preserve any already-passed production audio even if
             # it came from another translated text revision/provider.
             old=_load_tts_manifest(drive,audio_folder,lang,per_language_work)
-            if old and old.get("status")=="done":
+            if old and old.get("status")=="done" and (
+                    str(old.get("source_sha256") or "")==fingerprint):
                 official_state=verify_uploaded_natural_output(
-                    drive,audio_folder,lang,str(old.get("source_sha256") or ""),
+                    drive,audio_folder,lang,fingerprint,
                     video_duration,per_language_work)
                 if official_state=="done":
                     print("[SHEETS-FORMAL] %s existing approved audio retained"%lang,flush=True)
@@ -249,20 +303,36 @@ def main():
                 drive, audio_folder, lang, per_language_work, old,
                 draft_id, fingerprint, video_duration)
             if result is None:
+                # Changed QA sentence invalidates only the affected speech
+                # blocks. Verified unchanged MP3 blocks are restored from
+                # Drive's cache before the replacement recording is assembled.
+                blocks,_=build_speech_blocks(segments,lang)
+                block_store=DriveTTSBlockCache(
+                    drive,audio_folder,lang,fingerprint,blocks,
+                    per_language_work/"drive-block-cache")
                 result=render_natural_language(
                     segments,lang,per_language_work,
                     source_duration=video_duration,duration_limit_basis=basis,
+                    checkpoint_store=block_store,
                     smart_fit_pilot=False,
                 )
             result=fit_full_review_without_cutting_content(
                 result, per_language_work, video_duration)
             manifest_path=Path(result["manifest"])
             manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["translation_source"]="Google Sheets LanguageApp.translate"
+            manifest["translation_source"]=(
+                "Google Sheets + Gemma4 reviewed correction"
+                if quality_key else "Google Sheets LanguageApp.translate")
+            manifest["sheets_qa_revision_key"]=quality_key or ""
+            manifest["sheets_qa_review_scope"]=(
+                "risk_based_not_full_semantic_review" if quality_key
+                else "not_yet_reviewed")
             manifest["translation_source_drive_id"]=draft_id
             manifest["english_final_drive_id"]=english["id"]
             manifest["english_final_segments_sha256"]=segments_fingerprint(english_segments)
-            manifest["translation_semantic_qa"]="not_passed_through_Gemma4"
+            manifest["translation_semantic_qa"]=(
+                "passed_risk_based_not_full" if quality_key
+                else "not_passed_through_Gemma4")
             manifest["formal_audio_source_authorization"]="user_requested_2026-11-05"
             manifest["note"]="Official audio only when technical timing and Drive binary validation pass. Translation source: Google Sheets unreviewed draft."
             manifest_path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
@@ -306,6 +376,16 @@ def main():
     },ensure_ascii=False,indent=2),encoding="utf-8")
     upload_or_replace_file(drive,audio_folder,status_path,status_path.name)
     print("[SHEETS-FORMAL] results "+json.dumps(results,ensure_ascii=False),flush=True)
+    # Publish gate must be recalculated after corrected speech is uploaded.
+    try:
+        from sheets_quality_runner import release_gate
+        from sheets_quality_core import LANG_CODES
+        gate=release_gate(drive,folders,task_id,list(LANG_CODES),work,sheets=sheets)
+        print("[SHEETS-FORMAL] release_gate="+
+              ("ready" if gate["can_release"] else "blocked"),flush=True)
+    except Exception as exc:
+        print("[SHEETS-FORMAL] QA release gate refresh deferred: "+
+              f"{type(exc).__name__}: {str(exc)[:160]}",flush=True)
     # A batch is not "done" when even one requested language still
     # needs a timing revision or failed delivery; keep the others committed.
     states=[x["state"] for x in results]
