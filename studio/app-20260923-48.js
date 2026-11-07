@@ -4748,9 +4748,15 @@ function applyRemoteStatuses(payload){
 
 function requestTaskStatuses(){
   if(!bridgeAuthenticated) return false;
-  const current=tasks.find(x=>x.id===selectedTaskId);
-  if(currentView==="task-detail" && window.SoulKeyNativeUI?.isNative(current))
-    window.SoulKeyNativeUI.refresh(current.id);
+  // Standalone status polling is also used in older worker smoke tests.
+  if(typeof selectedTaskId!=="undefined" &&
+     typeof currentView!=="undefined" &&
+     typeof window!=="undefined" &&
+     window.SoulKeyNativeUI && currentView==="task-detail"){
+    const current=tasks.find(x=>x.id===selectedTaskId);
+    if(window.SoulKeyNativeUI.isNative(current))
+      window.SoulKeyNativeUI.refresh(current.id);
+  }
   const key=bridgeKeyValue();
   const endpoint=bridgeEndpointValue();
   if(!key || !endpoint || !tasks.length) return false;
