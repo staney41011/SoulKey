@@ -1,0 +1,98 @@
+name: SoulKey Kaggle Google Credential Availability Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - name: Install Kaggle client
+        run: python -m pip install -q kaggle
+      - name: Submit isolated private credential availability probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/soulkey-google-auth-probe"
+          cd "$RUNNER_TEMP/soulkey-google-auth-probe"
+          cat > kernel-metadata.json <<'JSON'
+          {
+            "id": "cwlmrcsir/soulkey-google-auth-probe",
+            "title": "SoulKey Google Auth Probe",
+            "code_file": "probe.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": true,
+            "enable_gpu": false,
+            "enable_tpu": false,
+            "enable_internet": true,
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          JSON
+          cat > probe.py <<'PY'
+          import os, json, urllib.request, urllib.parse
+          from kaggle_secrets import UserSecretsClient
+          secrets=UserSecretsClient()
+          names=("GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REFRESH_TOKEN","GEMINI_API_KEY")
+          values={}
+          for name in names:
+              try:
+                  values[name]=str(secrets.get_secret(name) or "").strip()
+              except Exception:
+                  values[name]=""
+          print("SECRET_PROBE:"+json.dumps({name:bool(values[name]) for name in names}),flush=True)
+          if all(values.get(x) for x in names[:3]):
+              try:
+                  body=urllib.parse.urlencode({
+                      "client_id":values["GOOGLE_CLIENT_ID"],
+                      "client_secret":values["GOOGLE_CLIENT_SECRET"],
+                      "refresh_token":values["GOOGLE_REFRESH_TOKEN"],
+                      "grant_type":"refresh_token"
+                  }).encode("utf-8")
+                  req=urllib.request.Request("https://oauth2.googleapis.com/token",
+                      data=body,headers={"Content-Type":"application/x-www-form-urlencoded"})
+                  with urllib.request.urlopen(req,timeout=35) as response:
+                      payload=json.loads(response.read())
+                  bearer=payload.get("access_token","")
+                  print("OAUTH_REFRESH_OK="+str(bool(bearer)),flush=True)
+                  if bearer:
+                      rid="1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8"
+                      for domain,url in (
+                          ("SHEETS","https://sheets.googleapis.com/v4/spreadsheets/"+rid+"?fields=spreadsheetId"),
+                          ("DRIVE","https://www.googleapis.com/drive/v3/files/"+rid+"?fields=id")
+                      ):
+                          try:
+                              req=urllib.request.Request(url,headers={"Authorization":"Bearer "+bearer})
+                              with urllib.request.urlopen(req,timeout=30) as rr:
+                                  print(domain+"_HTTP="+str(rr.status),flush=True)
+                          except Exception as exc:
+                              print(domain+"_UNAVAILABLE="+type(exc).__name__+
+                                    ("_"+str(getattr(exc,"code",""))),flush=True)
+              except Exception as exc:
+                  print("OAUTH_REFRESH_UNAVAILABLE="+type(exc).__name__,flush=True)
+          values.clear()
+          print("PROBE_DONE",flush=True)
+          PY
+          kaggle kernels push -p .
+          for i in $(seq 1 25); do
+            sleep 20
+            STATUS="$(kaggle kernels status cwlmrcsir/soulkey-google-auth-probe 2>&1 || true)"
+            echo "$STATUS" | head -c 450
+            if echo "$STATUS" | grep -Eiq "complete|error|cancel"; then break; fi
+          done
+          mkdir -p "$RUNNER_TEMP/soulkey-probe-output"
+          kaggle kernels output cwlmrcsir/soulkey-google-auth-probe -p "$RUNNER_TEMP/soulkey-probe-output" || true
+          find "$RUNNER_TEMP/soulkey-probe-output" -type f | while read -r f; do
+            if [[ "$f" == *.log ]]; then
+              grep -E 'SECRET_PROBE:|OAUTH_REFRESH_|SHEETS_|DRIVE_|PROBE_DONE' "$f" | tail -n 15 || true
+            fi
+          done
