@@ -44,7 +44,10 @@ class SmartTTSProduction(unittest.TestCase):
         self.assertEqual(worker.count('"--smart-fit-pilot",'),2)
         self.assertIn('"--smart-fit-pilot",',batch)
         self.assertEqual(worker.count('"--strict-delivery",'),2)
-        self.assertIn('"--strict-delivery",',batch)
+        # Full passes require strict formal delivery. Partial multi QA
+        # deliberately preserves good language audio for later review.
+        self.assertIn('if not partial_multi:',batch)
+        self.assertIn('audio_cmd.append("--strict-delivery")',batch)
 
 if __name__ == "__main__":
     unittest.main()

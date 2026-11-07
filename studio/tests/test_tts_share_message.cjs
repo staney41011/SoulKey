@@ -109,6 +109,9 @@ assert.ok(!/if\(!courseFilesCollapsed\(\)\) requestCourseFiles\(task\.id\);/.tes
 const backend=fs.readFileSync(path.join(__dirname,"..","..","bridge","apps-script","Code.gs"),"utf8");
 assert.ok(backend.includes('if (action === "tts_share_links")'));
 assert.ok(backend.includes('function ttsShareLinks_(taskId)'));
-assert.ok(backend.includes('"tts_share_links"\n  ];') || backend.includes('"tts_share_links"\r\n  ];'),
-  "New audio action must be JSONP-whitelisted");
+const jsonpList=backend.split("const jsonpActions = [",2)[1].split("];",1)[0];
+assert.ok(jsonpList.includes('"tts_share_links"'),
+  "Audio link read must remain JSONP-whitelisted");
+assert.ok(jsonpList.includes('"native_pipeline_get"'),
+  "P261 revision-aware audio status must be JSONP-whitelisted");
 console.log("SOULKEY_SIX_LANGUAGE_SHARE_OK",JSON.stringify({languages:codes,available:result.readyCount,pending:result.pendingCount}));
