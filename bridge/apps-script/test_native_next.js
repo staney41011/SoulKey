@@ -1,4 +1,4 @@
-const fs=require("fs"),vm=require("vm"),crypto=require("crypto"),assert=require("assert");
+﻿const fs=require("fs"),vm=require("vm"),crypto=require("crypto"),assert=require("assert");
 const properties={},triggers=[];
 const ctx=vm.createContext({
   console,Math,Date,JSON,Number,String,Array,Object,Set,
@@ -21,14 +21,14 @@ const ctx=vm.createContext({
   Logger:{log:()=>{}},
   readTasks_:()=>[]
 });
-for(const f of ["NativeNext.js","NativeQuality.js"]){
+for(const f of ["NativeNext.gs","NativeQuality.gs","NativeAudio.gs"]){
   new vm.Script(fs.readFileSync(__dirname+"/"+f,"utf8"),{filename:f})
     .runInContext(ctx);
 }
 assert.equal(ctx.soulkeyNextInstall().ok,true);
-assert.equal(triggers.length,2);
+assert.equal(triggers.length,3);
 ctx.soulkeyNextInstall();
-assert.equal(triggers.length,2);
+assert.equal(triggers.length,3);
 assert.equal(ctx.soulkeyNextTick().lessons,0);
 assert.equal(ctx.soulkeyNextQATick().reviewed,0);
 const source={task:"P261-L01",segments:[
@@ -39,7 +39,7 @@ const source={task:"P261-L01",segments:[
 ]};
 const draft={segments:source.segments.map(x=>({
   id:x.id,start:x.start,end:x.end,source_hash:x.source_hash,
-  text:x.id===1?"Visité 60 restaurantes.":"Un mensaje de esperanza."
+  text:x.id===1?"Visit矇 60 restaurantes.":"Un mensaje de esperanza."
 }))};
 const audit=ctx.skNQRisks_(source,draft,"es",[]);
 assert(audit[0].risk_flags.includes("numbers_or_dates"));

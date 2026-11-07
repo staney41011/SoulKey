@@ -266,6 +266,15 @@ function soulkeyNextInstall(){
   }else if(others.length>1){
     others.slice(1).forEach(function(x){ScriptApp.deleteTrigger(x);});
   }
+  const audioTriggers=ScriptApp.getProjectTriggers().filter(function(x){
+    return x.getHandlerFunction()==="soulkeyNextAudioTick";
+  });
+  if(!audioTriggers.length){
+    ScriptApp.newTrigger("soulkeyNextAudioTick").timeBased()
+      .everyMinutes(15).create();
+  }else if(audioTriggers.length>1){
+    audioTriggers.slice(1).forEach(function(x){ScriptApp.deleteTrigger(x);});
+  }
   const reviewTriggers=ScriptApp.getProjectTriggers().filter(function(x){
     return x.getHandlerFunction()==="soulkeyNextQATick";
   });
@@ -275,7 +284,7 @@ function soulkeyNextInstall(){
   }else if(reviewTriggers.length>1){
     reviewTriggers.slice(1).forEach(function(x){ScriptApp.deleteTrigger(x);});
   }
-  return {ok:true,trigger:"translation + Gemma QA every_15_min",
+  return {ok:true,trigger:"translation + Gemma QA + private Edge TTS every_15_min",
     mode:"Google internal only; no public webhook",
     lessons:soulkeyNextSources_().map(function(x){return x.task;})};
 }
@@ -283,7 +292,7 @@ function soulkeyNextStop(){
   PropertiesService.getScriptProperties()
     .setProperty("SOULKEY_NEXT_ENABLED","no");
   ScriptApp.getProjectTriggers().filter(function(x){
-    return ["soulkeyNextTick","soulkeyNextQATick"]
+    return ["soulkeyNextTick","soulkeyNextQATick","soulkeyNextAudioTick"]
       .indexOf(x.getHandlerFunction())>=0;
   }).forEach(function(x){ScriptApp.deleteTrigger(x);});
   return {ok:true,enabled:false};
@@ -297,10 +306,53 @@ function soulkeyNextStatus(){
     trigger_count:ScriptApp.getProjectTriggers().filter(function(x){
       return x.getHandlerFunction()==="soulkeyNextTick";
     }).length,
+    qa_trigger_count:ScriptApp.getProjectTriggers().filter(function(x){
+      return x.getHandlerFunction()==="soulkeyNextQATick";
+    }).length,
+    audio_trigger_count:ScriptApp.getProjectTriggers().filter(function(x){
+      return x.getHandlerFunction()==="soulkeyNextAudioTick";
+    }).length,
     registered_lessons:src.map(function(x){return x.task;}),
     jobs:rows.slice(1).filter(function(x){
       return /^P\d+-L\d+$/.test(String(x[0])) &&
         Number((String(x[0]).match(/^P(\d+)/)||[])[1])>=261;
     }).map(function(x){return {task:x[0],translated:x[3],total:x[4],
       state:x[5],updated:x[6]};})};
+}
+
+// Run ONCE in the Google Apps Script editor by the project owner.
+// This renews Google OAuth consent, installs all three internal triggers,
+// and validates the next-period control tabs without exposing any secret.
+function soulkeyRecoveryAuthorize(){
+  const book=SpreadsheetApp.openById(SK_NEXT_SHEET_ID);
+  if(!book.getSheetByName(SK_NEXT_TAB) ||
+     !book.getSheetByName(SK_NEXT_JOBS_TAB))
+    throw new Error("SoulKey translation control tabs missing");
+  const props=PropertiesService.getScriptProperties();
+  const installed=soulkeyNextInstall();
+  const status=soulkeyNextStatus();
+  let privateRunnerAccessible=false;
+  if(props.getProperty("GITHUB_TOKEN")){
+    try{
+      const response=skAudioGithub_("/actions/workflows/"+
+        SK_AUDIO_WORKFLOW,"get");
+      privateRunnerAccessible=response.getResponseCode()===200;
+    }catch(e){Logger.log("[SOULKEY-RECOVERY] private runner: "+
+      String(e&&e.message||e).slice(0,100));}
+  }
+  const ready={
+    ok:true,oauth_renewed:true,
+    google_sheets_access:true,
+    github_token_configured:!!props.getProperty("GITHUB_TOKEN"),
+    gemma_api_key_configured:!!props.getProperty("GEMINI_API_KEY"),
+    private_runner_accessible:privateRunnerAccessible,
+    translation_trigger_count:status.trigger_count,
+    qa_trigger_count:status.qa_trigger_count,
+    audio_trigger_count:status.audio_trigger_count,
+    registered_lessons:status.registered_lessons,
+    next_period_waiting_for_english:status.registered_lessons.length===0,
+    installed:installed.ok
+  };
+  Logger.log("[SOULKEY-RECOVERY] "+JSON.stringify(ready));
+  return ready;
 }

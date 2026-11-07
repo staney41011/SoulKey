@@ -163,7 +163,7 @@ function skNQSummary_(audits,decisions){
       return decisions[id].grade==="B_verified";
     }).map(Number)};
 }
-function soulkeyNextQATick(){
+function soulkeyNextQAOneBatch_(){
   if(PropertiesService.getScriptProperties()
       .getProperty("SOULKEY_NEXT_ENABLED")!=="yes")
     return {ok:false,reason:"native_next_not_enabled"};
@@ -205,7 +205,7 @@ function soulkeyNextQATick(){
         lesson.segments.forEach(function(x){byEnglish[String(x.id)]=x;});
         const byDraft={};
         draft.draft.segments.forEach(function(x){byDraft[String(x.id)]=x;});
-        const selected=pending.slice(0,3).map(function(x){
+        const selected=pending.slice(0,6).map(function(x){
           const before=decisions[String(x.id)]||{};
           return {id:x.id,source:byEnglish[String(x.id)].text,
             target:before.grade==="B_pending"?
@@ -253,4 +253,32 @@ function soulkeyNextQATick(){
     }
     return {ok:true,reviewed:0,reason:"no_pending_risk_qa"};
   }finally{lock.releaseLock();}
+}
+
+// Process several small checkpointed Gemma4 batches per scheduled tick.
+// Stop before Apps Script's 6-minute execution ceiling. Each batch is
+// persisted separately so quota errors never erase previous approvals.
+function soulkeyNextQATick(){
+  const start=Date.now(),maxBatches=6,maxElapsedMs=220000;
+  const outcomes=[];
+  for(let i=0;i<maxBatches && Date.now()-start<maxElapsedMs;i++){
+    const outcome=soulkeyNextQAOneBatch_();
+    if(!outcome.ok){
+      return {ok:false,batches:outcomes.length,
+        last:outcome,reviewed:outcomes.reduce(function(n,x){
+          return n+Number(x.reviewed||0);
+        },0)};
+    }
+    if(!outcome.reviewed){
+      return {ok:true,batches:outcomes.length,
+        reviewed:outcomes.reduce(function(n,x){
+          return n+Number(x.reviewed||0);
+        },0),reason:outcome.reason||"no_pending"};
+    }
+    outcomes.push(outcome);
+  }
+  return {ok:true,batches:outcomes.length,
+    reviewed:outcomes.reduce(function(n,x){
+      return n+Number(x.reviewed||0);
+    },0),last:outcomes.length?outcomes[outcomes.length-1]:null};
 }
