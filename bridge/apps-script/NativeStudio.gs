@@ -173,10 +173,24 @@ function soulkeyStudioNativeStatus_(taskId){
         }else if(receipt && receipt.release_tag===requested.tag &&
           receipt.source_sha256===requested.sha){
           item.audio_state=String(receipt.status||"pending");
-          if(item.audio_state==="done" && receipt.mp3_drive_id){
-            item.audio_url="https://drive.google.com/file/d/"+
-              encodeURIComponent(receipt.mp3_drive_id)+"/view";
-            audioDone++;
+          if(item.audio_state==="done" && !receipt.mp3_drive_id){
+            item.audio_state="missing_or_invalid_file";
+            item.audio_issue="驗收紀錄缺少正式 MP3 的 Drive 檔案 ID";
+          }else if(item.audio_state==="done" && receipt.mp3_drive_id){
+            // Verifying the canonical filename and nonempty actual Drive
+            // object keeps stale/deleted MP3s out of the release gate.
+            const f=DriveApp.getFileById(receipt.mp3_drive_id);
+            const expectedName=source.task+"-"+lang+"-"+
+              requested.sha.slice(0,16)+".mp3";
+            if(f.getName()!==expectedName || Number(f.getSize())<=0 ||
+               f.isTrashed()){
+              item.audio_state="missing_or_invalid_file";
+              item.audio_issue="正式音檔不存在或版本檔名不一致，需重製";
+            }else{
+              item.audio_url="https://drive.google.com/file/d/"+
+                encodeURIComponent(receipt.mp3_drive_id)+"/view";
+              audioDone++;
+            }
           }else if(item.audio_state==="needs_review"){
             item.audio_issue="配音超時，需修正時長";
           }
@@ -184,8 +198,8 @@ function soulkeyStudioNativeStatus_(taskId){
           item.audio_state="stale_audio";
         }
       }catch(e){
-        item.audio_state="error";
-        item.audio_issue=String(e&&e.message||e).slice(0,150);
+        item.audio_state="missing_or_invalid_file";
+        item.audio_issue="Drive 音檔驗證失敗："+String(e&&e.message||e).slice(0,120);
       }
       if(item.audio_state!=="done")blockers.push(lang+": 正式音檔未通過");
     }

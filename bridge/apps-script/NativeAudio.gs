@@ -322,7 +322,18 @@ function soulkeyNextAudioTick(){
         if(receipt && receipt.release_tag===requested.tag &&
            ["done","needs_review"].includes(receipt.status) &&
            receipt.mp3_drive_id){
-          continue;
+          // A completed receipt alone is not proof that the Drive output
+          // still exists. Resume import/rebuild when a file is gone/stale.
+          let verified=false;
+          try{
+            const file=DriveApp.getFileById(receipt.mp3_drive_id);
+            const expectedName=lesson.task+"-"+lang+"-"+
+              requested.sha.slice(0,16)+
+              (receipt.status==="done"?".mp3":".preview.mp3");
+            verified=file.getName()===expectedName &&
+              Number(file.getSize())>0 && !file.isTrashed();
+          }catch(e){Logger.log("[NEXT-AUDIO] output needs restore: "+lang);}
+          if(verified)continue;
         }
         try{
           const release=skAudioRelease_(requested.tag);

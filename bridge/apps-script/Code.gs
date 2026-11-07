@@ -4649,6 +4649,18 @@ function ttsShareLinks_(taskId) {
   const codes = ["en","th","es","id","vi","hi","ta","ja",
     "ko","km","bn","ne","lo","my","it","pt"];
   const files = [];
+  // Every share link must be checked against today's approved source revision.
+  // The earlier receipt may still exist in Drive after a later QA correction.
+  const p261=Number((id.match(/^P(\d+)-/)||[])[1]||0)>=261;
+  let currentSource=null,currentTerms=[];
+  if(p261){
+    try{
+      currentSource=soulkeyNextSources_().find(function(x){return x.task===id;})||null;
+      if(currentSource)currentTerms=skNQTerms_();
+    }catch(e){
+      Logger.log("[NATIVE-SHARE] source unavailable: "+String(e).slice(0,120));
+    }
+  }
   codes.forEach(function(code) {
     const canonical = code + ".mp3";
     // Full narration is preferred. If the timing-constrained deliverable
@@ -4660,19 +4672,32 @@ function ttsShareLinks_(taskId) {
     ];
     // Return both official and review audio, if present. A newer review
     // result must not disappear just because an older official MP3 exists.
-    if(Number((id.match(/^P(\d+)-/)||[])[1]||0)>=261){
+    if(p261){
       const receipt=readJsonFile_(folders.translation,
         "sheets.native_tts."+code+".json");
+      let expected=null;
+      try{
+        if(currentSource)expected=skAudioPayload_(currentSource,code,currentTerms);
+      }catch(e){
+        Logger.log("[NATIVE-SHARE] revision for "+code+": "+
+          String(e).slice(0,110));
+      }
+      // Do NOT advertise an MP3 generated from an obsolete English or
+      // Gemma QA revision even if its Drive file still exists.
+      if(!expected || !receipt ||
+         receipt.release_tag!==expected.tag ||
+         receipt.source_sha256!==expected.sha)return;
       // Native receipts live in the translation folder. A versioned MP3 is
-      // only shown when the stored Drive ID and actual file agree.
-      if(receipt && receipt.mp3_drive_id &&
+      // only shown when the current Drive ID and actual file agree.
+      if(receipt.mp3_drive_id &&
          ["done","needs_review"].indexOf(String(receipt.status))>=0){
         try{
           const f=DriveApp.getFileById(receipt.mp3_drive_id);
           const versioned=id+"-"+code+"-"+
             String(receipt.source_sha256||"").slice(0,16)+
             (receipt.status==="done"?".mp3":".preview.mp3");
-          if(f.getName()===versioned && Number(f.getSize())>0){
+          if(f.getName()===versioned && Number(f.getSize())>0 &&
+             !f.isTrashed()){
             files.push({id:f.getId(),name:f.getName(),
               canonical_name:code+(receipt.status==="done"?".mp3":".preview.mp3"),
               needs_timing_review:receipt.status!=="done",

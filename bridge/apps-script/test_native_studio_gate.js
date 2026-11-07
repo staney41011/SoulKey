@@ -5,10 +5,15 @@ const source={task:"P261-L01",period:261,folder:{},segments:[
   {id:0,start:0,end:60,text:"Fifty temples",source_hash:"en-hash"}]};
 const draft={draft:{segments:[
   {id:0,start:0,end:60,text:"Cincuenta templos",source_hash:"en-hash"}]}};
-let qaState="approved_risk_based",audioStale=false;
+let qaState="approved_risk_based",audioStale=false,audioMissing=false;
 const ctx=vm.createContext({
   JSON,Number,String,Array,Object,Math,Date,Set,encodeURIComponent,
   SK_NEXT_LANGS:["es"],
+  DriveApp:{getFileById:id=>({
+    getName:()=>("P261-L01-"+id.split("_").pop()+"-sha-"+id.split("_").pop()+".mp3"),
+    getSize:()=>audioMissing?0:1000000,
+    isTrashed:()=>false
+  })},
   Logger:{log:()=>{}},
   readTasks_:()=>[{id:"P261-L01",period:261}],
   soulkeyNextSelectedCodes_:(_,kind)=>kind==="audio"?["en","es"]:["es"],
@@ -48,5 +53,10 @@ v=ctx.soulkeyStudioNativeStatus_("P261-L01");
 assert.equal(v.can_publish,false);
 assert.equal(v.audio_done,0);
 assert(v.languages.some(x=>x.audio_state==="stale_audio"));
+audioStale=false;audioMissing=true;
+v=ctx.soulkeyStudioNativeStatus_("P261-L01");
+assert.equal(v.can_publish,false);
+assert.equal(v.audio_done,0);
+assert(v.languages.some(x=>x.audio_state==="missing_or_invalid_file"));
 assert.equal(ctx.soulkeyStudioNativeStatus_("P260-L01").ok,false);
 console.log("PASS P261 backend refuses stale QA, revised audio and legacy tasks");
