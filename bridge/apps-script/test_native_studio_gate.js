@@ -1,17 +1,23 @@
 const fs=require("fs"),vm=require("vm"),assert=require("assert");
 const path=require("path");
 const src=fs.readFileSync(path.join(__dirname,"NativeStudio.gs"),"utf8");
-const source={task:"P261-L01",period:261,folder:{},segments:[
+const emptyList=()=>({hasNext:()=>false});
+const source={task:"P261-L01",period:261,folder:{
+  getFoldersByName:()=>emptyList(),
+  getFilesByName:()=>emptyList()
+},segments:[
   {id:0,start:0,end:60,text:"Fifty temples",source_hash:"en-hash"}]};
 const draft={draft:{segments:[
   {id:0,start:0,end:60,text:"Cincuenta templos",source_hash:"en-hash"}]}};
-let qaState="approved_risk_based",audioStale=false,audioMissing=false;
+let qaState="approved_risk_based",audioStale=false,audioMissing=false,audioReview=false;
 const ctx=vm.createContext({
   JSON,Number,String,Array,Object,Math,Date,Set,encodeURIComponent,
   SK_NEXT_LANGS:["es"],
   DriveApp:{getFileById:id=>({
-    getName:()=>("P261-L01-"+id.split("_").pop()+"-sha-"+id.split("_").pop()+".mp3"),
+    getName:()=>("P261-L01-"+id.split("_").pop()+"-sha-"+id.split("_").pop()+
+      (audioReview?".preview.mp3":".mp3")),
     getSize:()=>audioMissing?0:1000000,
+    getUrl:()=>id,
     isTrashed:()=>false
   })},
   Logger:{log:()=>{}},
@@ -33,7 +39,7 @@ const ctx=vm.createContext({
        decisions:{}}:null,
   skAudioPayload_:(_lesson,lang)=>({sha:"sha-"+lang,tag:"tag-"+lang}),
   skAudioReceipt_:(_lesson,lang)=>({
-    status:"done",mp3_drive_id:"fake_drive_"+lang,
+    status:audioReview?"needs_review":"done",mp3_drive_id:"fake_drive_"+lang,
     source_sha256:audioStale?"OLD":"sha-"+lang,release_tag:"tag-"+lang
   })
 });
@@ -58,5 +64,10 @@ v=ctx.soulkeyStudioNativeStatus_("P261-L01");
 assert.equal(v.can_publish,false);
 assert.equal(v.audio_done,0);
 assert(v.languages.some(x=>x.audio_state==="missing_or_invalid_file"));
+audioMissing=false;audioReview=true;
+v=ctx.soulkeyStudioNativeStatus_("P261-L01");
+assert.equal(v.can_publish,false);
+assert.equal(v.audio_done,0);
+assert(v.languages.some(x=>x.preview_audio_url.includes("fake_drive_")));
 assert.equal(ctx.soulkeyStudioNativeStatus_("P260-L01").ok,false);
 console.log("PASS P261 backend refuses stale QA, revised audio and legacy tasks");

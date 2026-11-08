@@ -69,6 +69,53 @@ function soulkeyStudioGlossaryUpsert_(request){
   }finally{lock.releaseLock();}
 }
 
+// These artifacts are deliberately independent of the publish gate.
+// A draft or preview remains downloadable even when QA/timing is blocked.
+function soulkeyStudioArtifactFile_(folder,name){
+  const files=folder.getFilesByName(name);
+  if(!files.hasNext())return "";
+  const file=files.next();
+  if(file.isTrashed() || Number(file.getSize())<=0)return "";
+  return file.getUrl();
+}
+function soulkeyStudioDraftArtifact_(lesson,lang,kind){
+  const dirs=lesson.folder.getFoldersByName("AppsScript初譯-待QA");
+  if(!dirs.hasNext())return {json:"",text:""};
+  const folder=dirs.next(),base=lesson.task+"-"+lang+
+    "-google-translate-"+kind;
+  const jsonName=base+".json",files=folder.getFilesByName(jsonName);
+  if(!files.hasNext())return {json:"",text:""};
+  const f=files.next();
+  if(f.isTrashed() || Number(f.getSize())<=0)return {json:"",text:""};
+  try{
+    const obj=JSON.parse(f.getBlob().getDataAsString("UTF-8"));
+    if(obj.task_id!==lesson.task || obj.language!==lang)return {json:"",text:""};
+    // Historical files may be accessed but must never masquerade as current.
+    const current=String(obj.source_sha256||"")===
+      soulkeyNextSha_(JSON.stringify(lesson.segments));
+    const fileTxt=soulkeyStudioArtifactFile_(folder,base+".txt");
+    return {json:f.getUrl(),text:fileTxt,current:current,
+      count:Number(obj.translated_segments||obj.segments&&obj.segments.length||0),
+      total:Number(obj.total_segments||lesson.segments.length)};
+  }catch(e){
+    Logger.log("[NATIVE-ARTIFACT] "+lang+": "+String(e).slice(0,130));
+    return {json:f.getUrl(),text:"",current:false};
+  }
+}
+function soulkeyStudioReceiptAudio_(lesson,lang,receipt){
+  if(!receipt || !receipt.mp3_drive_id)return null;
+  try{
+    const file=DriveApp.getFileById(receipt.mp3_drive_id);
+    const preview=receipt.status==="needs_review";
+    const suffix=preview?".preview.mp3":".mp3";
+    const name=lesson.task+"-"+lang+"-"+
+      String(receipt.source_sha256||"").slice(0,16)+suffix;
+    if(file.getName()!==name || file.isTrashed() ||
+       Number(file.getSize())<=0)return null;
+    return {url:file.getUrl(),kind:preview?"preview":"mp3"};
+  }catch(_){return null;}
+}
+
 function soulkeyStudioNativeStatus_(taskId){
   const id=String(taskId||"").trim();
   if(!/^P\d+-L\d+$/.test(id) || Number(id.match(/^P(\d+)/)[1])<261)
@@ -125,13 +172,27 @@ function soulkeyStudioNativeStatus_(taskId){
       qa_state:lang==="en"?"english_final":"pending_translation",
       qa_reviewed:0,qa_required:0,blocked_segments:[],
       audio_state:audioSelected?"pending":"not_selected",
-      audio_url:"",text_selected:textSelected,audio_selected:audioSelected};
+      audio_url:"",preview_audio_url:"",preview_audio_label:"",
+      draft_file_url:"",draft_text_url:"",
+      qa_report_url:"",draft_file_label:"",tts_source_url:"",
+      text_selected:textSelected,audio_selected:audioSelected};
     let draft=null,report=null,currentQA=false;
     if(lang!=="en"){
       try{draft=skNQDraft_(source,lang);}catch(e){
         item.qa_state="draft_revision_error";
       }
       item.translation_ready=!!draft;
+      const full=soulkeyStudioDraftArtifact_(source,lang,"DRAFT");
+      const partial=soulkeyStudioDraftArtifact_(source,lang,"PARTIAL");
+      const artifact=draft?full:(partial.json?partial:full);
+      if(artifact.json){
+        item.draft_file_url=artifact.json;
+        item.draft_text_url=artifact.text||"";
+        item.draft_file_label=draft?"初譯草稿（未驗收）":
+          (artifact.current?"部分初譯（未完成）":"歷史草稿（原文已變更）");
+      }
+      item.qa_report_url=soulkeyStudioArtifactFile_(source.folder,
+        "sheets.qa.native."+lang+".json");
       if(draft){
         translationDone++;
         report=readJsonFile_(source.folder,"sheets.qa.native."+lang+".json");
@@ -165,9 +226,22 @@ function soulkeyStudioNativeStatus_(taskId){
       }else if(textSelected)blockers.push(lang+": 初譯尚未完成");
     }
     if(audioSelected){
+      item.tts_source_url=soulkeyStudioArtifactFile_(source.folder,
+        "sheets.native_tts."+lang+".source.json");
       try{
         const requested=skAudioPayload_(source,lang,terms);
         const receipt=skAudioReceipt_(source,lang);
+        const saved=soulkeyStudioReceiptAudio_(source,lang,receipt);
+        if(saved){
+          // An MP3 may be downloaded without being approved for publication.
+          const same=!!requested && receipt.release_tag===requested.tag &&
+            receipt.source_sha256===requested.sha;
+          if(saved.kind==="preview" || !same){
+            item.preview_audio_url=saved.url;
+            item.preview_audio_label=same?"配音試聽檔（未驗收）":
+              "舊版音檔（已過期，僅供參考）";
+          }
+        }
         if(!requested){
           item.audio_state="pending_source";
         }else if(receipt && receipt.release_tag===requested.tag &&
@@ -192,7 +266,7 @@ function soulkeyStudioNativeStatus_(taskId){
               audioDone++;
             }
           }else if(item.audio_state==="needs_review"){
-            item.audio_issue="配音超時，需修正時長";
+            item.audio_issue=String(receipt.issue||"Voice timing needs review; playable preview available");
           }
         }else if(receipt){
           item.audio_state="stale_audio";

@@ -104,17 +104,41 @@
           '<button type="button" class="ghost" data-native-manual="'+
           escape(item.lang)+":"+escape(sid.id)+'">人工確認／修改這段</button>':
           "")+'</div>').join("");
+        const artifacts=[];
+        // Review failure never removes generated output. Links do not
+        // imply approval or video-synchronized audio.
+        if(item.draft_text_url)artifacts.push(
+          '<a href="'+escape(item.draft_text_url)+
+          '" target="_blank" rel="noopener noreferrer">下載文字草稿</a>');
+        if(item.draft_file_url)artifacts.push(
+          '<a href="'+escape(item.draft_file_url)+
+          '" target="_blank" rel="noopener noreferrer">'+
+          escape(item.draft_file_label||"初譯 JSON（未驗收）")+'</a>');
+        if(item.qa_report_url)artifacts.push(
+          '<a href="'+escape(item.qa_report_url)+
+          '" target="_blank" rel="noopener noreferrer">下載 QA 報告</a>');
         const link=item.audio_url?
-          '<a href="'+escape(item.audio_url)+'" target="_blank" rel="noopener noreferrer">'+
-          "正式 MP3</a>":"";
+          '<a href="'+escape(item.audio_url)+
+          '" target="_blank" rel="noopener noreferrer">正式 MP3</a>':"";
+        const preview=item.preview_audio_url?
+          '<a href="'+escape(item.preview_audio_url)+
+          '" target="_blank" rel="noopener noreferrer">'+
+          escape(item.preview_audio_label||"配音試聽檔（未驗收）")+'</a>':"";
+        const sourceFile=item.tts_source_url?
+          '<a href="'+escape(item.tts_source_url)+
+          '" target="_blank" rel="noopener noreferrer">TTS source JSON</a>':"";
         return '<tr><td><b>'+escape(LANG[item.lang]||item.lang)+
           '</b><small> '+escape(item.lang)+'</small></td>'+
           '<td>'+escape(item.translation_count||0)+"/"+
           escape(item.translation_total||0)+'</td>'+
           '<td>'+escape(qaText(item))+
+          (artifacts.length?'<div class="native-artifacts">'+artifacts.join(" · ")+'</div>':"")+
           (snippet?'<details class="native-review-details"><summary>查看待確認段落</summary>'+
            snippet+'</details>':"")+'</td>'+
-          '<td>'+escape(audioText(item))+(link?' · '+link:'')+
+          '<td>'+escape(audioText(item))+
+          (link?'<div class="native-artifacts">'+link+'</div>':"")+
+          (preview?'<div class="native-artifacts">'+preview+'</div>':"")+
+          (sourceFile?'<div class="native-artifacts">'+sourceFile+'</div>':"")+
           (item.audio_issue?'<small>'+escape(item.audio_issue)+'</small>':"")+
           '</td></tr>';
       }).join("");
@@ -131,18 +155,45 @@
       if(!item)return;
       const doc=row.querySelector('[data-lang-delivery="doc"]');
       const audio=row.querySelector('[data-lang-delivery="audio"]');
-      if(doc)doc.textContent=item.lang==="en"?"英文人工定稿":
-        item.qa_state==="approved_risk_based"?"Sheets 譯稿・風險式 QA 通過":
-        "Sheets "+item.translation_count+"/"+item.translation_total+
-        "｜"+qaText(item);
+      if(doc){
+        doc.replaceChildren();
+        doc.appendChild(document.createTextNode(item.lang==="en"?"英文人工定稿":
+          "Sheets "+item.translation_count+"/"+item.translation_total+
+          "｜"+qaText(item)+" "));
+        for(const [url,label] of [
+          [item.draft_text_url,"草稿 TXT"],
+          [item.draft_file_url,"草稿 JSON"],
+          [item.qa_report_url,"QA 報告"]
+        ]){
+          if(!url)continue;
+          const link=document.createElement("a");
+          link.href=url;link.target="_blank";link.rel="noopener noreferrer";
+          link.textContent=label+(item.qa_state!=="approved_risk_based"?"（未驗收）":"");
+          doc.appendChild(link);
+        }
+      }
       if(audio){
         audio.replaceChildren();
         if(item.audio_url && item.audio_state==="done"){
           const a=document.createElement("a");
           a.href=item.audio_url;a.target="_blank";a.rel="noopener noreferrer";
-          a.textContent="正式 MP3（已核對版本）";
+          a.textContent=item.lang!=="en" && item.qa_state!=="approved_risk_based"?
+            "MP3（QA 未通過，僅供預覽）":"正式 MP3（已核對版本）";
           audio.appendChild(a);
+        }else if(item.preview_audio_url){
+          const link=document.createElement("a");
+          link.href=item.preview_audio_url;link.target="_blank";
+          link.rel="noopener noreferrer";
+          link.textContent=item.preview_audio_label||"試聽 MP3（未驗收）";
+          audio.appendChild(link);
         }else audio.textContent=audioText(item);
+        if(item.tts_source_url){
+          const sourceLink=document.createElement("a");
+          sourceLink.href=item.tts_source_url;
+          sourceLink.target="_blank";sourceLink.rel="noopener noreferrer";
+          sourceLink.textContent="TTS source JSON";
+          audio.appendChild(sourceLink);
+        }
       }
     });
   }

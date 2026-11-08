@@ -17,6 +17,8 @@ on:
       - studio/tests/test_p261_native_integration.cjs
       - bridge/apps-script/NativeStudio.gs
       - bridge/apps-script/test_native_studio_gate.js
+      - bridge/apps-script/test_unverified_draft_artifacts.js
+      - bridge/apps-script/test_unverified_audio_import.js
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - .github/workflows/studio_status_batch_test.yml
@@ -37,6 +39,8 @@ on:
       - studio/tests/test_p261_native_integration.cjs
       - bridge/apps-script/NativeStudio.gs
       - bridge/apps-script/test_native_studio_gate.js
+      - bridge/apps-script/test_unverified_draft_artifacts.js
+      - bridge/apps-script/test_unverified_audio_import.js
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - .github/workflows/studio_status_batch_test.yml
@@ -66,6 +70,8 @@ jobs:
           node studio/tests/test_language_delivery_layout.cjs
           node studio/tests/test_p261_native_integration.cjs
           node bridge/apps-script/test_native_studio_gate.js
+          node bridge/apps-script/test_unverified_draft_artifacts.js
+          node bridge/apps-script/test_unverified_audio_import.js
       - name: Verify all lessons receive status refresh
         run: node studio/tests/test_status_batch_all_periods.cjs
       - name: Confirm HTML cache-bust deploys corrected script
@@ -75,7 +81,7 @@ jobs:
           html=Path("studio/index.html").read_text(encoding="utf-8")
           import re
           assert re.search(r"app-20260923-48[.]js[?]v=20261107-p261-integrated-v\d+",html)
-          assert "native-pipeline.js?v=20261107-p261-integrated" in html
+          assert "native-pipeline.js?v=20261108-keep-unverified" in html
           assert "tts-share-message.js?v=20261020-review-preview-v2" in html
           assert "id=\"tts-share-copy\"" in html
           assert (html.index("tts-share-message.js?v=") <

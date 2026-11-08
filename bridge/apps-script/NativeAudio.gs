@@ -239,6 +239,30 @@ function skAudioPayload_(lesson,lang,terms){
   return {payload:payload,encoded:b64,tag:tag,sha:fingerprint,
     review:review,draft_file_id:draftId};
 }
+// Always keep a downloadable TTS source document; failed synthesis must
+// not erase the text that can be reviewed and submitted again.
+function skAudioSaveSource_(lesson,lang,requested){
+  const name="sheets.native_tts."+lang+".source.json";
+  const files=lesson.folder.getFilesByName(name);
+  const text=JSON.stringify({
+    task_id:lesson.task,language:lang,
+    status:"not_a_release",
+    review_scope:requested.review,
+    source_sha256:requested.sha,release_tag:requested.tag,
+    segments:requested.payload.segments
+  },null,2);
+  const file=files.hasNext()?files.next():null;
+  if(file){
+    if(String(file.getDescription()||"")!==requested.tag){
+      file.setContent(text);
+      file.setDescription(requested.tag);
+    }
+    return file;
+  }
+  const created=lesson.folder.createFile(name,text,MimeType.PLAIN_TEXT);
+  created.setDescription(requested.tag);
+  return created;
+}
 function skAudioReceipt_(lesson,lang){
   return readJsonFile_(lesson.folder,"sheets.native_tts."+lang+".json");
 }
@@ -267,8 +291,10 @@ function skAudioImport_(lesson,lang,requested,release){
     requested.tag+"; semanticQA="+requested.review;
   const mp3=skAudioCanonicalFile_(audioFolder,base+"."+extension,
     Utilities.newBlob(mp3Bytes,"audio/mpeg"),description);
-  let wav=null;
+  let wav=null,audioStatus=result.status,issue="";
+  let savedMp3=mp3;
   if(result.status==="done"){
+    try{
     const chunks=result.wav_chunks||[];
     if(!chunks.length || chunks.length>30)
       throw new Error("invalid_voice_wav_chunks");
@@ -280,12 +306,20 @@ function skAudioImport_(lesson,lang,requested,release){
     if(size!==Number(result.wav_bytes))
       throw new Error("wav_parts_total_mismatch");
     wav=skAudioUploadWav_(audioFolder,base+".wav",parts,size,requested.tag);
+    }catch(e){
+      // The MP3 has already been generated and imported; if a WAV upload
+      // fails, also retain a non-publishable MP3 under a preview name.
+      audioStatus="needs_review";
+      issue="wav_import_failed:"+String(e&&e.message||e).slice(0,140);
+      savedMp3=skAudioCanonicalFile_(audioFolder,base+".preview.mp3",
+        Utilities.newBlob(mp3Bytes,"audio/mpeg"),description);
+    }
   }
   const output={
-    task_id:lesson.task,language:lang,status:result.status,
-    source_sha256:requested.sha,release_tag:requested.tag,
+    task_id:lesson.task,language:lang,status:audioStatus,
+    issue:issue,source_sha256:requested.sha,release_tag:requested.tag,
     semantic_review_scope:requested.review,
-    mp3_drive_id:mp3.getId(),wav_drive_id:wav?wav.getId():null,
+    mp3_drive_id:savedMp3.getId(),wav_drive_id:wav?wav.getId():null,
     source_duration_seconds:Number(result.source_duration_seconds),
     timing:result.timing,
     imported_at:soulkeyNextNow_()
@@ -318,6 +352,10 @@ function soulkeyNextAudioTick(){
           continue;
         }
         if(!requested)continue;
+        try{skAudioSaveSource_(lesson,lang,requested);}catch(e){
+          Logger.log("[NEXT-AUDIO] source archive "+lesson.task+" "+lang+": "+
+            String(e).slice(0,120));
+        }
         const receipt=skAudioReceipt_(lesson,lang);
         if(receipt && receipt.release_tag===requested.tag &&
            ["done","needs_review"].includes(receipt.status) &&

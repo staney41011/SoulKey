@@ -122,56 +122,94 @@ function soulkeyNextQuota_(){
   }
   return {props:p,used:Number(p.getProperty("SOULKEY_NEXT_SHEETS_USED")||0)};
 }
+/**
+ * Save an actual Drive file even when translation is only partially complete.
+ * PARTIAL is never consumed by Gemma QA or formal TTS. Completed DRAFT remains
+ * the separate strictly revision-checked input used by those jobs.
+ */
 function soulkeyNextExport_(sources,allRows){
   const files=[];
+  let partialExports=0;
   sources.forEach(function(source){
     const lessonRows=allRows.filter(function(r){
       return String(r[0]||"")===source.task;
     });
-    if(lessonRows.length!==source.segments.length) return;
+    if(lessonRows.length!==source.segments.length)return;
     const byId={};
     lessonRows.forEach(function(row){byId[String(row[1])]=row;});
-    let draftsFolder;
+    let folder=null;
     const selected=soulkeyNextSelectedCodes_(source.task,"translation");
-    SK_NEXT_LANGS.forEach(function(lang,langIndex){
+    SK_NEXT_LANGS.forEach(function(lang,index){
       if(selected.indexOf(lang)<0)return;
-      const rows=source.segments.map(function(seg){return byId[String(seg.id)];});
-      if(rows.some(function(row,i){return !row ||
-          String(row[5]||"")!==source.segments[i].source_hash ||
-          !String(row[6+langIndex]||"").trim();})) return;
-      if(!draftsFolder){
-        const existing=source.folder.getFoldersByName("AppsScript初譯-待QA");
-        draftsFolder=existing.hasNext()?existing.next():
+      const segments=[];
+      source.segments.forEach(function(seg){
+        const row=byId[String(seg.id)];
+        if(!row || String(row[5]||"")!==seg.source_hash)return;
+        const text=String(row[6+index]||"").trim();
+        if(!text)return;
+        segments.push({id:seg.id,start:seg.start,end:seg.end,
+          text:text,source_hash:seg.source_hash});
+      });
+      if(!segments.length)return;
+      const complete=segments.length===source.segments.length;
+      // Only six CHANGED snapshots per tick. Unchanged snapshots do not
+      // consume the limit, so later languages are never starved.
+      if(!folder){
+        const iter=source.folder.getFoldersByName("AppsScript初譯-待QA");
+        folder=iter.hasNext()?iter.next():
           source.folder.createFolder("AppsScript初譯-待QA");
       }
-      const filename=source.task+"-"+lang+"-google-translate-DRAFT.json";
+      const kind=complete?"DRAFT":"PARTIAL";
+      const base=source.task+"-"+lang+"-google-translate-"+kind;
       const payload={
-        task_id:source.task,language:lang,engine:"LanguageApp.translate",
-        status:"pending_Gemma4_QA",
+        task_id:source.task,language:lang,
+        engine:"LanguageApp.translate",
+        status:complete?"pending_Gemma4_QA":"partial_unverified",
+        complete:complete,unverified:true,
+        translated_segments:segments.length,
+        total_segments:source.segments.length,
         source:"approved English human final",
         source_file_id:source.source_file_id,
-        generated_at:soulkeyNextNow_(),
-        segments:rows.map(function(r){
-          return {id:Number(r[1]),start:Number(r[2]),end:Number(r[3]),
-            text:String(r[6+langIndex]),source_hash:String(r[5])};
-        })
+        source_sha256:soulkeyNextSha_(JSON.stringify(source.segments)),
+        updated_at:soulkeyNextNow_(),
+        segments:segments
       };
-      const existing=draftsFolder.getFilesByName(filename);
-      if(existing.hasNext()){
-        const file=existing.next();
+      const json=JSON.stringify(payload,null,2);
+      const existing=folder.getFilesByName(base+".json");
+      const priorFile=existing.hasNext()?existing.next():null;
+      let changed=!priorFile;
+      if(priorFile){
         try{
-          const old=JSON.parse(file.getBlob().getDataAsString("UTF-8"));
-          if(old.source_file_id===payload.source_file_id &&
-             JSON.stringify(old.segments)===JSON.stringify(payload.segments)){
-            return;
-          }
-        }catch(_){}
-        file.setContent(JSON.stringify(payload,null,2));
-      }else{
-        draftsFolder.createFile(filename,JSON.stringify(payload,null,2),
-          MimeType.PLAIN_TEXT);
+          const prior=JSON.parse(priorFile.getBlob().getDataAsString("UTF-8"));
+          changed=prior.source_file_id!==payload.source_file_id ||
+            prior.source_sha256!==payload.source_sha256 ||
+            JSON.stringify(prior.segments)!==JSON.stringify(segments);
+        }catch(_){changed=true;}
       }
-      files.push({task:source.task,lang:lang});
+      const txtIter=folder.getFilesByName(base+".txt");
+      const txtFile=txtIter.hasNext()?txtIter.next():null;
+      const writeText=changed || !txtFile;
+      if(!complete && writeText && partialExports>=6)return;
+      if(changed){
+        if(priorFile)priorFile.setContent(json);
+        else folder.createFile(base+".json",json,MimeType.PLAIN_TEXT);
+      }
+      if(writeText){
+        const text=[
+          "SoulKey "+source.task+" / "+lang+" / "+kind,
+          "UNVERIFIED - NOT READY FOR PUBLICATION",
+          "Translated "+segments.length+"/"+source.segments.length+" segments",
+          ""
+        ].concat(segments.map(function(x){
+          return "["+x.start.toFixed(2)+" --> "+x.end.toFixed(2)+"] "+
+            x.text;
+        })).join("\n");
+        if(txtFile)txtFile.setContent(text);
+        else folder.createFile(base+".txt",text,MimeType.PLAIN_TEXT);
+      }
+      if(!complete && writeText)partialExports++;
+      files.push({task:source.task,lang:lang,complete:complete,
+        segments:segments.length});
     });
   });
   return files;
