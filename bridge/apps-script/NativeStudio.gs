@@ -173,6 +173,8 @@ function soulkeyStudioNativeStatus_(taskId){
       qa_reviewed:0,qa_required:0,blocked_segments:[],
       audio_state:audioSelected?"pending":"not_selected",
       audio_url:"",preview_audio_url:"",preview_audio_label:"",
+      classroom_copy_url:"",classroom_copy_state:"pending",
+      classroom_copy_tier:"",
       draft_file_url:"",draft_text_url:"",
       qa_report_url:"",draft_file_label:"",tts_source_url:"",
       text_selected:textSelected,audio_selected:audioSelected};
@@ -274,6 +276,40 @@ function soulkeyStudioNativeStatus_(taskId){
       }catch(e){
         item.audio_state="missing_or_invalid_file";
         item.audio_issue="Drive 音檔驗證失敗："+String(e&&e.message||e).slice(0,120);
+      }
+      // Classroom audio is a separate Drive copy, not part of the
+      // quality/publish gate. It may lag behind without hiding the original.
+      try{
+        const sourceReceipt=skAudioReceipt_(source,lang);
+        const playback=skPlaybackReceipt_(source,lang);
+        const current=skAudioPayload_(source,lang,terms);
+        const semanticReady=current && (
+          current.review==="approved_english_final" ||
+          current.review==="approved_risk_based_not_full");
+        const currentTier=sourceReceipt && sourceReceipt.status==="done" &&
+          semanticReady?"formal":"unverified";
+        if(playback && sourceReceipt && current &&
+           playback.status==="copied" &&
+           playback.source_mp3_id===sourceReceipt.mp3_drive_id &&
+           playback.sha===current.sha &&
+           playback.release_tag===current.tag &&
+           playback.source_status===sourceReceipt.status &&
+           playback.review===current.review &&
+           playback.tier===currentTier){
+          const target=DriveApp.getFileById(playback.dest_mp3_id);
+          const tag=skPlaybackOwned_(target);
+          if(skPlaybackFileValid_(target) &&
+             tag && tag.tag===playback.release_tag &&
+             target.getName()===playback.dest_filename){
+            item.classroom_copy_url=target.getUrl();
+            item.classroom_copy_state="copied";
+            item.classroom_copy_tier=currentTier;
+          }else item.classroom_copy_state="retry";
+        }else item.classroom_copy_state=playback?"stale":"pending";
+      }catch(copyError){
+        item.classroom_copy_state="retry";
+        Logger.log("[NATIVE-STUDIO] classroom copy "+
+          String(copyError&&copyError.message||copyError).slice(0,125));
       }
       if(item.audio_state!=="done")blockers.push(lang+": 正式音檔未通過");
     }

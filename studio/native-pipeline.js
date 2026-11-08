@@ -124,6 +124,17 @@
           '<a href="'+escape(item.preview_audio_url)+
           '" target="_blank" rel="noopener noreferrer">'+
           escape(item.preview_audio_label||"配音試聽檔（未驗收）")+'</a>':"";
+        const classroom=item.classroom_copy_url?
+          '<a href="'+escape(item.classroom_copy_url)+
+          '" target="_blank" rel="noopener noreferrer">'+
+          (item.classroom_copy_tier==="formal"?
+            "課堂播放副本":"課堂試聽副本（待驗收）")+
+          '</a>':"";
+        const classroomNote=!item.classroom_copy_url &&
+          ["done","needs_review"].includes(item.audio_state)?
+          '<small>課堂播放副本'+
+          (item.classroom_copy_state==="retry"?"同步失敗，排程會重試":"同步中")+
+          '</small>':"";
         const sourceFile=item.tts_source_url?
           '<a href="'+escape(item.tts_source_url)+
           '" target="_blank" rel="noopener noreferrer">TTS source JSON</a>':"";
@@ -138,6 +149,8 @@
           '<td>'+escape(audioText(item))+
           (link?'<div class="native-artifacts">'+link+'</div>':"")+
           (preview?'<div class="native-artifacts">'+preview+'</div>':"")+
+          (classroom?'<div class="native-artifacts">'+classroom+'</div>':"")+
+          classroomNote+
           (sourceFile?'<div class="native-artifacts">'+sourceFile+'</div>':"")+
           (item.audio_issue?'<small>'+escape(item.audio_issue)+'</small>':"")+
           '</td></tr>';
@@ -187,6 +200,14 @@
           link.textContent=item.preview_audio_label||"試聽 MP3（未驗收）";
           audio.appendChild(link);
         }else audio.textContent=audioText(item);
+        if(item.classroom_copy_url){
+          const classroomLink=document.createElement("a");
+          classroomLink.href=item.classroom_copy_url;
+          classroomLink.target="_blank";classroomLink.rel="noopener noreferrer";
+          classroomLink.textContent=item.classroom_copy_tier==="formal"?
+            "課堂播放副本":"課堂試聽副本（待驗收）";
+          audio.appendChild(classroomLink);
+        }
         if(item.tts_source_url){
           const sourceLink=document.createElement("a");
           sourceLink.href=item.tts_source_url;

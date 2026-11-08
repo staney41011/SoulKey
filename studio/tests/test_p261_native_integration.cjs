@@ -65,12 +65,15 @@ respond({
  languages:[{lang:"es",translation_count:1,translation_total:1,
  qa_state:"approved_risk_based",audio_state:"done",
  audio_url:"https://drive.google.com/file/d/abc/view",
+ classroom_copy_url:"https://drive.google.com/file/d/classroom-playback-copy/view",
+ classroom_copy_state:"copied",classroom_copy_tier:"formal",
  draft_text_url:"https://drive.google.com/file/d/drafttxt/view",
  draft_file_url:"https://drive.google.com/file/d/draftjson/view",
  qa_report_url:"https://drive.google.com/file/d/qareport/view",
  review_items:[]}]
 });
 assert(fields["native-pipeline-summary"].textContent.includes("1/1"));
+assert(fields["native-pipeline-rows"].innerHTML.includes("classroom-playback-copy"));
 assert(fields["native-pipeline-rows"].innerHTML.includes("正式 MP3"));
 assert(fields["native-pipeline-rows"].innerHTML.includes("下載文字草稿"));
 assert(fields["native-pipeline-rows"].innerHTML.includes("QA 報告"));

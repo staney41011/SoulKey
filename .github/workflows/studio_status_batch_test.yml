@@ -19,6 +19,10 @@ on:
       - bridge/apps-script/test_native_studio_gate.js
       - bridge/apps-script/test_unverified_draft_artifacts.js
       - bridge/apps-script/test_unverified_audio_import.js
+      - bridge/apps-script/NativePlayback.gs
+      - bridge/apps-script/NativeAudio.gs
+      - bridge/apps-script/test_classroom_playback_copy.js
+      - bridge/apps-script/test_apps_script_load_order.js
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - .github/workflows/studio_status_batch_test.yml
@@ -41,6 +45,10 @@ on:
       - bridge/apps-script/test_native_studio_gate.js
       - bridge/apps-script/test_unverified_draft_artifacts.js
       - bridge/apps-script/test_unverified_audio_import.js
+      - bridge/apps-script/NativePlayback.gs
+      - bridge/apps-script/NativeAudio.gs
+      - bridge/apps-script/test_classroom_playback_copy.js
+      - bridge/apps-script/test_apps_script_load_order.js
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - .github/workflows/studio_status_batch_test.yml
@@ -72,6 +80,8 @@ jobs:
           node bridge/apps-script/test_native_studio_gate.js
           node bridge/apps-script/test_unverified_draft_artifacts.js
           node bridge/apps-script/test_unverified_audio_import.js
+          node bridge/apps-script/test_classroom_playback_copy.js
+          node bridge/apps-script/test_apps_script_load_order.js
       - name: Verify all lessons receive status refresh
         run: node studio/tests/test_status_batch_all_periods.cjs
       - name: Confirm HTML cache-bust deploys corrected script
@@ -81,7 +91,7 @@ jobs:
           html=Path("studio/index.html").read_text(encoding="utf-8")
           import re
           assert re.search(r"app-20260923-48[.]js[?]v=20261107-p261-integrated-v\d+",html)
-          assert "native-pipeline.js?v=20261108-keep-unverified" in html
+          assert "native-pipeline.js?v=20261108-classroom-playback" in html
           assert "tts-share-message.js?v=20261020-review-preview-v2" in html
           assert "id=\"tts-share-copy\"" in html
           assert (html.index("tts-share-message.js?v=") <

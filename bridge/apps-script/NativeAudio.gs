@@ -338,7 +338,9 @@ function soulkeyNextAudioTick(){
     if(!sources.length)
       return {ok:true,queued:0,imported:0,reason:"no_p261_english_final"};
     const terms=skNQTerms_();
-    let dispatched=0;
+    const byTask={};
+    readTasks_().forEach(function(row){byTask[row.id]=row;});
+    let dispatched=0,playbackAttempts=0;
     for(let i=0;i<sources.length;i++){
       const lesson=sources[i];
       for(let j=0;j<SK_AUDIO_LANGUAGES.length;j++){
@@ -371,14 +373,58 @@ function soulkeyNextAudioTick(){
             verified=file.getName()===expectedName &&
               Number(file.getSize())>0 && !file.isTrashed();
           }catch(e){Logger.log("[NEXT-AUDIO] output needs restore: "+lang);}
-          if(verified)continue;
+          if(verified){
+            // Classroom copy is a separate deliverable. Never block
+            // SoulKey's original audio from being marked as generated.
+            if(playbackAttempts<2){
+              const proof=skPlaybackReceipt_(lesson,lang);
+              const same=proof && proof.status==="copied" &&
+                proof.sha===requested.sha &&
+                proof.release_tag===requested.tag &&
+                proof.source_status===receipt.status &&
+                proof.review===requested.review &&
+                proof.tier===((receipt.status==="done" &&
+                  ["approved_english_final","approved_risk_based_not_full"]
+                    .indexOf(requested.review)>=0)?"formal":"unverified") &&
+                proof.source_mp3_id===receipt.mp3_drive_id;
+              const verifiedAt=Date.parse(String(proof&&proof.last_verified_at||""));
+              const due=!same || !Number.isFinite(verifiedAt) ||
+                Date.now()-verifiedAt>24*60*60*1000;
+              if(due){
+                playbackAttempts++;
+                try{
+                  skPlaybackEnsure_(lesson,lang,receipt,requested,
+                    byTask[lesson.task]);
+                }catch(error){
+                  Logger.log("[PLAYBACK] retry next tick "+
+                    lesson.task+"/"+lang+" "+
+                    String(error&&error.message||error).slice(0,160));
+                }
+              }
+            }
+            continue;
+          }
         }
         try{
           const release=skAudioRelease_(requested.tag);
           if(release){
             const imported=skAudioImport_(lesson,lang,requested,release);
+            let playback="pending";
+            try{
+              const mirrored=skPlaybackEnsure_(lesson,lang,imported,
+                requested,byTask[lesson.task]);
+              playback=mirrored.ok?"copied":"pending";
+            }catch(error){
+              // Important: a copy permission or naming failure may not
+              // reclassify an otherwise valid SoulKey original MP3/WAV.
+              playback="retry";
+              Logger.log("[PLAYBACK] source kept, copy deferred "+
+                lesson.task+"/"+lang+" "+
+                String(error&&error.message||error).slice(0,160));
+            }
             return {ok:true,imported:1,queued:dispatched,
-              task:lesson.task,lang:lang,status:imported.status};
+              task:lesson.task,lang:lang,status:imported.status,
+              classroom_playback:playback};
           }
           // A cancelled GitHub run must not strand this language forever.
           // Retry only after two hours and at most three attempts.
