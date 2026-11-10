@@ -5718,8 +5718,8 @@ function loadReview_(taskId, kind, chunkIndex) {
 
     if (!original) {
       return {
-        ok: false,
-        error: "review_files_missing",
+        ok: false,kind:"en",task_id:taskId,
+        error: "chinese_final_missing",
         message: "找不到中文 Final"
       };
     }
@@ -5849,8 +5849,10 @@ function loadReview_(taskId, kind, chunkIndex) {
       return String(x.text || "").trim();
     })) {
       return {
-        ok: false,
-        error: "review_files_missing",
+        ok: false,kind:"en",task_id:taskId,
+        error: "english_source_not_generated",
+        chinese_final_ready:true,
+        can_generate_english:true,
         message: "找不到英文 Final、英文草稿、AI 稿或可對齊的 YouTube English CC"
       };
     }

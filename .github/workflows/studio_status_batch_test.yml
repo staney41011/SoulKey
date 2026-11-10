@@ -15,6 +15,7 @@ on:
       - studio/styles.css
       - studio/native-pipeline.js
       - studio/tests/test_p261_native_integration.cjs
+      - studio/tests/test_p261_english_missing_source.cjs
       - bridge/apps-script/NativeStudio.gs
       - bridge/apps-script/test_native_studio_gate.js
       - bridge/apps-script/test_unverified_draft_artifacts.js
@@ -41,6 +42,7 @@ on:
       - studio/styles.css
       - studio/native-pipeline.js
       - studio/tests/test_p261_native_integration.cjs
+      - studio/tests/test_p261_english_missing_source.cjs
       - bridge/apps-script/NativeStudio.gs
       - bridge/apps-script/test_native_studio_gate.js
       - bridge/apps-script/test_unverified_draft_artifacts.js
@@ -77,6 +79,7 @@ jobs:
           node studio/tests/test_review_audio_backend.cjs
           node studio/tests/test_language_delivery_layout.cjs
           node studio/tests/test_p261_native_integration.cjs
+          node studio/tests/test_p261_english_missing_source.cjs
           node bridge/apps-script/test_native_studio_gate.js
           node bridge/apps-script/test_unverified_draft_artifacts.js
           node bridge/apps-script/test_unverified_audio_import.js
@@ -90,7 +93,7 @@ jobs:
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
           import re
-          assert re.search(r"app-20260923-48[.]js[?]v=20261107-p261-integrated-v\d+",html)
+          assert "app-20260923-48.js?v=20261110-p261-english-source-fallback" in html
           assert "native-pipeline.js?v=20261108-classroom-playback" in html
           assert "tts-share-message.js?v=20261020-review-preview-v2" in html
           assert "id=\"tts-share-copy\"" in html

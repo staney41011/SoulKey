@@ -4978,7 +4978,9 @@ window.addEventListener("message",event=>{
             '</div>';
         }
         if(!isMissing) alert("讀取人工校正資料失敗："+reason);
-      }else if(data.kind==="en"){
+      }else if(data.kind==="en" ||
+          (String(data.error||"")==="english_source_not_generated" &&
+           String(data.task_id||"")===String(selectedTaskId||""))){
         // A missing *base* JSON must never hide already-loaded manuscripts:
         // Drive's independent human-edits store works without en.json.
         if(Array.isArray(currentEnglishReview) && currentEnglishReview.length &&
@@ -4989,7 +4991,13 @@ window.addEventListener("message",event=>{
         }else{
           showNoEnglishCcFallback(data.task_id || selectedTaskId);
           const status=document.getElementById("en-fallback-status");
-          if(status)status.textContent="此堂英文來源尚未建立："+(data.message || data.error || "未知錯誤");
+          if(String(data.error||"")==="chinese_final_missing"){
+            const translate=document.getElementById("translate-zh-en");
+            if(translate)translate.disabled=true;
+            if(status)status.textContent="這堂課尚未完成中文人工定稿，請先完成中文定稿，之後再產生英文初稿。";
+          }else if(status && String(data.error||"")==="english_source_not_generated"){
+            status.textContent="中文人工定稿已存在，但英文初稿尚未產生。請按「使用中文 Final 進行 AI 翻譯」，建立可以逐段校正的英文草稿。";
+          }else if(status)status.textContent="此堂英文來源尚未建立："+(data.message || data.error || "未知錯誤");
         }
       }else{
         alert("讀取人工校正資料失敗："+(data.message || data.error || "未知錯誤"));
