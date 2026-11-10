@@ -22,6 +22,7 @@ from status_io import new_run_id, mark_running, mark_done, mark_error
 from youtube_io import (
     AUTO_CC_TARGETS,
     download_multilingual_cc,
+    download_english_cc,
     extract_metadata,
     write_cc_readable_files_from_json,
 )
@@ -75,6 +76,47 @@ def download_review_cache(task_id, destination):
     payload = json.loads(destination.read_text(encoding="utf-8"))
     if not isinstance(payload.get("segments"), list) or not payload["segments"]:
         raise RuntimeError("GitHub review cache 沒有中文 segments")
+    return payload
+
+
+def load_review_base_from_final_or_cache(task_id, folders, drive, workdir):
+    """Use current, approved Chinese Final for CC alignment if available.
+
+    A new lesson may not yet have a GitHub zh.json cache. Missing that
+    optional preview must not block real YouTube English subtitles.
+    """
+    review_path = workdir / "zh-TW.review-cache.json"
+    item = find_file(drive, folders["transcript"], "zh-TW.final.json")
+    if not item:
+        return download_review_cache(task_id, review_path)
+
+    final_path = workdir / "zh-TW.final.json"
+    download_drive_file(drive, item["id"], final_path)
+    approved = json.loads(final_path.read_text(encoding="utf-8"))
+    segments = approved.get("segments") if isinstance(approved, dict) else None
+    if not isinstance(segments, list) or not segments:
+        raise RuntimeError("Current Chinese Final has no usable transcript segments")
+    review_segments = []
+    for index, row in enumerate(segments):
+        original = str(row.get("text") or "").strip()
+        start = float(row.get("start") or 0)
+        end = float(row.get("end") or start)
+        if not original or end < start:
+            raise RuntimeError("Chinese Final invalid at segment "+str(index))
+        review_segments.append({
+            "id": int(row.get("id", index)),
+            "start": start, "end": end,
+            "text": original, "raw": str(row.get("raw") or original),
+            "source_en": "", "en_text": "", "en_confirmed": False,
+            "confirmed": True,
+        })
+    payload = {
+        "version": 5, "task_id": task_id,
+        "source": "zh-TW.final.json",
+        "segments": review_segments,
+    }
+    review_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    print(f"[CC] Aligning {len(review_segments)} English windows with approved Chinese Final", flush=True)
     return payload
 
 
@@ -167,7 +209,8 @@ def main():
         # First repair legacy CC JSON already stored on Drive.  This avoids
         # re-downloading captions just to create TXT/SRT companions.
         existing_languages = []
-        for lang in AUTO_CC_TARGETS:
+        stored_english_path = None
+        for lang in (("en",) if args.refresh_english_review else AUTO_CC_TARGETS):
             canonical_json = f"youtube.{lang}.json"
             item = find_file(drive, folders["source"], canonical_json)
             if not item:
@@ -175,6 +218,29 @@ def main():
 
             local_json = workdir / canonical_json
             download_drive_file(drive, item["id"], local_json)
+            # A task can be reassigned to another YouTube video. Never
+            # reuse stale CC JSON from the old video even when names match.
+            try:
+                match = re.search(
+                    r"(?:youtu\.be/|[?&]v=)([A-Za-z0-9_-]{11})",
+                    task["youtube_url"],
+                )
+                existing = json.loads(local_json.read_text(encoding="utf-8"))
+                valid_for_video = (
+                    isinstance(existing, dict)
+                    and match is not None
+                    and str(existing.get("video_id") or "") == match.group(1)
+                    and isinstance(existing.get("segments"), list)
+                    and bool(existing["segments"])
+                )
+            except (OSError, ValueError, TypeError, AttributeError) as exc:
+                print("[CC] Existing subtitle integrity error: "+str(exc)[:120], flush=True)
+                valid_for_video = False
+            if not valid_for_video:
+                print("[CC] Saved caption is stale/missing video proof; fetch current video",flush=True)
+                continue
+            if lang == "en":
+                stored_english_path = local_json
             try:
                 write_cc_readable_files_from_json(
                     local_json,
@@ -207,23 +273,19 @@ def main():
                 )
             existing_languages.append(lang)
 
-        cc_paths = download_multilingual_cc(task["youtube_url"], workdir)
+        # English-review recovery must NOT download all 16 languages.
+        # Keep the already saved English track as a safe fallback when the
+        # platform temporarily stops serving live caption bytes.
+        if args.refresh_english_review:
+            refreshed = download_english_cc(task["youtube_url"], workdir)
+            cc_paths = {"en": Path(refreshed)} if refreshed else {}
+        else:
+            cc_paths = download_multilingual_cc(task["youtube_url"], workdir)
         if not cc_paths and not existing_languages:
-            message = (
-                "NO_YOUTUBE_CC｜此影片沒有可用 YouTube CC；"
-                "請改用原始中文音軌 → Taiwan-Breeze ASR，"
-                "外語由 SoulKey 翻譯流程產生。"
+            raise RuntimeError(
+                "YouTube 字幕取得失敗或目前無可取得字幕。"
+                "無法依此判定影片沒有 CC；請稍後重試或從影片頁面檢查字幕。"
             )
-            mark_done(
-                args.task_id,
-                "cc",
-                sheets=sheets,
-                run_id=run_id,
-                message=message,
-            )
-            print(f"[CC] {message}", flush=True)
-            return 0
-
         uploaded_languages = list(existing_languages)
         for lang, cc_path in cc_paths.items():
             # Chinese is never accepted from YouTube auto-translation.
@@ -296,7 +358,7 @@ def main():
             return 0
 
         # English-review refresh keeps the previous stricter contract.
-        english_cc = cc_paths.get("en")
+        english_cc = cc_paths.get("en") or stored_english_path
         if not english_cc or not Path(english_cc).exists():
             raise RuntimeError(
                 "English CC 補抓模式需要 English auto-generated CC，"
@@ -304,7 +366,7 @@ def main():
             )
 
         review_path = workdir / "zh-TW.review-cache.json"
-        download_review_cache(args.task_id, review_path)
+        load_review_base_from_final_or_cache(args.task_id, folders, drive, workdir)
         attach_english_cc(review_path, Path(english_cc))
 
         payload = json.loads(review_path.read_text(encoding="utf-8"))

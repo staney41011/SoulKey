@@ -29,7 +29,9 @@ jobs:
             translation-system/drive_naming.py \
             translation-system/google_io.py \
             translation-system/youtube_io.py \
+            translation-system/cc_runner.py \
             translation-system/runner.py \
+
             translation-system/polish.py \
             translation-system/polish_runner.py \
             translation-system/translate_runner.py \
@@ -46,6 +48,7 @@ jobs:
 
       - name: Pipeline regression contracts
         run: |
+          python -m unittest discover -s translation-system/tests -p test_cc_fast_path.py -v
           python translation-system/tests/test_pipeline_contracts.py
           python translation-system/tests/test_polish_json_resilience.py
           python translation-system/tests/test_review_cache_bridge_resilience.py

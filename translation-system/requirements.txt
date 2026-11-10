@@ -1,7 +1,7 @@
 yt-dlp[default]
 yt-dlp-getpot-wpc
 bgutil-ytdlp-pot-provider==2.0.0
-youtube-transcript-api
+youtube-transcript-api>=1.2.5,<2
 google-api-python-client
 google-auth
 google-auth-httplib2

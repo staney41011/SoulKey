@@ -1746,7 +1746,19 @@ def download_english_cc(url: str, workdir: Path):
     """Fetch only English auto-generated CC without downloading audio."""
     workdir.mkdir(parents=True, exist_ok=True)
 
-    # 2026 主路徑：bgutil 自動取得 web Subs PO Token。
+    # 2026 YouTube can list an English ASR track but return HTTP 200
+    # with an empty /api/timedtext body unless a caption PO token is set.
+    # The transcript interface uses a different fetch path. Try it first
+    # before the expensive multi-client PO-token fallback.
+    video_id = _video_id_from_url(url)
+    if video_id:
+        recovered = _download_english_cc_via_transcript_api(video_id, workdir)
+        if recovered:
+            print("[YouTube CC] transcript API first attempt succeeded", flush=True)
+            return recovered
+
+    # Fallback: bgutil supplies a web Subs PO Token when the transcript
+    # interface is blocked from the current cloud worker's exit IP.
     bgutil = _download_english_cc_bgutil_retry(
         url,
         workdir,
