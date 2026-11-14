@@ -50,8 +50,8 @@ jobs:
           if not result.get("ok"):
               import re
               message = str(result.get("message") or result.get("reason") or "")
-              message = re.sub(r"(?i)(token|key|secret|authorization)\\s*[:=]\\s*\\S+",
-                               r"\\1=[REDACTED]", message)
+              message = re.sub(r"(?i)(token|key|secret|authorization)\s*[:=]\s*\S+",
+                               r"\1=[REDACTED]", message)
               print("ENGLISH_RETRY_BRIDGE_ERROR reason=" +
                     str(result.get("error") or "unknown") +
                     " message=" + message[:260])
