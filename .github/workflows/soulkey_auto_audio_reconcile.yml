@@ -47,6 +47,12 @@ jobs:
             echo "Audio reconciliation secret is missing"
             exit 1
           fi
+          HEALTH_FILE="${RUNNER_TEMP}/soulkey-bridge-health.json"
+          HEALTH_CODE="$(curl --location --silent --show-error --max-time 18 --output "$HEALTH_FILE" --write-out '%{http_code}' "$BRIDGE_URL?action=bridge_preflight" || true)"
+          if [[ "$HEALTH_CODE" != 200 ]] || ! grep -q '"bridge-ready"' "$HEALTH_FILE" 2>/dev/null; then
+            echo "::error title=SoulKey Bridge unavailable::Apps Script gateway is not publicly reachable (HTTP $HEALTH_CODE or sign-in page). Dispatch skipped. Verify effective Google Web App authorization; do not retry the same inaccessible URL."
+            exit 1
+          fi
           RESPONSE=$(curl -fsSL --retry 2 --max-time 70 \
             --data-urlencode "action=audio_reconcile" \
             --data-urlencode "reset_task=$RESET_TASK" \
