@@ -1,0 +1,83 @@
+name: SoulKey P261-L02 Urgent Translation Continuation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-p261-l02-urgent-translation
+  cancel-in-progress: false
+
+jobs:
+  accelerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - name: Resume unfinished P261-L02 language drafts, preserving quota and source revision
+        shell: bash
+        env:
+          AUDIO_KEY: ${{ secrets.SOULKEY_AUDIO_RECONCILE_KEY }}
+          BRIDGE_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
+        run: |
+          set -euo pipefail
+          [[ -n "$AUDIO_KEY" ]] || { echo "::error::Missing authorized key"; exit 1; }
+          HEALTH_FILE="${RUNNER_TEMP}/bridge-l02-health.json"
+          HTTP_CODE="$(curl --location --silent --show-error --max-time 18 --output "$HEALTH_FILE" --write-out '%{http_code}' "$BRIDGE_URL?action=bridge_preflight" || true)"
+          if [[ "$HTTP_CODE" != "200" ]] || ! grep -q '"bridge-ready"' "$HEALTH_FILE"; then
+            echo "::error::SoulKey authenticated Bridge is not ready (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+          # Every request is signed and follows the existing daily quota, lock
+          # and source-revision checks. Never retry an ambiguous timed-out POST.
+          # A language can be enqueued for TTS as soon as its full draft exists.
+          for round in $(seq 1 36); do
+            echo "Starting bounded translation batch $round/36"
+            RESPONSE="$(curl -fsSL --max-time 300 \
+              --data-urlencode 'action=audio_reconcile' \
+              --data-urlencode "audio_key=$AUDIO_KEY" \
+              --data-urlencode 'sheet_translate_task=P261-L02' \
+              "$BRIDGE_URL")"
+            DECISION="$(RESULT="$RESPONSE" python - <<'PY'
+          import json, os
+          try:
+              data=json.loads(os.environ["RESULT"])
+          except Exception as ex:
+              raise SystemExit("Non-JSON Bridge response: "+type(ex).__name__)
+          batch=data.get("batch") or {}
+          audio=data.get("audio") or {}
+          print("TRANSLATION_BATCH="+str({
+              "task":data.get("task_id"), "requests":batch.get("requests"),
+              "translated":batch.get("translated"), "failed":batch.get("failed"),
+              "quota_used":batch.get("quota_used"),
+              "completed_drafts": [(x.get("lang"),x.get("complete")) for x in
+                                  (batch.get("exported_languages") or [])
+                                  if x.get("complete")],
+              "audio_dispatch": {k:audio.get(k) for k in ("task_id","langs","queued","duplicate")}})
+          if data.get("reason") == "busy":
+              print("busy")
+          elif not data.get("ok") or data.get("task_id") != "P261-L02":
+              raise SystemExit("Bridge rejected authorized P261-L02 batch: "+
+                               str(data.get("reason") or data.get("error")))
+          elif int(batch.get("quota_used") or 0) >= 3800:
+              print("daily_quota")
+          elif int(batch.get("requests") or 0) == 0:
+              print("no_pending_work")
+          else:
+              print("continue")
+          PY
+            )"
+            echo "$DECISION" | head -n -1
+            LAST="$(echo "$DECISION" | tail -n 1)"
+            if [[ "$LAST" == "daily_quota" || "$LAST" == "no_pending_work" ]]; then
+              echo "Gracefully stopped: $LAST (no fabricated complete status)."
+              exit 0
+            fi
+            if [[ "$LAST" != "continue" && "$LAST" != "busy" ]]; then
+              echo "::error::Unrecognized Bridge result: $LAST"
+              exit 1
+            fi
+            sleep 3
+          done
+          echo "Reached bounded 36-batch work limit; scheduled tick will continue remaining work."
