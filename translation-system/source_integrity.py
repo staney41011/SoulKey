@@ -48,6 +48,32 @@ def check_english_coverage(english_segments, duration_seconds):
             "coverage_ratio": round(min(end / source, 1), 4)}
 
 
+
+def compare_manuscript_to_video(segments, original_video_seconds, *, tolerance=12.0,
+                                minimum_coverage=0.70):
+    """Evaluate *one* manuscript against verified source video runtime.
+
+    A long Chinese source timeline must not redefine the source video's end.
+    Only flag for review; human-approved words and timestamps are never edited.
+    """
+    duration = float(original_video_seconds)
+    if not math.isfinite(duration) or duration < 60:
+        raise ValueError("Missing valid original-video duration")
+    start, end = bounds(segments)
+    overrun = max(0.0, end - duration)
+    coverage = min(1.0, end / duration)
+    needs_review = bool(overrun > tolerance or coverage < minimum_coverage)
+    return {
+        "needs_review": needs_review,
+        "manuscript_end": round(end, 3),
+        "original_video_duration": round(duration, 3),
+        "overrun_seconds": round(overrun, 3),
+        "coverage_ratio": round(coverage, 4),
+        "reason": ("past_original_video_end" if overrun > tolerance else
+                   "insufficient_video_coverage" if coverage < minimum_coverage
+                   else "within_original_video"),
+    }
+
 def compare_chinese_english_end(zh_segments, english_segments, tolerance=90):
     """Report differing source timebases without replacing approved content."""
     _, chinese_end = bounds(zh_segments)
