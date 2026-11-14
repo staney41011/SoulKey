@@ -312,45 +312,43 @@ def main():
             task_id in ALLOWED and len(english_map)!=ALLOWED[task_id]):
         raise RuntimeError("Current English final has incorrect segment count")
     expected_segments=len(english_map)
-    video_duration,basis=load_source_duration_limit(drive,folders["source"],work)
-    if not video_duration:
-        video_duration=recover_duration_from_english_cc(
-            drive, folders["source"], work, task.get("youtube_url"))
-        if video_duration:
-            basis="verified_original_youtube_english_cc_timeline"
+    video_duration,basis=load_source_duration_limit(
+        drive,folders["source"],work,youtube_url=task.get("youtube_url"))
     if not video_duration:
         raise RuntimeError(
-            "Missing original video duration and no matching English CC "
-            "timeline for this lesson")
-    from source_integrity import check_english_coverage, compare_chinese_english_end
-    coverage = check_english_coverage(english_segments, video_duration)
-    print("[SOURCE-INTEGRITY] %s English end=%.1fs evidence=%.1fs coverage=%.1f%%" %
-          (task_id, coverage["english_end"], video_duration,
-           coverage["coverage_ratio"] * 100), flush=True)
-    # The Chinese human-approved text is never overwritten automatically.
-    # A divergent source timeline must be visible instead of being labelled
-    # "complete" just because one translation batch finished.
-    zh_item = find_file(drive, folders["transcript"], "zh-TW.final.json")
+            "Missing independently verified original YouTube video duration; "
+            "do not replace it with an English CC last timestamp. "
+            "Re-ingest source_info.json or add a verified video-ID record.")
+    from source_integrity import check_english_coverage, compare_manuscript_to_video
+    coverage=check_english_coverage(english_segments,video_duration)
+    print("[SOURCE-INTEGRITY] %s video=%.1fs English end=%.1fs coverage=%.1f%%" %
+          (task_id,video_duration,coverage["english_end"],
+           coverage["coverage_ratio"]*100),flush=True)
+    # Chinese and English are independently compared with the original video,
+    # not with each other's final subtitle cue. Preserve approved manuscripts.
+    zh_item=find_file(drive,folders["transcript"],"zh-TW.final.json")
     if zh_item:
         try:
-            zh_path = work / "zh-TW.source-integrity.json"
-            download_drive_file(drive, zh_item["id"], zh_path)
-            zh_payload = json.loads(zh_path.read_text(encoding="utf-8"))
-            drift = compare_chinese_english_end(
-                zh_payload.get("segments") or [], english_segments)
-            if drift["needs_review"]:
-                msg = ("中文/英文來源時間軸不一致；中文結尾 %.1fs、英文結尾 %.1fs、"
-                       "差距 %.1fs。保留兩份人工定稿，需核對原影片；"
-                       "英文錨定的多語配音仍可獨立處理。" %
-                       (drift["zh_end"], drift["en_end"],
-                        drift["difference_seconds"]))
-                print("[SOURCE-INTEGRITY] " + msg, flush=True)
-                mark_needs_review(task_id, "source_integrity", sheets=sheets,
-                                  run_id=new_run_id(task_id, "source_integrity"),
+            zh_path=work/"zh-TW.source-integrity.json"
+            download_drive_file(drive,zh_item["id"],zh_path)
+            zh_payload=json.loads(zh_path.read_text(encoding="utf-8"))
+            audit=compare_manuscript_to_video(
+                zh_payload.get("segments") or [],video_duration)
+            if audit["needs_review"]:
+                msg=("中文逐字稿時間碼須依原始影片校正；影片原長 %.1fs、"
+                     "中文字稿結尾 %.1fs、超出 %.1fs（%s）。"
+                     "保留人工定稿不刪字；英文錨定的多語配音照影片原長執行。" %
+                     (video_duration,audit["manuscript_end"],
+                      audit["overrun_seconds"],audit["reason"]))
+                print("[SOURCE-INTEGRITY] "+msg,flush=True)
+                mark_needs_review(task_id,"source_integrity",sheets=sheets,
+                                  run_id=new_run_id(task_id,"source_integrity"),
                                   message=msg)
         except Exception as exc:
-            print("[SOURCE-INTEGRITY] Chinese audit unavailable: " +
-                  type(exc).__name__ + ": " + str(exc)[:180], flush=True)
+            print("[SOURCE-INTEGRITY] Chinese audit unavailable: "+
+                  type(exc).__name__+": "+str(exc)[:180],flush=True)
+    print("[SHEETS-FORMAL] task=%s langs=%s original_video_limit=%.2fs basis=%s" %
+          (task_id,",".join(langs),video_duration,basis),flush=True)
     audio_folder=folders["audio"]
     print("[SHEETS-FORMAL] task=%s langs=%s original_limit=%.2fs"%
           (task_id,",".join(langs),video_duration),flush=True)
