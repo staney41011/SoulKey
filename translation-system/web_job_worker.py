@@ -660,10 +660,46 @@ def main():
                     flush=True,
                 )
 
-        # A human may have finalized a pre-reupload transcript before the
-        # new URL was checked. Guard every downstream consumer as well:
-        # no translations or TTS from unverified source timestamps.
-        if args.stage in {"polish", "vernacular", "en", "multi", "tts", "finish"} and not (
+        # Human-approved English Final does not depend on the Chinese ASR
+        # reuse cache. A P261+ English-only TTS job must validate its own
+        # English Final, task approval and original-video duration instead.
+        english_final_only = (
+            args.stage == "tts"
+            and [x.strip() for x in args.langs.split(",") if x.strip()] == ["en"]
+            and bool(re.fullmatch(r"P(\d+)-L\d+", args.task_id))
+            and int(args.task_id.split("-")[0][1:]) >= 261
+        )
+        if english_final_only:
+            from config import SPREADSHEET_ID, TASK_SHEET_RANGE
+            from google_io import build_google_services, read_values, find_file
+            from lesson_paths import resolve_lesson_folders
+            from tts_runner import load_source_duration_limit
+
+            drive, sheets = build_google_services()
+            matches = [r for r in read_values(sheets, SPREADSHEET_ID, TASK_SHEET_RANGE)
+                       if r and str(r[0]).strip() == args.task_id]
+            if len(matches) != 1 or len(matches[0]) <= 9:
+                raise RuntimeError("English TTS task is not uniquely registered")
+            task_row = matches[0]
+            if str(task_row[9]).strip() != "完成":
+                raise RuntimeError("English Final has not been approved")
+            folders = resolve_lesson_folders(
+                drive, sheets, int(task_row[1]), str(task_row[2]))
+            if not find_file(drive, folders["translation"], "en.final.json"):
+                raise RuntimeError("English TTS requires human-approved en.final.json")
+            source_work = Path("/tmp/soulkey-en-tts-source") / args.task_id
+            source_work.mkdir(parents=True, exist_ok=True)
+            video_length, evidence = load_source_duration_limit(
+                drive, folders["source"], source_work,
+                youtube_url=str(task_row[4]).strip())
+            if not video_length:
+                raise RuntimeError(
+                    "Missing original-video runtime for approved English Final")
+            print(f"[SOURCE-REVISION:ENGLISH-FINAL] {args.task_id} "
+                  f"approved video={video_length:.1f}s basis={evidence}; "
+                  "no dependency on legacy Chinese ASR reuse metadata",
+                  flush=True)
+        elif args.stage in {"polish", "vernacular", "en", "multi", "tts", "finish"} and not (
             args.stage == "en" and args.lang == "cc-refresh"
         ):
             try:
