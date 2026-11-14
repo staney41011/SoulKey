@@ -34,7 +34,7 @@ jobs:
           AUDIO_KEY: ${{ secrets.SOULKEY_AUDIO_RECONCILE_KEY }}
           TASK_ID: ${{ inputs.task_id || 'auto' }}
           LANGS: ${{ inputs.langs || '' }}
-          BRIDGE_URL: https://script.google.com/macros/s/AKfycby1BX9ruV14vfGfqtpSrB55BEKgbxJKJo3NVkB0ZP64Ll6P_Zmo-1KM4m7j2MN9BRrhmQ/exec
+          BRIDGE_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
         shell: bash
         run: |
           set -euo pipefail
