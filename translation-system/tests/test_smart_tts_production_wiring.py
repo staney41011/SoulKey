@@ -20,8 +20,12 @@ class SmartTTSProduction(unittest.TestCase):
 
     def test_video_duration_is_hard_stop(self):
         runner=code("translation-system/tts_runner.py")
-        self.assertIn('args.smart_fit_pilot and not video_duration',runner)
-        self.assertIn('original source_info.json duration',runner)
+        # Verified original-video duration is mandatory for both standard and
+        # smart TTS; subtitles must never supply the video hard stop.
+        self.assertIn('if not video_duration:',runner)
+        self.assertIn('duration_limit = float(video_duration)',runner)
+        self.assertIn('Subtitle timestamps are not',runner)
+        self.assertNotIn('last_approved_source_timestamp',runner)
         self.assertIn('encoded_seconds > source_duration',runner)
         self.assertIn('timeline_mp3.unlink(missing_ok=True)',runner)
         self.assertIn('"needs_review"',runner)
