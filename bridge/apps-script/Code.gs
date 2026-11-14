@@ -101,6 +101,23 @@ function doPost(e) {
       if (!expected || !supplied || supplied !== expected) {
         return json_({ok:false,error:"unauthorized"});
       }
+      // Urgent signed, lesson-scoped continuation for incomplete P261-L02
+      // Sheets translations. Preserve source hashes, daily quotas, and
+      // script locks. Do not bypass the full-DRAFT gate for formal speech.
+      const urgentSheetTask=String((e&&e.parameter&&e.parameter.sheet_translate_task)||"").trim();
+      if(urgentSheetTask){
+        if(urgentSheetTask!=="P261-L02")
+          return json_({ok:false,error:"urgent_translation_task_not_allowed"});
+        const batch=soulkeyNextTick(urgentSheetTask);
+        let audio={ok:true,queued:false,reason:"not_checked"};
+        if(batch.ok && Number(batch.translated||0)>0){
+          try{audio=soulkeyAutoSheetsInitialAudioReconcile_();}
+          catch(err){audio={ok:false,error:String(err&&err.message||err).slice(0,160)};}
+        }
+        return json_({ok:!!batch.ok,task_id:urgentSheetTask,
+          stage:"sheets_translation",batch:batch,audio:audio,
+          reason:batch.reason||""});
+      }
       // Direct, signed, idempotent English Final -> formal MP3 dispatch.
       // This bypasses unrelated multi-language queue scanning (not security);
       // the normal TTS worker still checks source revision and video duration.
