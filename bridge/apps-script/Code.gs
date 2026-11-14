@@ -191,8 +191,12 @@ function doPost(e) {
       let sheetSync={ok:true,queued:false};
       try {sheetSync=soulkeyAutoSheetAudioRefresh_();}
       catch(e){sheetSync={ok:false,error:String(e&&e.message||e)};}
+      let initialSheetAudio={ok:true,queued:false};
+      try {initialSheetAudio=soulkeyAutoSheetsInitialAudioReconcile_();}
+      catch(e){initialSheetAudio={ok:false,error:String(e&&e.message||e)};}
       return json_(Object.assign({},audio,{
-        multi_reconcile:multi,sheets_audio_refresh:sheetSync}));
+        multi_reconcile:multi,sheets_audio_refresh:sheetSync,
+        sheets_initial_audio:initialSheetAudio}));
     }
 
     if (action === "worker_report") {
@@ -1179,6 +1183,74 @@ function soulkeyAutoSheetAudioRefresh_() {
     }
   }
   return {ok:true,queued:false};
+}
+
+// Resumes only the three P261 lessons explicitly authorized for formal
+// Google Sheets-sourced voices. This is separate from the legacy Gemini TTS
+// queue and never re-generates a technically approved audio manifest.
+function soulkeyAutoSheetsInitialAudioReconcile_() {
+  const props=PropertiesService.getScriptProperties();
+  const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+  if(!token) return {ok:false,reason:"github_token_missing"};
+  const targets=new Set(["P261-L01","P261-L03","P261-L04"]);
+  const langs=["th","es","id","vi","hi","ta","ja","ko","km",
+    "bn","ne","lo","my","it","pt"];
+  const now=Date.now();
+  const tasks=readTasks_().filter(function(t){
+    return targets.has(String(t.id||"")) && String(t.en||"").trim()==="完成";
+  }).sort(function(a,b){return String(a.id).localeCompare(String(b.id));});
+  for(let i=0;i<tasks.length;i++){
+    const task=tasks[i];
+    try{
+      const folders=lessonFolders_(task.id);
+      if(!cachedFileId_(folders.translation,"en.final.json")) continue;
+      const draftFolder=cachedChildFolder_(folders.translation,"AppsScript初譯-待QA");
+      const audioFolder=cachedChildFolder_(folders.lesson,"04_音檔");
+      if(!draftFolder || !audioFolder) continue;
+      const missing=langs.filter(function(lang){
+        const name=task.id+"-"+lang+"-google-translate-DRAFT.json";
+        if(!cachedFileId_(draftFolder,name)) return false;
+        const manifest=readJsonFile_(audioFolder,lang+".tts_manifest.json")||{};
+        const state=String(manifest.status||"");
+        if(state==="done" && cachedFileId_(audioFolder,lang+".mp3"))
+          return false;
+        if(state==="needs_review" && cachedFileId_(audioFolder,lang+".preview.mp3"))
+          return false;
+        return true;
+      });
+      if(!missing.length) continue;
+      const signature=missing.join(",");
+      const key="AUTO_P261_SHEETS_INITIAL_AUDIO_V1_"+task.id;
+      let old={};
+      try{old=JSON.parse(props.getProperty(key)||"{}");}catch(_){}
+      if(old.signature===signature && Number(old.expires_at_ms||0)>now)
+        continue;
+      const dispatched=dispatchWorkflowIdempotently_(
+        token,task.id,"pilot_tts","",signature,
+        "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
+      );
+      if(!dispatched.ok) return {ok:false,stage:"pilot_tts",
+        task_id:task.id,reason:dispatched.error||"dispatch_failed"};
+      props.setProperty(key,JSON.stringify({
+        signature:signature,expires_at_ms:now+60*60*1000,
+        queued_at:new Date(now).toISOString()
+      }));
+      if(!dispatched.duplicate){
+        appendExecutionStatus_(task.id,"pilot_tts","queued",
+          String(dispatched.workflow_run_id||(dispatched.nonce||"").slice(0,12)),0,
+          "P261 自動補齊 Google Sheets 多語配音："+signature,
+          "","","","","","");
+      }
+      return {ok:true,stage:"pilot_tts",task_id:task.id,
+        queued:!dispatched.duplicate,duplicate:!!dispatched.duplicate,
+        langs:signature};
+    }catch(e){
+      Logger.log("[AUTO-P261-SHEETS-AUDIO] "+task.id+" "+
+        String(e&&e.message||e).slice(0,200));
+    }
+  }
+  return {ok:true,stage:"pilot_tts",queued:false,
+    reason:"no_missing_authorized_audio_or_cooldown"};
 }
 
 function soulkeyAutoAudioReconcile_() {
