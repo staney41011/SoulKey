@@ -1241,14 +1241,14 @@ function soulkeyAutoSheetAudioRefresh_() {
   return {ok:true,queued:false};
 }
 
-// Resumes only the three P261 lessons explicitly authorized for formal
-// Google Sheets-sourced voices. This is separate from the legacy Gemini TTS
-// queue and never re-generates a technically approved audio manifest.
+// Complete all four P261 lessons' initial Sheets-sourced audio, including
+// L02 once an individual language has a complete English-anchored DRAFT.
+// Existing verified MP3s/approved timing previews are never regenerated.
 function soulkeyAutoSheetsInitialAudioReconcile_() {
   const props=PropertiesService.getScriptProperties();
   const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
   if(!token) return {ok:false,reason:"github_token_missing"};
-  const targets=new Set(["P261-L01","P261-L03","P261-L04"]);
+  const targets=new Set(["P261-L01","P261-L02","P261-L03","P261-L04"]);
   const langs=["th","es","id","vi","hi","ta","ja","ko","km",
     "bn","ne","lo","my","it","pt"];
   const now=Date.now();
