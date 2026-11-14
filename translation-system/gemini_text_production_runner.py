@@ -234,13 +234,13 @@ def _translate_chunk_recovering_ids(client, batch, glossary_text, system, instru
                 {"id": int(x["id"]), "text": x["text"]} for x in group
             ]
             repair_hint = (
-                "\\nREPAIR: Earlier output used invalid or repeated IDs. "
+                "\nREPAIR: Earlier output used invalid or repeated IDs. "
                 "Translate ONLY the input IDs shown below and return them "
                 "exactly once; never substitute an earlier/later ID."
                 if pass_no > 1 else ""
             )
             prompt = (
-                f"Glossary:\\n{glossary_text}\\n\\n{instruction}{repair_hint}\\n"
+                f"Glossary:\n{glossary_text}\n\n{instruction}{repair_hint}\n"
                 + json.dumps(schema_input, ensure_ascii=False)
             )
             parsed, _ = client.structured(
@@ -290,7 +290,7 @@ def transform_segments(client, source_segments, glossary_rows, mode,
 
     for offset in range(0, len(source_segments), chunk_size):
         batch = source_segments[offset:offset + chunk_size]
-        batch_text = "\\n".join(x["text"] for x in batch)
+        batch_text = "\n".join(x["text"] for x in batch)
         glossary_text = glossary_for_batch(glossary, batch_text, target=target)
         if mode == "vernacular":
             instruction = "逐段轉成現代繁體中文。保留每個 id，不合併、不拆分、不重新排序。"
