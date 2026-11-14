@@ -54,7 +54,7 @@ jobs:
               "completed_drafts": [(x.get("lang"),x.get("complete")) for x in
                                   (batch.get("exported_languages") or [])
                                   if x.get("complete")],
-              "audio_dispatch": {k:audio.get(k) for k in ("task_id","langs","queued","duplicate")}})
+              "audio_dispatch": {k:audio.get(k) for k in ("task_id","langs","queued","duplicate")}}))
           if data.get("reason") == "busy":
               print("busy")
           elif not data.get("ok") or data.get("task_id") != "P261-L02":
