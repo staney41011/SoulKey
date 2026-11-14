@@ -240,7 +240,7 @@ function soulkeyNextUpdateJobs_(sources,rows){
     tab.getRange(pos,1,1,12).setValues([row]);
   });
 }
-function soulkeyNextTick(){
+function soulkeyNextTick(focusTask){
   const props=PropertiesService.getScriptProperties();
   if(props.getProperty("SOULKEY_NEXT_ENABLED")!=="yes")
     return {ok:false,reason:"native_next_not_enabled"};
@@ -248,7 +248,9 @@ function soulkeyNextTick(){
   if(!lock.tryLock(5000))return {ok:false,reason:"busy"};
   try{
     const start=Date.now();
-    const sources=soulkeyNextSources_();
+    const sources=soulkeyNextSources_().filter(function(item){
+      return !focusTask || item.task===focusTask;
+    });
     if(!sources.length)return {ok:true,lessons:0,note:"Awaiting P261+ English Final"};
     const seeded=soulkeyNextEnsureRows_(sources);
     const active={};
