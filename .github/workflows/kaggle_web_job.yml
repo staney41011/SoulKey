@@ -66,6 +66,31 @@ jobs:
                   print("::add-mask::" + value, flush=True)
           PY
 
+      - name: Verify Bridge gateway before consuming cloud compute
+        shell: bash
+        env:
+          JOB_BRIDGE_URL: ${{ inputs.bridge_url }}
+        run: |
+          set -euo pipefail
+          case "$JOB_BRIDGE_URL" in
+            https://script.google.com/macros/s/*/exec) ;;
+            *)
+              echo "::error title=SoulKey Bridge URL invalid::The worker only accepts the configured Apps Script Web App gateway."
+              exit 1
+              ;;
+          esac
+          OUT="${RUNNER_TEMP}/soulkey-bridge-preflight.json"
+          HTTP_CODE="$(curl --max-time 18 --silent --show-error --location --output "$OUT" --write-out '%{http_code}' "$JOB_BRIDGE_URL?action=bridge_preflight" || true)"
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "::error title=SoulKey Bridge HTTP $HTTP_CODE::Google Apps Script gateway unavailable or access denied. No task or credential has been processed. Check effective Web App availability, not just manifest permissions."
+            exit 1
+          fi
+          if ! grep -q '"bridge-ready"' "$OUT"; then
+            echo "::error title=SoulKey Bridge did not return health JSON::Possible Google sign-in/access page or stale deployment; refusing to start a worker."
+            exit 1
+          fi
+          echo "SoulKey Bridge gateway reachable; worker can request its own nonce-bound runtime."
+
       - name: Install Kaggle CLI
         run: |
           python -m pip install --upgrade pip
@@ -419,6 +444,31 @@ jobs:
 
       - name: Checkout SoulKey source
         uses: actions/checkout@v4
+
+      - name: Verify Bridge gateway before consuming cloud compute
+        shell: bash
+        env:
+          JOB_BRIDGE_URL: ${{ inputs.bridge_url }}
+        run: |
+          set -euo pipefail
+          case "$JOB_BRIDGE_URL" in
+            https://script.google.com/macros/s/*/exec) ;;
+            *)
+              echo "::error title=SoulKey Bridge URL invalid::The worker only accepts the configured Apps Script Web App gateway."
+              exit 1
+              ;;
+          esac
+          OUT="${RUNNER_TEMP}/soulkey-bridge-preflight.json"
+          HTTP_CODE="$(curl --max-time 18 --silent --show-error --location --output "$OUT" --write-out '%{http_code}' "$JOB_BRIDGE_URL?action=bridge_preflight" || true)"
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "::error title=SoulKey Bridge HTTP $HTTP_CODE::Google Apps Script gateway unavailable or access denied. No task or credential has been processed. Check effective Web App availability, not just manifest permissions."
+            exit 1
+          fi
+          if ! grep -q '"bridge-ready"' "$OUT"; then
+            echo "::error title=SoulKey Bridge did not return health JSON::Possible Google sign-in/access page or stale deployment; refusing to start a worker."
+            exit 1
+          fi
+          echo "SoulKey Bridge gateway reachable; worker can request its own nonce-bound runtime."
 
       - name: Install lightweight Google/API and speech runtime
         shell: bash
