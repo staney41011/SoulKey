@@ -1,0 +1,54 @@
+name: SoulKey Chinese Final to English Retry
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: Registered P260+ lesson to translate from approved Chinese Final
+        type: string
+        required: true
+        default: P261-L02
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Dispatch approved Chinese Final English translation
+        shell: bash
+        env:
+          AUDIO_KEY: ${{ secrets.SOULKEY_AUDIO_RECONCILE_KEY }}
+          TASK_ID: ${{ inputs.task_id }}
+          BRIDGE_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
+        run: |
+          set -euo pipefail
+          [[ "$TASK_ID" =~ ^P[0-9]+-L[0-9]+$ ]] || { echo "Invalid task ID"; exit 1; }
+          [[ -n "$AUDIO_KEY" ]] || { echo "::error::Missing authorized dispatch key"; exit 1; }
+          HEALTH_FILE="${RUNNER_TEMP}/soulkey-en-bridge-health.json"
+          HTTP_CODE="$(curl --location --silent --show-error --max-time 18 --output "$HEALTH_FILE" --write-out '%{http_code}' "$BRIDGE_URL?action=bridge_preflight" || true)"
+          if [[ "$HTTP_CODE" != "200" ]] || ! grep -q '"bridge-ready"' "$HEALTH_FILE"; then
+            echo "::error::SoulKey Apps Script Bridge unreachable or Google sign-in required (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+          # Non-idempotent POST: never blindly retry. The Bridge creates
+          # a nonce-bound runtime and dispatches the production worker.
+          RESPONSE="$(curl -fsSL --max-time 80 \
+            --data-urlencode "action=audio_reconcile" \
+            --data-urlencode "audio_key=$AUDIO_KEY" \
+            --data-urlencode "sheet_en_task=$TASK_ID" \
+            "$BRIDGE_URL")"
+          RESULT="$RESPONSE" python - <<'PY'
+          import json,os
+          result=json.loads(os.environ["RESULT"])
+          print("ENGLISH_RETRY response="+str({
+              k:v for k,v in result.items() if k in (
+                  "ok","task_id","stage","queued","duplicate","error","workflow_run_id")
+          }))
+          if not result.get("ok") or result.get("stage")!="en" or result.get("task_id")!=os.environ["TASK_ID"]:
+              raise SystemExit("English stage dispatch not confirmed")
+          if not (result.get("queued") or result.get("duplicate")):
+              raise SystemExit("Bridge did not accept or recognize an existing English job")
+          PY
