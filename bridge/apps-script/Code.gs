@@ -101,6 +101,31 @@ function doPost(e) {
       if (!expected || !supplied || supplied !== expected) {
         return json_({ok:false,error:"unauthorized"});
       }
+      // Signed retry for the registered Chinese Final -> English stage.
+      // Uses the existing private workflow secret only to enqueue a nonce-
+      // scoped worker; neither the Gemini nor Google credentials are exposed.
+      const sheetEnTask=String((e&&e.parameter&&e.parameter.sheet_en_task)||"").trim();
+      if(sheetEnTask){
+        const m=sheetEnTask.match(/^P(\\d+)-L(\\d+)$/);
+        if(!m || Number(m[1])<260 || !readTasks_().some(function(t){return t.id===sheetEnTask;}))
+          return json_({ok:false,error:"english_task_not_registered"});
+        const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+        if(!token) return json_({ok:false,error:"github_token_missing"});
+        const dispatch=dispatchWorkflowIdempotently_(
+          token,sheetEnTask,"en","","",
+          "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
+        );
+        if(!dispatch.ok) return json_({ok:false,error:dispatch.error||"english_dispatch_failed"});
+        if(!dispatch.duplicate){
+          appendExecutionStatus_(sheetEnTask,"en","queued",
+            String(dispatch.workflow_run_id||dispatch.nonce.slice(0,12)),0,
+            "中文人工 Final -> Gemma4 英文翻譯（缺段 ID 自動修復、Drive 續跑）",
+            "","","","","","");
+        }
+        return json_({ok:true,stage:"en",task_id:sheetEnTask,
+          queued:!dispatch.duplicate,duplicate:!!dispatch.duplicate,
+          workflow_run_id:dispatch.workflow_run_id||null});
+      }
       // Sheets-first Gemma4 QA is independent from translation and TTS CPU.
       const sheetQATask=String((e&&e.parameter&&e.parameter.sheet_quality_task)||"").trim();
       const sheetQALangs=String((e&&e.parameter&&e.parameter.sheet_quality_langs)||"").trim();
