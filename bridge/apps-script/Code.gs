@@ -106,7 +106,7 @@ function doPost(e) {
       // scoped worker; neither the Gemini nor Google credentials are exposed.
       const sheetEnTask=String((e&&e.parameter&&e.parameter.sheet_en_task)||"").trim();
       if(sheetEnTask){
-        const m=sheetEnTask.match(/^P(\\d+)-L(\\d+)$/);
+        const m=sheetEnTask.match(/^P(\d+)-L(\d+)$/);
         if(!m || Number(m[1])<260 || !readTasks_().some(function(t){return t.id===sheetEnTask;}))
           return json_({ok:false,error:"english_task_not_registered"});
         const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
