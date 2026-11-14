@@ -319,27 +319,31 @@ def _ensure_edge_tts_runtime():
 
 
 
-def load_source_duration_limit(drive, source_folder, workdir):
-    """Prefer exact original-video duration from source_info.json."""
+def load_source_duration_limit(drive, source_folder, workdir, youtube_url=None):
+    """Resolve the *original video* runtime; never the subtitle final cue.
+
+    Source metadata takes priority. If YouTube metadata ingestion previously
+    failed, allow only an independently verified video-ID registry entry.
+    """
+    from source_video_duration import verified_original_duration
+
+    payload = None
     item = find_file(drive, source_folder, "source_info.json")
-    if not item:
-        return None, "source_timestamp_fallback"
-
-    path = Path(workdir) / "source_info.tts.json"
-    try:
-        download_drive_file(drive, item["id"], path)
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        duration = float(payload.get("duration") or 0)
-        if duration > 0:
-            return duration, "source_info.duration"
-    except Exception as exc:
-        print(
-            f"[TTS] source_info.json duration 讀取失敗，改用 timestamp："
-            f"{type(exc).__name__}: {exc}",
-            flush=True,
-        )
-    return None, "source_timestamp_fallback"
-
+    if item:
+        path = Path(workdir) / "source_info.tts.json"
+        try:
+            download_drive_file(drive, item["id"], path)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(
+                f"[TTS] 影片來源 metadata 讀取失敗，查核獨立驗證時長："
+                f"{type(exc).__name__}: {exc}", flush=True,
+            )
+    duration, basis = verified_original_duration(youtube_url, payload)
+    if duration:
+        print(f"[VIDEO-DURATION] YouTube={youtube_url} original={duration:.1f}s "
+              f"basis={basis}", flush=True)
+    return duration, basis
 
 def _load_tts_manifest(drive, audio_folder, lang, workdir):
     item = find_file(drive, audio_folder, f"{lang}.tts_manifest.json")
@@ -809,6 +813,7 @@ def main():
                 drive,
                 folders["source"],
                 workdir,
+                youtube_url=task["youtube_url"],
             )
             en_source_sha256 = None
             latest_multi = None
@@ -878,21 +883,15 @@ def main():
                             en_source_sha256,
                         )
                     source_sha256 = segments_fingerprint(segments)
-                    if args.smart_fit_pilot and not video_duration:
+                    if not video_duration:
                         raise RuntimeError(
-                            "Smart TTS requires original source_info.json duration; "
-                            "translation timestamps cannot prove the video hard limit"
+                            "Original video runtime is unverified for this YouTube ID; "
+                            "register source_info.json or verified video duration "
+                            "before publishing audio. Subtitle timestamps are not "
+                            "a valid duration source."
                         )
-                    duration_limit = (
-                        float(video_duration)
-                        if video_duration
-                        else max(float(seg.get("end", 0) or 0) for seg in segments)
-                    )
-                    effective_duration_basis = (
-                        duration_limit_basis
-                        if video_duration
-                        else "last_approved_source_timestamp"
-                    )
+                    duration_limit = float(video_duration)
+                    effective_duration_basis = duration_limit_basis
 
                     if (
                         not args.force
