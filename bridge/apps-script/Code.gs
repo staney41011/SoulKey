@@ -1297,6 +1297,15 @@ function soulkeyAutoAudioReconcile_() {
       const plan=readLanguagePlan_(task.id);
       const selected=plan.filter(function(p){return p.audio_enabled;})
         .map(function(p){return String(p.language_code||"").trim();});
+      // P261+ must produce human-approved English Final speech even if its
+      // language-plan rows have not been initialized by the legacy Studio UI.
+      // An explicit English audio_enabled=false still takes precedence.
+      const englishPlan=plan.find(function(p){
+        return String(p.language_code||"").trim()==="en";
+      });
+      if(Number(task.period)>=261 &&
+         (!englishPlan || englishPlan.audio_enabled) &&
+         selected.indexOf("en")<0) selected.unshift("en");
       if(!selected.length) continue;
       const qa=readJsonFile_(folders.translation,"gemini.qa.json")||{};
       const accepted=new Set(
