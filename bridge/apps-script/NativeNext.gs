@@ -259,42 +259,64 @@ function soulkeyNextTick(){
     const rows=tab.getLastRow()>1?
       tab.getRange(2,1,tab.getLastRow()-1,25).getValues():[];
     let translated=0,failed=0,requests=0;
-    for(let i=0;i<rows.length;i++){
+    // Finish one language across all segments before moving to the next.
+    // Previous row-first traversal translated ~half of ALL 15 languages but
+    // produced ZERO complete DRAFT files, blocking every official MP3.
+    // Language-first ordering delivers verified language outputs incrementally
+    // while preserving all existing translations and daily request limits.
+    const selectedByTask={};
+    const rowIndicesByTask={};
+    sources.forEach(function(source){
+      selectedByTask[source.task]=soulkeyNextSelectedCodes_(source.task,"translation");
+      const known={};
+      source.segments.forEach(function(seg){known[String(seg.id)]=seg;});
+      rowIndicesByTask[source.task]=[];
+      rows.forEach(function(row,i){
+        if(String(row[0]||"")!==source.task)return;
+        const original=known[String(row[1])];
+        if(original && String(row[5]||"")===original.source_hash)
+          rowIndicesByTask[source.task].push(i);
+      });
+    });
+    const workItems=[];
+    sources.forEach(function(source){
+      const selected=selectedByTask[source.task];
+      SK_NEXT_LANGS.forEach(function(lang,langIndex){
+        if(selected.indexOf(lang)<0)return;
+        rowIndicesByTask[source.task].forEach(function(i){
+          if(!String(rows[i][6+langIndex]||"").trim())
+            workItems.push({rowIndex:i,languageIndex:langIndex});
+        });
+      });
+    });
+    for(let k=0;k<workItems.length;k++){
       if(requests>=SK_NEXT_LIMIT_PER_TICK||
          quota.used>=SK_NEXT_DAILY_LIMIT||
-         Date.now()-start>SK_NEXT_MAX_MS) break;
-      const row=rows[i],s=active[String(row[0]||"")];
-      if(!s)continue;
-      const original=s.segments.find(function(x){return x.id===Number(row[1]);});
-      if(!original||String(row[5])!==original.source_hash)continue;
+         Date.now()-start>SK_NEXT_MAX_MS)break;
+      const item=workItems[k],i=item.rowIndex,langIndex=item.languageIndex;
+      const row=rows[i],task=String(row[0]||"");
+      const lang=SK_NEXT_LANGS[langIndex];
+      // Source hashes were checked when workItems were assembled.
+      requests++;quota.used++;
+      // Reserve quota before the external request, including failed calls.
+      quota.props.setProperty("SOULKEY_NEXT_SHEETS_USED",String(quota.used));
       let changed=false,issue="";
-      const selected=soulkeyNextSelectedCodes_(s.task,"translation");
-      for(let langIndex=0;langIndex<15;langIndex++){
-        if(selected.indexOf(SK_NEXT_LANGS[langIndex])<0)continue;
-        if(requests>=SK_NEXT_LIMIT_PER_TICK||
-           quota.used>=SK_NEXT_DAILY_LIMIT||
-           Date.now()-start>SK_NEXT_MAX_MS)break;
-        if(String(row[6+langIndex]||"").trim())continue;
-        requests++;quota.used++;
-        // Reserve quota before the external request. A failed call is still a call.
-        quota.props.setProperty("SOULKEY_NEXT_SHEETS_USED",String(quota.used));
-        try{
-          const result=String(LanguageApp.translate(String(row[4]),
-            "en",SK_NEXT_LANGS[langIndex])||"").trim();
-          if(result.length<2)throw new Error("empty_translation");
-          row[6+langIndex]=result;
-          translated++;changed=true;
-        }catch(e){
-          failed++;
-          issue=SK_NEXT_LANGS[langIndex]+":"+String(e&&e.message||e).slice(0,140);
-          if(failed>=6)break;
-        }
+      try{
+        const result=String(LanguageApp.translate(String(row[4]),
+          "en",lang)||"").trim();
+        if(result.length<2)throw new Error("empty_translation");
+        row[6+langIndex]=result;
+        translated++;changed=true;
+      }catch(e){
+        failed++;
+        issue=lang+":"+String(e&&e.message||e).slice(0,140);
       }
       if(changed||issue){
         row[21]=SK_NEXT_LANGS.reduce(function(n,l,j){
           return n+(String(row[6+j]||"").trim()?1:0);
         },0);
-        row[22]=Number(row[21])===selected.length?"待Gemma QA":"翻譯中";
+        row[22]=Number(row[21])===selectedByTask[task].length?
+          "待Gemma QA":"翻譯中";
         row[23]=soulkeyNextNow_();row[24]=issue;
         tab.getRange(i+2,7,1,19).setValues([row.slice(6,25)]);
       }
