@@ -19,6 +19,7 @@ from config import (
 from gemini_engine import (
     DEFAULT_TEXT_MODEL,
     GeminiClient,
+    GeminiAPIError,
     normalize_segments,
     parse_glossary_rows,
     semantic_polish_zh,
@@ -243,10 +244,36 @@ def _translate_chunk_recovering_ids(client, batch, glossary_text, system, instru
                 f"Glossary:\n{glossary_text}\n\n{instruction}{repair_hint}\n"
                 + json.dumps(schema_input, ensure_ascii=False)
             )
-            parsed, _ = client.structured(
-                prompt, TEXT_SCHEMA,
-                system_instruction=system, thinking_level="low",
-            )
+            try:
+                parsed, _ = client.structured(
+                    prompt, TEXT_SCHEMA,
+                    system_instruction=system, thinking_level="low",
+                )
+            except GeminiAPIError as exc:
+                # Transport already retries short outages. Model-side invalid
+                # JSON, empty replies, and transient 5xx can sometimes be
+                # recovered by asking for fewer IDs with a simpler prompt.
+                # Never retry permanent auth/config failures or fabricate text.
+                reason = str(exc).lower()
+                retryable_output = (
+                    "invalid json" in reason
+                    or "structured output empty" in reason
+                    or any(code in reason for code in (
+                        "http 500", "http 502", "http 503", "http 504",
+                        "timeouterror", "urlerror",
+                    ))
+                )
+                if not retryable_output:
+                    raise
+                print(
+                    "[GEMMA-RECOVERY] pass=%s ids=%s type=%s; "
+                    "will retry only unresolved source IDs" %
+                    (pass_no, [item["id"] for item in group],
+                     "bad_json" if "json" in reason
+                     else "temporary_api_failure"),
+                    flush=True,
+                )
+                continue
             rows = parsed.get("segments") if isinstance(parsed, dict) else []
             resolved.update(_valid_unique_translations(group, rows))
         if len(resolved) == len(batch):
