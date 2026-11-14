@@ -101,6 +101,37 @@ function doPost(e) {
       if (!expected || !supplied || supplied !== expected) {
         return json_({ok:false,error:"unauthorized"});
       }
+      // Direct, signed, idempotent English Final -> formal MP3 dispatch.
+      // This bypasses unrelated multi-language queue scanning (not security);
+      // the normal TTS worker still checks source revision and video duration.
+      const englishAudioTask=String((e&&e.parameter&&e.parameter.english_audio_task)||"").trim();
+      if(englishAudioTask){
+        const m=englishAudioTask.match(/^P(\d+)-L(\d+)$/);
+        if(!m || Number(m[1])<261)
+          return json_({ok:false,error:"invalid_english_audio_task"});
+        const task=readTasks_().find(function(item){return item.id===englishAudioTask;});
+        if(!task || String(task.en||"").trim()!=="完成")
+          return json_({ok:false,error:"english_final_not_approved"});
+        const folders=lessonFolders_(englishAudioTask);
+        if(!cachedFileId_(folders.translation,"en.final.json"))
+          return json_({ok:false,error:"english_final_drive_file_missing"});
+        const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+        if(!token) return json_({ok:false,error:"github_token_missing"});
+        const dispatch=dispatchWorkflowIdempotently_(
+          token,englishAudioTask,"tts","","en",
+          "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
+        );
+        if(!dispatch.ok) return json_({ok:false,error:dispatch.error||"english_audio_dispatch_failed"});
+        if(!dispatch.duplicate){
+          appendExecutionStatus_(englishAudioTask,"tts","queued",
+            String(dispatch.workflow_run_id||(dispatch.nonce||"").slice(0,12)),0,
+            "英文人工 Final 配音，原片時長驗證：en",
+            "","","","","","");
+        }
+        return json_({ok:true,task_id:englishAudioTask,stage:"tts",
+          langs:"en",queued:!dispatch.duplicate,duplicate:!!dispatch.duplicate,
+          workflow_run_id:dispatch.workflow_run_id||null});
+      }
       // Signed retry for the registered Chinese Final -> English stage.
       // Uses the existing private workflow secret only to enqueue a nonce-
       // scoped worker; neither the Gemini nor Google credentials are exposed.
