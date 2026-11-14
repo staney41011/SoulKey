@@ -31,7 +31,7 @@ concurrency:
 jobs:
   reconcile:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 7
     steps:
       - name: Wake authenticated Bridge to resume approved audio
         shell: bash
@@ -53,7 +53,12 @@ jobs:
             echo "::error title=SoulKey Bridge unavailable::Apps Script gateway is not publicly reachable (HTTP $HEALTH_CODE or sign-in page). Dispatch skipped. Verify effective Google Web App authorization; do not retry the same inaccessible URL."
             exit 1
           fi
-          RESPONSE=$(curl -fsSL --retry 2 --max-time 70 \
+          # POST may already dispatch jobs while the client waits. Never retry
+          # a timed-out non-idempotent reconciliation request: doing so can
+          # queue overlapping jobs and magnify Drive/Apps Script load.
+          # Allow one longer response window; subsequent cron runs use server
+          # leases and source manifests to resume only incomplete work.
+          RESPONSE=$(curl -fsSL --max-time 300 \
             --data-urlencode "action=audio_reconcile" \
             --data-urlencode "reset_task=$RESET_TASK" \
             --data-urlencode "sheet_formal_task=$SHEET_FORMAL_TASK" \
