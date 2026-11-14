@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from source_integrity import bounds, check_english_coverage, compare_chinese_english_end
+from source_integrity import (bounds, check_english_coverage,
+                              compare_chinese_english_end, compare_manuscript_to_video)
 
 
 class P261SourceIntegrityTests(unittest.TestCase):
@@ -26,6 +27,25 @@ class P261SourceIntegrityTests(unittest.TestCase):
             zh = [{"start": 0, "end": zh_end}]
             check_english_coverage(en, duration)
             self.assertFalse(compare_chinese_english_end(zh, en)["needs_review"])
+
+    def test_all_languages_use_original_video_not_each_other(self):
+        # Exact YouTube length for L01 is 1896s, not either subtitle end.
+        english = compare_manuscript_to_video(
+            [{"start": 0.82, "end": 1900}], 1896)
+        chinese = compare_manuscript_to_video(
+            [{"start": 0.82, "end": 3105}], 1896)
+        self.assertFalse(english["needs_review"])
+        self.assertTrue(chinese["needs_review"])
+        self.assertEqual(chinese["reason"], "past_original_video_end")
+        self.assertEqual(chinese["overrun_seconds"], 1209)
+        self.assertEqual(chinese["original_video_duration"], 1896)
+
+    def test_original_video_reference_for_l03_and_l04(self):
+        for duration, chinese_end in [(2056, 2054.08), (1827, 1826.49)]:
+            audit = compare_manuscript_to_video(
+                [{"start": 0, "end": chinese_end}], duration)
+            self.assertFalse(audit["needs_review"])
+            self.assertEqual(audit["original_video_duration"], duration)
 
     def test_mismatched_source_rejected_before_tts(self):
         with self.assertRaisesRegex(ValueError, "beyond source evidence"):
