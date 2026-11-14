@@ -1,0 +1,14 @@
+{
+  "4l1T2MlQYUI": {
+    "duration_seconds": 1896,
+    "evidence": "YouTube watch page videoDetails.lengthSeconds, independently verified 2026-11-14"
+  },
+  "3B7s7r-rn9o": {
+    "duration_seconds": 2056,
+    "evidence": "Original YouTube source_info.json duration, 2026-11-09"
+  },
+  "yndPMtAH8vM": {
+    "duration_seconds": 1827,
+    "evidence": "Original YouTube source_info.json duration, 2026-10-25"
+  }
+}
