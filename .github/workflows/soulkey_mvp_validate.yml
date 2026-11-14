@@ -51,6 +51,7 @@ jobs:
           python -m unittest discover -s translation-system/tests -p test_cc_fast_path.py -v
           python -m unittest discover -s translation-system/tests -p test_sheets_cc_source_duration.py -v
           python -m unittest discover -s translation-system/tests -p test_source_integrity.py -v
+          python -m unittest discover -s translation-system/tests -p test_source_video_duration.py -v
           python translation-system/tests/test_pipeline_contracts.py
           python translation-system/tests/test_polish_json_resilience.py
           python translation-system/tests/test_review_cache_bridge_resilience.py
