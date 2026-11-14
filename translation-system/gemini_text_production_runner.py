@@ -548,9 +548,11 @@ def stage_vernacular(client, drive, sheets, task, folders, glossary_rows, workdi
 
 
 def stage_en(client, drive, sheets, task, folders, glossary_rows, workdir):
+    # The human-approved Chinese lecture manuscript is authoritative when
+    # English CC is unavailable. Vernacular Final is only a secondary source.
     candidates = [
-        (folders["translation"], "zh-TW.vernacular.final.json"),
         (folders["transcript"], "zh-TW.final.json"),
+        (folders["translation"], "zh-TW.vernacular.final.json"),
     ]
     source_path = None
     source_name = None
@@ -566,11 +568,66 @@ def stage_en(client, drive, sheets, task, folders, glossary_rows, workdir):
         )
 
     payload = json.loads(source_path.read_text(encoding="utf-8"))
+    source_segments = normalize_segments(payload)
+    source_sha = source_fingerprint(source_segments)
+
+    # Resume previously verified full chunks across ephemeral Kaggle workers,
+    # but only if the human-approved source and model are exactly unchanged.
+    # This is an in-progress cache, never an approved English Final.
+    checkpoint_name = "en.translation_checkpoint.json"
+    checkpoint_path = workdir / checkpoint_name
+    cache = {}
+    previous = download_json(
+        drive, folders["translation"], checkpoint_name, checkpoint_path)
+    if previous:
+        try:
+            snapshot = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            if (snapshot.get("task_id") == task["task_id"]
+                    and snapshot.get("source") == source_name
+                    and snapshot.get("source_sha256") == source_sha
+                    and snapshot.get("model") == client.text_model):
+                source_ids = {int(x["id"]) for x in source_segments}
+                for row in snapshot.get("segments") or []:
+                    ident = int(row["id"])
+                    if ident in source_ids and str(row.get("text") or "").strip():
+                        if ident in cache:
+                            raise ValueError("Duplicate ID in English checkpoint")
+                        cache[ident] = row
+                print(f"[GEMMA-CHECKPOINT] Restoring {len(cache)} valid "
+                      "English segments from matching Chinese Final", flush=True)
+            else:
+                print("[GEMMA-CHECKPOINT] Chinese Final/model changed; "
+                      "ignore stale English checkpoint", flush=True)
+        except (ValueError, TypeError, KeyError) as exc:
+            cache.clear()
+            print("[GEMMA-CHECKPOINT] Invalid checkpoint ignored: "
+                  + str(exc)[:200], flush=True)
+
+    def save_checkpoint(completed, total):
+        if len(completed) % 24 != 0 and len(completed) != total:
+            return
+        checkpoint_path.write_text(
+            json.dumps({
+                "task_id": task["task_id"],
+                "source": source_name,
+                "source_sha256": source_sha,
+                "model": client.text_model,
+                "total_segments": total,
+                "segments": completed,
+                "status": ("draft_complete_pending_human_final"
+                           if len(completed) == total else "in_progress"),
+            }, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        upload_or_replace_file(
+            drive, folders["translation"], checkpoint_path, checkpoint_name,
+            display_name=formal_drive_name(task, checkpoint_name),
+        )
+        print(f"[GEMMA-CHECKPOINT] Persisted {len(completed)}/{total}", flush=True)
+
     rows = transform_segments(
-        client,
-        payload.get("segments") or [],
-        glossary_rows,
-        "en",
+        client, source_segments, glossary_rows, "en",
+        cached_rows=cache, checkpoint_callback=save_checkpoint,
     )
     output = write_result_set(
         workdir / "en",
