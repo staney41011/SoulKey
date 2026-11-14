@@ -5,6 +5,10 @@ import unittest
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "gemini_text_production_runner.py"
+
+
+class FakeGeminiAPIError(RuntimeError):
+    pass
 NAMES = {
     "validate_ids",
     "glossary_for_batch",
@@ -22,6 +26,7 @@ def production_functions():
         "TEXT_SCHEMA": {"type": "object"},
         "normalize_segments": lambda obj: obj["segments"],
         "parse_glossary_rows": lambda rows: [],
+        "GeminiAPIError": FakeGeminiAPIError,
     }
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(SOURCE), "exec"), scope)
     return scope
@@ -44,6 +49,15 @@ class FakeGemma:
         self.calls.append(ids)
         rows = [{"id": i, "text": f"English translation {i}",
                  "notes": ""} for i in ids]
+        if len(self.calls) == 1 and self.failure_mode == "bad_json_once":
+            raise FakeGeminiAPIError(
+                "Gemma 4 Structured Output invalid JSON: Expecting value: line 1 column 1 (char 0)")
+        if len(self.calls) == 1 and self.failure_mode == "http_500_once":
+            raise FakeGeminiAPIError('HTTP 500: {"error": {"message": "Internal error encountered."}}')
+        if self.failure_mode == "always_bad_json":
+            raise FakeGeminiAPIError("Gemma 4 Structured Output invalid JSON")
+        if self.failure_mode == "http_403":
+            raise FakeGeminiAPIError("HTTP 403: unauthorized")
         if len(self.calls) == 1:
             if self.failure_mode == "duplicate80":
                 rows[-1]["id"] = 80  # Missing 83; 80 appears twice.
@@ -88,6 +102,50 @@ class RecoverGemmaEnglishIds(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "repair exhausted"):
             production_functions()["transform_segments"](api, segments([83]), [], "en")
         self.assertEqual(api.calls, [[83]] * 5)
+
+    def test_invalid_json_retries_smaller_groups_not_whole_course(self):
+        src = segments(list(range(300, 312)))
+        api = FakeGemma("bad_json_once")
+        out = production_functions()["transform_segments"](api, src, [], "en")
+        self.assertEqual([r["id"] for r in out], list(range(300, 312)))
+        self.assertEqual(api.calls[0], list(range(300, 312)))
+        self.assertEqual(api.calls[1], list(range(300, 304)))
+
+    def test_http_500_recovers_after_smaller_retries(self):
+        src = segments([300, 301, 302, 303])
+        api = FakeGemma("http_500_once")
+        out = production_functions()["transform_segments"](api, src, [], "en")
+        self.assertEqual(len(out), 4)
+        self.assertEqual([r["id"] for r in out], [300, 301, 302, 303])
+
+    def test_persistent_bad_json_fails_closed_without_fabricated_segments(self):
+        api = FakeGemma("always_bad_json")
+        with self.assertRaisesRegex(RuntimeError, "repair exhausted"):
+            production_functions()["transform_segments"](api, segments([300]), [], "en")
+        self.assertEqual(len(api.calls), 5)
+
+    def test_permanent_auth_error_is_not_retried(self):
+        api = FakeGemma("http_403")
+        with self.assertRaisesRegex(FakeGeminiAPIError, "403"):
+            production_functions()["transform_segments"](api, segments([300]), [], "en")
+        self.assertEqual(len(api.calls), 1)
+
+    def test_prior_valid_chunk_remains_checkpointed_after_bad_json(self):
+        class LaterFailure(FakeGemma):
+            def structured(self, prompt, schema, **kwargs):
+                req = json.loads(prompt[prompt.rfind("\n[") + 1:])
+                if req and req[0]["id"] >= 12:
+                    raise FakeGeminiAPIError("Gemma 4 Structured Output invalid JSON")
+                return super().structured(prompt, schema, **kwargs)
+
+        api = LaterFailure("none")
+        saved = []
+        with self.assertRaisesRegex(RuntimeError, "repair exhausted"):
+            production_functions()["transform_segments"](
+                api, segments(list(range(13))), [], "en",
+                checkpoint_callback=lambda rows, total: saved.append((len(rows), total)),
+            )
+        self.assertEqual(saved, [(12, 13)])
 
 
 if __name__ == "__main__":
