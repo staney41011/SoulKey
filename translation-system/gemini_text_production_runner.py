@@ -184,10 +184,90 @@ def validate_ids(batch, returned):
         raise RuntimeError(f"Gemini segment id 不完整：expected={expected}, got={got}")
 
 
-def transform_segments(client, source_segments, glossary_rows, mode, chunk_size=12):
+def _valid_unique_translations(source_batch, returned):
+    """Keep only unambiguous nonempty rows for the requested source IDs.
+
+    A Gemma response can contain duplicate ID 80 and omit ID 83, or even
+    hallucinate an unrelated ID 5. Never assign text to a different ID by
+    array position. Re-ask the model only for unresolved source segments.
+    """
+    requested = {int(item["id"]) for item in source_batch}
+    counts = {}
+    for row in returned or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            ident = int(row["id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if ident in requested:
+            counts.setdefault(ident, []).append(row)
+    safe = {}
+    for ident, matches in counts.items():
+        if len(matches) != 1:
+            continue
+        if not str(matches[0].get("text") or "").strip():
+            continue
+        safe[ident] = matches[0]
+    return safe
+
+
+def _translate_chunk_recovering_ids(client, batch, glossary_text, system, instruction):
+    """Bounded ID-repair, progressively narrowing to single segments.
+
+    The returned text is always bound to the exact requested source ID.
+    Any unrepairable segment fails closed instead of publishing incomplete
+    English or copying a neighbor's translation.
+    """
+    resolved = {}
+    group_limits = (len(batch), 4, 1, 1, 1)
+    for pass_no, limit in enumerate(group_limits, start=1):
+        pending = [src for src in batch if int(src["id"]) not in resolved]
+        if not pending:
+            break
+        if pass_no > 1:
+            print("[GEMMA-REPAIR] pass=%s outstanding=%s" %
+                  (pass_no, [x["id"] for x in pending]), flush=True)
+        for offset in range(0, len(pending), max(1, limit)):
+            group = pending[offset:offset + max(1, limit)]
+            schema_input = [
+                {"id": int(x["id"]), "text": x["text"]} for x in group
+            ]
+            repair_hint = (
+                "\\nREPAIR: Earlier output used invalid or repeated IDs. "
+                "Translate ONLY the input IDs shown below and return them "
+                "exactly once; never substitute an earlier/later ID."
+                if pass_no > 1 else ""
+            )
+            prompt = (
+                f"Glossary:\\n{glossary_text}\\n\\n{instruction}{repair_hint}\\n"
+                + json.dumps(schema_input, ensure_ascii=False)
+            )
+            parsed, _ = client.structured(
+                prompt, TEXT_SCHEMA,
+                system_instruction=system, thinking_level="low",
+            )
+            rows = parsed.get("segments") if isinstance(parsed, dict) else []
+            resolved.update(_valid_unique_translations(group, rows))
+        if len(resolved) == len(batch):
+            break
+    pending = [int(x["id"]) for x in batch if int(x["id"]) not in resolved]
+    if pending:
+        raise RuntimeError(
+            "Gemma 4 segment ID repair exhausted; still missing IDs="
+            + str(pending) + ". No incomplete English manuscript published."
+        )
+    result = [resolved[int(src["id"])] for src in batch]
+    validate_ids(batch, result)
+    return result
+
+
+def transform_segments(client, source_segments, glossary_rows, mode,
+                       chunk_size=12, cached_rows=None, checkpoint_callback=None):
     source_segments = normalize_segments({"segments": source_segments})
     glossary = parse_glossary_rows(glossary_rows)
     out = []
+    cached_rows = cached_rows or {}
 
     if mode == "vernacular":
         system = (
@@ -210,46 +290,47 @@ def transform_segments(client, source_segments, glossary_rows, mode, chunk_size=
 
     for offset in range(0, len(source_segments), chunk_size):
         batch = source_segments[offset:offset + chunk_size]
-        batch_text = "\n".join(x["text"] for x in batch)
+        batch_text = "\\n".join(x["text"] for x in batch)
         glossary_text = glossary_for_batch(glossary, batch_text, target=target)
         if mode == "vernacular":
-            instruction = (
-                "逐段轉成現代繁體中文。保留每個 id，不合併、不拆分、不重新排序。"
-            )
+            instruction = "逐段轉成現代繁體中文。保留每個 id，不合併、不拆分、不重新排序。"
         else:
-            instruction = (
-                "Translate every segment into English. Keep every id exactly; do not merge, split or reorder."
-            )
-        prompt = (
-            f"Glossary:\n{glossary_text}\n\n{instruction}\n"
-            + json.dumps(
-                [{"id": x["id"], "text": x["text"]} for x in batch],
-                ensure_ascii=False,
-            )
-        )
-        parsed, _ = client.structured(
-            prompt,
-            TEXT_SCHEMA,
-            system_instruction=system,
-            thinking_level="low",
-        )
-        returned = parsed.get("segments") or []
-        validate_ids(batch, returned)
-        by_id = {int(x["id"]): x for x in returned}
+            instruction = "Translate every segment into English. Keep every id exactly; do not merge, split or reorder."
+
+        active = [src for src in batch
+                  if int(src["id"]) not in cached_rows
+                  or not str(cached_rows[int(src["id"])].get("text") or "").strip()]
+        if active:
+            returned = _translate_chunk_recovering_ids(
+                client, active, glossary_text, system, instruction)
+            fresh = {int(row["id"]): row for row in returned}
+        else:
+            fresh = {}
+            print(f"[GEMMA-CHECKPOINT] restored {len(batch)} "
+                  f"segments after offset {offset}", flush=True)
+        rows = []
         for src in batch:
-            row = by_id[int(src["id"])]
+            ident = int(src["id"])
+            row = fresh.get(ident) or cached_rows.get(ident)
+            if row is None:
+                raise RuntimeError(f"Gemma segment {ident} lost after recovery")
             text = str(row.get("text") or "").strip()
             if not text:
-                raise RuntimeError(f"Gemini 回傳空文字：segment {src['id']}")
-            out.append({
-                "id": int(src["id"]),
+                raise RuntimeError(f"Gemma 回傳空文字：segment {ident}")
+            rows.append({
+                "id": ident,
                 "start": float(src["start"]),
                 "end": float(src["end"]),
                 "text": text,
                 "notes": str(row.get("notes") or "").strip(),
             })
+        out.extend(rows)
+        if checkpoint_callback is not None and active:
+            checkpoint_callback(out, len(source_segments))
+        print(f"[GEMMA-EN] {len(out)}/{len(source_segments)} "
+              "source segments translated or safely restored", flush=True)
+    validate_ids(source_segments, out)
     return out
-
 
 def align_english_cc(review_payload, cc_payload):
     cc_segments = cc_payload.get("segments") or []
