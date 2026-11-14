@@ -340,6 +340,9 @@ def load_source_duration_limit(drive, source_folder, workdir, youtube_url=None):
                 f"{type(exc).__name__}: {exc}", flush=True,
             )
     duration, basis = verified_original_duration(youtube_url, payload)
+    # Preserve stable manifest provenance for existing completed natural audio.
+    if basis == "original_video_source_info":
+        basis = "source_info.duration"
     if duration:
         print(f"[VIDEO-DURATION] YouTube={youtube_url} original={duration:.1f}s "
               f"basis={basis}", flush=True)
