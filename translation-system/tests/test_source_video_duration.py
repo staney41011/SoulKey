@@ -38,7 +38,7 @@ class OriginalVideoDurationTests(unittest.TestCase):
             db = Path(tmp) / "verified_video_durations.json"
             db.write_text("{}", encoding="utf-8")
             result, basis = verified_original_duration(
-                "https://youtu.be/Unkn0wnVid", {"segments": [
+                "https://youtu.be/Unkn0wnVid0", {"segments": [
                     {"start": 0, "end": 3105}]}, db)
             self.assertIsNone(result)
             self.assertEqual(basis, "missing_verified_original_video_duration")
