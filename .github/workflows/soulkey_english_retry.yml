@@ -47,6 +47,14 @@ jobs:
               k:v for k,v in result.items() if k in (
                   "ok","task_id","stage","queued","duplicate","error","workflow_run_id")
           }))
+          if not result.get("ok"):
+              import re
+              message = str(result.get("message") or result.get("reason") or "")
+              message = re.sub(r"(?i)(token|key|secret|authorization)\\s*[:=]\\s*\\S+",
+                               r"\\1=[REDACTED]", message)
+              print("ENGLISH_RETRY_BRIDGE_ERROR reason=" +
+                    str(result.get("error") or "unknown") +
+                    " message=" + message[:260])
           if not result.get("ok") or result.get("stage")!="en" or result.get("task_id")!=os.environ["TASK_ID"]:
               raise SystemExit("English stage dispatch not confirmed")
           if not (result.get("queued") or result.get("duplicate")):
