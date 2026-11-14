@@ -229,6 +229,52 @@ def select_quality_approved_source(drive,translation_folder,lang,work,
     return revised,report.get("revision_key")
 
 
+def recover_duration_from_english_cc(drive, source_folder, work, video_url):
+    """Fallback when early source metadata download was blocked by YouTube.
+
+    Use the actual caption track belonging to this lesson, not an arbitrary
+    duration or a previously downloaded track. Keep the official source
+    unchanged; return a conservative floor of the last timestamp.
+    """
+    from urllib.parse import urlparse, parse_qs
+    url = str(video_url or "").strip()
+    parsed = urlparse(url)
+    video_id = ""
+    if parsed.netloc.lower().endswith("youtu.be"):
+        video_id = parsed.path.strip("/").split("/")[0]
+    elif parsed.netloc.lower().endswith("youtube.com"):
+        video_id = (parse_qs(parsed.query).get("v") or [""])[0]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+        return None
+    item = find_file(drive, source_folder, "youtube.en.json")
+    if not item:
+        return None
+    path = Path(work) / "youtube.en.duration-source.json"
+    download_drive_file(drive, item["id"], path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if str(payload.get("video_id") or "") != video_id:
+        raise RuntimeError("English CC video ID does not match current lesson")
+    if not str(payload.get("language") or "").lower().startswith("en"):
+        raise RuntimeError("Not a verified English YouTube caption track")
+    cues = payload.get("segments") or []
+    if not isinstance(cues, list) or len(cues) < 30:
+        raise RuntimeError("English CC has insufficient timestamp evidence")
+    starts, ends = [], []
+    for cue in cues:
+        start = float(cue.get("start", -1))
+        end = float(cue.get("end", -1))
+        if not (0 <= start < end <= 10800):
+            raise RuntimeError("English CC has invalid duration intervals")
+        starts.append(start)
+        ends.append(end)
+    if min(starts) > 60 or max(ends) < 300:
+        raise RuntimeError("English CC does not cover enough of the lecture")
+    duration = int(max(ends))
+    print(f"[SHEETS-FORMAL] Original metadata unavailable; verified English CC "
+          f"video={video_id} end={duration}s", flush=True)
+    return float(duration)
+
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--task-id",required=True)
@@ -268,7 +314,14 @@ def main():
     expected_segments=len(english_map)
     video_duration,basis=load_source_duration_limit(drive,folders["source"],work)
     if not video_duration:
-        raise RuntimeError("Missing original video duration")
+        video_duration=recover_duration_from_english_cc(
+            drive, folders["source"], work, task.get("youtube_url"))
+        if video_duration:
+            basis="verified_original_youtube_english_cc_timeline"
+    if not video_duration:
+        raise RuntimeError(
+            "Missing original video duration and no matching English CC "
+            "timeline for this lesson")
     audio_folder=folders["audio"]
     print("[SHEETS-FORMAL] task=%s langs=%s original_limit=%.2fs"%
           (task_id,",".join(langs),video_duration),flush=True)
