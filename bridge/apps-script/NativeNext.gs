@@ -7,13 +7,17 @@
  * Independent Gemma 4 QA and official audio remain separate stages.
  */
 const SK_NEXT_SHEET_ID = "1AwPqTqZSzW7Q-gLW4J5d-28dQZwVksyDnvsxNRF2uu8";
+// Physical AppsScript初譯 column order. NEVER reorder existing G:U values.
 const SK_NEXT_LANGS = ["th","es","id","vi","hi","ta","ja","ko",
   "km","bn","ne","lo","my","it","pt"];
+// User-configured execution priority, independent of physical sheet columns.
+const SK_NEXT_PRIORITY_LANGS = ["es","id","km","vi","th","ja","ko",
+  "ta","hi","bn","ne","lo","my","it","pt"];
 const SK_NEXT_TAB = "AppsScript初譯";
 const SK_NEXT_JOBS_TAB = "AppsScript初譯任務";
 const SK_NEXT_LIMIT_PER_TICK = 85;
 const SK_NEXT_MAX_MS = 190000;
-const SK_NEXT_DAILY_LIMIT = 3800;
+const SK_NEXT_DAILY_LIMIT = 4500;
 
 function soulkeyNextSha_(value) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
@@ -26,7 +30,7 @@ function soulkeyNextNow_() {
 // A central language plan is authoritative. New lessons without a saved plan
 // retain the existing default of all 15 translations and 16 audio tracks.
 function soulkeyNextSelectedCodes_(taskId,kind){
-  const all=kind==="audio"?["en"].concat(SK_NEXT_LANGS):SK_NEXT_LANGS.slice();
+  const all=kind==="audio"?["en"].concat(SK_NEXT_PRIORITY_LANGS):SK_NEXT_PRIORITY_LANGS.slice();
   const plan=readLanguagePlan_(taskId);
   if(!plan.length)return all;
   const picked=plan.filter(function(x){
@@ -139,8 +143,9 @@ function soulkeyNextExport_(sources,allRows){
     lessonRows.forEach(function(row){byId[String(row[1])]=row;});
     let folder=null;
     const selected=soulkeyNextSelectedCodes_(source.task,"translation");
-    SK_NEXT_LANGS.forEach(function(lang,index){
-      if(selected.indexOf(lang)<0)return;
+    SK_NEXT_PRIORITY_LANGS.forEach(function(lang){
+      const index=SK_NEXT_LANGS.indexOf(lang);
+      if(index<0 || selected.indexOf(lang)<0)return;
       const segments=[];
       source.segments.forEach(function(seg){
         const row=byId[String(seg.id)];
@@ -283,8 +288,9 @@ function soulkeyNextTick(focusTask){
     const workItems=[];
     sources.forEach(function(source){
       const selected=selectedByTask[source.task];
-      SK_NEXT_LANGS.forEach(function(lang,langIndex){
-        if(selected.indexOf(lang)<0)return;
+      SK_NEXT_PRIORITY_LANGS.forEach(function(lang){
+        const langIndex=SK_NEXT_LANGS.indexOf(lang);
+        if(langIndex<0 || selected.indexOf(lang)<0)return;
         rowIndicesByTask[source.task].forEach(function(i){
           if(!String(rows[i][6+langIndex]||"").trim())
             workItems.push({rowIndex:i,languageIndex:langIndex});
