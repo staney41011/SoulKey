@@ -335,7 +335,11 @@ function soulkeyNextAudioTick(){
   if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
   try{
     const sources=soulkeyNextSources_().sort(function(a,b){
-      return (a.task==="P261-L02"?-1:0)-(b.task==="P261-L02"?-1:0);
+      const newer=Number(b.period)-Number(a.period);
+      if(newer)return newer;
+      if(a.task==="P261-L02" && b.task!=="P261-L02")return -1;
+      if(b.task==="P261-L02" && a.task!=="P261-L02")return 1;
+      return a.task.localeCompare(b.task);
     });
     if(!sources.length)
       return {ok:true,queued:0,imported:0,reason:"no_p261_english_final"};
@@ -356,6 +360,14 @@ function soulkeyNextAudioTick(){
           continue;
         }
         if(!requested)continue;
+        // P262+: a DRAFT may be used for preview, but never issue a
+        // production MP3 before this exact revision passes risk-based QA.
+        if(Number(lesson.period)>=262 && lang!=="en" &&
+           requested.review!=="approved_risk_based_not_full"){
+          Logger.log("[NEXT-AUDIO] "+lesson.task+"/"+lang+
+            " awaiting current Gemma4 QA; not publishable");
+          continue;
+        }
         try{skAudioSaveSource_(lesson,lang,requested);}catch(e){
           Logger.log("[NEXT-AUDIO] source archive "+lesson.task+" "+lang+": "+
             String(e).slice(0,120));
