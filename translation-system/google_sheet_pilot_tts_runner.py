@@ -316,6 +316,15 @@ def main():
             segments,quality_key=select_quality_approved_source(
                 drive,folders["translation"],lang,work,english["id"],
                 draft_id,segments)
+            # P262+: no source draft may be marked as an official MP3
+            # without a current, source-revision-verified Gemma4 risk QA.
+            # P261 deliveries remain untouched for backward compatibility.
+            if int(task_match.group(1))>=262 and not quality_key:
+                print(f"[SHEETS-FORMAL] {lang}: awaiting current Gemma4 QA; "
+                      "official MP3 not generated",flush=True)
+                results.append({"lang":lang,"state":"qa_pending",
+                                "draft_id":draft_id})
+                continue
             fingerprint=segments_fingerprint(segments)
             per_language_work=work/lang
             per_language_work.mkdir(parents=True,exist_ok=True)
@@ -368,7 +377,10 @@ def main():
                 "passed_risk_based_not_full" if quality_key
                 else "not_passed_through_Gemma4")
             manifest["formal_audio_source_authorization"]="user_requested_2026-11-05"
-            manifest["note"]="Official audio only when technical timing and Drive binary validation pass. Translation source: Google Sheets unreviewed draft."
+            manifest["note"]=(
+                "Technical timing and Drive binary verified; Gemma4 risk-based "
+                "QA passed, not exhaustive semantic approval." if quality_key else
+                "Technical timing and Drive binary verified; translation QA pending.")
             manifest_path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
             # Only normal official audio folder. Over-length stays clearly
             # needs_review as *.preview.mp3, not a published *.mp3.
@@ -380,7 +392,9 @@ def main():
             timeline=result["timeline"]
             if verified=="done":
                 mark_done(task_id,"tts:"+lang,sheets=sheets,run_id=run_id,
-                    message=("Google Sheets 來源正式音檔完成（未做 Gemma4 文字QA）；"
+                    message=(("Google Sheets 來源音檔完成（Gemma4 風險驗收通過，非全文審核）；"
+                              if quality_key else
+                              "Google Sheets 來源音檔完成（未做 Gemma4 文字QA）；")+
                              f"時長={timeline.get('final_duration',0):.1f}s；"
                              f"影片上限={video_duration:.1f}s；"
                              f"語速={timeline.get('applied_speedup',1):.3f}x"))
@@ -425,7 +439,7 @@ def main():
     states=[x["state"] for x in results]
     if all(x=="error" for x in states):
         return 2
-    if any(x in ("needs_review","error") for x in states):
+    if any(x in ("needs_review","error","qa_pending") for x in states):
         return 3
     return 0
 
