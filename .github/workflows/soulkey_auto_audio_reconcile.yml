@@ -20,6 +20,16 @@ on:
         type: string
         required: false
         default: ""
+      native_audio_task:
+        description: Signed 261+ lesson for targeted audio import/copy
+        type: string
+        required: false
+        default: ""
+      native_audio_lang:
+        description: Single selected language code
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -40,6 +50,8 @@ jobs:
           SHEET_FORMAL_TASK: ${{ inputs.sheet_formal_task || 'P260-L04' }}
           PILOT_L04_LANGS: ${{ inputs.pilot_l04_langs || '' }}
           RESET_TASK: ${{ inputs.reset_task || '' }}
+          NATIVE_TASK: ${{ inputs.native_audio_task || '' }}
+          NATIVE_LANG: ${{ inputs.native_audio_lang || '' }}
           BRIDGE_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
         run: |
           set -euo pipefail
@@ -61,6 +73,8 @@ jobs:
           RESPONSE=$(curl -fsSL --max-time 300 \
             --data-urlencode "action=audio_reconcile" \
             --data-urlencode "reset_task=$RESET_TASK" \
+            --data-urlencode "native_audio_task=$NATIVE_TASK" \
+            --data-urlencode "native_audio_lang=$NATIVE_LANG" \
             --data-urlencode "sheet_formal_task=$SHEET_FORMAL_TASK" \
             --data-urlencode "pilot_l04_langs=$PILOT_L04_LANGS" \
             --data-urlencode "audio_key=$AUDIO_KEY" \
@@ -70,6 +84,12 @@ jobs:
           value=json.loads(os.environ["RESULT"])
           if not value.get("ok"):
               raise SystemExit("Bridge audio reconciliation failed: "+str(value.get("reason") or value.get("error")))
+          if value.get("stage")=="native_audio":
+              safe={k:value.get(k) for k in
+                  ("ok","task_id","language","reason","imported","queued",
+                   "classroom_playback","status") if k in value}
+              print("FOCUSED_NATIVE_AUDIO "+json.dumps(safe,ensure_ascii=False))
+              raise SystemExit(0)
           print("AUDIO_RECONCILE_OK task="+str(value.get("task_id") or "none")+
                 " languages="+str(value.get("langs") or "none")+
                 " queued="+str(bool(value.get("task_id"))))

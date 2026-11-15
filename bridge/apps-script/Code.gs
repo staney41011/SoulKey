@@ -101,6 +101,25 @@ function doPost(e) {
       if (!expected || !supplied || supplied !== expected) {
         return json_({ok:false,error:"unauthorized"});
       }
+      // Signed fast path for a single 261+ lesson/language. Retains the
+      // native revision/QA gate, script lock and Drive-copy idempotence.
+      const nativeAudioTask=String((e&&e.parameter&&
+        e.parameter.native_audio_task)||"").trim();
+      if(nativeAudioTask){
+        const nativeAudioLang=String((e&&e.parameter&&
+          e.parameter.native_audio_lang)||"").trim();
+        if(!/^P\d+-L\d+(?:-R\d+)?$/.test(nativeAudioTask) ||
+           Number(nativeAudioTask.match(/^P(\d+)/)[1])<261 ||
+           !readTasks_().some(function(t){return t.id===nativeAudioTask;}))
+          return json_({ok:false,stage:"native_audio",reason:"invalid_task"});
+        if(SK_AUDIO_LANGUAGES.indexOf(nativeAudioLang)<0)
+          return json_({ok:false,stage:"native_audio",reason:"invalid_language"});
+        const output=soulkeyNextAudioTick(nativeAudioTask,nativeAudioLang);
+        return json_(Object.assign({
+          stage:"native_audio",task_id:nativeAudioTask,
+          language:nativeAudioLang
+        },output));
+      }
       // Urgent signed, lesson-scoped continuation for incomplete P261-L02
       // Sheets translations. Preserve source hashes, daily quotas, and
       // script locks. Do not bypass the full-DRAFT gate for formal speech.

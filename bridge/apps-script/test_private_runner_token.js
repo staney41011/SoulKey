@@ -34,7 +34,7 @@ assert.throws(()=>ctx.skAudioGithub_("/actions/workflows/x","get"),/private_gith
 assert(audio.includes("SOULKEY_PRIVATE_GITHUB_TOKEN"));
 assert(!audio.includes('Authorization:"Bearer "+String('));
 const gateStart=audio.indexOf("function skAudioLatestRunFailed_(");
-const gateEnd=audio.indexOf("\nfunction soulkeyNextAudioTick(){",gateStart);
+const gateEnd=audio.indexOf("\nfunction soulkeyNextAudioTick(",gateStart);
 assert(gateStart>0 && gateEnd>gateStart);
 vm.runInContext(audio.slice(gateStart,gateEnd),ctx);
 const lesson={task:"P261-L02"};

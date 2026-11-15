@@ -362,14 +362,16 @@ function skAudioLatestRunFailed_(lesson,lang,requested,receipt,runs){
       .indexOf(String(latest.conclusion||""))>=0;
 }
 
-function soulkeyNextAudioTick(){
+function soulkeyNextAudioTick(focusTask,focusLanguage){
   if(PropertiesService.getScriptProperties()
       .getProperty("SOULKEY_NEXT_ENABLED")!=="yes")
     return {ok:false,reason:"native_next_not_enabled"};
   const lock=LockService.getScriptLock();
   if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
   try{
-    const sources=soulkeyNextSources_().sort(function(a,b){
+    const sources=soulkeyNextSources_().filter(function(source){
+      return !focusTask || source.task===focusTask;
+    }).sort(function(a,b){
       const newer=Number(b.period)-Number(a.period);
       if(newer)return newer;
       if(a.task==="P261-L02" && b.task!=="P261-L02")return -1;
@@ -387,6 +389,7 @@ function soulkeyNextAudioTick(){
       const lesson=sources[i];
       for(let j=0;j<SK_AUDIO_LANGUAGES.length;j++){
         const lang=SK_AUDIO_LANGUAGES[j];
+        if(focusLanguage && lang!==focusLanguage)continue;
         if(soulkeyNextSelectedCodes_(lesson.task,"audio")
            .indexOf(lang)<0)continue;
         let requested;

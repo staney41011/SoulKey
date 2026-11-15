@@ -116,9 +116,16 @@ playbackCtx.DriveApp.getFileById=()=>({
  getSize:()=>10,isTrashed:()=>false
 });
 vm.createContext(playbackCtx);
-vm.runInContext(audio.slice(audio.indexOf("function soulkeyNextAudioTick(){")),playbackCtx);
+vm.runInContext(audio.slice(audio.indexOf("function soulkeyNextAudioTick(")),playbackCtx);
 const summary=playbackCtx.soulkeyNextAudioTick();
 assert.equal(summary.ok,true);
 assert.equal(copied.includes(ids[12]),true,"missing classroom copy must not be starved");
 assert.equal(copied.length,2,"one periodic validation plus the missing copy");
-console.log("PASS: immediate per-language QA after lock + revision guard + missing playback prioritized");
+copied.length=0;
+const focusedAudio=playbackCtx.soulkeyNextAudioTick(ids[12],"en");
+assert.equal(focusedAudio.ok,true);
+assert.deepEqual(copied,[ids[12]],"focused repair must not traverse unrelated courses");
+const bridge=fs.readFileSync(__dirname+"/Code.gs","utf8");
+assert(bridge.includes("native_audio_task"));
+assert(bridge.includes("soulkeyNextAudioTick(nativeAudioTask,nativeAudioLang)"));
+console.log("PASS: immediate QA, missing playback priority and signed focused repair");
