@@ -1179,6 +1179,16 @@ function soulkeyAutoSheetQualityReconcile_(languages) {
     try{
       const folders=lessonFolders_(task.id);
       if(!cachedFileId_(folders.translation,"en.final.json")) continue;
+      // Do not consume a long QA cooldown before any complete draft exists.
+      // P262+ can then be reviewed promptly after its first language finishes.
+      const initialDrafts=cachedChildFolder_(folders.translation,
+        "AppsScript初譯-待QA");
+      if(!initialDrafts)continue;
+      const enabled=soulkeyNextSelectedCodes_(task.id,"translation");
+      if(!enabled.some(function(lang){
+        return !!cachedFileId_(initialDrafts,task.id+"-"+lang+
+          "-google-translate-DRAFT.json");
+      }))continue;
       const gate=readJsonFile_(folders.translation,"sheets.qa.publish_gate.json");
       if(gate && gate.semantic_review_ready===true) continue;
       const dispatched=dispatchWorkflowIdempotently_(
@@ -1188,7 +1198,7 @@ function soulkeyAutoSheetQualityReconcile_(languages) {
       if(!dispatched.ok) return {ok:false,stage:"sheet_qa",
         task_id:task.id,reason:dispatched.error||"dispatch_failed"};
       props.setProperty(key,JSON.stringify({
-        expires_at_ms:now+4*60*60*1000,
+        expires_at_ms:now+(Number(task.period)>=262?60:240)*60*1000,
         queued_at:new Date(now).toISOString()}));
       if(!dispatched.duplicate){
         appendExecutionStatus_(task.id,"sheet_qa","queued",
