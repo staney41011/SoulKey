@@ -236,6 +236,8 @@ function soulkeyNextExport_(sources,allRows){
       }
       if(!complete && writeText)partialExports++;
       files.push({task:source.task,lang:lang,complete:complete,
+        // An unchanged DRAFT must never be re-QA'd solely by a clock tick.
+        qa_new_complete:complete && changed,
         segments:segments.length});
     });
   });
@@ -273,6 +275,7 @@ function soulkeyNextTick(focusTask){
     return {ok:false,reason:"native_next_not_enabled"};
   const lock=LockService.getScriptLock();
   if(!lock.tryLock(5000))return {ok:false,reason:"busy"};
+  let completed=null;
   try{
     const start=Date.now();
     const sources=soulkeyNextSources_().filter(function(item){
@@ -361,10 +364,38 @@ function soulkeyNextTick(focusTask){
       tab.getRange(2,1,tab.getLastRow()-1,25).getValues():[];
     const exported=soulkeyNextExport_(sources,refreshed);
     soulkeyNextUpdateJobs_(sources,refreshed);
-    return {ok:failed===0,active_lessons:sources.map(function(x){return x.task;}),
+    completed={ok:failed===0,active_lessons:sources.map(function(x){return x.task;}),
       seeded:seeded,requests:requests,translated:translated,failed:failed,
       exported_languages:exported,quota_used:quota.used};
   }finally{lock.releaseLock();}
+  // A complete DRAFT is now durably stored on Drive. Start native Gemma4 QA
+  // after releasing the Sheets lock: QA takes its own script lock, otherwise
+  // the previous implementation would silently report "busy".
+  // Only changed complete revisions trigger this; scheduled QA is the retry.
+  const newDrafts=(completed.exported_languages||[]).filter(function(x){
+    return x.complete && x.qa_new_complete;
+  });
+  const qaStarts=[], started=Date.now();
+  for(let i=0;i<newDrafts.length;i++){
+    // Keep headroom for Google's 6-minute Apps Script runtime limit.
+    if(Date.now()-started>90000)break;
+    const item=newDrafts[i];
+    try{
+      const qa=soulkeyNextQAOneBatch_(item.task,item.lang);
+      qaStarts.push({task:item.task,lang:item.lang,
+        ok:!!qa.ok,reviewed:Number(qa.reviewed||0),
+        reason:qa.reason||qa.error||""});
+      if(!qa.ok && qa.reason==="busy")break;
+    }catch(e){
+      qaStarts.push({task:item.task,lang:item.lang,ok:false,
+        reason:String(e&&e.message||e).slice(0,150)});
+      Logger.log("[NEXT-IMMEDIATE-QA] "+item.task+"/"+item.lang+": "+
+        String(e&&e.message||e).slice(0,150));
+    }
+  }
+  completed.immediate_qa=qaStarts;
+  completed.immediate_qa_deferred=Math.max(0,newDrafts.length-qaStarts.length);
+  return completed;
 }
 function soulkeyNextInstall(){
   const props=PropertiesService.getScriptProperties();

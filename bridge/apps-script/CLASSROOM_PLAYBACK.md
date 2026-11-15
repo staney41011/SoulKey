@@ -14,3 +14,15 @@
 核心程式：`bridge/apps-script/NativePlayback.gs`（歸檔／冪等性）、`NativeAudio.gs`（15 分鐘觸發／續跑）、`NativeStudio.gs`（唯讀副本狀態）。
 
 測試：`node bridge/apps-script/test_classroom_playback_copy.js`、`node bridge/apps-script/test_apps_script_load_order.js`。最終需要用新一期第一個實際 MP3 核實執行帳號是否能對目標資料夾建立副本；若 Google Drive 拒絕複製，原工作區不受影響，排程會繼續嘗試。
+
+
+## 2026-11-15 delivery repair
+- Every accepted source MP3 is still copied directly on import.
+- The recurring native audio tick now prioritizes missing classroom copies over
+  periodic 24-hour verification of already-present copies. A valid source MP3
+  and matching source receipt are prerequisites.
+- Missing source MP3s are **not** a copying failure: they remain in the
+  synthesis/QA queue until a source receipt can be imported. The matching
+  classroom copy is created after that import.
+- Existing copied files are not duplicated, and failed copies retry without
+  invalidating the original MP3.

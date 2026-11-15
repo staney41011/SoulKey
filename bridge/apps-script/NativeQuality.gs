@@ -163,14 +163,16 @@ function skNQSummary_(audits,decisions){
       return decisions[id].grade==="B_verified";
     }).map(Number)};
 }
-function soulkeyNextQAOneBatch_(){
+function soulkeyNextQAOneBatch_(focusTask,focusLang){
   if(PropertiesService.getScriptProperties()
       .getProperty("SOULKEY_NEXT_ENABLED")!=="yes")
     return {ok:false,reason:"native_next_not_enabled"};
   const lock=LockService.getScriptLock();
   if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
   try{
-    const lessons=soulkeyNextSources_().sort(function(a,b){
+    const lessons=soulkeyNextSources_().filter(function(source){
+      return !focusTask || source.task===focusTask;
+    }).sort(function(a,b){
       const newer=Number(b.period)-Number(a.period);
       if(newer)return newer;
       if(a.task==="P261-L02" && b.task!=="P261-L02")return -1;
@@ -183,6 +185,7 @@ function soulkeyNextQAOneBatch_(){
       const lesson=lessons[i];
       for(let j=0;j<SK_NEXT_PRIORITY_LANGS.length;j++){
         const lang=SK_NEXT_PRIORITY_LANGS[j];
+        if(focusLang && lang!==focusLang)continue;
         if(soulkeyNextSelectedCodes_(lesson.task,"translation")
            .indexOf(lang)<0)continue;
         let draft;

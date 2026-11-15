@@ -263,6 +263,13 @@ function doPost(e) {
       let autoZh={ok:true,started:0,pending:0};
       try{autoZh=soulkeyAutoStartChineseReconcile_();}
       catch(e){autoZh={ok:false,error:String(e&&e.message||e).slice(0,160)};}
+      // Prioritize native 261+ imports and classroom-copy recovery so
+      // independent legacy reconcile stages cannot delay the missing MP3.
+      // The internal 15-minute trigger and this signed 20-minute fallback
+      // are serialized by soulkeyNextAudioTick's script lock.
+      let nativeAudio={ok:true,reason:"not_checked"};
+      try{nativeAudio=soulkeyNextAudioTick();}
+      catch(e){nativeAudio={ok:false,error:String(e&&e.message||e).slice(0,160)};}
       const audio=soulkeyAutoAudioReconcile_();
       let multi={ok:true,queued:false};
       try {multi=soulkeyAutoMultiReconcile_();}
@@ -275,7 +282,8 @@ function doPost(e) {
       catch(e){initialSheetAudio={ok:false,error:String(e&&e.message||e)};}
       return json_(Object.assign({},audio,{
         multi_reconcile:multi,sheets_audio_refresh:sheetSync,
-        sheets_initial_audio:initialSheetAudio,auto_zh: autoZh}));
+        sheets_initial_audio:initialSheetAudio,auto_zh:autoZh,
+        native_audio:nativeAudio}));
     }
 
     if (action === "worker_report") {

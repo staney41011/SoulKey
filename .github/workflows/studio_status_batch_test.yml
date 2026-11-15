@@ -27,6 +27,7 @@ on:
       - bridge/apps-script/test_p262_readiness.js
       - bridge/apps-script/test_default_six_languages.js
       - bridge/apps-script/test_auto_zh_on_create.js
+      - bridge/apps-script/test_immediate_qa_and_playback.js
       - bridge/apps-script/Code.gs
       - bridge/apps-script/NativeNext.gs
       - bridge/apps-script/NativeQuality.gs
@@ -61,6 +62,7 @@ on:
       - bridge/apps-script/test_p262_readiness.js
       - bridge/apps-script/test_default_six_languages.js
       - bridge/apps-script/test_auto_zh_on_create.js
+      - bridge/apps-script/test_immediate_qa_and_playback.js
       - bridge/apps-script/Code.gs
       - bridge/apps-script/NativeNext.gs
       - bridge/apps-script/NativeQuality.gs
@@ -102,6 +104,7 @@ jobs:
           node bridge/apps-script/test_p262_readiness.js
           node bridge/apps-script/test_default_six_languages.js
           node bridge/apps-script/test_auto_zh_on_create.js
+          node bridge/apps-script/test_immediate_qa_and_playback.js
           python -m py_compile translation-system/google_sheet_pilot_tts_runner.py
       - name: Verify all lessons receive status refresh
         run: node studio/tests/test_status_batch_all_periods.cjs

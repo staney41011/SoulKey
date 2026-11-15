@@ -346,7 +346,7 @@ function soulkeyNextAudioTick(){
     const terms=skNQTerms_();
     const byTask={};
     readTasks_().forEach(function(row){byTask[row.id]=row;});
-    let dispatched=0,playbackAttempts=0;
+    let dispatched=0,playbackAttempts=0,periodicPlaybackChecks=0;
     for(let i=0;i<sources.length;i++){
       const lesson=sources[i];
       for(let j=0;j<SK_AUDIO_LANGUAGES.length;j++){
@@ -390,7 +390,10 @@ function soulkeyNextAudioTick(){
           if(verified){
             // Classroom copy is a separate deliverable. Never block
             // SoulKey's original audio from being marked as generated.
-            if(playbackAttempts<2){
+            // Missing classroom copies take precedence over daily rechecks
+            // of copies that were already verified. Repair at most eight
+            // missing copies plus one periodic recheck per audio tick.
+            if(playbackAttempts<9){
               const proof=skPlaybackReceipt_(lesson,lang);
               const same=proof && proof.status==="copied" &&
                 proof.sha===requested.sha &&
@@ -404,8 +407,9 @@ function soulkeyNextAudioTick(){
               const verifiedAt=Date.parse(String(proof&&proof.last_verified_at||""));
               const due=!same || !Number.isFinite(verifiedAt) ||
                 Date.now()-verifiedAt>24*60*60*1000;
-              if(due){
+              if(due && (!same || periodicPlaybackChecks<1)){
                 playbackAttempts++;
+                if(same)periodicPlaybackChecks++;
                 try{
                   skPlaybackEnsure_(lesson,lang,receipt,requested,
                     byTask[lesson.task]);
