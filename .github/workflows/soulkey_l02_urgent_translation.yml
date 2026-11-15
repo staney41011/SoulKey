@@ -60,7 +60,7 @@ jobs:
           elif not data.get("ok") or data.get("task_id") != "P261-L02":
               raise SystemExit("Bridge rejected authorized P261-L02 batch: "+
                                str(data.get("reason") or data.get("error")))
-          elif int(batch.get("quota_used") or 0) >= 3800:
+          elif int(batch.get("quota_used") or 0) >= 4500:
               print("daily_quota")
           elif int(batch.get("requests") or 0) == 0:
               print("no_pending_work")
