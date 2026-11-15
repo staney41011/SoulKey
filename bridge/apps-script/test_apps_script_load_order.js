@@ -12,7 +12,14 @@ for(const order of permutations(files)){
   }
   const langs=vm.runInContext("SK_AUDIO_LANGUAGES.slice()",context);
   const sheetLangs=vm.runInContext("SK_NEXT_LANGS.slice()",context);
-  assert.deepStrictEqual(Array.from(langs.slice(1)),Array.from(sheetLangs));
+  const priorityLangs=vm.runInContext("SK_NEXT_PRIORITY_LANGS.slice()",context);
+  // Audio/QA dispatch uses user-selected priority; translation worksheet
+  // physically remains in its original G:U column layout.
+  assert.deepStrictEqual(Array.from(langs.slice(1)),Array.from(priorityLangs));
+  assert.deepStrictEqual(Array.from(sheetLangs),
+    ["th","es","id","vi","hi","ta","ja","ko","km",
+     "bn","ne","lo","my","it","pt"]);
+  assert.deepStrictEqual(new Set(sheetLangs),new Set(priorityLangs));
   assert.equal(langs.length,16);
   assert.equal(typeof context.soulkeyRecoveryAuthorize,"function");
 }
