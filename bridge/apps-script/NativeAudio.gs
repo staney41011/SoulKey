@@ -33,9 +33,11 @@ function skAudioFingerprint_(segments){
   return skAudioHash_(encoded);
 }
 function skAudioGithub_(path,method,body,additionalHeaders){
-  const token=String(PropertiesService.getScriptProperties()
-    .getProperty("GITHUB_TOKEN")||"").trim();
-  if(!token)throw new Error("GITHUB_TOKEN_missing_for_private_repo");
+  // The public worker and private TTS runner use separate credentials.
+  const props=PropertiesService.getScriptProperties();
+  const token=String(props.getProperty("SOULKEY_PRIVATE_GITHUB_TOKEN")||
+    props.getProperty("GITHUB_TOKEN")||"").trim();
+  if(!token)throw new Error("private_github_token_missing");
   const headers={
     Authorization:"Bearer "+token,
     Accept:"application/vnd.github+json",
