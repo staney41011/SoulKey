@@ -94,45 +94,6 @@ function doPost(e) {
   try {
     const action = String((e && e.parameter && e.parameter.action) || "").trim();
 
-    // ONE-TIME private runner authorization. Signed by the existing
-    // reconciliation secret; removed after first successful installation.
-    if (action === "private_runner_auth_once") {
-      const props=PropertiesService.getScriptProperties();
-      const expected=String(props.getProperty("SOULKEY_AUDIO_RECONCILE_KEY")||"");
-      const supplied=String(e&&e.parameter&&e.parameter.audio_key||"");
-      if(!expected || !supplied || supplied!==expected)
-        return json_({ok:false,error:"unauthorized"});
-      if(String(props.getProperty("SOULKEY_PRIVATE_GITHUB_TOKEN")||"").trim())
-        return json_({ok:true,installed:true,already_configured:true});
-      const candidate=String(e&&e.parameter&&e.parameter.private_token||"").trim();
-      if(!/^[A-Za-z0-9_]{20,512}$/.test(candidate))
-        return json_({ok:false,error:"invalid_private_credential"});
-      const headers={Authorization:"Bearer "+candidate,
-        Accept:"application/vnd.github+json",
-        "X-GitHub-Api-Version":"2022-11-28"};
-      const urls=[
-        "https://api.github.com/repos/staney41011/SoulKey-Private-Runner",
-        "https://api.github.com/repos/staney41011/SoulKey-Private-Runner/actions/workflows/soulkey_private_tts.yml"
-      ];
-      let valid=true;
-      for(let i=0;i<urls.length;i++){
-        const response=UrlFetchApp.fetch(urls[i],{
-          method:"get",headers:headers,muteHttpExceptions:true,
-          followRedirects:false
-        });
-        if(response.getResponseCode()!==200){valid=false;break;}
-        try{
-          const body=JSON.parse(response.getContentText());
-          if(i===0 && (body.private!==true ||
-              body.full_name!=="staney41011/SoulKey-Private-Runner"))valid=false;
-          if(i===1 && body.state!=="active")valid=false;
-        }catch(_){valid=false;}
-      }
-      if(!valid)return json_({ok:false,error:"private_repo_scope_not_verified"});
-      props.setProperty("SOULKEY_PRIVATE_GITHUB_TOKEN",candidate);
-      return json_({ok:true,installed:true,private_repo:"SoulKey-Private-Runner"});
-    }
-
     if (action === "audio_reconcile") {
       const props = PropertiesService.getScriptProperties();
       const expected = String(props.getProperty("SOULKEY_AUDIO_RECONCILE_KEY") || "");
