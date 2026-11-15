@@ -24,6 +24,13 @@ function soulkeyNextSha_(value) {
       String(value),Utilities.Charset.UTF_8)
     .map(function(b){return ("0"+(b&255).toString(16)).slice(-2);}).join("");
 }
+// SpreadsheetApp.setValues interprets leading apostrophes as quote prefixes.
+// Prefix text-only source/translation cells once so the literal content
+// (including an initial ') survives round-trip and never invalidates again.
+function soulkeyNextSheetLiteral_(value){
+  const text=String(value||"");
+  return /^[=+\-@']/.test(text)?"'"+text:text;
+}
 function soulkeyNextNow_() {
   return Utilities.formatDate(new Date(),"Asia/Taipei","yyyy-MM-dd HH:mm:ss");
 }
@@ -108,13 +115,21 @@ function soulkeyNextEnsureRows_(sources){
           Number(saved.data[3])!==seg.end){
         // English was edited. Only invalidate this segment's 15 languages;
         // the previously approved English revision must never be mixed in.
-        tab.getRange(saved.row,1,1,width).setValues([data]);
+        const literal=data.slice();
+        literal[4]=soulkeyNextSheetLiteral_(literal[4]);
+        tab.getRange(saved.row,1,1,width).setValues([literal]);
         invalidated++;
       }
     });
   });
-  if(append.length)
-    tab.getRange(tab.getLastRow()+1,1,append.length,width).setValues(append);
+  if(append.length){
+    const safe=append.map(function(data){
+      const literal=data.slice();
+      literal[4]=soulkeyNextSheetLiteral_(literal[4]);
+      return literal;
+    });
+    tab.getRange(tab.getLastRow()+1,1,safe.length,width).setValues(safe);
+  }
   return {added:added,invalidated:invalidated};
 }
 function soulkeyNextQuota_(){
@@ -327,7 +342,11 @@ function soulkeyNextTick(focusTask){
         row[22]=Number(row[21])===selectedByTask[task].length?
           "待Gemma QA":"翻譯中";
         row[23]=soulkeyNextNow_();row[24]=issue;
-        tab.getRange(i+2,7,1,19).setValues([row.slice(6,25)]);
+        const safe=row.slice(6,25).map(function(value,k){
+          return k<15 && typeof value==="string"?
+            soulkeyNextSheetLiteral_(value):value;
+        });
+        tab.getRange(i+2,7,1,19).setValues([safe]);
       }
       if(failed>=6)break;
     }
