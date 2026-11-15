@@ -329,6 +329,28 @@ function skAudioImport_(lesson,lang,requested,release){
   skAudioSaveReceipt_(lesson,lang,output);
   return output;
 }
+// GH Actions may finish with "failure" long before the former two-hour
+// missing-release timeout. Detect only the LATEST run for the exact source
+// revision; never relaunch a queued/in-progress run or a stale old failure.
+function skAudioLatestRunFailed_(lesson,lang,requested,receipt,runs){
+  const dispatched=Date.parse(
+    String(receipt&&receipt.dispatched_at||"").replace(" ","T")+"+08:00");
+  if(!Number.isFinite(dispatched))return false;
+  const label="SoulKey TTS "+lesson.task+"-"+lang+"-"+
+    requested.sha.slice(0,8);
+  const candidates=(runs||[]).filter(function(run){
+    const created=Date.parse(String(run.created_at||""));
+    return run.display_title===label && Number.isFinite(created) &&
+      created+15000>=dispatched;
+  }).sort(function(a,b){
+    return Date.parse(b.created_at)-Date.parse(a.created_at);
+  });
+  const latest=candidates[0];
+  return !!latest && latest.status==="completed" &&
+    ["failure","cancelled","timed_out","startup_failure"]
+      .indexOf(String(latest.conclusion||""))>=0;
+}
+
 function soulkeyNextAudioTick(){
   if(PropertiesService.getScriptProperties()
       .getProperty("SOULKEY_NEXT_ENABLED")!=="yes")
@@ -349,6 +371,7 @@ function soulkeyNextAudioTick(){
     const byTask={};
     readTasks_().forEach(function(row){byTask[row.id]=row;});
     let dispatched=0,playbackAttempts=0,periodicPlaybackChecks=0;
+    let privateRuns=null;
     for(let i=0;i<sources.length;i++){
       const lesson=sources[i];
       for(let j=0;j<SK_AUDIO_LANGUAGES.length;j++){
@@ -446,23 +469,40 @@ function soulkeyNextAudioTick(){
               task:lesson.task,lang:lang,status:imported.status,
               classroom_playback:playback};
           }
-          // A cancelled GitHub run must not strand this language forever.
-          // Retry only after two hours and at most three attempts.
-          let attempts=0;
-          if(receipt && receipt.release_tag===requested.tag &&
-             receipt.status==="queued"){
-            attempts=Number(receipt.attempts||1);
-            const when=Date.parse(
-              String(receipt.dispatched_at||"").replace(" ","T")+"+08:00");
-            if(!Number.isFinite(when) || Date.now()-when<2*60*60*1000)
-              continue;
-            if(attempts>=3){
-              Logger.log("[NEXT-AUDIO] manual review required after retries: "+
-                lesson.task+"/"+lang);
-              continue;
-            }
-          }
-          // Drive checkpoint is written ONLY on successful dispatch.
+           // Do not wait two hours after an already-failed private TTS run.
+           // Read at most one private workflow run list per audio tick.
+           // A still-running or queued run is never duplicated.
+           let attempts=0;
+           if(receipt && receipt.release_tag===requested.tag &&
+              receipt.status==="queued"){
+             attempts=Number(receipt.attempts||1);
+             if(attempts>=3){
+               Logger.log("[NEXT-AUDIO] manual review required after retries: "+
+                 lesson.task+"/"+lang);
+               continue;
+             }
+             const when=Date.parse(
+               String(receipt.dispatched_at||"").replace(" ","T")+"+08:00");
+             if(!Number.isFinite(when))continue;
+             if(Date.now()-when<2*60*60*1000){
+               if(privateRuns===null){
+                 try{
+                   const response=skAudioGithubJson_(
+                     "/actions/workflows/"+SK_AUDIO_WORKFLOW+
+                     "/runs?event=workflow_dispatch&per_page=100","get");
+                   privateRuns=(response&&response.workflow_runs)||[];
+                 }catch(e){
+                   Logger.log("[NEXT-AUDIO] private run status deferred: "+
+                     String(e&&e.message||e).slice(0,130));
+                   privateRuns=[];
+                 }
+               }
+               if(!skAudioLatestRunFailed_(lesson,lang,requested,receipt,
+                    privateRuns))continue;
+               Logger.log("[NEXT-AUDIO] private TTS failed; safe immediate retry "+
+                 lesson.task+"/"+lang+" attempt="+(attempts+1));
+             }
+           }          // Drive checkpoint is written ONLY on successful dispatch.
           const response=skAudioGithub_("/actions/workflows/"+
             SK_AUDIO_WORKFLOW+"/dispatches","post",{
               ref:"main",inputs:{
