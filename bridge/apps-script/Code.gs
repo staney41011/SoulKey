@@ -1266,12 +1266,16 @@ function soulkeyAutoSheetsInitialAudioReconcile_() {
   const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
   if(!token) return {ok:false,reason:"github_token_missing"};
   const targets=new Set(["P261-L01","P261-L02","P261-L03","P261-L04"]);
-  const langs=["th","es","id","vi","hi","ta","ja","ko","km",
+  const langs=["es","id","km","vi","th","ja","ko","ta","hi",
     "bn","ne","lo","my","it","pt"];
   const now=Date.now();
   const tasks=readTasks_().filter(function(t){
     return targets.has(String(t.id||"")) && String(t.en||"").trim()==="完成";
-  }).sort(function(a,b){return String(a.id).localeCompare(String(b.id));});
+  }).sort(function(a,b){
+    if(a.id==="P261-L02")return -1;
+    if(b.id==="P261-L02")return 1;
+    return String(a.id).localeCompare(String(b.id));
+  });
   for(let i=0;i<tasks.length;i++){
     const task=tasks[i];
     try{
