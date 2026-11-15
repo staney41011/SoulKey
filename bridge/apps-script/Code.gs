@@ -1258,24 +1258,25 @@ function soulkeyAutoSheetAudioRefresh_() {
   return {ok:true,queued:false};
 }
 
-// Complete all four P261 lessons' initial Sheets-sourced audio, including
-// L02 once an individual language has a complete English-anchored DRAFT.
+// Recover initial Google Sheets audio for every registered P261+ lesson.
+// P262+ release is QA-gated; P261 already-delivered artifacts are preserved.
 // Existing verified MP3s/approved timing previews are never regenerated.
 function soulkeyAutoSheetsInitialAudioReconcile_() {
   const props=PropertiesService.getScriptProperties();
   const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
   if(!token) return {ok:false,reason:"github_token_missing"};
-  const targets=new Set(["P261-L01","P261-L02","P261-L03","P261-L04"]);
-  const langs=["es","id","km","vi","th","ja","ko","ta","hi",
-    "bn","ne","lo","my","it","pt"];
+  const langs=SK_NEXT_PRIORITY_LANGS.slice();
   const now=Date.now();
   const tasks=readTasks_().filter(function(t){
-    return targets.has(String(t.id||"")) && String(t.en||"").trim()==="完成";
+    return Number(t.period)>=261 && /^P\d+-L\d+$/.test(String(t.id||"")) &&
+      String(t.en||"").trim()==="完成";
   }).sort(function(a,b){
-    if(a.id==="P261-L02")return -1;
-    if(b.id==="P261-L02")return 1;
+    const newer=Number(b.period)-Number(a.period);
+    if(newer)return newer;
+    if(a.id==="P261-L02" && b.id!=="P261-L02")return -1;
+    if(b.id==="P261-L02" && a.id!=="P261-L02")return 1;
     return String(a.id).localeCompare(String(b.id));
-  });
+  }).slice(0,24);
   for(let i=0;i<tasks.length;i++){
     const task=tasks[i];
     try{
@@ -1287,6 +1288,15 @@ function soulkeyAutoSheetsInitialAudioReconcile_() {
       const missing=langs.filter(function(lang){
         const name=task.id+"-"+lang+"-google-translate-DRAFT.json";
         if(!cachedFileId_(draftFolder,name)) return false;
+        // P262+: never dispatch an unreviewed DRAFT to a formal MP3.
+        // The TTS worker also rechecks exact QA/source revision identity.
+        if(Number(task.period)>=262){
+          const qa=readJsonFile_(folders.translation,"sheets.qa."+lang+".json");
+          const approved=cachedFileId_(folders.translation,
+            "sheets.qa.approved."+lang+".json");
+          if(!qa || qa.state!=="approved_risk_based" || !approved)
+            return false;
+        }
         const manifest=readJsonFile_(audioFolder,lang+".tts_manifest.json")||{};
         const state=String(manifest.status||"");
         if(state==="done" && cachedFileId_(audioFolder,lang+".mp3"))
@@ -1315,14 +1325,14 @@ function soulkeyAutoSheetsInitialAudioReconcile_() {
       if(!dispatched.duplicate){
         appendExecutionStatus_(task.id,"pilot_tts","queued",
           String(dispatched.workflow_run_id||(dispatched.nonce||"").slice(0,12)),0,
-          "P261 自動補齊 Google Sheets 多語配音："+signature,
+          "P261+ 自動補齊 Google Sheets 多語配音："+signature,
           "","","","","","");
       }
       return {ok:true,stage:"pilot_tts",task_id:task.id,
         queued:!dispatched.duplicate,duplicate:!!dispatched.duplicate,
         langs:signature};
     }catch(e){
-      Logger.log("[AUTO-P261-SHEETS-AUDIO] "+task.id+" "+
+      Logger.log("[AUTO-NEXT-SHEETS-AUDIO] "+task.id+" "+
         String(e&&e.message||e).slice(0,200));
     }
   }
