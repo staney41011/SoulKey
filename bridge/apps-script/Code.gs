@@ -1202,10 +1202,6 @@ function soulkeyAutoSheetQualityReconcile_(languages) {
   }).slice(0,8);
   for(let i=0;i<all.length;i++){
     const task=all[i];
-    const key="AUTO_SHEETS_QA_V1_"+task.id;
-    let retry={};
-    try{retry=JSON.parse(props.getProperty(key)||"{}");}catch(_){}
-    if(Number(retry.expires_at_ms||0)>now) continue;
     try{
       const folders=lessonFolders_(task.id);
       if(!cachedFileId_(folders.translation,"en.final.json")) continue;
@@ -1214,15 +1210,26 @@ function soulkeyAutoSheetQualityReconcile_(languages) {
       const initialDrafts=cachedChildFolder_(folders.translation,
         "AppsScript初譯-待QA");
       if(!initialDrafts)continue;
+      // Follow the lesson's saved language plan, NOT the hourly workflow's
+      // legacy all-15 fallback. Only complete DRAFTs can consume Gemma4.
       const enabled=soulkeyNextSelectedCodes_(task.id,"translation");
-      if(!enabled.some(function(lang){
-        return !!cachedFileId_(initialDrafts,task.id+"-"+lang+
-          "-google-translate-DRAFT.json");
-      }))continue;
+      const complete=enabled.filter(function(lang){
+        return languages.indexOf(lang)>=0 &&
+          !!cachedFileId_(initialDrafts,task.id+"-"+lang+
+            "-google-translate-DRAFT.json");
+      });
+      if(!complete.length)continue;
+      // A later language can start QA without waiting for the previous
+      // language's one-hour cooldown. Repeated identical selections dedupe.
+      const signature=complete.slice().sort().join("_");
+      const key="AUTO_SHEETS_QA_V2_"+task.id+"_"+signature;
+      let retry={};
+      try{retry=JSON.parse(props.getProperty(key)||"{}");}catch(_){}
+      if(Number(retry.expires_at_ms||0)>now)continue;
       const gate=readJsonFile_(folders.translation,"sheets.qa.publish_gate.json");
       if(gate && gate.semantic_review_ready===true) continue;
       const dispatched=dispatchWorkflowIdempotently_(
-        githubToken,task.id,"sheet_qa","",languages.join(","),
+        githubToken,task.id,"sheet_qa","",complete.join(","),
         "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
       );
       if(!dispatched.ok) return {ok:false,stage:"sheet_qa",
@@ -1237,7 +1244,7 @@ function soulkeyAutoSheetQualityReconcile_(languages) {
       }
       return {ok:true,stage:"sheet_qa",task_id:task.id,
         queued:!dispatched.duplicate,duplicate:!!dispatched.duplicate,
-        langs:languages.join(",")};
+        langs:complete.join(",")};
     }catch(e){
       Logger.log("[SHEETS-QA AUTO] "+task.id+" "+String(e&&e.message||e).slice(0,200));
     }
