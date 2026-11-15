@@ -293,24 +293,33 @@ function skAudioImport_(lesson,lang,requested,release){
     requested.tag+"; semanticQA="+requested.review;
   const mp3=skAudioCanonicalFile_(audioFolder,base+"."+extension,
     Utilities.newBlob(mp3Bytes,"audio/mpeg"),description);
-  let wav=null,audioStatus=result.status,issue="";
-  let savedMp3=mp3;
+  // Make the verified MP3 a first-class deliverable. The original synchronous
+  // path fetched and uploaded all WAV chunks (often >60 MB) BEFORE writing
+  // the MP3 receipt, which exceeded the signed bridge's 300-second limit and
+  // prevented the automatic "所有口譯檔案" copy despite successful synthesis.
+  // WAV remains archived, immutable and recoverable from the private release.
+  let audioStatus=result.status,issue="",savedMp3=mp3;
+  let archivedWavParts=0;
   if(result.status==="done"){
     try{
-    const chunks=result.wav_chunks||[];
-    if(!chunks.length || chunks.length>30)
-      throw new Error("invalid_voice_wav_chunks");
-    const parts=chunks.map(function(n){
-      return {name:n,bytes:skAudioAssetChecked_(
-        skAudioAssetByName_(release,n),result.files[n])};
-    });
-    const size=parts.reduce(function(n,p){return n+p.bytes.length;},0);
-    if(size!==Number(result.wav_bytes))
-      throw new Error("wav_parts_total_mismatch");
-    wav=skAudioUploadWav_(audioFolder,base+".wav",parts,size,requested.tag);
+      const chunks=result.wav_chunks||[];
+      if(!Array.isArray(chunks)||!chunks.length||chunks.length>30)
+        throw new Error("invalid_voice_wav_chunks");
+      let observed=0;
+      chunks.forEach(function(name){
+        const asset=skAudioAssetByName_(release,name);
+        const proof=result.files&&result.files[name];
+        if(!proof || !Number.isFinite(Number(proof.bytes)) ||
+           Number(proof.bytes)<=0 || Number(asset.size)!==Number(proof.bytes))
+          throw new Error("wav_release_manifest_mismatch");
+        observed+=Number(proof.bytes);
+      });
+      if(observed!==Number(result.wav_bytes))
+        throw new Error("wav_parts_total_mismatch");
+      archivedWavParts=chunks.length;
     }catch(e){
-      // The MP3 has already been generated and imported; if a WAV upload
-      // fails, also retain a non-publishable MP3 under a preview name.
+      // A missing or corrupt WAV *release* is still a review issue. Retain
+      // the valid MP3 as explicitly unverified, never silently publish it.
       audioStatus="needs_review";
       issue="wav_import_failed:"+String(e&&e.message||e).slice(0,140);
       savedMp3=skAudioCanonicalFile_(audioFolder,base+".preview.mp3",
@@ -321,7 +330,9 @@ function skAudioImport_(lesson,lang,requested,release){
     task_id:lesson.task,language:lang,status:audioStatus,
     issue:issue,source_sha256:requested.sha,release_tag:requested.tag,
     semantic_review_scope:requested.review,
-    mp3_drive_id:savedMp3.getId(),wav_drive_id:wav?wav.getId():null,
+    mp3_drive_id:savedMp3.getId(),wav_drive_id:null,
+    wav_archived_release_tag:archivedWavParts?requested.tag:null,
+    wav_archived_parts:archivedWavParts,
     source_duration_seconds:Number(result.source_duration_seconds),
     timing:result.timing,
     imported_at:soulkeyNextNow_()

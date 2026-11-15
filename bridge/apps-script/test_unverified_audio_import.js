@@ -45,4 +45,23 @@ const review=ctx.skAudioImport_(lesson,"es",requested,{assets:[]});
 assert.equal(review.status,"needs_review");
 assert(review.mp3_drive_id.endsWith(".preview.mp3"));
 assert(!created.some(x=>x.name.endsWith(".wav")));
-console.log("PASS unapproved audio survives timing and WAV import failures as preview MP3");
+created.length=0;
+result.status="done";
+result.files={
+  "voice.mp3":{bytes:18000,sha256:"mock"},
+  "voice.wav.part001":{bytes:64,sha256:"mock_wav"}
+};
+result.wav_chunks=["voice.wav.part001"];
+result.wav_bytes=64;
+ctx.skAudioAssetByName_=(_release,name)=>({name,size:64});
+ctx.skAudioUploadWav_=()=>{throw new Error("WAV must not block MP3 delivery");};
+const formal=ctx.skAudioImport_(lesson,"es",requested,{assets:[]});
+assert.equal(formal.status,"done");
+assert.equal(formal.mp3_drive_id.endsWith(".mp3"),true);
+assert.equal(formal.mp3_drive_id.endsWith(".preview.mp3"),false);
+assert.equal(formal.wav_drive_id,null);
+assert.equal(formal.wav_archived_release_tag,requested.tag);
+assert.equal(formal.wav_archived_parts,1);
+assert.equal(receipts.at(-1).status,"done");
+assert(created.some(x=>x.name.endsWith(".mp3") && !x.name.endsWith(".preview.mp3")));
+console.log("PASS MP3-first formal import, private WAV release archive and guarded preview");
