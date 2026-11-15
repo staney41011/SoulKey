@@ -49,6 +49,8 @@ jobs:
           audio=data.get("audio") or {}
           print("TRANSLATION_BATCH="+str({
               "task":data.get("task_id"), "requests":batch.get("requests"),
+              "active_lessons":batch.get("active_lessons"), "seeded":batch.get("seeded"),
+              "note":batch.get("note"), "reason":data.get("reason"),
               "translated":batch.get("translated"), "failed":batch.get("failed"),
               "quota_used":batch.get("quota_used"),
               "completed_drafts": [(x.get("lang"),x.get("complete")) for x in
