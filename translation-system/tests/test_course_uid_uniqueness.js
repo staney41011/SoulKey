@@ -71,6 +71,9 @@ const sandbox = {
     releaseLock:()=>{assert.equal(locked,true);locked=false;unlockCalls++;}
   })},
   SpreadsheetApp:{flush(){}},
+  PropertiesService:{getScriptProperties:()=>({
+    setProperty:(k,v)=>cache.set(k,v)
+  })},
   ensurePeriodStructure_:()=>{},
   nowText_:()=> "2026-10-08 23:00:00",
   appendStaleIfDone_:()=>{throw new Error("unexpected reset")},

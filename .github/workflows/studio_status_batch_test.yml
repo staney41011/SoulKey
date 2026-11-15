@@ -26,6 +26,7 @@ on:
       - bridge/apps-script/test_apps_script_load_order.js
       - bridge/apps-script/test_p262_readiness.js
       - bridge/apps-script/test_default_six_languages.js
+      - bridge/apps-script/test_auto_zh_on_create.js
       - bridge/apps-script/Code.gs
       - bridge/apps-script/NativeNext.gs
       - bridge/apps-script/NativeQuality.gs
@@ -59,6 +60,7 @@ on:
       - bridge/apps-script/test_apps_script_load_order.js
       - bridge/apps-script/test_p262_readiness.js
       - bridge/apps-script/test_default_six_languages.js
+      - bridge/apps-script/test_auto_zh_on_create.js
       - bridge/apps-script/Code.gs
       - bridge/apps-script/NativeNext.gs
       - bridge/apps-script/NativeQuality.gs
@@ -99,6 +101,7 @@ jobs:
           node bridge/apps-script/test_apps_script_load_order.js
           node bridge/apps-script/test_p262_readiness.js
           node bridge/apps-script/test_default_six_languages.js
+          node bridge/apps-script/test_auto_zh_on_create.js
           python -m py_compile translation-system/google_sheet_pilot_tts_runner.py
       - name: Verify all lessons receive status refresh
         run: node studio/tests/test_status_batch_all_periods.cjs
@@ -108,7 +111,7 @@ jobs:
           from pathlib import Path
           html=Path("studio/index.html").read_text(encoding="utf-8")
           import re
-          assert "app-20260923-48.js?v=20261115-default-six" in html
+          assert "app-20260923-48.js?v=20261115-auto-zh-start" in html
           assert "native-pipeline.js?v=20261108-classroom-playback" in html
           assert "tts-share-message.js?v=20261020-review-preview-v2" in html
           assert "id=\"tts-share-copy\"" in html

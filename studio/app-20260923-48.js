@@ -3005,7 +3005,7 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
   document.getElementById("period").value=period;
   updateTaskCodes();
 
-  alert("第 "+period+" 期課程已送出雲端同步。\n\n尚未確認建立成功；請等待中央控制表回覆，確認前不能執行 Kaggle。");
+  alert("第 "+period+" 期課程已送出雲端同步。\\n建立成功後會自動啟動中文逐字稿抓取，不用再按啟動。");
   showView("dashboard");
 });
 
@@ -4894,7 +4894,18 @@ window.addEventListener("message",event=>{
       const saved=Array.isArray(data.tasks) ? data.tasks : [];
       saved.forEach(item=>confirmedRemoteTaskIds.add(String(item.id||"")));
       requestTasksFromControlCenter();
-      if(saved.length) alert("Google Sheets 中央控制表已確認建立 "+saved.length+" 堂課。其他裝置同步後即可看到。");
+      if(saved.length){
+        const fresh=saved.filter(x=>x.created).length;
+        const auto=data.auto_zh||{};
+        const started=Number(auto.started||0);
+        const pending=Number(auto.pending||0);
+        const status=fresh
+          ? ("\n新課程："+fresh+" 堂；中文逐字稿已自動啟動："+started+
+            " 堂"+(pending?"；等待自動重試："+pending+" 堂。":"。"))
+          : "\n原有課程已同步，沒有重複啟動中文辨識。";
+        alert("Google Sheets 已確認儲存 "+saved.length+" 堂課。"+status);
+        window.setTimeout(()=>requestTaskStatuses(),500);
+      }
     }else{
       alert("中央控制表儲存失敗，課程目前只存在本機："+String(data.message||data.error||"未知錯誤")+"\n\n請保留 YouTube 網址並重試，勿啟動 Kaggle。");
       renderTasks();

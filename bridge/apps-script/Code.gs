@@ -257,6 +257,12 @@ function doPost(e) {
         }
         props.deleteProperty(leaseKey);
       }
+      // Retry new-lesson Chinese starts that failed at registration time.
+      // A successful dispatch removes its pending marker, so no old lesson
+      // is restarted by the periodic reconciliation.
+      let autoZh={ok:true,started:0,pending:0};
+      try{autoZh=soulkeyAutoStartChineseReconcile_();}
+      catch(e){autoZh={ok:false,error:String(e&&e.message||e).slice(0,160)};}
       const audio=soulkeyAutoAudioReconcile_();
       let multi={ok:true,queued:false};
       try {multi=soulkeyAutoMultiReconcile_();}
@@ -269,7 +275,7 @@ function doPost(e) {
       catch(e){initialSheetAudio={ok:false,error:String(e&&e.message||e)};}
       return json_(Object.assign({},audio,{
         multi_reconcile:multi,sheets_audio_refresh:sheetSync,
-        sheets_initial_audio:initialSheetAudio}));
+        sheets_initial_audio:initialSheetAudio,auto_zh: autoZh}));
     }
 
     if (action === "worker_report") {
@@ -546,11 +552,27 @@ function doPost(e) {
       }
 
       const saved = upsertTasks_(items);
+      // Registering a brand-new lesson also starts its Chinese source stage.
+      // upsertTasks_ has released the Sheets lock before this dispatch.
+      // Failed starts remain queued for the authenticated 20-minute retry.
+      let autoZh={ok:true,started:0,pending:0,results:[]};
+      try{
+        autoZh=soulkeyAutoStartChineseReconcile_(
+          saved.filter(function(x){return x.created;}).map(function(x){return x.id;})
+        );
+      }catch(e){
+        // Course creation already succeeded. The saved pending marker allows
+        // the authenticated cron to retry even if dispatch throws here.
+        autoZh={ok:false,started:0,pending:saved.filter(function(x){
+          return x.created;
+        }).length,reason:String(e&&e.message||e).slice(0,120)};
+      }
       return postMessage_({
         source: "soulkey-bridge",
         type: "tasks_saved",
         ok: true,
-        tasks: saved
+        tasks: saved,
+        auto_zh: autoZh
       });
     }
 
@@ -3334,6 +3356,93 @@ function readTasks_() {
   return result;
 }
 
+/**
+ * Start Chinese YouTube CC / ASR as soon as a new task is registered.
+ * Retry failed initial dispatches through the existing authenticated
+ * audio_reconcile cron (every 20 minutes). Never auto-relaunch existing
+ * tasks, completed human Finals, or edited tasks with changed source URLs.
+ */
+function soulkeyAutoStartChineseReconcile_(taskIds) {
+  const props=PropertiesService.getScriptProperties();
+  const prefix="SOULKEY_AUTO_ZH_PENDING_V1_";
+  const all=props.getProperties();
+  const ids=(Array.isArray(taskIds) ? taskIds :
+    Object.keys(all).filter(function(key){return key.indexOf(prefix)===0;})
+      .map(function(key){return key.slice(prefix.length);}))
+    .filter(function(id){return /^P\d+-L\d+(?:-R\d+)?$/.test(id);})
+    .slice(0,12);
+  if(!ids.length) return {ok:true,started:0,duplicate:0,pending:0,results:[]};
+  const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
+  if(!token)return {ok:false,started:0,pending:ids.length,
+    reason:"github_token_missing",results:[]};
+  const rows=readTasks_();
+  const tasks={};
+  rows.forEach(function(row){tasks[row.id]=row;});
+  let statuses={};
+  try{statuses=readLatestStatuses_(ids);}catch(e){
+    Logger.log("[AUTO-ZH] status read deferred: "+String(e).slice(0,120));
+  }
+  const results=[];
+  let started=0,duplicate=0;
+  ids.forEach(function(id){
+    const key=prefix+id;
+    const marker=props.getProperty(key);
+    if(!marker)return;
+    let expectedUrl="";
+    try{expectedUrl=String(JSON.parse(marker).url||"").trim();}
+    catch(e){props.deleteProperty(key);return;}
+    const task=tasks[id];
+    if(!task || !expectedUrl || String(task.url||"").trim()!==expectedUrl){
+      // The task moved or the video source changed while dispatch was pending.
+      props.deleteProperty(key);
+      results.push({task_id:id,reason:"task_or_source_changed"});
+      return;
+    }
+    const stage=(((statuses[id]||{}).stages||{}).zh||{}).status;
+    if(["queued","running","done","needs_review"].indexOf(stage)>=0){
+      props.deleteProperty(key);
+      results.push({task_id:id,duplicate:true,reason:"already_started"});
+      duplicate++;
+      return;
+    }
+    try {
+      const response=dispatchWorkflowIdempotently_(
+        token,id,"zh","","",
+        "https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec"
+      );
+      if(!response.ok){
+        results.push({task_id:id,ok:false,reason:String(
+          response.error||"dispatch_failed").slice(0,120)});
+        return;
+      }
+      // The accepted dispatch is durable; never queue this source again.
+      props.deleteProperty(key);
+      if(response.duplicate){duplicate++;}
+      else{
+        started++;
+        try{
+          appendExecutionStatus_(id,"zh","queued",
+            String(response.workflow_run_id||(response.nonce||"").slice(0,12)),
+            0,"New lesson registered: auto-start Chinese CC / ASR",
+            "","","","","","");
+        }catch(e){
+          Logger.log("[AUTO-ZH] queued status will synchronize later: "+
+            String(e).slice(0,120));
+        }
+      }
+      results.push({task_id:id,ok:true,duplicate:!!response.duplicate});
+    }catch(e){
+      results.push({task_id:id,ok:false,
+        reason:String(e&&e.message||e).slice(0,150)});
+    }
+  });
+  const pending=ids.filter(function(id){
+    return !!props.getProperty(prefix+id);
+  }).length;
+  return {ok:pending===0,started:started,duplicate:duplicate,
+    pending:pending,results:results};
+}
+
 function upsertTasks_(items) {
   if (!Array.isArray(items) || !items.length) {
     throw new Error("tasks_json 必須至少包含一個任務");
@@ -3460,12 +3569,19 @@ function upsertTasks_(items) {
       byId[id] = sheet.getLastRow();
     }
 
+    if (!existingRow) {
+      PropertiesService.getScriptProperties().setProperty(
+        "SOULKEY_AUTO_ZH_PENDING_V1_" + id,
+        JSON.stringify({url:url,created_at:new Date().toISOString()})
+      );
+    }
     saved.push({
       id: id,
       course_uid: row[TASK_COL.course_uid],
       period: period,
       lesson: lesson,
-      url: url
+      url: url,
+      created: !existingRow
     });
     });
     SpreadsheetApp.flush();
