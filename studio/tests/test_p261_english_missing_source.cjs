@@ -47,5 +47,5 @@ assert.equal(result.error,"chinese_final_missing");
 assert(frontend.includes('String(data.error||"")==="english_source_not_generated"'));
 assert(frontend.includes('showNoEnglishCcFallback(data.task_id || selectedTaskId)'));
 assert(frontend.includes('action:"run_stage",') && frontend.includes('stage:"en",'));
-assert(html.includes("20261110-p261-english-source-fallback"));
+assert(html.includes("20261115-default-six"));
 console.log("PASS P261 English missing-source route, automatic source detection, one-click AI fallback and Chinese Final preservation");

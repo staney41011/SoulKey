@@ -164,24 +164,32 @@ let tasks = []; // Never expose or edit browser-only lessons before central auth
 // Local browser drafts cannot launch cloud workers until centrally confirmed.
 let confirmedRemoteTaskIds = new Set();
 let terms = load(STORE.terms, seedTerms);
-let languageSettings = [
+const LANGUAGE_DEFAULT_AUDIO_CODES = Object.freeze(["en","es","id","km","vi","th"]);
+const LANGUAGE_DISPLAY_ORDER = Object.freeze(["en","es","id","km","vi","th",
+  "ja","ko","ta","hi","bn","ne","lo","my","it","pt"]);
+function orderedLanguageSettings_(items){
+  const rank=Object.fromEntries(LANGUAGE_DISPLAY_ORDER.map((code,index)=>[code,index]));
+  return items.slice().sort((a,b)=>
+    (rank[a.code]??999)-(rank[b.code]??999));
+}
+let languageSettings = orderedLanguageSettings_([
   {code:"en",name:"English",can_ai_translate:false,can_tts:true},
-  {code:"th",name:"ภาษาไทย",can_ai_translate:true,can_tts:true},
   {code:"es",name:"Español",can_ai_translate:true,can_tts:true},
   {code:"id",name:"Bahasa Indonesia",can_ai_translate:true,can_tts:true},
+  {code:"km",name:"ភាសាខ្មែរ",can_ai_translate:true,can_tts:true},
   {code:"vi",name:"Tiếng Việt",can_ai_translate:true,can_tts:true},
-  {code:"hi",name:"हिन्दी",can_ai_translate:true,can_tts:true},
-  {code:"ta",name:"தமிழ்",can_ai_translate:true,can_tts:true},
+  {code:"th",name:"ภาษาไทย",can_ai_translate:true,can_tts:true},
   {code:"ja",name:"日本語",can_ai_translate:true,can_tts:true},
   {code:"ko",name:"한국어",can_ai_translate:true,can_tts:true},
-  {code:"km",name:"ភាសាខ្មែរ",can_ai_translate:true,can_tts:true},
+  {code:"ta",name:"தமிழ்",can_ai_translate:true,can_tts:true},
+  {code:"hi",name:"हिन्दी",can_ai_translate:true,can_tts:true},
   {code:"bn",name:"বাংলা",can_ai_translate:true,can_tts:true},
   {code:"ne",name:"नेपाली",can_ai_translate:true,can_tts:true},
   {code:"lo",name:"ພາສາລາວ",can_ai_translate:true,can_tts:true},
   {code:"my",name:"မြန်မာဘာသာ",can_ai_translate:true,can_tts:true},
   {code:"it",name:"Italiano",can_ai_translate:true,can_tts:true},
   {code:"pt",name:"Português (Brasil)",can_ai_translate:true,can_tts:true}
-];
+]);
 let selectedTaskId = null;
 let selectedPeriod = null;
 let currentZhReview = [];
@@ -1961,8 +1969,8 @@ function stageState(task,index){
 function normalizedLanguagePlan(task){
   const current=Array.isArray(task.languagePlan) ? task.languagePlan : [];
   const byCode=Object.fromEntries(current.map(x=>[x.language_code || x.code,x]));
-  // Brand-new lessons default to all currently enabled languages. Existing lesson plans
-  // remain opt-in for newly added languages: never silently rerun old lessons.
+  // A brand-new lesson defaults to the six priority languages (English
+  // through Thai). Explicit previously saved plans remain authoritative.
   const newLessonPlan=current.length===0;
 
   return languageSettings.map(lang=>{
@@ -1971,9 +1979,9 @@ function normalizedLanguagePlan(task){
     return {
       language_code:lang.code,
       language_name:lang.name,
-      transcript_enabled:english ? true : (Object.prototype.hasOwnProperty.call(saved,"transcript_enabled") ? !!saved.transcript_enabled : newLessonPlan),
+      transcript_enabled:english ? true : (Object.prototype.hasOwnProperty.call(saved,"transcript_enabled") ? !!saved.transcript_enabled : (newLessonPlan && LANGUAGE_DEFAULT_AUDIO_CODES.includes(lang.code))),
       transcript_source:english ? "human" : (saved.transcript_source || "ai"),
-      audio_enabled:Object.prototype.hasOwnProperty.call(saved,"audio_enabled") ? !!saved.audio_enabled : newLessonPlan,
+      audio_enabled:Object.prototype.hasOwnProperty.call(saved,"audio_enabled") ? !!saved.audio_enabled : (newLessonPlan && LANGUAGE_DEFAULT_AUDIO_CODES.includes(lang.code)),
       audio_source:saved.audio_source || "tts"
     };
   });
@@ -5383,7 +5391,7 @@ window.addEventListener("message",event=>{
   if(data.type==="language_settings" && data.ok){
     const received=Array.isArray(data.languages) ? data.languages : [];
     if(received.length){
-      languageSettings=received;
+      languageSettings=orderedLanguageSettings_(received);
       const task=tasks.find(x=>x.id===selectedTaskId);
       if(task) renderLanguagePlan(task);
     }

@@ -34,12 +34,18 @@ function soulkeyNextSheetLiteral_(value){
 function soulkeyNextNow_() {
   return Utilities.formatDate(new Date(),"Asia/Taipei","yyyy-MM-dd HH:mm:ss");
 }
-// A central language plan is authoritative. New lessons without a saved plan
-// retain the existing default of all 15 translations and 16 audio tracks.
+// A central language plan is authoritative. Unconfigured lessons default to
+// six audio languages (English, Spanish, Indonesian, Khmer, Vietnamese, Thai)
+// and five translations. Explicit saved plans may select any 16 languages.
 function soulkeyNextSelectedCodes_(taskId,kind){
   const all=kind==="audio"?["en"].concat(SK_NEXT_PRIORITY_LANGS):SK_NEXT_PRIORITY_LANGS.slice();
   const plan=readLanguagePlan_(taskId);
-  if(!plan.length)return all;
+  if(!plan.length){
+    const defaults=["en","es","id","km","vi","th"];
+    return all.filter(function(code){
+      return defaults.indexOf(code)>=0;
+    });
+  }
   const picked=plan.filter(function(x){
     if(kind==="audio")return x.audio_enabled&&x.audio_source==="tts";
     return (x.transcript_enabled&&x.transcript_source==="ai")||

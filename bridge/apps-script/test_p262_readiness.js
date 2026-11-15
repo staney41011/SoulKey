@@ -60,6 +60,7 @@ let queued = [];
 const props = new Map();
 const ctx = vm.createContext({
   SK_NEXT_PRIORITY_LANGS:priority,
+  soulkeyNextSelectedCodes_:()=>["en","es"],
   PropertiesService:{getScriptProperties:()=>({
     getProperty:k => k==="GITHUB_TOKEN"?"test-token":props.get(k),
     setProperty:(k,v) => props.set(k,v)

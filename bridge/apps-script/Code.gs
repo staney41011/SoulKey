@@ -1275,7 +1275,6 @@ function soulkeyAutoSheetsInitialAudioReconcile_() {
   const props=PropertiesService.getScriptProperties();
   const token=String(props.getProperty("GITHUB_TOKEN")||"").trim();
   if(!token) return {ok:false,reason:"github_token_missing"};
-  const langs=SK_NEXT_PRIORITY_LANGS.slice();
   const now=Date.now();
   const tasks=readTasks_().filter(function(t){
     return Number(t.period)>=261 && /^P\d+-L\d+$/.test(String(t.id||"")) &&
@@ -1289,6 +1288,10 @@ function soulkeyAutoSheetsInitialAudioReconcile_() {
   }).slice(0,24);
   for(let i=0;i<tasks.length;i++){
     const task=tasks[i];
+    // Respect the saved lesson plan or the six-language default.
+    const langs=soulkeyNextSelectedCodes_(task.id,"audio").filter(function(lang){
+      return lang!=="en";
+    });
     try{
       const folders=lessonFolders_(task.id);
       if(!cachedFileId_(folders.translation,"en.final.json")) continue;
