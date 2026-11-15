@@ -10,8 +10,8 @@
 const SK_AUDIO_REPO="staney41011/SoulKey-Private-Runner";
 const SK_AUDIO_WORKFLOW="soulkey_private_tts.yml";
 // App Script may initialize NativeAudio before NativeNext. Keep globals independent.
-const SK_AUDIO_LANGUAGES=["en","th","es","id","vi","hi","ta","ja","ko",
-  "km","bn","ne","lo","my","it","pt"];
+const SK_AUDIO_LANGUAGES=["en","es","id","km","vi","th","ja","ko",
+  "ta","hi","bn","ne","lo","my","it","pt"];
 
 function skAudioHash_(text){
   return soulkeyNextSha_(text);
@@ -334,7 +334,9 @@ function soulkeyNextAudioTick(){
   const lock=LockService.getScriptLock();
   if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
   try{
-    const sources=soulkeyNextSources_();
+    const sources=soulkeyNextSources_().sort(function(a,b){
+      return (a.task==="P261-L02"?-1:0)-(b.task==="P261-L02"?-1:0);
+    });
     if(!sources.length)
       return {ok:true,queued:0,imported:0,reason:"no_p261_english_final"};
     const terms=skNQTerms_();
