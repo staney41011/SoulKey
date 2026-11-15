@@ -171,7 +171,11 @@ function soulkeyNextQAOneBatch_(){
   if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
   try{
     const lessons=soulkeyNextSources_().sort(function(a,b){
-      return (a.task==="P261-L02"?-1:0)-(b.task==="P261-L02"?-1:0);
+      const newer=Number(b.period)-Number(a.period);
+      if(newer)return newer;
+      if(a.task==="P261-L02" && b.task!=="P261-L02")return -1;
+      if(b.task==="P261-L02" && a.task!=="P261-L02")return 1;
+      return a.task.localeCompare(b.task);
     });
     if(!lessons.length)return {ok:true,reviewed:0,reason:"no_p261_english_final"};
     const terms=skNQTerms_();
