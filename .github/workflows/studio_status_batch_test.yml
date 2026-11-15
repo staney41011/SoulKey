@@ -24,6 +24,11 @@ on:
       - bridge/apps-script/NativeAudio.gs
       - bridge/apps-script/test_classroom_playback_copy.js
       - bridge/apps-script/test_apps_script_load_order.js
+      - bridge/apps-script/test_p262_readiness.js
+      - bridge/apps-script/Code.gs
+      - bridge/apps-script/NativeNext.gs
+      - bridge/apps-script/NativeQuality.gs
+      - translation-system/google_sheet_pilot_tts_runner.py
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - .github/workflows/studio_status_batch_test.yml
@@ -51,6 +56,11 @@ on:
       - bridge/apps-script/NativeAudio.gs
       - bridge/apps-script/test_classroom_playback_copy.js
       - bridge/apps-script/test_apps_script_load_order.js
+      - bridge/apps-script/test_p262_readiness.js
+      - bridge/apps-script/Code.gs
+      - bridge/apps-script/NativeNext.gs
+      - bridge/apps-script/NativeQuality.gs
+      - translation-system/google_sheet_pilot_tts_runner.py
       - studio/index.html
       - studio/tests/test_status_batch_all_periods.cjs
       - .github/workflows/studio_status_batch_test.yml
@@ -85,6 +95,8 @@ jobs:
           node bridge/apps-script/test_unverified_audio_import.js
           node bridge/apps-script/test_classroom_playback_copy.js
           node bridge/apps-script/test_apps_script_load_order.js
+          node bridge/apps-script/test_p262_readiness.js
+          python -m py_compile translation-system/google_sheet_pilot_tts_runner.py
       - name: Verify all lessons receive status refresh
         run: node studio/tests/test_status_batch_all_periods.cjs
       - name: Confirm HTML cache-bust deploys corrected script
