@@ -444,7 +444,11 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
                     .indexOf(requested.review)>=0)?"formal":"unverified") &&
                 proof.source_mp3_id===receipt.mp3_drive_id;
               const verifiedAt=Date.parse(String(proof&&proof.last_verified_at||""));
-              const due=!same || !Number.isFinite(verifiedAt) ||
+              // Focused, signed repair must verify the current destination
+              // even when an old receipt (e.g. legacy 柬文/西班牙 folder)
+              // was checked recently. The copy helper remains idempotent.
+              const due=!!(focusTask && focusLanguage) || !same ||
+                !Number.isFinite(verifiedAt) ||
                 Date.now()-verifiedAt>24*60*60*1000;
               if(due && (!same || periodicPlaybackChecks<1)){
                 playbackAttempts++;

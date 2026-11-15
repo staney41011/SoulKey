@@ -13,8 +13,8 @@
 const SK_PLAYBACK_ROOT_ID = "1Z2BTD_WvMG08VSa3MSECFNj1yy_UuO66";
 const SK_PLAYBACK_OWNED_PREFIX = "SoulKey-CLASSROOM-COPY|";
 const SK_PLAYBACK_LANGUAGE_NAMES = {
-  en:"英文", th:"泰文", es:"西班牙", id:"印尼", vi:"越南",
-  hi:"印地文",ta:"泰米爾文",ja:"日文",ko:"韓文",km:"柬文",
+  en:"英文", th:"泰文", es:"西文", id:"印尼", vi:"越南",
+  hi:"印地文",ta:"泰米爾文",ja:"日文",ko:"韓文",km:"高棉",
   bn:"孟加拉文",ne:"尼泊爾文",lo:"寮文",my:"緬文",
   it:"義大利文",pt:"葡萄牙文",nan:"台語"
 };
