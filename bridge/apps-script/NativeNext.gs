@@ -46,7 +46,8 @@ function soulkeyNextSources_(){
     return Number(t.period)>=261 && t.en==="完成" &&
       /^P\d+-L\d+$/.test(t.id);
   }).sort(function(a,b){
-    return a.period-b.period || a.id.localeCompare(b.id);
+    // New periods must never be starved behind unfinished older lessons.
+    return Number(b.period)-Number(a.period) || a.id.localeCompare(b.id);
   }).slice(0,24);
   const sources=[];
   tasks.forEach(function(task){
