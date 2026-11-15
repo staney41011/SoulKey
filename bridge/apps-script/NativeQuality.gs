@@ -170,13 +170,15 @@ function soulkeyNextQAOneBatch_(){
   const lock=LockService.getScriptLock();
   if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
   try{
-    const lessons=soulkeyNextSources_();
+    const lessons=soulkeyNextSources_().sort(function(a,b){
+      return (a.task==="P261-L02"?-1:0)-(b.task==="P261-L02"?-1:0);
+    });
     if(!lessons.length)return {ok:true,reviewed:0,reason:"no_p261_english_final"};
     const terms=skNQTerms_();
     for(let i=0;i<lessons.length;i++){
       const lesson=lessons[i];
-      for(let j=0;j<SK_NEXT_LANGS.length;j++){
-        const lang=SK_NEXT_LANGS[j];
+      for(let j=0;j<SK_NEXT_PRIORITY_LANGS.length;j++){
+        const lang=SK_NEXT_PRIORITY_LANGS[j];
         if(soulkeyNextSelectedCodes_(lesson.task,"translation")
            .indexOf(lang)<0)continue;
         let draft;
