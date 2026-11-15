@@ -73,4 +73,14 @@ jobs:
           print("AUDIO_RECONCILE_OK task="+str(value.get("task_id") or "none")+
                 " languages="+str(value.get("langs") or "none")+
                 " queued="+str(bool(value.get("task_id"))))
+          # This separate result diagnoses native P261+ TTS and classroom copies.
+          # Do not print credentials, URLs, text contents or raw worker payloads.
+          native=value.get("native_audio") or {}
+          safe={k:native.get(k) for k in
+              ("ok","reason","task","lang","queued","imported","status","classroom_playback")
+              if k in native}
+          print("NATIVE_AUDIO_RESULT "+json.dumps(safe,ensure_ascii=False))
+          if native and not native.get("ok",True):
+              print("::warning title=Native audio requires recovery::"+
+                  str(native.get("reason") or "native_audio_failed")[:150])
           PY
