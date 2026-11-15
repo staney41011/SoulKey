@@ -17,6 +17,17 @@ const pilotSrc = fs.readFileSync(__dirname + "/../../translation-system/google_s
 const priority = ["es","id","km","vi","th","ja","ko","ta","hi",
                   "bn","ne","lo","my","it","pt"];
 assert(nextSrc.includes('const SK_NEXT_DAILY_LIMIT = 4500;'));
+const quoteHelper=nextSrc.slice(
+  nextSrc.indexOf("function soulkeyNextSheetLiteral_("),
+  nextSrc.indexOf("function soulkeyNextNow_()"));
+assert(quoteHelper.includes("function soulkeyNextSheetLiteral_"));
+const literalCtx=vm.createContext({});
+new vm.Script(quoteHelper).runInContext(literalCtx);
+assert.equal(literalCtx.soulkeyNextSheetLiteral_("'Am I behind?"),"''Am I behind?");
+assert.equal(literalCtx.soulkeyNextSheetLiteral_("=1+2"),"'=1+2");
+assert.equal(literalCtx.soulkeyNextSheetLiteral_("Normal text"),"Normal text");
+assert(nextSrc.includes("literal[4]=soulkeyNextSheetLiteral_(literal[4]);"));
+assert(nextSrc.includes("soulkeyNextSheetLiteral_(value):value;"));
 assert(nextSrc.includes("Number(b.period)-Number(a.period)"));
 assert(audioSrc.includes('Number(lesson.period)>=262 && lang!=="en"'));
 assert(audioSrc.includes('requested.review!=="approved_risk_based_not_full"'));
