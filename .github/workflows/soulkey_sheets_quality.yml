@@ -14,7 +14,7 @@ on:
         required: false
         default: ""
   schedule:
-    - cron: "17 */4 * * *"
+    - cron: "17 * * * *"  # Hourly P262+ QA; bridge handles per-lesson cooldown
 
 permissions:
   contents: read
