@@ -136,6 +136,7 @@ function doPost(e) {
         // checkpoint states, never draft text, private keys or transcript.
         if(nativeSheetsAction==="p262_progress"){
           const sources=soulkeyNextSources_();
+          const terms=skNQTerms_();
           const lessons=sources.filter(function(s){
             return /^P262-L0[1-4]$/.test(s.task);
           }).map(function(source){
@@ -148,15 +149,24 @@ function doPost(e) {
                 "sheets.native_tts."+lang+".json")||{};
               const copy=readJsonFile_(source.folder,
                 "sheets.native_playback."+lang+".json")||{};
+              let requested=null,sourceError="";
+              try{requested=skAudioPayload_(source,lang,terms);}
+              catch(error){sourceError=String(error&&error.message||error).slice(0,110);}
+              const approved=!!requested &&
+                requested.review==="approved_risk_based_not_full";
               results[lang]={
-                qa:qa.source_file_id===source.source_file_id?
-                  String(qa.state||"pending"):"pending",
-                qa_error:String(qa.last_error||"").slice(0,120),
+                // Never accept an old QA or audio receipt merely because
+                // its Drive file ID stayed constant after English Final edits.
+                qa:approved?"approved_risk_based":
+                  qa.state==="blocked"?"blocked":"pending",
+                qa_error:sourceError||
+                  String(qa.last_error||"").slice(0,110),
                 tts:String(tts.status||"not_started"),
                 playback:String(copy.status||"not_started"),
-                formal_copied:tts.status==="done" &&
+                formal_copied:approved && tts.status==="done" &&
                   copy.status==="copied" &&
-                  tts.source_sha256 && tts.source_sha256===copy.sha &&
+                  tts.source_sha256===requested.sha &&
+                  copy.sha===requested.sha &&
                   copy.review==="approved_risk_based_not_full" &&
                   copy.tier==="formal"
               };
@@ -167,14 +177,19 @@ function doPost(e) {
               "sheets.native_tts.en.json")||{};
             const enCopy=readJsonFile_(source.folder,
               "sheets.native_playback.en.json")||{};
+            let enCurrent=null;
+            try{enCurrent=skAudioPayload_(source,"en",terms);}
+            catch(error){Logger.log("[P262-PROGRESS] "+source.task+
+              " en fingerprint: "+String(error&&error.message||error).slice(0,100));}
             results.en={
               qa:"approved_english_final",
               tts:String(enTTS.status||"not_started"),
               playback:String(enCopy.status||"not_started"),
-              formal_copied:enTTS.status==="done" &&
+              formal_copied:!!enCurrent &&
+                enTTS.status==="done" &&
                 enCopy.status==="copied" &&
-                enTTS.source_sha256 &&
-                enTTS.source_sha256===enCopy.sha &&
+                enTTS.source_sha256===enCurrent.sha &&
+                enCopy.sha===enCurrent.sha &&
                 enCopy.review==="approved_english_final" &&
                 enCopy.tier==="formal"
             };
