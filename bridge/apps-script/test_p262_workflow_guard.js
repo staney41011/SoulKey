@@ -75,4 +75,37 @@ const growth=growthCtx.soulkeyNextEnsureRows_([{task:"P262-L02",segments:extra}]
 assert.equal(growth.added,165);
 assert.equal(written,165);
 assert(inserted>=25);
-console.log("PASS: P262 review isolation, source quarantine and Sheets row capacity growth");
+const jobsStart=next.indexOf("function soulkeyNextUpdateJobs_(");
+const jobsEnd=next.indexOf("function soulkeyNextTick(",jobsStart);
+assert(jobsStart>0 && jobsEnd>jobsStart);
+let savedJob=null;
+const jobTab={
+ getLastRow:()=>1,
+ getRange:()=>({setValues:values=>{savedJob=values[0];}})
+};
+const jobCtx={
+ SK_NEXT_SHEET_ID:"test",SK_NEXT_JOBS_TAB:"jobs",
+ SK_NEXT_LANGS:["th","es","id","vi","hi","ta","ja","ko",
+                "km","bn","ne","lo","my","it","pt"],
+ SpreadsheetApp:{openById:()=>({getSheetByName:()=>jobTab})},
+ soulkeyNextSelectedCodes_:()=>["es","id","km","vi","th"],
+ soulkeyNextSha_:s=>String(s.length),
+ soulkeyNextNow_:()=>"2026-11-20 18:35:00"
+};
+vm.createContext(jobCtx);
+vm.runInContext(next.slice(jobsStart,jobsEnd),jobCtx);
+const src=[{task:"P262-L01",segments:[{id:0},{id:1}],source_file_id:"final-id"}];
+const rows=[Array(25).fill(""),Array(25).fill("")];
+rows.forEach((r,i)=>{r[0]="P262-L01";r[1]=i;});
+rows[0][7]="Spanish row 0";
+rows[0][8]="Indonesian row 0";
+jobCtx.soulkeyNextUpdateJobs_(src,rows);
+assert.equal(savedJob[3],2);
+assert.equal(savedJob[4],10,"only 2 segments * 5 selected languages");
+rows.forEach(r=>[0,1,2,3,8].forEach(k=>r[6+k]="translated"));
+jobCtx.soulkeyNextUpdateJobs_(src,rows);
+assert.equal(savedJob[3],10);
+assert.equal(savedJob[4],10);
+assert(savedJob[5].includes("Gemma"),"all 5 selected languages should advance to QA");
+
+console.log("PASS: P262 review isolation, source quarantine, capacity and selected-language job progress");

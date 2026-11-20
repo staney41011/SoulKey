@@ -281,17 +281,26 @@ function soulkeyNextUpdateJobs_(sources,rows){
   existing.forEach(function(x,i){index[String(x[0])]=i+2;});
   sources.forEach(function(s){
     const items=rows.filter(function(r){return String(r[0])===s.task;});
+    // Only selected output languages are translation work. Counting all 15
+    // physical columns kept six-language lessons permanently "in progress".
+    const selected=soulkeyNextSelectedCodes_(s.task,"translation");
+    const langIndices=selected.map(function(code){
+      return SK_NEXT_LANGS.indexOf(code);
+    }).filter(function(i){return i>=0;});
     let count=0;
     items.forEach(function(r){
-      for(let i=0;i<15;i++)if(String(r[6+i]||"").trim()) count++;
+      langIndices.forEach(function(i){
+        if(String(r[6+i]||"").trim())count++;
+      });
     });
-    const expected=s.segments.length*15;
+    const expected=s.segments.length*langIndices.length;
+    const finished=expected>0 && count===expected;
     const row=[s.task,soulkeyNextSha_(JSON.stringify(
       s.segments.map(function(x){return [x.id,x.start,x.end,x.text];}))),
       s.segments.length,count,expected,
-      count===expected?"待Gemma QA":count?"翻譯中":"待翻譯",
+      finished?"待Gemma QA":count?"翻譯中":"待翻譯",
       soulkeyNextNow_(),"",s.source_file_id,
-      "full",count===expected?"待QA":"翻譯中",
+      "full",finished?"待QA":"翻譯中",
       "P261+ Sheets-first automatic job; not a semantic QA approval"];
     const pos=index[s.task]||tab.getLastRow()+1;
     tab.getRange(pos,1,1,12).setValues([row]);
