@@ -152,7 +152,17 @@ function soulkeyNextEnsureRows_(sources){
       literal[4]=soulkeyNextSheetLiteral_(literal[4]);
       return literal;
     });
-    tab.getRange(tab.getLastRow()+1,1,safe.length,width).setValues(safe);
+    // The initial translation tab was provisioned with only 1,000 rows.
+    // Without an explicit grow, P262's four complete English Finals cannot
+    // be seeded after P261's 656 existing source segments.
+    const firstNewRow=tab.getLastRow()+1;
+    const requiredLastRow=firstNewRow+safe.length-1;
+    const availableRows=tab.getMaxRows();
+    if(requiredLastRow>availableRows){
+      tab.insertRowsAfter(availableRows,
+        requiredLastRow-availableRows+Math.max(100,safe.length));
+    }
+    tab.getRange(firstNewRow,1,safe.length,width).setValues(safe);
   }
   return {added:added,invalidated:invalidated};
 }
