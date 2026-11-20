@@ -101,6 +101,99 @@ function doPost(e) {
       if (!expected || !supplied || supplied !== expected) {
         return json_({ok:false,error:"unauthorized"});
       }
+      // Signed native Google Sheets recovery, using the existing private
+      // reconciliation key. Never expose the ScriptApp trigger controls publicly.
+      const nativeSheetsAction=String((e&&e.parameter&&
+        e.parameter.native_sheets_action)||"").trim();
+      if(nativeSheetsAction){
+        if(["status","install","tick","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
+          return json_({ok:false,stage:"native_sheets",reason:"invalid_action"});
+        if(nativeSheetsAction==="status"){
+          const tasks=readTasks_().filter(function(t){
+            return Number(t.period)>=262 && Number(t.period)<=262;
+          });
+          const sources=soulkeyNextSources_();
+          const diagnostic=tasks.map(function(t){
+            let id="",segments=0,error="";
+            try{
+              const folders=lessonFolders_(t.id);
+              id=cachedFileId_(folders.translation,"en.final.json")||"";
+              if(id){
+                const en=readJsonFile_(folders.translation,"en.final.json");
+                segments=Array.isArray(en&&en.segments)?en.segments.length:0;
+              }
+            }catch(ex){error=String(ex&&ex.message||ex).slice(0,140);}
+            return {task:t.id,en_status:t.en,drive_final:!!id,
+              segments:segments,in_native_sources:sources.some(function(x){
+                return x.task===t.id;
+              }),error:error};
+          });
+          const result=soulkeyNextStatus();
+          return json_({ok:true,stage:"native_sheets",mode:"status",
+            status:result,diagnostics:diagnostic});
+        }
+        // Repair ONLY four proven cross-lesson English sentences from P262-L02.
+        // Back up the full original Final first. Never rewrite unaffected
+        // human-reviewed segments, other lessons or Chinese transcriptions.
+        if(nativeSheetsAction==="repair_p262_l02"){
+          const taskId="P262-L02";
+          const folders=lessonFolders_(taskId);
+          const before=readJsonFile_(folders.translation,"en.final.json");
+          if(!before||!Array.isArray(before.segments))
+            return json_({ok:false,stage:"native_sheets",
+              reason:"english_final_missing"});
+          const repairs=[
+            {id:47,needle:"But when she was fleeing and reached Xi'an",
+              text:"Yes, we can change our mindset."},
+            {id:232,needle:"too much information on mobile phones nowadays",
+              text:"That setback became the beginning of a new career."},
+            {id:263,needle:"I stood there for a long time, wondering",
+              text:"We are constantly using our daily experiences to refine our hearts and minds."},
+            {id:300,needle:"Some are very beautiful but have unhappy class",
+              text:"On the day the class began, the fellow practitioner came, and the class went very smoothly."}
+          ];
+          const lookup={};
+          before.segments.forEach(function(x){lookup[String(x.id)]=x;});
+          if(repairs.some(function(r){
+            return !lookup[String(r.id)] ||
+              String(lookup[String(r.id)].text||"").indexOf(r.needle)<0;
+          }))return json_({ok:false,stage:"native_sheets",
+            reason:"english_final_changed_check_manually"});
+          const backupName="p262-l02.en.final.before-20261120-cross-lesson-repair.json";
+          // Abort if the backup is already present: prevents repeated writes.
+          if(cachedFileId_(folders.translation,backupName))
+            return json_({ok:false,stage:"native_sheets",
+              reason:"repair_backup_already_exists"});
+          writeTextFile_(folders.translation,backupName,
+            JSON.stringify(before,null,2),"application/json",taskId);
+          const next=before.segments.map(function(x){
+            const replacement=repairs.find(function(r){return Number(x.id)===r.id;});
+            return replacement?Object.assign({},x,{text:replacement.text}):x;
+          });
+          const saved=saveReview_(taskId,"en",next,[]);
+          return json_({ok:!!saved.ok,stage:"native_sheets",
+            mode:"repair_p262_l02",task_id:taskId,changed:repairs.length,
+            total_preserved:before.segments.length-repairs.length,
+            original_backup:backupName,
+            reason:saved.error||""});
+        }
+        if(nativeSheetsAction==="install"){
+          return json_({ok:true,stage:"native_sheets",mode:"install",
+            result:soulkeyNextInstall(),status:soulkeyNextStatus()});
+        }
+        const nativeSheetsTask=String((e&&e.parameter&&
+          e.parameter.native_sheets_task)||"").trim();
+        if(!/^P\d+-L\d+$/.test(nativeSheetsTask) ||
+           Number((nativeSheetsTask.match(/^P(\d+)/)||[])[1])<261 ||
+           !readTasks_().some(function(t){return t.id===nativeSheetsTask;}))
+          return json_({ok:false,stage:"native_sheets",
+            reason:"invalid_task"});
+        const result=soulkeyNextTick(nativeSheetsTask);
+        return json_({ok:!!result.ok,stage:"native_sheets",mode:"tick",
+          task_id:nativeSheetsTask,result:result,
+          reason:result.reason||""});
+      }
+
       // Signed fast path for a single 261+ lesson/language. Retains the
       // native revision/QA gate, script lock and Drive-copy idempotence.
       const nativeAudioTask=String((e&&e.parameter&&

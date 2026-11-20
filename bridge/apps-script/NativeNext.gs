@@ -71,6 +71,24 @@ function soulkeyNextSources_(){
       const en=readJsonFile_(folders.translation,"en.final.json");
       if(!en || !Array.isArray(en.segments) || !en.segments.length)
         return;
+      // P262-L02 has four independently confirmed imports from L01. Do not
+      // propagate contaminated human-Final to 5 languages while awaiting the
+      // signed, exact-match and fully backed-up correction.
+      if(task.id==="P262-L02"){
+        const wrong=["But when she was fleeing and reached Xi'an",
+          "too much information on mobile phones nowadays",
+          "I stood there for a long time, wondering",
+          "Some are very beautiful but have unhappy class"];
+        const tainted=en.segments.some(function(s){
+          return wrong.some(function(part){
+            return String(s.text||"").indexOf(part)>=0;
+          });
+        });
+        if(tainted){
+          Logger.log("[NEXT-SHEETS] P262-L02: quarantined_cross_lesson_en_final");
+          return;
+        }
+      }
       const seen={};
       const segments=en.segments.map(function(x){
         const id=Number(x.id),start=Number(x.start),end=Number(x.end);

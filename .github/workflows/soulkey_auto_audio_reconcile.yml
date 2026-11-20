@@ -30,6 +30,16 @@ on:
         type: string
         required: false
         default: ""
+      native_sheets_action:
+        description: Signed native Sheets recovery (status/install/tick/repair_p262_l02)
+        type: string
+        required: false
+        default: ""
+      native_sheets_task:
+        description: Target lesson for one translation batch (e.g. P262-L01)
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -52,6 +62,8 @@ jobs:
           RESET_TASK: ${{ inputs.reset_task || '' }}
           NATIVE_TASK: ${{ inputs.native_audio_task || '' }}
           NATIVE_LANG: ${{ inputs.native_audio_lang || '' }}
+          NATIVE_SHEETS_ACTION: ${{ inputs.native_sheets_action || '' }}
+          NATIVE_SHEETS_TASK: ${{ inputs.native_sheets_task || '' }}
           BRIDGE_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
         run: |
           set -euo pipefail
@@ -75,6 +87,8 @@ jobs:
             --data-urlencode "reset_task=$RESET_TASK" \
             --data-urlencode "native_audio_task=$NATIVE_TASK" \
             --data-urlencode "native_audio_lang=$NATIVE_LANG" \
+            --data-urlencode "native_sheets_action=$NATIVE_SHEETS_ACTION" \
+            --data-urlencode "native_sheets_task=$NATIVE_SHEETS_TASK" \
             --data-urlencode "sheet_formal_task=$SHEET_FORMAL_TASK" \
             --data-urlencode "pilot_l04_langs=$PILOT_L04_LANGS" \
             --data-urlencode "audio_key=$AUDIO_KEY" \
@@ -82,6 +96,25 @@ jobs:
           RESULT="$RESPONSE" python - <<'PY'
           import json,os
           value=json.loads(os.environ["RESULT"])
+          if value.get("stage")=="native_sheets":
+              status=value.get("status") or {}
+              details=value.get("result") or {}
+              safe={k:status.get(k) for k in ("enabled","trigger_count",
+                   "qa_trigger_count","audio_trigger_count",
+                   "registered_lessons","jobs") if k in status}
+              print("NATIVE_SHEETS_STATUS "+json.dumps({
+                  "ok":value.get("ok"),"mode":value.get("mode"),
+                  "reason":value.get("reason"),"status":safe,
+                  "diagnostics":value.get("diagnostics",[]),
+                  "result":{k:details.get(k) for k in
+                    ("ok","reason","note","lessons","active_lessons",
+                     "seeded","requests","translated","failed",
+                     "exported_languages","quota_used")
+                    if k in details}},ensure_ascii=False))
+              if not value.get("ok"):
+                  raise SystemExit("Native Sheets action failed: "+
+                                   str(value.get("reason") or "unknown"))
+              raise SystemExit(0)
           if not value.get("ok"):
               raise SystemExit("Bridge audio reconciliation failed: "+str(value.get("reason") or value.get("error")))
           if value.get("stage")=="native_audio":

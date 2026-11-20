@@ -3569,6 +3569,7 @@ async function waitForEnglishCcRefresh(taskId,button,statusEl){
       statusEl.textContent="補抓進行中… "+attempt+"/"+maxAttempts;
     }
     await new Promise(resolve=>setTimeout(resolve,5000));
+    if(selectedTaskId!==taskId) return;
 
     try{
       const response=await fetch(githubReviewUrl(taskId),{
@@ -3578,6 +3579,8 @@ async function waitForEnglishCcRefresh(taskId,button,statusEl){
       });
       if(!response.ok) continue;
       const refreshed=await response.json();
+      if(selectedTaskId!==taskId ||
+         (refreshed.task_id && refreshed.task_id!==taskId)) return;
       const available=(refreshed.segments||[]).filter(
         x=>String(x.source_en||x.en_text||"").trim()
       ).length;
@@ -3857,7 +3860,8 @@ async function openEnglishReview(taskId){
   for(const kind of ["en","zh"]){
     try{
       const payload=await fetchReviewPayload(task.id,kind);
-      if(payload.task_id && payload.task_id!==taskId) continue;
+      if(selectedTaskId!==taskId) return;
+      if(String(payload.task_id||"")!==String(taskId)) continue;
       const items=englishReviewItemsFromGithub(payload,kind==="en");
       if(items.length && items.some(x=>String(x.en||"").trim())){
         if(selectedTaskId!==taskId) return;
@@ -3893,6 +3897,7 @@ async function openEnglishReview(taskId){
     }
   }
 
+  if(selectedTaskId!==taskId) return;
   if(selectedTaskId===taskId && requestReviewData(taskId,"en",0)){
     list.innerHTML='<div class="empty">GitHub 尚未有英文稿，改從 Google Drive 載入…</div>';
     return;
@@ -4975,6 +4980,10 @@ window.addEventListener("message",event=>{
   }
 
   if(data.type==="review_data"){
+    // Asynchronous JSONP from a previous lesson can arrive after navigation.
+    // Never display, cache or later finalize content for the wrong task.
+    if(!selectedTaskId ||
+       String(data.task_id||"")!==String(selectedTaskId)) return;
     const chunkIndex=Number(data.chunk_index||0);
     const browserElapsed=reviewElapsedMs(data.task_id,data.kind,chunkIndex);
     if(!data.ok){
