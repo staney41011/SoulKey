@@ -106,7 +106,7 @@ function doPost(e) {
       const nativeSheetsAction=String((e&&e.parameter&&
         e.parameter.native_sheets_action)||"").trim();
       if(nativeSheetsAction){
-        if(["status","install","tick","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
+        if(["status","install","tick","qa_tick","p262_progress","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
           return json_({ok:false,stage:"native_sheets",reason:"invalid_action"});
         if(nativeSheetsAction==="status"){
           const tasks=readTasks_().filter(function(t){
@@ -131,6 +131,58 @@ function doPost(e) {
           const result=soulkeyNextStatus();
           return json_({ok:true,stage:"native_sheets",mode:"status",
             status:result,diagnostics:diagnostic});
+        }
+        // Read-only progress for the four current lessons only. Return
+        // checkpoint states, never draft text, private keys or transcript.
+        if(nativeSheetsAction==="p262_progress"){
+          const sources=soulkeyNextSources_();
+          const lessons=sources.filter(function(s){
+            return /^P262-L0[1-4]$/.test(s.task);
+          }).map(function(source){
+            const langs=soulkeyNextSelectedCodes_(source.task,"translation");
+            const results={};
+            langs.forEach(function(lang){
+              const qa=readJsonFile_(source.folder,
+                "sheets.qa.native."+lang+".json")||{};
+              const tts=readJsonFile_(source.folder,
+                "sheets.native_tts."+lang+".json")||{};
+              const copy=readJsonFile_(source.folder,
+                "sheets.native_playback."+lang+".json")||{};
+              results[lang]={
+                qa:qa.source_file_id===source.source_file_id?
+                  String(qa.state||"pending"):"pending",
+                qa_error:String(qa.last_error||"").slice(0,120),
+                tts:String(tts.status||"not_started"),
+                playback:String(copy.status||"not_started"),
+                formal_copied:tts.status==="done" &&
+                  copy.status==="copied" &&
+                  tts.source_sha256 && tts.source_sha256===copy.sha &&
+                  copy.review==="approved_risk_based_not_full" &&
+                  copy.tier==="formal"
+              };
+            });
+            // English Final has its own formal TTS gate and is the sixth
+            // requested classroom language; no Gemma4 translation needed.
+            const enTTS=readJsonFile_(source.folder,
+              "sheets.native_tts.en.json")||{};
+            const enCopy=readJsonFile_(source.folder,
+              "sheets.native_playback.en.json")||{};
+            results.en={
+              qa:"approved_english_final",
+              tts:String(enTTS.status||"not_started"),
+              playback:String(enCopy.status||"not_started"),
+              formal_copied:enTTS.status==="done" &&
+                enCopy.status==="copied" &&
+                enTTS.source_sha256 &&
+                enTTS.source_sha256===enCopy.sha &&
+                enCopy.review==="approved_english_final" &&
+                enCopy.tier==="formal"
+            };
+            return {task:source.task,langs:results};
+          });
+          return json_({ok:true,stage:"native_sheets",
+            mode:"p262_progress",lessons:lessons,
+            status:soulkeyNextStatus()});
         }
         // Repair ONLY four proven cross-lesson English sentences from P262-L02.
         // Back up the full original Final first. Never rewrite unaffected
@@ -188,6 +240,28 @@ function doPost(e) {
            !readTasks_().some(function(t){return t.id===nativeSheetsTask;}))
           return json_({ok:false,stage:"native_sheets",
             reason:"invalid_task"});
+        if(nativeSheetsAction==="qa_tick"){
+          if(!/^P262-L0[1-4]$/.test(nativeSheetsTask))
+            return json_({ok:false,stage:"native_sheets",
+              reason:"current_period_only"});
+          const lang=String((e&&e.parameter&&
+            e.parameter.native_sheets_lang)||"").trim();
+          if(lang && soulkeyNextSelectedCodes_(nativeSheetsTask,
+              "translation").indexOf(lang)<0)
+            return json_({ok:false,stage:"native_sheets",
+              reason:"language_not_selected"});
+          const reviewed=[],started=Date.now();
+          for(let i=0;i<4&&Date.now()-started<125000;i++){
+            const batch=soulkeyNextQAOneBatch_(nativeSheetsTask,lang||null);
+            reviewed.push({ok:!!batch.ok,
+              lang:batch.lang||"",count:Number(batch.reviewed||0),
+              state:batch.state||"",reason:batch.reason||batch.error||""});
+            if(!batch.ok||!batch.reviewed)break;
+          }
+          return json_({ok:reviewed.every(function(x){return x.ok;}),
+            stage:"native_sheets",mode:"qa_tick",
+            task_id:nativeSheetsTask,reviewed:reviewed});
+        }
         const result=soulkeyNextTick(nativeSheetsTask);
         return json_({ok:!!result.ok,stage:"native_sheets",mode:"tick",
           task_id:nativeSheetsTask,result:result,

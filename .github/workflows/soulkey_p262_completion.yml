@@ -1,0 +1,27 @@
+name: SoulKey P262 Four-Lesson Completion
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soulkey-p262-four-lesson-completion
+  cancel-in-progress: false
+
+jobs:
+  complete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 175
+    steps:
+      - name: Checkout checkpoint-safe worker
+        uses: actions/checkout@v4
+      - name: Finish current period 262 only, then Gemma4 QA and private TTS
+        env:
+          SOULKEY_AUDIO_RECONCILE_KEY: ${{ secrets.SOULKEY_AUDIO_RECONCILE_KEY }}
+          SOULKEY_BRIDGE_URL: https://script.google.com/macros/s/AKfycbyyMjEUqDdhsXWwCWKRTjpyhzdrdXnKhJYZIyiQ-QblOR_nhUdxtv9tqujw5VHkbyZ3/exec
+          P262_MAX_SECONDS: "9600"
+        run: python3 scripts/soulkey_p262_complete.py

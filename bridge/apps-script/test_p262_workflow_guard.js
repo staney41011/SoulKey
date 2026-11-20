@@ -108,4 +108,19 @@ assert.equal(savedJob[3],10);
 assert.equal(savedJob[4],10);
 assert(savedJob[5].includes("Gemma"),"all 5 selected languages should advance to QA");
 
-console.log("PASS: P262 review isolation, source quarantine, capacity and selected-language job progress");
+
+const signedRoutes=fs.readFileSync(__dirname+"/Code.gs","utf8");
+assert(signedRoutes.includes('nativeSheetsAction==="p262_progress"'));
+assert(signedRoutes.includes('nativeSheetsAction==="qa_tick"'));
+assert(signedRoutes.includes('results.en={'));
+assert(signedRoutes.includes('enCopy.review==="approved_english_final"'));
+const completion=fs.readFileSync(__dirname+"/../../scripts/soulkey_p262_complete.py","utf8");
+assert(completion.includes('TASKS = ["P262-L01", "P262-L02", "P262-L03", "P262-L04"]'));
+assert(completion.includes('native_sheets_action=action'));
+assert(completion.includes('native_audio_task=task'));
+assert(completion.includes('lane.get("formal_copied")'));
+const runner=fs.readFileSync(__dirname+"/../../.github/workflows/soulkey_p262_completion.yml","utf8");
+assert(runner.includes('soulkey_p262_complete.py'));
+assert(runner.includes("*/30 * * * *"));
+
+console.log("PASS: P262 source isolation, Sheets quota, six-language QA/audio recovery and cron worker");
