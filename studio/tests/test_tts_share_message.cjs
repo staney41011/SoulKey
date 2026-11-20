@@ -100,10 +100,29 @@ assert.equal(build(lesson3,payload([make("es",43,{
   canonical_name:"es.preview.mp3",name:"es.preview.mp3"
 })])).readyCount,0);
 assert.equal(build(task(),payload([make("en",0)])).reviewCount,0);
+// For current-period courses, a source-fingerprint-verified native MP3
+// overrides stale/queued status left behind by the retired TTS pipeline.
+const native262={...task(),id:"P262-L02",period:262,
+  remoteStages:{tts:{status:"stale"},"tts:en":{status:"running"}}};
+const nativeEnglish=make("en",100,{native_verified:true});
+const nativeReady=build(native262,payload([nativeEnglish]));
+assert.equal(nativeReady.eligible,true);
+assert.equal(nativeReady.readyCount,1);
+assert.equal(nativeReady.pendingCount,5);
+assert.ok(nativeReady.message.includes(nativeEnglish.id));
+const unverifiedSame=make("en",101);
+assert.equal(build(native262,payload([unverifiedSame])).readyCount,0,
+  "legacy stale receipt may not bypass latest-source verification");
+native262.remoteStages["tts:en"]={status:"needs_review"};
+assert.equal(build(native262,payload([nativeEnglish])).readyCount,1,
+  "legacy needs-review state cannot hide a newly approved native MP3");
+assert.equal(build({...native262,remoteStages:{}},payload([])).eligible,true,
+  "current-period panel should stay visible while files are pending");
+
 const app=fs.readFileSync(path.join(__dirname,"..","app-20260923-48.js"),"utf8");
 assert.ok(app.includes("function requestTtsShareLinks(taskId,force=false)"));
 assert.ok(app.includes('action:"tts_share_links"'));
-assert.ok(app.includes('action==="tts_share_links"?20000'));
+assert.ok(app.includes('action==="tts_share_links"?45000'));
 assert.ok(!/if\(!courseFilesCollapsed\(\)\) requestCourseFiles\(task\.id\);/.test(app),
   "Opening lessons must not start large Drive folder scan");
 const backend=fs.readFileSync(path.join(__dirname,"..","..","bridge","apps-script","Code.gs"),"utf8");

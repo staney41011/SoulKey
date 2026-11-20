@@ -106,7 +106,7 @@ function doPost(e) {
       const nativeSheetsAction=String((e&&e.parameter&&
         e.parameter.native_sheets_action)||"").trim();
       if(nativeSheetsAction){
-        if(["status","install","tick","qa_tick","p262_progress","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
+        if(["status","install","tick","qa_tick","p262_progress","share_status","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
           return json_({ok:false,stage:"native_sheets",reason:"invalid_action"});
         if(nativeSheetsAction==="status"){
           const tasks=readTasks_().filter(function(t){
@@ -131,6 +131,27 @@ function doPost(e) {
           const result=soulkeyNextStatus();
           return json_({ok:true,stage:"native_sheets",mode:"status",
             status:result,diagnostics:diagnostic});
+        }
+        // Authenticated, read-only probe: verify section 06 link output
+        // without logging private Drive URLs or transcript text.
+        if(nativeSheetsAction==="share_status"){
+          const lesson=String((e&&e.parameter&&
+            e.parameter.native_sheets_task)||"").trim();
+          if(!/^P262-L0[1-4]$/.test(lesson))
+            return json_({ok:false,stage:"native_sheets",
+              mode:"share_status",reason:"current_period_only"});
+          const started=Date.now();
+          const share=ttsShareLinks_(lesson);
+          const available=(share.groups||[]).reduce(function(out,g){
+            return out.concat(g.files||[]);
+          },[]).map(function(f){
+            return {language:String(f.canonical_name||""),
+              current_revision:!!f.native_verified,
+              verified_mp3:!!f.id&&Number(f.size)>0};
+          });
+          return json_({ok:!!share.ok,stage:"native_sheets",
+            mode:"share_status",task_id:lesson,
+            elapsed_ms:Date.now()-started,diagnostics:available});
         }
         // Read-only progress for the four current lessons only. Return
         // checkpoint states, never draft text, private keys or transcript.
@@ -5159,8 +5180,11 @@ function ttsShareLinks_(taskId) {
   }
   const folders = lessonFolders_(id);
   const audioFolder = cachedChildFolder_(folders.lesson, "04_音檔");
-  const codes = ["en","th","es","id","vi","hi","ta","ja",
-    "ko","km","bn","ne","lo","my","it","pt"];
+  // Current lessons show only the requested six languages, not all 16.
+  const modern=Number((id.match(/^P(\d+)-/)||[])[1]||0)>=261;
+  const codes=modern?["en","th","es","id","km","vi"]:
+    ["en","th","es","id","vi","hi","ta","ja",
+     "ko","km","bn","ne","lo","my","it","pt"];
   const files = [];
   // Every share link must be checked against today's approved source revision.
   // The earlier receipt may still exist in Drive after a later QA correction.
@@ -5168,7 +5192,7 @@ function ttsShareLinks_(taskId) {
   let currentSource=null,currentTerms=[];
   if(p261){
     try{
-      currentSource=soulkeyNextSources_().find(function(x){return x.task===id;})||null;
+      currentSource=soulkeyNextSources_(id)[0]||null;
       if(currentSource)currentTerms=skNQTerms_();
     }catch(e){
       Logger.log("[NATIVE-SHARE] source unavailable: "+String(e).slice(0,120));
@@ -5215,6 +5239,7 @@ function ttsShareLinks_(taskId) {
               canonical_name:code+(receipt.status==="done"?".mp3":".preview.mp3"),
               needs_timing_review:receipt.status!=="done",
               audio_kind:receipt.status==="done"?"formal_aligned":"standalone_preview",
+              native_verified:true,
               url:f.getUrl(),size:Number(f.getSize()),group_key:"audio",group_label:"音檔"});
           }
         }catch(err){Logger.log("[NATIVE-SHARE] "+code+" "+String(err).slice(0,100));}

@@ -129,13 +129,16 @@
       if(link){
         const preview=Boolean(file.needs_timing_review);
         if(!fileMap[code]) fileMap[code]={};
-        fileMap[code][preview?"review":"official"]={link,preview};
+        fileMap[code][preview?"review":"official"]={
+          link,preview,nativeVerified:file.native_verified===true
+        };
         if(!present.includes(code)) present.push(code);
       }
     });
     const languages=expectedLanguages(task,stages,present);
     const ttsStatus=String(stages.tts?.status || "").toLowerCase();
-    const eligible=present.length>0 ||
+    const eligible=Number(task?.period||0)>=261 ||
+      present.length>0 ||
       ["done","needs_review"].includes(ttsStatus) ||
       languages.some(l=>["done","needs_review"].includes(String(stages["tts:"+l.code]?.status || "")));
     const period=Number(task?.period) || Number((/^P(\d+)-/i.exec(String(task?.id || ""))||[])[1]) || 0;
@@ -162,17 +165,22 @@
       // A stale aggregate still blocks release unless this language has a
       // fresh, explicitly finished stage and a real Drive-backed MP3.
       const record=fileMap[lang.code]||{};
-      const candidate=status==="needs_review"
-        ? record.review
-        : (record.official||record.review);
+      // Latest native receipt already proves current source revision and
+      // file existence. Obsolete legacy TTS stages must not hide the link.
+      const nativeCurrent=Boolean(
+        record.official?.nativeVerified||record.review?.nativeVerified);
+      const candidate=nativeCurrent
+        ? (record.official?.nativeVerified?record.official:record.review)
+        : (status==="needs_review"?record.review:
+            (record.official||record.review));
       const explicitReview=Boolean(candidate?.preview);
       const validLanguageStatus=explicitReview
         ? ["done","needs_review",""].includes(status)
         : !["stale","error","queued","running","delayed","needs_review"].includes(status);
-      const invalidated=(!validLanguageStatus) ||
-        (ttsStatus==="stale" && status!=="done" &&
+      const invalidated=(!nativeCurrent && !validLanguageStatus) ||
+        (!nativeCurrent && ttsStatus==="stale" && status!=="done" &&
           !(explicitReview && status==="needs_review")) ||
-        (ttsStatus==="error" && status!=="done" &&
+        (!nativeCurrent && ttsStatus==="error" && status!=="done" &&
           !(explicitReview && status==="needs_review"));
       if(candidate && !invalidated){
         lines.push(candidate.link);

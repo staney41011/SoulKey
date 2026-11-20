@@ -62,7 +62,7 @@ assert.equal(labels.length,16);
 assert.deepEqual(labels.slice(0,6).map(x=>x[1]),chosen);
 assert.deepEqual(labels.filter(x=>/data-output-enabled checked/.test(x[2])).map(x=>x[1]),chosen);
 const index=read("studio/index.html");
-assert.match(index,/app-20260923-48\.js\?v=20261120-task-isolation/);
+assert.match(index,/app-20260923-48\.js\?v=20261120-native-current-share/);
 assert.ok(review.includes("review-editor.js?v=20261115-default-six"));
 const bridge=read("bridge/apps-script/Code.gs");
 const first=bridge.indexOf("function soulkeyAutoSheetsInitialAudioReconcile_()");

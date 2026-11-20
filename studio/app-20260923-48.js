@@ -4631,7 +4631,7 @@ function jsonpBridgeRequest(fields){
   const action=String(fields.action||"");
   const timeoutMs=action==="status_health"?20000:
     action==="tasks_get"?45000:
-      action==="tts_share_links"?20000:
+      action==="tts_share_links"?45000:
       action==="course_files"?45000:90000;
   let settled=false;
   let watchdog=0;

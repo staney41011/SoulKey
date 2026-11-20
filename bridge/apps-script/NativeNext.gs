@@ -55,8 +55,12 @@ function soulkeyNextSelectedCodes_(taskId,kind){
 }
 
 function soulkeyNextSources_(){
+  // Optional task-scoped mode for the sharing panel. Avoid Drive reads for
+  // dozens of unrelated lessons whenever one student opens section 06.
+  const focusTask=String(arguments[0]||"").trim();
   const tasks=readTasks_().filter(function(t){
-    return Number(t.period)>=261 && t.en==="完成" &&
+    return (!focusTask || t.id===focusTask) &&
+      Number(t.period)>=261 && t.en==="完成" &&
       /^P\d+-L\d+$/.test(t.id);
   }).sort(function(a,b){
     // New periods must never be starved behind unfinished older lessons.
