@@ -431,7 +431,8 @@ function soulkeyNextQATick(){
   for(let i=0;i<maxBatches && Date.now()-start<maxElapsedMs;i++){
     const outcome=soulkeyNextQAOneBatch_();
     if(!outcome.ok){
-      soulkeyNextHeartbeat_("qa","error","scheduled",
+      soulkeyNextHeartbeat_("qa",
+        outcome.reason==="busy"?"busy":"error","scheduled",
         String(outcome.error||outcome.reason||"batch_failed"));
       return {ok:false,batches:outcomes.length,
         last:outcome,reviewed:outcomes.reduce(function(n,x){

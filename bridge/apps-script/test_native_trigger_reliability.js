@@ -64,4 +64,9 @@ assert.equal(result.reason,"blocked_requires_review",
 assert.equal(result.blockers.length,1);
 assert.equal(result.blockers[0].task,"P263-L02");
 assert.equal(result.blockers[0].blocked_ids[0],189);
-console.log("PASS scheduled event normalization, manual scoping, audio trigger, health checkpoint and C-grade visibility");
+ctx.soulkeyNextQAOneBatch_=()=>({ok:false,reason:"busy"});
+const busy=ctx.soulkeyNextQATick();
+assert.equal(busy.ok,false);
+assert.equal(JSON.parse(scriptProperties.SOULKEY_NEXT_HEALTH_QA).phase,
+  "busy","a lock collision is not a semantic QA error");
+console.log("PASS scheduled event normalization, manual scoping, audio trigger, health checkpoint, lock status and C-grade visibility");
