@@ -94,8 +94,12 @@ function skNQCall_(lang,items){
     "Dao/Buddhist terminology, wrong-language fragments and fluency. "+
     "A=faithful, B=correctable (provide COMPLETE corrected translation), "+
     "C=uncertain or major spiritual ambiguity; human review required. "+
-    "When rechecking a proposed correction, return A only if the corrected "+
-    "text faithfully conveys the entire English meaning. If unsure use C. "+
+    "When rechecking a proposed correction, return A if it faithfully "+
+    "conveys all DISTINCT English facts even if repeated speech fragments "+
+    "or stumbles are naturally condensed. Do not demand word-for-word "+
+    "repetition and do not grade B solely for stylistic preferences. "+
+    "Reserve B for meaningful missing, altered or unclear facts. "+
+    "If genuinely unsure about meaning, use C. "+
     "Output JSON with exactly one result per input id: "+
     "{items:[{id:integer,grade:'A'|'B'|'C',reason:string,corrected_text:string}]}. "+
     "Target language: "+lang+". Inputs: "+JSON.stringify(items);
@@ -232,22 +236,23 @@ function skNQRepairLastThree_(task,lang){
         .slice(0,120),task:task,lang:lang};
     }
     let verdict=answers[0],verifiedText=plan.text;
-    // If Gemma judges the editorial candidate B, use its complete proposed
-    // correction only after a fresh independent source-based A verification.
-    if(verdict&&verdict.grade==="B"&&
-       String(verdict.corrected_text||"").trim()){
-      const proposed=String(verdict.corrected_text).trim();
+    let candidate=plan.text;
+    // Gemini may suggest a further full-sentence correction. Retry at most
+    // three distinct candidates, requiring a subsequent independent A.
+    for(let attempt=0;attempt<3 && verdict &&
+      verdict.grade==="B";attempt++){
+      const proposed=String(verdict.corrected_text||"").trim();
+      if(!proposed || proposed===candidate)break;
+      candidate=proposed;
       try{
         const checked=skNQCall_(lang,[{
-          id:plan.id,source:original.text,target:proposed,
+          id:plan.id,source:original.text,target:candidate,
           verifying_correction:true,
           risk_flags:audit.risk_flags,glossary:audit.glossary}]);
-        if(checked[0]&&checked[0].grade==="A"){
-          verifiedText=proposed;
-          verdict=checked[0];
-        }else verdict=checked[0]||verdict;
+        verdict=checked[0]||verdict;
+        if(verdict.grade==="A")verifiedText=candidate;
       }catch(error){
-        return {ok:false,reason:"second_check_"+
+        return {ok:false,reason:"recheck_"+
           String(error&&error.message||error).slice(0,80),
           task:task,lang:lang};
       }
