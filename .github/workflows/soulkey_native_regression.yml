@@ -7,6 +7,7 @@ on:
       - "bridge/apps-script/**"
       - "scripts/soulkey_p262_complete.py"
       - ".github/workflows/soulkey_p262_completion.yml"
+      - ".github/workflows/soulkey_auto_audio_reconcile.yml"
       - ".github/workflows/soulkey_native_regression.yml"
   workflow_dispatch:
 

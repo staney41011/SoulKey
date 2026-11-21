@@ -101,7 +101,7 @@ jobs:
               details=value.get("result") or {}
               safe={k:status.get(k) for k in ("enabled","trigger_count",
                    "qa_trigger_count","audio_trigger_count",
-                   "registered_lessons","jobs") if k in status}
+                   "registered_lessons","jobs","health") if k in status}
               print("NATIVE_SHEETS_STATUS "+json.dumps({
                   "ok":value.get("ok"),"mode":value.get("mode"),
                   "reason":value.get("reason"),"status":safe,
