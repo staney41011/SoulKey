@@ -1,9 +1,9 @@
 name: SoulKey P262 Four-Lesson Completion
 
 on:
+  # One-time P262 rescue is complete (24/24). Keep manual recovery only.
+  # General recurring processing is provided by Apps Script's native triggers.
   workflow_dispatch:
-  schedule:
-    - cron: "*/30 * * * *"
 
 permissions:
   contents: read

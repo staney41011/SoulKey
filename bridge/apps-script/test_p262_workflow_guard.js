@@ -124,6 +124,7 @@ assert(completion.includes('native_audio_task=task'));
 assert(completion.includes('lane.get("formal_copied")'));
 const runner=fs.readFileSync(__dirname+"/../../.github/workflows/soulkey_p262_completion.yml","utf8");
 assert(runner.includes('soulkey_p262_complete.py'));
-assert(runner.includes("*/30 * * * *"));
+assert(runner.includes("workflow_dispatch:"),"manual P262 recovery retained");
+assert(!runner.includes("*/30 * * * *"),"completed P262 rescue must not occupy scheduled runners");
 
-console.log("PASS: P262 source isolation, Sheets quota, six-language QA/audio recovery and cron worker");
+console.log("PASS: P262 source isolation, six-language recovery and manual-only finished-period rescue");

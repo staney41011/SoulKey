@@ -312,8 +312,10 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
   const lock=LockService.getScriptLock();
   if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
   try{
+    const blockers=[];
     const lessons=soulkeyNextSources_().filter(function(source){
-      return !focusTask || source.task===focusTask;
+      return focusTask?source.task===focusTask:
+        Number(source.period)>=SK_NEXT_AUTO_MIN_PERIOD;
     }).sort(function(a,b){
       const newer=Number(b.period)-Number(a.period);
       if(newer)return newer;
@@ -350,10 +352,19 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
         const decisions=old.decisions||{};
         const pending=audits.filter(function(x){
           return x.selected_for_ai&&!x.hard_errors.length&&
-            ["A","B_verified","C"].indexOf(
+            ["A","B_verified","B_editorial","C"].indexOf(
               String((decisions[String(x.id)]||{}).grade||""))<0;
         });
-        if(!pending.length)continue;
+        if(!pending.length){
+          // A "C" (or hard-error) is not a completed QA. Explicitly expose
+          // it so watchdogs/operators do not mistake "no pending" for passed.
+          const summary=skNQSummary_(audits,decisions);
+          if(summary.state!=="approved_risk_based"){
+            blockers.push({task:lesson.task,lang:lang,
+              blocked_ids:summary.blocked_segment_ids||[]});
+          }
+          continue;
+        }
         const byEnglish={};
         lesson.segments.forEach(function(x){byEnglish[String(x.id)]=x;});
         const byDraft={};
@@ -404,7 +415,9 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
           progress:summary.model_reviewed_pass+"/"+summary.model_review_required};
       }
     }
-    return {ok:true,reviewed:0,reason:"no_pending_risk_qa"};
+    return {ok:true,reviewed:0,
+      reason:blockers.length?"blocked_requires_review":"no_pending_risk_qa",
+      blockers:blockers.slice(0,12)};
   }finally{lock.releaseLock();}
 }
 
@@ -412,24 +425,33 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
 // Stop before Apps Script's 6-minute execution ceiling. Each batch is
 // persisted separately so quota errors never erase previous approvals.
 function soulkeyNextQATick(){
+  soulkeyNextHeartbeat_("qa","started","scheduled","");
   const start=Date.now(),maxBatches=6,maxElapsedMs=220000;
   const outcomes=[];
   for(let i=0;i<maxBatches && Date.now()-start<maxElapsedMs;i++){
     const outcome=soulkeyNextQAOneBatch_();
     if(!outcome.ok){
+      soulkeyNextHeartbeat_("qa","error","scheduled",
+        String(outcome.error||outcome.reason||"batch_failed"));
       return {ok:false,batches:outcomes.length,
         last:outcome,reviewed:outcomes.reduce(function(n,x){
           return n+Number(x.reviewed||0);
         },0)};
     }
     if(!outcome.reviewed){
+      soulkeyNextHeartbeat_("qa",
+        outcome.reason==="blocked_requires_review"?"blocked":"completed",
+        "scheduled",JSON.stringify(outcome.blockers||[]));
       return {ok:true,batches:outcomes.length,
         reviewed:outcomes.reduce(function(n,x){
           return n+Number(x.reviewed||0);
-        },0),reason:outcome.reason||"no_pending"};
+        },0),reason:outcome.reason||"no_pending",
+        blockers:outcome.blockers||[]};
     }
     outcomes.push(outcome);
   }
+  soulkeyNextHeartbeat_("qa","completed","scheduled",
+    "batches="+outcomes.length);
   return {ok:true,batches:outcomes.length,
     reviewed:outcomes.reduce(function(n,x){
       return n+Number(x.reviewed||0);

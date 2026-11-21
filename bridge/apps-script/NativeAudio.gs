@@ -363,14 +363,26 @@ function skAudioLatestRunFailed_(lesson,lang,requested,receipt,runs){
 }
 
 function soulkeyNextAudioTick(focusTask,focusLanguage){
+  const invocationMode=typeof focusTask==="string"?"manual":"scheduled";
+  focusTask=soulkeyNextNormalizeTask_(focusTask);
+  focusLanguage=(typeof focusLanguage==="string" &&
+    SK_AUDIO_LANGUAGES.indexOf(focusLanguage)>=0)?focusLanguage:"";
+  soulkeyNextHeartbeat_("audio","started",invocationMode,
+    focusTask+"/"+focusLanguage);
   if(PropertiesService.getScriptProperties()
       .getProperty("SOULKEY_NEXT_ENABLED")!=="yes")
     return {ok:false,reason:"native_next_not_enabled"};
   const lock=LockService.getScriptLock();
-  if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
+  if(!lock.tryLock(1000)){
+    soulkeyNextHeartbeat_("audio","busy",invocationMode,
+      focusTask+"/"+focusLanguage);
+    return {ok:false,reason:"busy"};
+  }
+  let runError=null;
   try{
     const sources=soulkeyNextSources_().filter(function(source){
-      return !focusTask || source.task===focusTask;
+      return focusTask?source.task===focusTask:
+        Number(source.period)>=SK_NEXT_AUTO_MIN_PERIOD;
     }).sort(function(a,b){
       const newer=Number(b.period)-Number(a.period);
       if(newer)return newer;
@@ -552,5 +564,13 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
     }
     return {ok:true,queued:dispatched,imported:0,
       reason:"ready_or_jobs_in_progress"};
-  }finally{lock.releaseLock();}
+  }catch(error){
+    runError=error;
+    throw error;
+  }finally{
+    soulkeyNextHeartbeat_("audio",runError?"error":"returned",
+      invocationMode,runError?String(runError&&runError.message||runError):
+      focusTask+"/"+focusLanguage);
+    lock.releaseLock();
+  }
 }

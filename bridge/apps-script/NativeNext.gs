@@ -18,6 +18,8 @@ const SK_NEXT_JOBS_TAB = "AppsScript初譯任務";
 const SK_NEXT_LIMIT_PER_TICK = 85;
 const SK_NEXT_MAX_MS = 190000;
 const SK_NEXT_DAILY_LIMIT = 4500;
+// Scheduled triggers skip abandoned historical recovery, manual focus still works.
+const SK_NEXT_AUTO_MIN_PERIOD = 262;
 
 function soulkeyNextSha_(value) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
@@ -34,6 +36,32 @@ function soulkeyNextSheetLiteral_(value){
 function soulkeyNextNow_() {
   return Utilities.formatDate(new Date(),"Asia/Taipei","yyyy-MM-dd HH:mm:ss");
 }
+/**
+ * Installable time-driven triggers pass an EVENT OBJECT to the handler.
+ * Only explicit, validated string task IDs may act as focused requests.
+ * Treat all trigger event objects as "all active tasks", never as a filter.
+ */
+function soulkeyNextNormalizeTask_(value){
+  const task=typeof value==="string"?value.trim():"";
+  return /^P\d+-L\d+(?:-R\d+)?$/.test(task)?task:"";
+}
+function soulkeyNextHeartbeat_(stage,phase,mode,detail){
+  // A small diagnostic checkpoint, no tokens / transcript content.
+  try{
+    PropertiesService.getScriptProperties().setProperty(
+      "SOULKEY_NEXT_HEALTH_"+String(stage).toUpperCase(),
+      JSON.stringify({at:soulkeyNextNow_(),phase:phase,mode:mode,
+        detail:String(detail||"").slice(0,160)}));
+  }catch(error){Logger.log("[NEXT-HEALTH] "+String(error).slice(0,90));}
+}
+function soulkeyNextHealthRead_(stage){
+  try{
+    const text=PropertiesService.getScriptProperties().getProperty(
+      "SOULKEY_NEXT_HEALTH_"+String(stage).toUpperCase());
+    return text?JSON.parse(text):null;
+  }catch(error){return null;}
+}
+
 // A central language plan is authoritative. Unconfigured lessons default to
 // six audio languages (English, Spanish, Indonesian, Khmer, Vietnamese, Thai)
 // and five translations. Explicit saved plans may select any 16 languages.
@@ -312,16 +340,23 @@ function soulkeyNextUpdateJobs_(sources,rows){
   });
 }
 function soulkeyNextTick(focusTask){
+  const invocationMode=typeof focusTask==="string"?"manual":"scheduled";
+  focusTask=soulkeyNextNormalizeTask_(focusTask);
+  soulkeyNextHeartbeat_("translation","started",invocationMode,focusTask);
   const props=PropertiesService.getScriptProperties();
   if(props.getProperty("SOULKEY_NEXT_ENABLED")!=="yes")
     return {ok:false,reason:"native_next_not_enabled"};
   const lock=LockService.getScriptLock();
-  if(!lock.tryLock(5000))return {ok:false,reason:"busy"};
+  if(!lock.tryLock(5000)){
+    soulkeyNextHeartbeat_("translation","busy",invocationMode,focusTask);
+    return {ok:false,reason:"busy"};
+  }
   let completed=null;
   try{
     const start=Date.now();
     const sources=soulkeyNextSources_().filter(function(item){
-      return !focusTask || item.task===focusTask;
+      return focusTask?item.task===focusTask:
+        Number(item.period)>=SK_NEXT_AUTO_MIN_PERIOD;
     });
     if(!sources.length)return {ok:true,lessons:0,note:"Awaiting P261+ English Final"};
     const seeded=soulkeyNextEnsureRows_(sources);
@@ -409,6 +444,10 @@ function soulkeyNextTick(focusTask){
     completed={ok:failed===0,active_lessons:sources.map(function(x){return x.task;}),
       seeded:seeded,requests:requests,translated:translated,failed:failed,
       exported_languages:exported,quota_used:quota.used};
+  }catch(error){
+    soulkeyNextHeartbeat_("translation","error",invocationMode,
+      String(error&&error.message||error));
+    throw error;
   }finally{lock.releaseLock();}
   // A complete DRAFT is now durably stored on Drive. Start native Gemma4 QA
   // after releasing the Sheets lock: QA takes its own script lock, otherwise
@@ -437,6 +476,9 @@ function soulkeyNextTick(focusTask){
   }
   completed.immediate_qa=qaStarts;
   completed.immediate_qa_deferred=Math.max(0,newDrafts.length-qaStarts.length);
+  soulkeyNextHeartbeat_("translation","completed",invocationMode,
+    "requests="+completed.requests+",translated="+completed.translated+
+    ",failed="+completed.failed);
   return completed;
 }
 function soulkeyNextInstall(){
@@ -498,6 +540,11 @@ function soulkeyNextStatus(){
       return x.getHandlerFunction()==="soulkeyNextAudioTick";
     }).length,
     registered_lessons:src.map(function(x){return x.task;}),
+    health:{
+      translation:soulkeyNextHealthRead_("translation"),
+      qa:soulkeyNextHealthRead_("qa"),
+      audio:soulkeyNextHealthRead_("audio")
+    },
     jobs:rows.slice(1).filter(function(x){
       return /^P\d+-L\d+$/.test(String(x[0])) &&
         Number((String(x[0]).match(/^P(\d+)/)||[])[1])>=261;

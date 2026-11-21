@@ -1,0 +1,28 @@
+name: SoulKey Native Regression Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bridge/apps-script/**"
+      - "scripts/soulkey_p262_complete.py"
+      - ".github/workflows/soulkey_p262_completion.yml"
+      - ".github/workflows/soulkey_native_regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test scheduled triggers, QA blocking and official audio safeguards
+        run: |
+          node bridge/apps-script/test_native_trigger_reliability.js
+          node bridge/apps-script/test_p262_workflow_guard.js
+          node bridge/apps-script/test_native_audio.js
+          node bridge/apps-script/test_unverified_audio_import.js
+          node bridge/apps-script/test_apps_script_load_order.js
