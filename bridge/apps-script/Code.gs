@@ -106,7 +106,7 @@ function doPost(e) {
       const nativeSheetsAction=String((e&&e.parameter&&
         e.parameter.native_sheets_action)||"").trim();
       if(nativeSheetsAction){
-        if(["status","install","tick","qa_tick","p262_progress","share_status","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
+        if(["status","install","tick","qa_tick","qa_repair_p262","p262_progress","share_status","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
           return json_({ok:false,stage:"native_sheets",reason:"invalid_action"});
         if(nativeSheetsAction==="status"){
           const tasks=readTasks_().filter(function(t){
@@ -156,7 +156,7 @@ function doPost(e) {
         // Read-only progress for the four current lessons only. Return
         // checkpoint states, never draft text, private keys or transcript.
         if(nativeSheetsAction==="p262_progress"){
-          const sources=soulkeyNextSources_();
+          const sources=soulkeyNextSources_("P262");
           const terms=skNQTerms_();
           const lessons=sources.filter(function(s){
             return /^P262-L0[1-4]$/.test(s.task);
@@ -276,6 +276,14 @@ function doPost(e) {
            !readTasks_().some(function(t){return t.id===nativeSheetsTask;}))
           return json_({ok:false,stage:"native_sheets",
             reason:"invalid_task"});
+        if(nativeSheetsAction==="qa_repair_p262"){
+          const lang=String((e&&e.parameter&&
+            e.parameter.native_audio_lang)||"").trim();
+          const repair=skNQRepairLastThree_(nativeSheetsTask,lang);
+          return json_({ok:!!repair.ok,stage:"native_sheets",
+            mode:"qa_repair_p262",result:repair,
+            reason:repair.reason||""});
+        }
         if(nativeSheetsAction==="qa_tick"){
           if(!/^P262-L0[1-4]$/.test(nativeSheetsTask))
             return json_({ok:false,stage:"native_sheets",

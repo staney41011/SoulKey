@@ -215,6 +215,11 @@ if __name__ == "__main__":
     try:
         run()
     except Exception as exc:
+        if "Bridge request failed: TimeoutError" in str(exc):
+            log("::warning title=Bridge transient timeout::" +
+                "Apps Script timed out; saved checkpoints retained. "
+                "Scheduled retries will resume without regenerating completed MP3.")
+            sys.exit(0)
         log("::error title=P262 recovery::" +
             type(exc).__name__ + ": " + str(exc)[:150])
         sys.exit(1)

@@ -116,11 +116,22 @@ function skNQCall_(lang,items){
       contentType:"application/json",muteHttpExceptions:true,
       headers:{"x-goog-api-key":key},payload:JSON.stringify(body)});
   }
-  let response=request();
+  // Transient Gemini 429/502/503/504 must not permanently strand a
+  // fully translated lesson. This is bounded within Apps Script runtime.
+  function retryTransient(){
+    let last=request();
+    for(let attempt=0;attempt<2 &&
+      [429,502,503,504].indexOf(last.getResponseCode())>=0;attempt++){
+      Utilities.sleep(1500*(attempt+1));
+      last=request();
+    }
+    return last;
+  }
+  let response=retryTransient();
   if(response.getResponseCode()===400){
     delete body.generationConfig.responseSchema;
     body.contents[0].parts[0].text+="\nSchema: "+JSON.stringify(schema);
-    response=request();
+    response=retryTransient();
   }
   if(response.getResponseCode()!==200)
     throw new Error("gemma_http_"+response.getResponseCode());
@@ -163,6 +174,95 @@ function skNQSummary_(audits,decisions){
       return decisions[id].grade==="B_verified";
     }).map(Number)};
 }
+/**
+ * Signed, narrowly-scoped repair for three 262 blocked language segments.
+ * Keeps the English Final and the Sheets DRAFT untouched. The existing
+ * complete QA report and every other segment's approvals are preserved.
+ * Candidate is accepted ONLY if independently re-reviewed A by Gemma4.
+ */
+function skNQRepairLastThree_(task,lang){
+  const plans={
+    "P262-L01/km":{id:218,text:"នេះក៏ព្រោះតែខ្ញុំបានធ្វើការក្នុងវិស័យសុខភាពអស់រយៈពេល ៤៧ ឆ្នាំ ហើយខ្ញុំពិតជាយល់ឃើញថាមានអត្ថប្រយោជន៍ចំពោះសុខភាព ព្រោះបើមិនដូច្នោះទេ សុខភាពដែលមិនល្អក៏មិនអាចប្រសើរឡើងបានដែរ។ ដូច្នេះ ខ្ញុំចង់យកបទពិសោធន៍របស់ខ្ញុំមកអំពាវនាវដល់អ្នករាល់គ្នាម្តងហើយម្តងទៀត។ ដើម្បីបំពេញតម្រូវការរបស់មនុស្ស សត្វដូចជាមាន់ ទា និងគោ ត្រូវបានផ្តល់អ័រម៉ូនជំរុញការលូតលាស់ និងថ្នាំអង់ទីប៊ីយោទិច ហើយកុមារក៏បានបរិភោគអាហារដែលមកពីសត្វទាំងនោះ។"},
+    "P262-L02/id":{id:189,text:"Dia gagal lebih dari 20.000 kali, tetapi dia tidak menganggap semua itu sebagai kegagalan. Dia justru percaya bahwa dirinya telah menemukan 20.000 cara untuk melakukan sesuatu."},
+    "P262-L04/th":{id:289,text:"เมื่อพูดถึง 'ความปรองดอง' ปราชญ์สอนไว้ว่า คำว่า 'ความปรองดอง' เกี่ยวข้องกับคนที่มีปาก แต่เมื่อเราทะเลาะต่อสู้กันเพียงเพื่อรักษาหน้าและศักดิ์ศรีของตน ความปรองดองก็ย่อมหายไป"}
+  };
+  const plan=plans[String(task)+"/"+String(lang)];
+  if(!plan)return {ok:false,reason:"not_exactly_one_of_three"};
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(5000))return {ok:false,reason:"busy"};
+  try{
+    const lesson=soulkeyNextSources_(task)[0];
+    if(!lesson ||lesson.task!==task)
+      return {ok:false,reason:"exact_source_not_found"};
+    const d=skNQDraft_(lesson,lang);
+    if(!d)return {ok:false,reason:"draft_not_found"};
+    const terms=skNQTerms_();
+    const revision=soulkeyNextSha_(JSON.stringify({
+      task:task,language:lang,draft:d.draft.segments,
+      english:lesson.segments,terms:terms}));
+    const name="sheets.qa.native."+lang+".json";
+    const report=readJsonFile_(lesson.folder,name);
+    if(!report||report.revision_key!==revision)
+      return {ok:false,reason:"qa_revision_mismatch"};
+    const prior=(report.decisions||{})[String(plan.id)]||{};
+    if(prior.grade==="B_verified")
+      return {ok:true,reason:"already_verified",task:task,lang:lang};
+    if(["C","B_pending"].indexOf(prior.grade)<0)
+      return {ok:false,reason:"not_currently_blocked",
+        old_grade:prior.grade||""};
+    const original=lesson.segments.find(function(x){
+      return Number(x.id)===plan.id;});
+    const draftSeg=d.draft.segments.find(function(x){
+      return Number(x.id)===plan.id;});
+    if(!original||!draftSeg ||
+      String(draftSeg.text||"").trim()===plan.text.trim())
+      return {ok:false,reason:"source_or_candidate_not_changed"};
+    const audits=skNQRisks_(lesson,d.draft,lang,terms);
+    const audit=audits.find(function(x){return x.id===plan.id;});
+    if(!audit||!audit.selected_for_ai||audit.hard_errors.length)
+      return {ok:false,reason:"not_a_valid_review_segment"};
+    // The candidate must PASS a second independent source-based review.
+    let answers;
+    try{
+      answers=skNQCall_(lang,[{id:plan.id,source:original.text,
+        target:plan.text,verifying_correction:true,
+        risk_flags:audit.risk_flags,glossary:audit.glossary}]);
+    }catch(error){
+      return {ok:false,reason:String(error&&error.message||error)
+        .slice(0,120),task:task,lang:lang};
+    }
+    const verdict=answers[0];
+    if(!verdict||verdict.grade!=="A")
+      return {ok:false,reason:"not_approved_by_gemma4",
+        grade:verdict&&verdict.grade||"",task:task,lang:lang};
+    const nextDecisions=Object.assign({},report.decisions||{});
+    nextDecisions[String(plan.id)]={
+      grade:"B_verified",
+      reason:"Targeted editorial repair independently rechecked A: "+
+        String(verdict.reason||"").slice(0,380),
+      corrected_text:plan.text};
+    const summary=skNQSummary_(audits,nextDecisions);
+    if(summary.state!=="approved_risk_based")
+      return {ok:false,reason:"other_blocked_segments_remain",
+        blocked:summary.blocked_segment_ids};
+    const backup="sheets.qa.native."+lang+
+      ".before-p262-last-three-repair-20261121.json";
+    if(!cachedFileId_(lesson.folder,backup))
+      writeTextFile_(lesson.folder,backup,
+        JSON.stringify(report,null,2),"application/json");
+    const saved=Object.assign({},report,{
+      decisions:nextDecisions,audits:audits,summary:summary,
+      state:summary.state,updated_at:soulkeyNextNow_(),
+      last_error:"",repair_provenance:{segment:plan.id,
+        original_decision:prior.grade,independent_model_verified:true,
+        repair_date:"2026-11-21"}});
+    writeTextFile_(lesson.folder,name,
+      JSON.stringify(saved,null,2),"application/json");
+    return {ok:true,task:task,lang:lang,segment:plan.id,
+      state:saved.state,backup:backup};
+  }finally{lock.releaseLock();}
+}
+
 function soulkeyNextQAOneBatch_(focusTask,focusLang){
   if(PropertiesService.getScriptProperties()
       .getProperty("SOULKEY_NEXT_ENABLED")!=="yes")

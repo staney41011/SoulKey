@@ -59,7 +59,8 @@ function soulkeyNextSources_(){
   // dozens of unrelated lessons whenever one student opens section 06.
   const focusTask=String(arguments[0]||"").trim();
   const tasks=readTasks_().filter(function(t){
-    return (!focusTask || t.id===focusTask) &&
+    return (!focusTask || t.id===focusTask ||
+      (focusTask==="P262" && /^P262-L0[1-4]$/.test(t.id))) &&
       Number(t.period)>=261 && t.en==="完成" &&
       /^P\d+-L\d+$/.test(t.id);
   }).sort(function(a,b){
