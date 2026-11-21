@@ -231,16 +231,37 @@ function skNQRepairLastThree_(task,lang){
       return {ok:false,reason:String(error&&error.message||error)
         .slice(0,120),task:task,lang:lang};
     }
-    const verdict=answers[0];
+    let verdict=answers[0],verifiedText=plan.text;
+    // If Gemma judges the editorial candidate B, use its complete proposed
+    // correction only after a fresh independent source-based A verification.
+    if(verdict&&verdict.grade==="B"&&
+       String(verdict.corrected_text||"").trim()){
+      const proposed=String(verdict.corrected_text).trim();
+      try{
+        const checked=skNQCall_(lang,[{
+          id:plan.id,source:original.text,target:proposed,
+          verifying_correction:true,
+          risk_flags:audit.risk_flags,glossary:audit.glossary}]);
+        if(checked[0]&&checked[0].grade==="A"){
+          verifiedText=proposed;
+          verdict=checked[0];
+        }else verdict=checked[0]||verdict;
+      }catch(error){
+        return {ok:false,reason:"second_check_"+
+          String(error&&error.message||error).slice(0,80),
+          task:task,lang:lang};
+      }
+    }
     if(!verdict||verdict.grade!=="A")
-      return {ok:false,reason:"not_approved_by_gemma4",
-        grade:verdict&&verdict.grade||"",task:task,lang:lang};
+      return {ok:false,reason:"not_approved_by_gemma4_"+
+        String(verdict&&verdict.grade||"empty"),
+        task:task,lang:lang};
     const nextDecisions=Object.assign({},report.decisions||{});
     nextDecisions[String(plan.id)]={
       grade:"B_verified",
       reason:"Targeted editorial repair independently rechecked A: "+
         String(verdict.reason||"").slice(0,380),
-      corrected_text:plan.text};
+      corrected_text:verifiedText};
     const summary=skNQSummary_(audits,nextDecisions);
     if(summary.state!=="approved_risk_based")
       return {ok:false,reason:"other_blocked_segments_remain",
