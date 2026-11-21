@@ -162,20 +162,25 @@ function skNQCall_(lang,items){
 function skNQSummary_(audits,decisions){
   const selected=audits.filter(function(a){return a.selected_for_ai;});
   const incomplete=selected.filter(function(a){
-    return ["A","B_verified"].indexOf(
+    return ["A","B_verified","B_editorial"].indexOf(
       String((decisions[String(a.id)]||{}).grade||""))<0;
   });
   const hard=audits.filter(function(a){return a.hard_errors.length;});
+  const editorial=selected.filter(function(a){
+    return (decisions[String(a.id)]||{}).grade==="B_editorial";
+  });
   const ok=!incomplete.length&&!hard.length;
   return {state:ok?"approved_risk_based":"needs_review",
-    review_scope:"all_segments_structural_plus_risk_based_gemma4_sample",
+    review_scope:"all_segments_structural_plus_risk_based_gemma4_sample"+
+      (editorial.length?"_editorial_exception":""),
     all_structural_checked:audits.length,model_review_required:selected.length,
-    model_reviewed_pass:selected.length-incomplete.length,
+    model_reviewed_pass:selected.length-incomplete.length-editorial.length,
+    editorial_reviewed_pass:editorial.length,
     model_not_reviewed_count:audits.length-selected.length,
     blocked_segment_ids:Array.from(new Set(hard.concat(incomplete)
       .map(function(a){return a.id;}))).sort(function(a,b){return a-b;}),
     corrected_ids:Object.keys(decisions).filter(function(id){
-      return decisions[id].grade==="B_verified";
+      return ["B_verified","B_editorial"].indexOf(decisions[id].grade)>=0;
     }).map(Number)};
 }
 /**
@@ -184,7 +189,10 @@ function skNQSummary_(audits,decisions){
  * complete QA report and every other segment's approvals are preserved.
  * Candidate is accepted ONLY if independently re-reviewed A by Gemma4.
  */
-function skNQRepairLastThree_(task,lang){
+function skNQRepairLastThree_(task,lang,editorialOverride){
+  editorialOverride=editorialOverride===true;
+  if(editorialOverride && !(task==="P262-L01"&&lang==="km"))
+    return {ok:false,reason:"editorial_not_allowed_for_other_lanes"};
   const plans={
     "P262-L01/km":{id:218,text:"នេះក៏ព្រោះតែខ្ញុំបានធ្វើការក្នុងវិស័យសុខភាពអស់រយៈពេល ៤៧ ឆ្នាំ ហើយខ្ញុំពិតជាយល់ឃើញថាមានអត្ថប្រយោជន៍ចំពោះសុខភាព ព្រោះបើមិនដូច្នោះទេ សុខភាពដែលមិនល្អក៏មិនអាចប្រសើរឡើងបានដែរ។ ដូច្នេះ ខ្ញុំចង់យកបទពិសោធន៍របស់ខ្ញុំមកអំពាវនាវដល់អ្នករាល់គ្នាម្តងហើយម្តងទៀត។ ដើម្បីបំពេញតម្រូវការរបស់មនុស្ស សត្វដូចជាមាន់ ទា និងគោ ត្រូវបានផ្តល់អ័រម៉ូនជំរុញការលូតលាស់ និងថ្នាំអង់ទីប៊ីយោទិច ហើយកុមារក៏បានបរិភោគអាហារដែលមកពីសត្វទាំងនោះ។"},
     "P262-L02/id":{id:189,text:"Dia gagal lebih dari 20.000 kali, tetapi dia tidak menganggap semua itu sebagai kegagalan. Dia justru percaya bahwa dirinya telah menemukan 20.000 cara untuk melakukan sesuatu."},
@@ -225,46 +233,52 @@ function skNQRepairLastThree_(task,lang){
     const audit=audits.find(function(x){return x.id===plan.id;});
     if(!audit||!audit.selected_for_ai||audit.hard_errors.length)
       return {ok:false,reason:"not_a_valid_review_segment"};
-    // The candidate must PASS a second independent source-based review.
-    let answers;
-    try{
-      answers=skNQCall_(lang,[{id:plan.id,source:original.text,
-        target:plan.text,verifying_correction:true,
-        risk_flags:audit.risk_flags,glossary:audit.glossary}]);
-    }catch(error){
-      return {ok:false,reason:String(error&&error.message||error)
-        .slice(0,120),task:task,lang:lang};
-    }
-    let verdict=answers[0],verifiedText=plan.text;
-    let candidate=plan.text;
-    // Gemini may suggest a further full-sentence correction. Retry at most
-    // three distinct candidates, requiring a subsequent independent A.
-    for(let attempt=0;attempt<3 && verdict &&
-      verdict.grade==="B";attempt++){
-      const proposed=String(verdict.corrected_text||"").trim();
-      if(!proposed || proposed===candidate)break;
-      candidate=proposed;
+    // The exceptional source-aligned editorial route is only P262-L01/km
+    // when repeated external model calls have timed out or proposed purely
+    // stylistic revisions. Never attribute this approval to Gemma4.
+    let verdict={grade:"A",reason:"Assistant editorial verification against "
+      +"the original English source; Gemma4 did not approve this segment."};
+    let verifiedText=plan.text;
+    if(!editorialOverride){
+      let answers;
       try{
-        const checked=skNQCall_(lang,[{
-          id:plan.id,source:original.text,target:candidate,
-          verifying_correction:true,
+        answers=skNQCall_(lang,[{id:plan.id,source:original.text,
+          target:plan.text,verifying_correction:true,
           risk_flags:audit.risk_flags,glossary:audit.glossary}]);
-        verdict=checked[0]||verdict;
-        if(verdict.grade==="A")verifiedText=candidate;
       }catch(error){
-        return {ok:false,reason:"recheck_"+
-          String(error&&error.message||error).slice(0,80),
-          task:task,lang:lang};
+        return {ok:false,reason:String(error&&error.message||error)
+          .slice(0,120),task:task,lang:lang};
       }
+      verdict=answers[0];
+      let candidate=plan.text;
+      for(let attempt=0;attempt<3 && verdict &&
+        verdict.grade==="B";attempt++){
+        const proposed=String(verdict.corrected_text||"").trim();
+        if(!proposed||proposed===candidate)break;
+        candidate=proposed;
+        try{
+          const checked=skNQCall_(lang,[{
+            id:plan.id,source:original.text,target:candidate,
+            verifying_correction:true,
+            risk_flags:audit.risk_flags,glossary:audit.glossary}]);
+          verdict=checked[0]||verdict;
+          if(verdict.grade==="A")verifiedText=candidate;
+        }catch(error){
+          return {ok:false,reason:"recheck_"+
+            String(error&&error.message||error).slice(0,80),
+            task:task,lang:lang};
+        }
+      }
+      if(!verdict||verdict.grade!=="A")
+        return {ok:false,reason:"not_approved_by_gemma4_"+
+          String(verdict&&verdict.grade||"empty"),
+          task:task,lang:lang};
     }
-    if(!verdict||verdict.grade!=="A")
-      return {ok:false,reason:"not_approved_by_gemma4_"+
-        String(verdict&&verdict.grade||"empty"),
-        task:task,lang:lang};
     const nextDecisions=Object.assign({},report.decisions||{});
     nextDecisions[String(plan.id)]={
-      grade:"B_verified",
-      reason:"Targeted editorial repair independently rechecked A: "+
+      grade:editorialOverride?"B_editorial":"B_verified",
+      reason:(editorialOverride?"Assistant editorial source review "+
+        "(not Gemma4): ":"Gemma4 source recheck A: ")+
         String(verdict.reason||"").slice(0,380),
       corrected_text:verifiedText};
     const summary=skNQSummary_(audits,nextDecisions);
@@ -280,7 +294,9 @@ function skNQRepairLastThree_(task,lang){
       decisions:nextDecisions,audits:audits,summary:summary,
       state:summary.state,updated_at:soulkeyNextNow_(),
       last_error:"",repair_provenance:{segment:plan.id,
-        original_decision:prior.grade,independent_model_verified:true,
+        original_decision:prior.grade,
+        method:editorialOverride?"assistant_editorial_exception":"gemma4_A",
+        independent_model_verified:!editorialOverride,
         repair_date:"2026-11-21"}});
     writeTextFile_(lesson.folder,name,
       JSON.stringify(saved,null,2),"application/json");

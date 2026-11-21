@@ -218,7 +218,7 @@ function skAudioPayload_(lesson,lang,terms){
       const decisions=report.decisions||{};
       rows.forEach(function(s){
         const decision=decisions[String(s.id)]||{};
-        if(decision.grade==="B_verified" &&
+        if(["B_verified","B_editorial"].indexOf(decision.grade)>=0 &&
           String(decision.corrected_text||"").trim())
           s.text=String(decision.corrected_text).trim();
       });
