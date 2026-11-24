@@ -470,17 +470,7 @@ function highlightPlaying(card){
   card.classList.add("playing");
 }
 
-function persistLocalDraft(){
-  localStorage.setItem("soulkey_shared_draft:"+taskId,JSON.stringify({
-    task_id:taskId,
-    saved_at:Date.now(),
-    revision,
-    zh_finalized_at:String(payload?.zh_finalized_at||""),
-    en_finalized_at:String(payload?.en_finalized_at||""),
-    segments,
-    english_aligned:englishAligned
-  }));
-}
+function persistLocalDraft(){ /* No browser draft persistence. */ }
 
 function scheduleAutoSave(){
   window.clearTimeout(autoSaveTimer);
@@ -1081,42 +1071,7 @@ window.addEventListener("message",event=>{
   }
 });
 
-function restoreLocalIfNewer(){
-  const localRaw=localStorage.getItem("soulkey_shared_draft:"+taskId);
-  if(!localRaw) return;
-  try{
-    const local=JSON.parse(localRaw);
-    const remoteSavedAt=Date.parse(String(payload.draft_saved_at||payload.generated_at||""))||0;
-    const localSavedAt=Number(local.saved_at||0);
-    if(
-      localSavedAt>remoteSavedAt &&
-      Array.isArray(local.segments) &&
-      local.segments.length===segments.length
-    ){
-      if(Array.isArray(local.english_aligned) && local.english_aligned.length){
-        englishAligned=local.english_aligned;
-      }
-      const byId=new Map(local.segments.map(x=>[Number(x.id),x]));
-      segments=segments.map(x=>{
-        const d=byId.get(Number(x.id));
-        return d?{
-          ...x,
-          text:String(d.text??x.text),
-          confirmed:d.confirmed===true,
-          source_en:String(d.source_en??x.source_en??""),
-          en_text:String(d.en_text??x.en_text??x.source_en??""),
-          en_confirmed:d.en_confirmed===true
-        }:x;
-      });
-      if(local.zh_finalized_at) payload.zh_finalized_at=String(local.zh_finalized_at);
-      if(local.en_finalized_at) payload.en_finalized_at=String(local.en_finalized_at);
-      revision=Number(local.revision||1);
-      lastSavedRevision=0;
-      dirty=true;
-      setStatus("已恢復此裝置較新的修改","working");
-    }
-  }catch(_){}
-}
+function restoreLocalIfNewer(){ /* Central content only. */ }
 
 async function fastReviewJson(kind){
   const file=kind==="en"?"en.json":"zh.json";

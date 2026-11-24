@@ -78,7 +78,7 @@ function load(key, fallback){
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
   catch { return fallback; }
 }
-function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
+function save(key, value){ if(key!==STORE.tasks) localStorage.setItem(key, JSON.stringify(value)); }
 
 const REVIEW_CACHE_PREFIX = "soulkey_review_cache_v1:";
 const reviewRequestStartedAt = {};
@@ -160,6 +160,7 @@ function reviewElapsedMs(taskId,kind,chunkIndex=0){
   return started ? Math.max(0,performance.now()-started) : 0;
 }
 
+try{localStorage.removeItem(STORE.tasks);}catch(_){}
 let tasks = []; // Never expose or edit browser-only lessons before central authentication.
 // Local browser drafts cannot launch cloud workers until centrally confirmed.
 let confirmedRemoteTaskIds = new Set();
@@ -630,7 +631,7 @@ function mergeRemoteTasks(remoteTasks){
   if(!Array.isArray(remoteTasks)) return;
   confirmedRemoteTaskIds = new Set(remoteTasks.map(t=>String(t.id||"")));
 
-  const localTasks=load(STORE.tasks,[]);
+  const localTasks=tasks.filter(t=>confirmedRemoteTaskIds.has(String(t.id)));
   const localById=Object.fromEntries(localTasks.map(t=>[t.id,t]));
   const localByUid=Object.fromEntries(localTasks
     .filter(t=>String(t.course_uid||"").trim())
@@ -1090,7 +1091,7 @@ function renderTasks(){
   }else if(!tasksForSelectedPeriod().length){
     el.innerHTML='<div class="empty">這一期目前沒有課程任務。</div>';
   }else{
-    const sorted=tasksForSelectedPeriod().slice().sort((a,b)=>{
+    const sorted=tasksForSelectedPeriod().filter(t=>confirmedRemoteTaskIds.has(String(t.id))).sort((a,b)=>{
       if(Number(b.period)!==Number(a.period)) return Number(b.period)-Number(a.period);
       return Number(String(a.lesson).replace(/\D/g,""))-Number(String(b.lesson).replace(/\D/g,""));
     });
@@ -1116,7 +1117,7 @@ function renderTasks(){
           taskProgressHtml(t)+
           '<div class="course-stage-line">'+
             '<span class="badge '+(complete?"complete":"")+'">'+
-              (!cloudConfirmed?"本機草稿（尚未同步）":complete?"全部完成":"下一步："+escapeHtml(next.label))+
+              (complete?"全部完成":"下一步："+escapeHtml(next.label))+
             '</span>'+
             '<span class="muted">'+escapeHtml(
               remoteActive
@@ -1138,9 +1139,7 @@ function renderTasks(){
             '>快速流程</button>'+
           '<button class="primary task-next-btn" data-next-task="'+escapeHtml(t.id)+'" '+
             (complete || !cloudConfirmed || (nextRemote && ["queued","running"].includes(nextRemote.status)) ? "disabled" : "")+'>'+
-            (!cloudConfirmed
-              ? "等待雲端同步"
-              : complete
+            (complete
               ? "已完成"
               : nextRemote && nextRemote.status==="running"
                 ? "執行中 "+(nextRemote.progress||"")+"%"
@@ -2893,6 +2892,15 @@ document.getElementById("dashboard-period")?.addEventListener("change",e=>{
 
 document.getElementById("period").addEventListener("input",updateTaskCodes);
 
+let courseSavePending=null;
+let courseSaveTimer=0;
+function clearCourseSavePending(){
+  window.clearTimeout(courseSaveTimer);
+  const pending=courseSavePending;
+  courseSavePending=null;
+  if(pending?.button) pending.button.disabled=false;
+  return pending;
+}
 document.getElementById("task-form").addEventListener("submit",async e=>{
   e.preventDefault();
   if(!bridgeAuthenticated || bridgeProtocolVersion<REQUIRED_BRIDGE_PROTOCOL){
@@ -2935,79 +2943,35 @@ document.getElementById("task-form").addEventListener("submit",async e=>{
     }
   }
 
-  const created=[];
-  for(const entry of entries){
-    const i=entry.lessonNo;
-    const existing=taskAtSchedulePosition(period,i);
-    const id=existing?.id || availableLegacyTaskId(period,i);
-
-    const task=existing || {
-      id,
-      period,
-      lesson:"第"+i+"堂",
-      completedStep:-1,
-      workflowVersion:WORKFLOW_VERSION,
-      createdAt:new Date().toISOString()
+  if(courseSavePending) return;
+  const created=entries.map(entry=>{
+    const existing=taskAtSchedulePosition(period,entry.lessonNo);
+    return {
+      id:existing?.id || availableLegacyTaskId(period,entry.lessonNo),
+      period, lesson:"第"+entry.lessonNo+"堂", url:entry.url,
+      note:note || existing?.note || "", course_uid:existing?.course_uid || ""
     };
-
-    task.url=entry.url;
-    task.note=note || task.note || "";
-    task.status=cfg.apiBaseUrl ? "建立中" : "等待執行";
-
-    if(cfg.apiBaseUrl){
-      try{
-        const r=await fetch(cfg.apiBaseUrl.replace(/\/$/,"")+"/jobs",{
-          method:"POST",
-          headers:{"content-type":"application/json"},
-          body:JSON.stringify(task)
-        });
-        if(!r.ok) throw new Error("API "+r.status);
-        const data=await r.json();
-        task.status=data.status||"等待執行";
-      }catch(err){
-        task.status="本機草稿："+err.message;
-      }
-    }
-
-    if(!existing) tasks.push(task);
-    created.push(task);
-  }
-
-  selectedPeriod=period;
-  save(STORE.tasks,tasks);
-  renderTasks();
-
-  const sentToCloud=submitBridgePost({
-    action:"tasks_upsert",
-    tasks_json:JSON.stringify(created.map(t=>({
-      id:t.id,
-      period:t.period,
-      lesson:t.lesson,
-      url:t.url,
-      note:t.note||"",
-      course_uid:t.course_uid||""
-    })))
   });
-
+  const form=document.getElementById("task-form");
+  const button=form.querySelector('[type="submit"]');
+  courseSavePending={period, entries, note, button};
+  if(button) button.disabled=true;
+  const sentToCloud=submitBridgePost({
+    action:"tasks_upsert", tasks_json:JSON.stringify(created)
+  });
   if(!sentToCloud){
-    alert("中央儲存尚未確認，請保留原始網址後重新連線確認；未送出本機修改。");
+    clearCourseSavePending();
+    alert("未能連線中央控制中心；未建立本機課程。");
     return;
   }
-  created.forEach(t=>t.status="本機草稿：等待 Google Sheets 確認");
-  save(STORE.tasks,tasks);
-  renderTasks();
-
-  // 只清除本次填寫內容，保留期數，方便同一期分批補課程。
-  for(const entry of entries){
-    document.getElementById("youtube-url-"+entry.lessonNo).value="";
-  }
-  document.getElementById("task-note").value="";
-  document.getElementById("period").value=period;
-  updateTaskCodes();
-
-  alert("第 "+period+" 期課程已送出雲端同步。\\n建立成功後會自動啟動中文逐字稿抓取，不用再按啟動。");
-  showView("dashboard");
+  courseSaveTimer=window.setTimeout(()=>{
+    if(!courseSavePending) return;
+    clearCourseSavePending();
+    bridgeSyncRequestFailed("tasks_get","課程儲存未收到中央確認");
+    alert("未收到中央確認，請重新連線並查閱正式課程清單，確認是否已建立後再操作。");
+  },120000);
 });
+
 
 function renderTerms(filter=""){
   const q=filter.trim().toLowerCase();
@@ -3754,35 +3718,7 @@ function syncEnglishFinalizeButton(task){
 
 function showEnglishDraftRecovery(taskId){
   const button=document.getElementById("en-review-restore-unsaved");
-  if(!button) return;
-  let backup=null;
-  try{backup=JSON.parse(localStorage.getItem(
-    ENGLISH_UNCONFIRMED_BACKUP_PREFIX+taskId
-  )||"null");}catch(_){}
-  const exists=backup?.task_id===taskId &&
-    Array.isArray(backup.segments)&&backup.segments.length;
-  button.hidden=!exists;
-  button.onclick=()=>{
-    if(!window.confirm("將本機尚未核實的英文草稿載回畫面，請逐句確認後再儲存。確定恢復？"))return;
-    let restored;
-    try{restored=JSON.parse(localStorage.getItem(
-      ENGLISH_UNCONFIRMED_BACKUP_PREFIX+taskId
-    )||"null");}catch(_){}
-    if(!restored?.segments?.length)return;
-    const existing=new Map(currentEnglishReview.map(x=>[Number(x.id),x]));
-    const edits=restored.segments.map(x=>{
-      const old=existing.get(Number(x.id));
-      return old && String(old.en||"")!==String(x.en_text||"")
-        ? {...old,en:String(x.en_text||""),en_confirmed:false} : null;
-    }).filter(Boolean);
-    const map=new Map(edits.map(x=>[Number(x.id),x]));
-    edits.forEach(x=>englishReviewDirtyIds.add(Number(x.id)));
-    renderEnglishReview(currentEnglishReview.map(x=>map.get(Number(x.id))||x));
-    const state=document.getElementById("en-review-share-state");
-    if(state)state.textContent="已取回 "+edits.length+
-      " 筆本機草稿差異，尚未寫入雲端；請檢查並逐句確認。";
-    button.hidden=true;
-  };
+  if(button){button.hidden=true;button.onclick=null;}
 }
 function requestEnglishCloudOverrides(taskId){
   return jsonpBridgeRequest({
@@ -4180,10 +4116,6 @@ function saveEnglishReviewDraft(confirmedId){
   englishDraftSavedSnapshot.confirmed_segment_ids=ids;
   const state=document.getElementById("en-review-share-state");
   if(state) state.textContent="正在將 "+ids.length+" 筆英文確認保存到 Google Drive…";
-  try{
-    localStorage.setItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+currentId,
-      JSON.stringify(englishDraftSavedSnapshot));
-  }catch(_){}
   // Google web apps can discard/never acknowledge large hidden iframe
   // form POSTs. Use a small, cross-origin no-CORS POST (no third-party
   // iframe/cookies) and authenticate success only via the Drive receipt GET.
@@ -4342,10 +4274,6 @@ function renderEnglishReview(items){
       item.en=textarea.value;
       item.en_confirmed=false;
       englishReviewDirtyIds.add(Number(item.id));
-      try{
-        localStorage.setItem(ENGLISH_UNCONFIRMED_BACKUP_PREFIX+selectedTaskId,
-          JSON.stringify(englishReviewDraftPayload()));
-      }catch(_){}
       row.classList.remove("confirmed");
       if(btn){
         btn.disabled=false;
@@ -4897,7 +4825,17 @@ window.addEventListener("message",event=>{
   if(data.type==="tasks_saved"){
     if(data.ok){
       const saved=Array.isArray(data.tasks) ? data.tasks : [];
-      saved.forEach(item=>confirmedRemoteTaskIds.add(String(item.id||"")));
+      const pending=clearCourseSavePending();
+      if(pending){
+        selectedPeriod=pending.period;
+        for(const entry of pending.entries){
+          const field=document.getElementById("youtube-url-"+entry.lessonNo);
+          if(field && field.value.trim()===entry.url) field.value="";
+        }
+        const noteField=document.getElementById("task-note");
+        if(noteField && noteField.value.trim()===pending.note) noteField.value="";
+        showView("dashboard");
+      }
       requestTasksFromControlCenter();
       if(saved.length){
         const fresh=saved.filter(x=>x.created).length;
@@ -4912,7 +4850,8 @@ window.addEventListener("message",event=>{
         window.setTimeout(()=>requestTaskStatuses(),500);
       }
     }else{
-      alert("中央控制表儲存失敗，課程目前只存在本機："+String(data.message||data.error||"未知錯誤")+"\n\n請保留 YouTube 網址並重試，勿啟動 Kaggle。");
+      clearCourseSavePending();
+      alert("中央控制表未確認儲存："+String(data.message||data.error||"未知錯誤")+"。請重新連線查閱中央課程清單。");
       renderTasks();
     }
   }

@@ -15,7 +15,7 @@ function method(source,name){
 assert.match(app,/requestReviewData\(taskId,"en",0\);\s*return;/,
  "Must reconcile Drive after cached English manuscript");
 assert.ok(app.includes("englishReviewDirtyIds.add(Number(item.id))"));
-assert.ok(app.includes("ENGLISH_UNCONFIRMED_BACKUP_PREFIX+selectedTaskId"));
+assert.ok(!app.includes("ENGLISH_UNCONFIRMED_BACKUP_PREFIX+selectedTaskId"), "Unsaved edits must not persist in browser storage");
 assert.ok(app.includes("const dirty=new Map(currentEnglishReview"));
 assert.ok(app.includes("englishDraftSavedSnapshot.confirmed_segment_ids=ids"));
 assert.ok(app.includes("showEnglishDraftRecovery(taskId)"));
