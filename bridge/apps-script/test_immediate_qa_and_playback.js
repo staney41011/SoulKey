@@ -8,6 +8,12 @@ function section(code,start,end){
 const next=source("NativeNext");
 const quality=source("NativeQuality");
 const audio=source("NativeAudio");
+function loadNativeHelpers(ctx){
+  ctx.SK_NEXT_AUTO_MIN_PERIOD=262;
+  ctx.soulkeyNextNow_=()=> "2026-11-24 07:50:00";
+  vm.runInContext(section(next,"soulkeyNextNormalizeTask_","soulkeyNextHealthRead_"),ctx);
+}
+
 // Translation writes full DRAFT, releases the script lock, then starts exactly
 // that changed language's Gemma 4 review, without waking old drafts.
 let locked=false, qaCalls=[],exportsChanged=true;
@@ -17,12 +23,12 @@ const mockTab={
  getRange:()=>({getValues:()=>[]})
 };
 const tickCtx={
- PropertiesService:{getScriptProperties:()=>({getProperty:()=> "yes"})},
+ PropertiesService:{getScriptProperties:()=>({getProperty:()=> "yes",setProperty:()=>{}})},
  LockService:{getScriptLock:()=>({
    tryLock:()=>{assert.equal(locked,false);locked=true;return true;},
    releaseLock:()=>{assert.equal(locked,true);locked=false;}
  })},
- soulkeyNextSources_:()=>[{task:"P262-L01",segments:[]}],
+ soulkeyNextSources_:()=>[{task:"P262-L01",period:262,segments:[]}],
  soulkeyNextEnsureRows_:()=>0,
  soulkeyNextQuota_:()=>({used:0,props:{setProperty:()=>{}}}),
  soulkeyNextSelectedCodes_:()=>["es"],
@@ -39,6 +45,7 @@ const tickCtx={
  }
 };
 vm.createContext(tickCtx);
+loadNativeHelpers(tickCtx);
 vm.runInContext(section(next,"soulkeyNextTick","soulkeyNextInstall"),tickCtx);
 let result=tickCtx.soulkeyNextTick();
 assert.deepEqual(qaCalls,[["P262-L01","es"]]);
@@ -56,7 +63,7 @@ const lessons=["P262-L02","P262-L01"].map(task=>({
  segments:[{id:1,start:0,end:80,text:"Hello",source_hash:"hash"}]
 }));
 const qaCtx={
- PropertiesService:{getScriptProperties:()=>({getProperty:()=> "yes"})},
+ PropertiesService:{getScriptProperties:()=>({getProperty:()=> "yes",setProperty:()=>{}})},
  LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},
  soulkeyNextSources_:()=>lessons,
  skNQTerms_:()=>[],SK_NEXT_PRIORITY_LANGS:["id","es"],
@@ -73,6 +80,7 @@ const qaCtx={
  Logger:{log:()=>{}},
 };
 vm.createContext(qaCtx);
+loadNativeHelpers(qaCtx);
 vm.runInContext(section(quality,"soulkeyNextQAOneBatch_","soulkeyNextQATick"),qaCtx);
 const focused=qaCtx.soulkeyNextQAOneBatch_("P262-L01","es");
 assert.equal(focused.task,"P262-L01");
@@ -82,11 +90,11 @@ assert.equal(qaRecords[1].name,"sheets.qa.native.es.json");
 assert.equal(JSON.parse(qaRecords[1].content).state,"approved_risk_based");
 // Playback repair: 12 stale, ALREADY copied files may not consume the entire
 // copying budget; the missing destination remains eligible on this tick.
-const ids=Array.from({length:13},(_,i)=>"P261-L"+String(i+1).padStart(2,"0"));
-const srcs=ids.map(id=>({task:id,period:261,segments:[]}));
+const ids=Array.from({length:13},(_,i)=>"P262-L"+String(i+1).padStart(2,"0"));
+const srcs=ids.map(id=>({task:id,period:262,segments:[]}));
 const copied=[];
 const playbackCtx={
- PropertiesService:{getScriptProperties:()=>({getProperty:()=> "yes"})},
+ PropertiesService:{getScriptProperties:()=>({getProperty:()=> "yes",setProperty:()=>{}})},
  LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},
  soulkeyNextSources_:()=>srcs,skNQTerms_:()=>[],
  readTasks_:()=>ids.map(id=>({id,title:"Title",lecturer:"Teacher"})),
@@ -96,7 +104,7 @@ const playbackCtx={
  skAudioReceipt_:()=>({release_tag:"tag",status:"done",mp3_drive_id:"id",
                         source_sha256:"abcdef0123456789"}),
  DriveApp:{getFileById:()=>({
-   getName:()=> "P261-L01-en-abcdef0123456789.mp3",
+   getName:()=> "P262-L01-en-abcdef0123456789.mp3",
    getSize:()=>10,isTrashed:()=>false
  })},
  skPlaybackReceipt_:lesson=>lesson.task===ids[12]?null:({
@@ -116,6 +124,7 @@ playbackCtx.DriveApp.getFileById=()=>({
  getSize:()=>10,isTrashed:()=>false
 });
 vm.createContext(playbackCtx);
+loadNativeHelpers(playbackCtx);
 vm.runInContext(audio.slice(audio.indexOf("function soulkeyNextAudioTick(")),playbackCtx);
 const summary=playbackCtx.soulkeyNextAudioTick();
 assert.equal(summary.ok,true);

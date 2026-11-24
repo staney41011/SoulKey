@@ -13,8 +13,8 @@ on:
         type: string
         required: false
         default: ""
-  schedule:
-    - cron: "17 * * * *"  # Hourly P262+ QA; bridge handles per-lesson cooldown
+  # Native Apps Script triggers own recurring P262+ processing.
+  # This external bridge is retained for explicit manual recovery only.
 
 permissions:
   contents: read
