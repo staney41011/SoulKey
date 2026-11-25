@@ -3581,51 +3581,61 @@ function dispatchEnglishCcRefresh(taskId,button,statusEl){
   waitForEnglishCcRefresh(taskId,button,statusEl);
 }
 
+const englishTranslationWatchers=new Map();
+function englishTranslationActive(remote){
+  return !!remote && ["queued","running","delayed","pending"].includes(remote.status);
+}
 async function waitForAiEnglishTranslation(taskId,button,statusEl){
-  const maxAttempts=72;
-  for(let attempt=1;attempt<=maxAttempts;attempt++){
-    if(statusEl){
-      statusEl.textContent="中文 → 英文 AI 翻譯中… "+attempt+"/"+maxAttempts;
-    }
-
-    requestTaskStatuses();
-    await new Promise(resolve=>setTimeout(resolve,5000));
-
-    const task=tasks.find(x=>x.id===taskId);
-    const remote=remoteStageStatus(task,"en");
-
-    if(remote && remote.status==="done"){
-      if(statusEl) statusEl.textContent="英文翻譯完成，正在載入人工定稿資料…";
-      const requested=requestReviewData(taskId,"en",0);
-      if(!requested && statusEl){
-        statusEl.textContent="英文翻譯已完成，但目前無法讀取英文定稿資料。";
+  const previous=englishTranslationWatchers.get(taskId);
+  if(previous) previous.cancelled=true;
+  const token={cancelled:false};
+  englishTranslationWatchers.set(taskId,token);
+  try{
+    while(!token.cancelled && button?.isConnected && statusEl?.isConnected){
+      if(!bridgeAuthenticated){
+        statusEl.textContent="控制中心未連線，已停止查詢；請重新連線確認中央任務狀態。";
+        button.disabled=true;
+        return;
       }
-      return;
-    }
-
-    if(remote && ["error","stale"].includes(remote.status)){
-      if(statusEl){
-        statusEl.textContent=
-          "中文 → 英文翻譯失敗："+String(remote.message||remoteStatusText(remote.status));
+      const task=tasks.find(x=>x.id===taskId);
+      const remote=remoteStageStatus(task,"en");
+      button.disabled=true;
+      button.textContent="英文任務已送出";
+      if(remote?.status==="done"){
+        statusEl.textContent="英文翻譯完成，正在載入人工定稿資料…";
+        requestReviewData(taskId,"en",0);
+        return;
       }
-      if(button){
+      if(remote && ["error","stale"].includes(remote.status)){
+        statusEl.textContent="英文翻譯失敗："+String(remote.message||remoteStatusText(remote.status));
         button.disabled=false;
         button.textContent="重新執行中文 → 英文";
+        const cc=document.getElementById("refresh-en-cc");
+        if(cc) cc.disabled=false;
+        return;
       }
-      return;
+      if(remote?.status==="running"){
+        statusEl.textContent="中文 → 英文 AI 翻譯執行中"+
+          (Number(remote.progress)>0?"（"+remote.progress+"%）":"")+
+          (remote.message?"："+remote.message:"");
+      }else{
+        statusEl.textContent=remote?.status==="delayed"?"等待服務恢復，中央任務尚未完成。":"已送出，等待中央工作佇列；請勿重複送出。";
+      }
+      requestTaskStatuses();
+      await new Promise(resolve=>setTimeout(resolve,12000));
     }
-  }
-
-  if(statusEl){
-    statusEl.textContent="英文翻譯仍在執行或尚未回報，可稍後重新整理後再進入此頁。";
-  }
-  if(button){
-    button.disabled=false;
-    button.textContent="重新檢查／執行中文 → 英文";
+  }finally{
+    if(englishTranslationWatchers.get(taskId)===token) englishTranslationWatchers.delete(taskId);
   }
 }
 
 function dispatchAiEnglishTranslation(taskId,button,statusEl){
+  if(!bridgeAuthenticated){if(statusEl)statusEl.textContent="請先連線控制中心。";return;}
+  const current=tasks.find(x=>x.id===taskId);
+  if(englishTranslationActive(remoteStageStatus(current,"en"))){
+    waitForAiEnglishTranslation(taskId,button,statusEl);
+    return;
+  }
   const ok=confirm(
     "這堂課目前沒有可用的 YouTube English CC。\n\n"+
     "要改用已完成的中文 Final 直接進行 AI 中文 → 英文翻譯嗎？"
@@ -3701,6 +3711,15 @@ function showNoEnglishCcFallback(taskId){
   translateBtn?.addEventListener("click",()=>{
     dispatchAiEnglishTranslation(taskId,translateBtn,statusEl);
   });
+  const remote=remoteStageStatus(tasks.find(x=>x.id===taskId),"en");
+  if(englishTranslationActive(remote)){
+    if(refreshBtn)refreshBtn.disabled=true;
+    if(translateBtn)translateBtn.disabled=true;
+    waitForAiEnglishTranslation(taskId,translateBtn,statusEl);
+  }else if(remote?.status==="error" || remote?.status==="stale"){
+    if(statusEl)statusEl.textContent="上次英文任務失敗："+String(remote.message||remoteStatusText(remote.status));
+  }
+
 }
 
 function syncEnglishFinalizeButton(task){
