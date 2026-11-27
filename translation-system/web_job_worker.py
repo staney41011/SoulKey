@@ -587,7 +587,7 @@ def main():
             reusable, reason = verify_existing_asr(
                 drive, folders, url,
                 Path("/kaggle/working/soulkey-source-verify") / args.task_id,
-                comparison_download,
+                comparison_download, task_id=args.task_id,
             )
             print("[SOURCE-REVISION] " + args.task_id +
                   " reusable=" + str(reusable) + " reason=" + reason, flush=True)

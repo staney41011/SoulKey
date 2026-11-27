@@ -596,7 +596,7 @@ def process_task(task_id, system_dir):
             reusable_asr, reason = verify_existing_asr(
                 drive, folders, task["youtube_url"],
                 workdir / "source-revision",
-                fetch_for_comparison,
+                fetch_for_comparison, task_id=task_id,
             )
             print(
                 f"[SOURCE-REVISION] {task_id} reusable={reusable_asr} "

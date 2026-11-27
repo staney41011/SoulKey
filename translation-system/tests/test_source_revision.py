@@ -123,6 +123,26 @@ class SourceRevisionTest(unittest.TestCase):
         self.assertEqual(result, (False, "original_audio_unavailable"))
         self.assertEqual(saved, [])
 
+    def test_gemini_direct_video_requires_exact_task_and_video(self):
+        artifact = {"task_id":"P263-L03", "transcript_source":"gemini_youtube",
+                    "youtube_url":"https://youtu.be/1CJU65B-_zA",
+                    "segments":[{"id":0,"text":"source text"}]}
+        def check(data, url="https://youtube.com/watch?v=1CJU65B-_zA"):
+            with patch.object(source_revision,"_read_json",
+                              side_effect=[None,data]):
+                return source_revision.verify_existing_asr(
+                    None, {"source":"src","transcript":"transcript"}, url,
+                    Path(self.tmp.name), lambda *a: self.fail("must not download"),
+                    task_id="P263-L03")
+        self.assertEqual(check(artifact),(True,"same_gemini_youtube_task_and_video"))
+        self.assertEqual(check(dict(artifact,task_id="P263-L01")),
+                         (False,"gemini_transcript_task_mismatch"))
+        self.assertEqual(check(artifact,"https://youtu.be/another"),
+                         (False,"gemini_transcript_video_mismatch"))
+        self.assertEqual(check(dict(artifact,segments=[])),
+                         (False,"gemini_transcript_empty"))
+        self.assertEqual(check(None),(False,"no_source_info"))
+
     def test_signature_time_shift_rejected(self):
         with tempfile.TemporaryDirectory() as other:
             target = Path(other) / "shifted.wav"

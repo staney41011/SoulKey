@@ -149,7 +149,7 @@ def _read_json(drive, folder_id, name, tempdir):
     return json.loads(dest.read_text(encoding="utf-8"))
 
 
-def verify_existing_asr(drive, folders, current_url, workdir, download_audio_fn):
+def verify_existing_asr(drive, folders, current_url, workdir, download_audio_fn, *, task_id=None):
     """Return (reusable, reason), updating metadata only after proof.
 
     If the previous video is deleted and lacks an audio signature, reuse
@@ -163,6 +163,29 @@ def verify_existing_asr(drive, folders, current_url, workdir, download_audio_fn)
             print("[SOURCE] Source manifest unreadable: " + type(exc).__name__, flush=True)
             return False, "source_info_unreadable"
         if not isinstance(previous, dict) or not previous:
+            # Gemini direct-YouTube ASR records provenance inside segments.json,
+            # not source_info.json. Accept only the stored artifact for this
+            # exact task and current video; never infer identity from a folder,
+            # title, duration, or human completion status.
+            if task_id and folders.get("transcript"):
+                try:
+                    artifact = _read_json(drive, folders["transcript"], "segments.json", tmp)
+                except (OSError, ValueError, TypeError):
+                    return False, "gemini_transcript_unreadable"
+                if isinstance(artifact, dict) and artifact.get("transcript_source") == "gemini_youtube":
+                    if str(artifact.get("task_id") or "") != str(task_id):
+                        return False, "gemini_transcript_task_mismatch"
+                    original_id = video_id(artifact.get("youtube_url"))
+                    requested_id = video_id(current_url)
+                    segments = artifact.get("segments")
+                    if not original_id or not requested_id or original_id != requested_id:
+                        return False, "gemini_transcript_video_mismatch"
+                    if not isinstance(segments, list) or not segments or not all(
+                        isinstance(seg, dict) and str(seg.get("text") or "").strip()
+                        for seg in segments
+                    ):
+                        return False, "gemini_transcript_empty"
+                    return True, "same_gemini_youtube_task_and_video"
             return False, "no_source_info"
         old_url = str(previous.get("youtube_url") or previous.get("webpage_url") or "").strip()
         if not old_url:
