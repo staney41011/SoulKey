@@ -94,7 +94,7 @@ function readReviewCache(taskId,kind){
     const raw=localStorage.getItem(reviewCacheKey(taskId,kind));
     if(!raw) return null;
     const data=JSON.parse(raw);
-    if(!data || !Array.isArray(data.segments) || !data.segments.length) return null;
+    if(!data || String(data.task_id||"")!==String(taskId) || String(data.kind||"")!==String(kind) || !Array.isArray(data.segments) || !data.segments.length) return null;
     return data;
   }catch(_){
     return null;
@@ -209,6 +209,7 @@ let zhGithubLastSavedRevision = 0;
 let zhGithubSaveRevisionInFlight = 0;
 let currentVernacularReview = [];
 let currentEnglishReview = [];
+let englishReviewOwner = "";
 let englishDraftSavePendingId = null;
 const englishDraftSaveQueuedIds = new Set();
 let englishDraftSavePendingIds = new Set();
@@ -3750,12 +3751,16 @@ async function openEnglishReview(taskId){
     showView("dashboard");
     return;
   }
-  if(selectedTaskId!==taskId &&
+  if(englishReviewOwner && englishReviewOwner!==String(taskId) &&
      (englishDraftSavePendingId!==null||englishReviewDirtyIds.size)){
     alert("這堂課仍有未確認的英文修改，請先完成確認或複製備份再切換課程。");
     return;
   }
-  if(selectedTaskId!==taskId) englishReviewDirtyIds.clear();
+  if(englishReviewOwner!==String(taskId)){
+    currentEnglishReview=[];
+    englishReviewDirtyIds.clear();
+    englishReviewOwner=String(taskId);
+  }
   selectedTaskId=taskId;
   const task=tasks.find(x=>x.id===taskId);
   if(!task) return;
@@ -3796,7 +3801,7 @@ async function openEnglishReview(taskId){
       ENGLISH_DRIVE_ACK_PREFIX+taskId
     )||"null");
   }catch(_){}
-  if(pendingDriveAck &&
+  if(pendingDriveAck && String(pendingDriveAck.task_id||"")===String(taskId) &&
      Array.isArray(pendingDriveAck.segments) &&
      pendingDriveAck.segments.length){
     renderEnglishReview(englishReviewItemsFromGithub(
@@ -4114,7 +4119,7 @@ function finishEnglishReviewDraftSave(data){
   }
 }
 function saveEnglishReviewDraft(confirmedId){
-  if(!selectedTaskId || !currentEnglishReview.length) return false;
+  if(!bridgeAuthenticated || englishReviewOwner!==String(selectedTaskId||"") || !selectedTaskId || !currentEnglishReview.length) return false;
   const id=Number(confirmedId);
   englishDraftSaveQueuedIds.add(id);
   if(englishDraftSavePendingId!==null){
@@ -4215,6 +4220,7 @@ function englishReviewDisplayChinese(text){
   return raw;
 }
 function renderEnglishReview(items){
+  if(englishReviewOwner!==String(selectedTaskId||"")) return;
   const groupedItems=groupEnglishReviewItems(items);
   const cloud=englishCloudOverridesByTask[selectedTaskId]||{};
   currentEnglishReview=groupedItems.map(row=>{
@@ -4375,6 +4381,10 @@ document.getElementById("finalize-en")?.addEventListener("click",()=>{
     return;
   }
 
+  if(!bridgeAuthenticated || englishReviewOwner!==String(selectedTaskId||"")){
+    alert("尚未載入此堂課的正式英文內容，已禁止定稿。");
+    return;
+  }
   document.querySelectorAll("#en-review-list .en-review-row").forEach(row=>{
     const item=currentEnglishReview.find(
       x=>Number(x.id)===Number(row.dataset.enSegment)
@@ -4969,7 +4979,7 @@ window.addEventListener("message",event=>{
            String(data.task_id||"")===String(selectedTaskId||""))){
         // A missing *base* JSON must never hide already-loaded manuscripts:
         // Drive's independent human-edits store works without en.json.
-        if(Array.isArray(currentEnglishReview) && currentEnglishReview.length &&
+        if(englishReviewOwner===String(data.task_id||"") && Array.isArray(currentEnglishReview) && currentEnglishReview.length &&
            String(data.task_id||"")===String(selectedTaskId||"")){
           const state=document.getElementById("en-review-share-state");
           if(state)state.textContent="已載入現有中英稿；Drive 尚未有整堂 JSON，逐句修改仍可獨立儲存";
@@ -5054,7 +5064,7 @@ window.addEventListener("message",event=>{
     }else if(data.kind==="vernacular"){
       renderVernacularReview(data.segments||[]);
     }else if(data.kind==="en"){
-      if(String(data.task_id||"")!==String(selectedTaskId||"")) return;
+      if(String(data.task_id||"")!==String(selectedTaskId||"") || englishReviewOwner!==String(data.task_id||"")) return;
       // A late Drive response must not discard the user's in-flight edit.
       if(englishDraftSavePendingId!==null ||
          englishDraftSaveQueuedIds.size>0) return;
@@ -5099,7 +5109,7 @@ window.addEventListener("message",event=>{
   if(data.type==="review_en_draft_status"){
     const taskId=String(data.task_id||"");
     if(data.ok && data.edits && typeof data.edits==="object" &&
-       taskId===String(selectedTaskId||"")){
+       taskId===String(selectedTaskId||"") && englishReviewOwner===taskId){
       englishCloudOverridesByTask[taskId]=data.edits;
       if(englishDraftSavePendingId===null && !englishReviewDirtyIds.size &&
          Array.isArray(currentEnglishReview) && currentEnglishReview.length){

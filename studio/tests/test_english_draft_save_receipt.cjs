@@ -21,6 +21,7 @@ const rows=[
 ];
 const status={textContent:""};
 const mocks={
+  englishReviewOwner: "P258-L03",
   selectedTaskId:"P258-L03",
   currentEnglishReview:rows,
   englishSavedPayloadSnapshot:()=>({
