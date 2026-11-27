@@ -2285,7 +2285,8 @@ function renderTtsShare(task){
   if(!panel || !textarea || !button || !task || !window.SoulKeyTTSShare) return;
 
   const result=window.SoulKeyTTSShare.build(
-    task,ttsShareLinksCache[task.id] || courseFilesCache[task.id]
+    task,Number(task.period)>=263 ? ttsShareLinksCache[task.id] :
+      (ttsShareLinksCache[task.id] || courseFilesCache[task.id])
   );
   panel.hidden=!result.eligible;
   if(!result.eligible) return;
@@ -2299,7 +2300,7 @@ function renderTtsShare(task){
   const changedLesson=textarea.dataset.taskId!==String(task.id);
   // Preserve edits when the same lesson receives a new Drive snapshot.
   const previous=String(textarea.dataset.generatedMessage||"");
-  if(changedLesson || !previous || textarea.value===previous){
+  if(Number(task.period)>=263 || changedLesson || !previous || textarea.value===previous){
     textarea.value=result.message;
   }
   textarea.dataset.taskId=String(task.id);
@@ -5177,6 +5178,15 @@ window.addEventListener("message",event=>{
       }
       requestTaskStatuses();
     }else{
+      if(data.error==="dispatch_busy" && data.task_id && data.stage==="en"){
+        const watcher=englishTranslationWatchers.get(String(data.task_id));
+        if(watcher)watcher.cancelled=true;
+        if(String(selectedTaskId||"")===String(data.task_id)){
+          const state=document.getElementById("en-fallback-status");
+          if(state)state.textContent="控制中心忙碌，本次尚未派工；請重新讀取中央狀態後再操作。";
+        }
+        requestTaskStatuses();
+      }
       alert("Kaggle 工作送出失敗："+(data.message || data.error || "未知錯誤"));
     }
   }

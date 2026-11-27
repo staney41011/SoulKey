@@ -719,7 +719,8 @@ function doPost(e) {
           type: "run_stage",
           ok: false,
           error: dispatch.error || "dispatch_failed",
-          message: "GitHub Actions 工作送出失敗",
+          message: dispatch.message || "GitHub Actions 工作送出失敗",
+          task_id: taskId, stage: stage,
           github_status: dispatch.github_status || null
         });
       }
@@ -3369,7 +3370,9 @@ function resumeP259VerifiedWork_() {
 
 function dispatchWorkflowIdempotently_(githubToken, taskId, stage, lang, langs, bridgeUrl) {
   const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  try{lock.waitLock(30000);}catch(e){
+    return {ok:false,error:"dispatch_busy",message:"中央控制中心正在處理其他任務，這次尚未派工。請先更新中央狀態再重試。"};
+  }
   try {
     const properties = PropertiesService.getScriptProperties();
     const key = dispatchLeaseKey_(taskId, stage, lang, langs);
@@ -5243,6 +5246,10 @@ function ttsShareLinks_(taskId) {
       if(!expected || !receipt ||
          receipt.release_tag!==expected.tag ||
          receipt.source_sha256!==expected.sha)return;
+      // P263+: official share lists require the exact approved source
+      // document and a verified formal MP3, not just a receipt or preview.
+      if(Number((id.match(/^P(\d+)-/)||[])[1]||0)>=263 &&
+         (receipt.status!=="done" || !skAudioVerifiedSource_(currentSource,code,expected)))return;
       // Native receipts live in the translation folder. A versioned MP3 is
       // only shown when the current Drive ID and actual file agree.
       if(receipt.mp3_drive_id &&

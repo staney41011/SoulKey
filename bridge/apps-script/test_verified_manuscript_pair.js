@@ -1,0 +1,16 @@
+const fs=require("fs"),vm=require("vm"),assert=require("node:assert/strict"),path=require("path");
+const s=fs.readFileSync(path.join(__dirname,"NativeAudio.gs"),"utf8");
+const start=s.indexOf("function skAudioVerifiedSource_(");
+const end=s.indexOf("function skAudioReceipt_(",start);
+const ctx=vm.createContext({skAudioFingerprint_:rows=>rows[0].text,JSON,Number});
+vm.runInContext(s.slice(start,end),ctx);
+const req={tag:"P263-L04-es-sha",sha:"sha",review:"approved_risk_based_not_full"};
+const record={task_id:"P263-L04",language:"es",release_tag:req.tag,source_sha256:req.sha,review_scope:req.review,segments:[{text:"sha"}]};
+let data=record;
+const file={isTrashed:()=>false,getSize:()=>100,getUrl:()=>"verified",getBlob:()=>({getDataAsString:()=>JSON.stringify(data)})};
+const lesson={task:"P263-L04",folder:{getFilesByName:()=>({hasNext:()=>true,next:()=>file})}};
+assert.equal(ctx.skAudioVerifiedSource_(lesson,"es",req),"verified");
+data={...record,task_id:"P263-L01"};assert.equal(ctx.skAudioVerifiedSource_(lesson,"es",req),"");
+data={...record,segments:[{text:"other"}]};assert.equal(ctx.skAudioVerifiedSource_(lesson,"es",req),"");
+data=record;assert.equal(ctx.skAudioVerifiedSource_(lesson,"es",{...req,review:"not_approved"}),"");
+console.log("VERIFIED_MANUSCRIPT_PAIR_OK");

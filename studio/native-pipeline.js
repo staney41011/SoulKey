@@ -34,7 +34,7 @@
   function audioText(item){
     return ({pending:"尚未派工",pending_source:"等待譯稿",queued:"配音佇列中",
       done:"正式 MP3 通過",needs_review:"試聽版：時長待修",
-      stale_audio:"舊版音檔，需重製",error:"配音出錯",
+      stale_audio:"舊版音檔，需重製",pending_manuscript_verification:"等待同版本文稿驗證",error:"配音出錯",
       not_selected:"不產生配音"})[item.audio_state]||String(item.audio_state||"未開始");
   }
   function getStatus(taskId){return last.get(String(taskId))||null;}
@@ -107,6 +107,9 @@
         const artifacts=[];
         // Review failure never removes generated output. Links do not
         // imply approval or video-synchronized audio.
+        if(item.verified_manuscript_url)artifacts.push(
+          '<a href="'+escape(item.verified_manuscript_url)+
+          '" target="_blank" rel="noopener noreferrer">已驗收配音文稿（JSON）</a>');
         if(item.draft_text_url)artifacts.push(
           '<a href="'+escape(item.draft_text_url)+
           '" target="_blank" rel="noopener noreferrer">下載文字草稿</a>');
@@ -174,6 +177,7 @@
           "Sheets "+item.translation_count+"/"+item.translation_total+
           "｜"+qaText(item)+" "));
         for(const [url,label] of [
+          [item.verified_manuscript_url,"已驗收配音文稿 JSON"],
           [item.draft_text_url,"草稿 TXT"],
           [item.draft_file_url,"草稿 JSON"],
           [item.qa_report_url,"QA 報告"]
@@ -181,7 +185,7 @@
           if(!url)continue;
           const link=document.createElement("a");
           link.href=url;link.target="_blank";link.rel="noopener noreferrer";
-          link.textContent=label+(item.qa_state!=="approved_risk_based"?"（未驗收）":"");
+          link.textContent=label+(url!==item.verified_manuscript_url && item.qa_state!=="approved_risk_based"?"（未驗收）":"");
           doc.appendChild(link);
         }
       }

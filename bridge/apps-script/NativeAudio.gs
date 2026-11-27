@@ -265,6 +265,24 @@ function skAudioSaveSource_(lesson,lang,requested){
   created.setDescription(requested.tag);
   return created;
 }
+// Only expose a current, approved manuscript paired to the exact TTS input.
+function skAudioVerifiedSource_(lesson,lang,requested){
+  if(!requested || ["approved_english_final","approved_risk_based_not_full"]
+      .indexOf(requested.review)<0)return "";
+  try{
+    const files=lesson.folder.getFilesByName("sheets.native_tts."+lang+".source.json");
+    if(!files.hasNext())return "";
+    const file=files.next();
+    if(file.isTrashed() || Number(file.getSize())<=0)return "";
+    const obj=JSON.parse(file.getBlob().getDataAsString("UTF-8"));
+    if(obj.task_id!==lesson.task || obj.language!==lang ||
+       obj.source_sha256!==requested.sha || obj.release_tag!==requested.tag ||
+       obj.review_scope!==requested.review ||
+       !Array.isArray(obj.segments) || !obj.segments.length ||
+       skAudioFingerprint_(obj.segments)!==requested.sha)return "";
+    return file.getUrl();
+  }catch(e){return "";}
+}
 function skAudioReceipt_(lesson,lang){
   return readJsonFile_(lesson.folder,"sheets.native_tts."+lang+".json");
 }

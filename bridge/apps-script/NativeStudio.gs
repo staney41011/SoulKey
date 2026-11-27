@@ -233,6 +233,9 @@ function soulkeyStudioNativeStatus_(taskId){
       try{
         const requested=skAudioPayload_(source,lang,terms);
         const receipt=skAudioReceipt_(source,lang);
+        const strictPair=Number(source.period)>=263;
+        const approvedManuscript=strictPair?skAudioVerifiedSource_(source,lang,requested):"";
+        item.verified_manuscript_url=approvedManuscript;
         const saved=soulkeyStudioReceiptAudio_(source,lang,receipt);
         if(saved){
           // An MP3 may be downloaded without being approved for publication.
@@ -252,6 +255,10 @@ function soulkeyStudioNativeStatus_(taskId){
           if(item.audio_state==="done" && !receipt.mp3_drive_id){
             item.audio_state="missing_or_invalid_file";
             item.audio_issue="驗收紀錄缺少正式 MP3 的 Drive 檔案 ID";
+          }else if(item.audio_state==="done" && strictPair && !approvedManuscript){
+            item.audio_state="pending_manuscript_verification";
+            item.audio_issue="音檔已存在，但尚未核對同版本已驗收配音文稿；禁止正式分享";
+            if(saved){item.preview_audio_url=saved.url;item.preview_audio_label="尚未驗證文稿版本的音檔";}
           }else if(item.audio_state==="done" && receipt.mp3_drive_id){
             // Verifying the canonical filename and nonempty actual Drive
             // object keeps stale/deleted MP3s out of the release gate.
@@ -289,6 +296,7 @@ function soulkeyStudioNativeStatus_(taskId){
         const currentTier=sourceReceipt && sourceReceipt.status==="done" &&
           semanticReady?"formal":"unverified";
         if(playback && sourceReceipt && current &&
+           (Number(source.period)<263 || (currentTier==="formal" && item.verified_manuscript_url && item.audio_state==="done")) &&
            playback.status==="copied" &&
            playback.source_mp3_id===sourceReceipt.mp3_drive_id &&
            playback.sha===current.sha &&
