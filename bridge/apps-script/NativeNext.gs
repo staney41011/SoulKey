@@ -340,6 +340,7 @@ function soulkeyNextUpdateJobs_(sources,rows){
   });
 }
 function soulkeyNextTick(focusTask){
+  const tickStarted=Date.now();
   const invocationMode=typeof focusTask==="string"?"manual":"scheduled";
   focusTask=soulkeyNextNormalizeTask_(focusTask);
   soulkeyNextHeartbeat_("translation","started",invocationMode,focusTask);
@@ -470,7 +471,7 @@ function soulkeyNextTick(focusTask){
   const qaStarts=[], started=Date.now();
   for(let i=0;i<newDrafts.length;i++){
     // Keep headroom for Google's 6-minute Apps Script runtime limit.
-    if(Date.now()-started>90000)break;
+    if(i>=1 || Date.now()-tickStarted>120000)break;
     const item=newDrafts[i];
     try{
       const qa=soulkeyNextQAOneBatch_(item.task,item.lang);
@@ -494,6 +495,8 @@ function soulkeyNextTick(focusTask){
 }
 // One scheduler, three serialized stages. Avoid three 15-minute triggers
 // fighting for the same script lock at the same instant.
+// Persist the next phase BEFORE running a potentially time-limited stage.
+// A killed execution cannot trap the next invocation in the same phase.
 function soulkeyNextCoordinator(){
   const props=PropertiesService.getScriptProperties();
   if(props.getProperty("SOULKEY_NEXT_ENABLED")!=="yes")return {ok:false,reason:"disabled"};
@@ -501,29 +504,62 @@ function soulkeyNextCoordinator(){
   if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
   const leaseKey="SOULKEY_NEXT_COORDINATOR_LEASE";
   const phaseKey="SOULKEY_NEXT_COORDINATOR_PHASE";
+  const checkpointKey="SOULKEY_NEXT_COORDINATOR_CHECKPOINT";
+  const runtimeKey="SOULKEY_NEXT_COORDINATOR_RUNTIME";
   const stages=["translation","qa","audio"];
-  let phase,lease;
+  let phase,lease,started,checkpoint;
+  function read(key){
+    try{return JSON.parse(props.getProperty(key)||"{}")||{};}catch(_){return {};}
+  }
+  function account(ms,day){
+    const prior=read(runtimeKey);
+    const state=prior.day===day?prior:{day:day,observed_ms:0,estimated_timeout_ms:0};
+    state.observed_ms=Number(state.observed_ms||0)+ms;
+    props.setProperty(runtimeKey,JSON.stringify(state));
+    return state;
+  }
   try{
     const until=Number(props.getProperty(leaseKey)||0);
     if(until>Date.now())return {ok:false,reason:"coordinator_busy"};
-    lease=String(Date.now()+420000);
-    props.setProperty(leaseKey,lease);
+    const previous=read(checkpointKey);
+    // Recover only an expired scheduler lease, never delete a live lock.
+    if(previous.state==="running"){
+      const runtime=account(0,previous.day||soulkeyNextNow_().slice(0,10));
+      runtime.estimated_timeout_ms=Number(runtime.estimated_timeout_ms||0)+360000;
+      props.setProperty(runtimeKey,JSON.stringify(runtime));
+      soulkeyNextHeartbeat_(previous.phase,"interrupted","scheduled","Previous execution did not return; next stage may continue");
+    }
+    started=Date.now();
+    lease=String(started+420000);
     phase=stages.indexOf(props.getProperty(phaseKey));
     if(phase<0)phase=0;
-  }finally{lock.releaseLock();}
-  let result;
-  try{
-    result=phase===0?soulkeyNextTick():phase===1?soulkeyNextQATick():soulkeyNextAudioTick();
-    if(result && ["busy","coordinator_busy"].indexOf(result.reason)>=0)
-      return result;
+    // Upgrade recovery: if the legacy scheduler left a nonzero expired lease
+    // without a checkpoint, rotate away from its possibly interrupted stage.
+    if(until && !previous.state)phase=(phase+1)%stages.length;
+    checkpoint={phase:stages[phase],state:"running",started_at:soulkeyNextNow_(),
+      day:soulkeyNextNow_().slice(0,10),started_ms:started};
     props.setProperty(phaseKey,stages[(phase+1)%stages.length]);
+    props.setProperty(checkpointKey,JSON.stringify(checkpoint));
+    props.setProperty(leaseKey,lease);
+  }finally{lock.releaseLock();}
+  try{
+    const result=phase===0?soulkeyNextTick():phase===1?soulkeyNextQATick():soulkeyNextAudioTick();
+    checkpoint.state=result&&result.ok===false?"deferred":"returned";
+    checkpoint.reason=String(result&&(result.reason||result.error||(result.last&&result.last.reason))||"").slice(0,160);
     return result;
   }catch(e){
-    props.setProperty(phaseKey,stages[(phase+1)%stages.length]);
-    soulkeyNextHeartbeat_(stages[phase],"error","scheduled",String(e&&e.message||e));
+    checkpoint.state="error";
+    checkpoint.reason=String(e&&e.message||e).slice(0,160);
+    soulkeyNextHeartbeat_(stages[phase],"error","scheduled",checkpoint.reason);
     throw e;
   }finally{
-    if(props.getProperty(leaseKey)===lease)props.deleteProperty(leaseKey);
+    if(props.getProperty(leaseKey)===lease){
+      checkpoint.finished_at=soulkeyNextNow_();
+      checkpoint.elapsed_ms=Date.now()-started;
+      account(checkpoint.elapsed_ms,checkpoint.day);
+      props.setProperty(checkpointKey,JSON.stringify(checkpoint));
+      props.deleteProperty(leaseKey);
+    }
   }
 }
 function soulkeyNextInstall(){
@@ -559,6 +595,9 @@ function soulkeyNextStatus(){
       return x.getHandlerFunction()==="soulkeyNextCoordinator";
     }).length,
     coordinator_phase:p.getProperty("SOULKEY_NEXT_COORDINATOR_PHASE")||"translation",
+    coordinator_checkpoint:(function(){try{return JSON.parse(p.getProperty("SOULKEY_NEXT_COORDINATOR_CHECKPOINT")||"null");}catch(_){return null;}})(),
+    coordinator_runtime:(function(){try{return JSON.parse(p.getProperty("SOULKEY_NEXT_COORDINATOR_RUNTIME")||"null");}catch(_){return null;}})(),
+    translation_request_usage:{day:p.getProperty("SOULKEY_NEXT_SHEETS_DAY")||"",used:Number(p.getProperty("SOULKEY_NEXT_SHEETS_USED")||0),limit:SK_NEXT_DAILY_LIMIT},
     trigger_count:ScriptApp.getProjectTriggers().filter(function(x){
       return x.getHandlerFunction()==="soulkeyNextTick";
     }).length,

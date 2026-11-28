@@ -87,5 +87,5 @@ assert(source.includes("saved.filter(function(x){return x.created;})"));
 assert(source.includes("autoZh=soulkeyAutoStartChineseReconcile_("));
 assert(source.includes("try{autoZh=soulkeyAutoStartChineseReconcile_();}"));
 assert(source.includes("SOULKEY_AUTO_ZH_PENDING_V1_"));
-assert(source.includes('dispatchWorkflowIdempotently_(\n        token,id,"zh"'));
+assert.match(source,/dispatchWorkflowIdempotently_\(\s*token,id,"zh"/);
 console.log("PASS: registration auto-start, no duplicate, failure retry, source guard");

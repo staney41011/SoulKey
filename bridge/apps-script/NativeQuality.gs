@@ -122,15 +122,9 @@ function skNQCall_(lang,items){
   }
   // Transient Gemini 429/502/503/504 must not permanently strand a
   // fully translated lesson. This is bounded within Apps Script runtime.
-  function retryTransient(){
-    let last=request();
-    for(let attempt=0;attempt<2 &&
-      [429,502,503,504].indexOf(last.getResponseCode())>=0;attempt++){
-      Utilities.sleep(1500*(attempt+1));
-      last=request();
-    }
-    return last;
-  }
+  // Leave transient failures for a future scheduled pass rather than
+  // keeping the shared lock through multiple external requests.
+  function retryTransient(){return request();}
   let response=retryTransient();
   if(response.getResponseCode()===400){
     delete body.generationConfig.responseSchema;
@@ -313,7 +307,7 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
   if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
   try{
     const blockers=[];
-    const lessons=soulkeyNextSources_().filter(function(source){
+    const lessons=soulkeyNextSources_(focusTask).filter(function(source){
       return focusTask?source.task===focusTask:
         Number(source.period)>=SK_NEXT_AUTO_MIN_PERIOD;
     }).sort(function(a,b){
@@ -426,7 +420,7 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
 // persisted separately so quota errors never erase previous approvals.
 function soulkeyNextQATick(){
   soulkeyNextHeartbeat_("qa","started","scheduled","");
-  const start=Date.now(),maxBatches=6,maxElapsedMs=220000;
+  const start=Date.now(),maxBatches=1,maxElapsedMs=90000;
   const outcomes=[];
   for(let i=0;i<maxBatches && Date.now()-start<maxElapsedMs;i++){
     const outcome=soulkeyNextQAOneBatch_();
