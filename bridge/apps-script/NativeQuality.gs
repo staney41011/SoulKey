@@ -185,7 +185,7 @@ function skNQSummary_(audits,decisions){
  */
 function skNQRepairLastThree_(task,lang,editorialOverride){
   editorialOverride=editorialOverride===true;
-  if(editorialOverride && !(task==="P262-L01"&&lang==="km"))
+  if(editorialOverride && !((task==="P262-L01"&&lang==="km")||(task==="P263-L02"&&lang==="es")))
     return {ok:false,reason:"editorial_not_allowed_for_other_lanes"};
   const plans={
     "P263-L02/es":{id:88,expected_source:"Therefore, we must first ask ourselves not to use your principles as a kind of weapon, to accuse others. Doing so is not good. We must take that knife back.",text:"Por lo tanto, primero debemos exigirnos a nosotros mismos que no usemos nuestros principios como un arma para acusar a los demás. Hacerlo no está bien. Debemos retirar ese cuchillo."},
@@ -212,7 +212,7 @@ function skNQRepairLastThree_(task,lang,editorialOverride){
     if(!report||report.revision_key!==revision)
       return {ok:false,reason:"qa_revision_mismatch"};
     const prior=(report.decisions||{})[String(plan.id)]||{};
-    if(prior.grade==="B_verified")
+    if(prior.grade==="B_verified"||prior.grade==="B_editorial")
       return {ok:true,reason:"already_verified",task:task,lang:lang};
     if(["C","B_pending"].indexOf(prior.grade)<0)
       return {ok:false,reason:"not_currently_blocked",
@@ -229,6 +229,7 @@ function skNQRepairLastThree_(task,lang,editorialOverride){
     const audit=audits.find(function(x){return x.id===plan.id;});
     if(!audit||!audit.selected_for_ai||audit.hard_errors.length)
       return {ok:false,reason:"not_a_valid_review_segment"};
+    if(editorialOverride && (audit.glossary||[]).some(function(hit){return hit.locked&&hit.target&&plan.text.toLowerCase().indexOf(String(hit.target).toLowerCase())<0;}))return {ok:false,reason:"locked_glossary_term_missing"};
     // The exceptional source-aligned editorial route is only P262-L01/km
     // when repeated external model calls have timed out or proposed purely
     // stylistic revisions. Never attribute this approval to Gemma4.
@@ -273,7 +274,7 @@ function skNQRepairLastThree_(task,lang,editorialOverride){
     const nextDecisions=Object.assign({},report.decisions||{});
     nextDecisions[String(plan.id)]={
       grade:editorialOverride?"B_editorial":"B_verified",
-      reason:(editorialOverride?"Assistant editorial source review "+
+      reason:(editorialOverride?(task==="P263-L02"?"User explicitly authorized manual formal delivery; assistant source-aligned editorial review ":"Assistant editorial source review ")+
         "(not Gemma4): ":"Gemma4 source recheck A: ")+
         String(verdict.reason||"").slice(0,380),
       corrected_text:verifiedText};

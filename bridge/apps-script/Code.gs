@@ -358,11 +358,12 @@ function doPost(e) {
             reason:"invalid_task"});
         if(nativeSheetsAction==="qa_editorial_finalize_p262"){
           // Explicit one-segment fallback, permanently recorded in QA.
-          if(nativeSheetsTask!=="P262-L01"||
-             String((e&&e.parameter&&e.parameter.native_audio_lang)||"")!=="km")
+          const editorialLang=String((e&&e.parameter&&e.parameter.native_audio_lang)||"");
+          if(!((nativeSheetsTask==="P262-L01"&&editorialLang==="km")||
+               (nativeSheetsTask==="P263-L02"&&editorialLang==="es")))
             return json_({ok:false,stage:"native_sheets",
               reason:"editorial_target_not_allowed"});
-          const repair=skNQRepairLastThree_("P262-L01","km",true);
+          const repair=skNQRepairLastThree_(nativeSheetsTask,editorialLang,true);
           return json_({ok:!!repair.ok,stage:"native_sheets",
             mode:"qa_editorial_finalize_p262",result:repair,
             reason:repair.reason||""});
