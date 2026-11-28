@@ -124,7 +124,7 @@ jobs:
           html=Path("studio/index.html").read_text(encoding="utf-8")
           import re
           assert "app-20260923-48.js?v=20261128-central-share" in html
-          assert "native-pipeline.js?v=20261127-manuscript-pair" in html
+          assert "native-pipeline.js?v=20261128-resume" in html
           assert "tts-share-message.js?v=20261120-native-current-share" in html
           assert "id=\"tts-share-copy\"" in html
           assert (html.index("tts-share-message.js?v=") <
