@@ -106,7 +106,7 @@ function doPost(e) {
       const nativeSheetsAction=String((e&&e.parameter&&
         e.parameter.native_sheets_action)||"").trim();
       if(nativeSheetsAction){
-        if(["status","install","tick","qa_tick","qa_repair_p262","qa_editorial_finalize_p262","p262_progress","share_status","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
+        if(["status","install","tick","qa_tick","qa_repair_p262","qa_editorial_finalize_p262","p262_progress","share_status","delivery_status","delivery_batch","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
           return json_({ok:false,stage:"native_sheets",reason:"invalid_action"});
         if(nativeSheetsAction==="status"){
           const tasks=readTasks_().filter(function(t){
@@ -152,6 +152,62 @@ function doPost(e) {
           return json_({ok:!!share.ok,stage:"native_sheets",
             mode:"share_status",task_id:lesson,
             elapsed_ms:Date.now()-started,diagnostics:available});
+        }
+        if(nativeSheetsAction==="delivery_batch"){
+          const id=String((e&&e.parameter&&e.parameter.native_sheets_task)||"").trim();
+          if(!/^P263-L0[1-4]$/.test(id))
+            return json_({ok:false,stage:"native_sheets",reason:"current_period_only"});
+          const source=soulkeyNextSources_(id)[0];
+          if(!source)return json_({ok:false,stage:"native_sheets",reason:"english_final_missing"});
+          const started=Date.now(), results=[];
+          const codes=soulkeyNextSelectedCodes_(id,"audio");
+          for(let i=0;i<codes.length;i++){
+            if(Date.now()-started>185000)break;
+            const lang=codes[i];
+            try{
+              const result=soulkeyNextAudioTick(id,lang);
+              results.push({task:id,lang:lang,ok:!!result.ok,status:result.status||"",
+                classroom:result.classroom_playback||"",imported:result.imported||0,
+                queued:result.queued||0,reason:result.reason||""});
+              if(result.reason==="busy")break;
+            }catch(error){results.push({task:id,lang:lang,ok:false,reason:String(error&&error.message||error).slice(0,150)});}
+          }
+          return json_({ok:true,stage:"native_sheets",mode:"delivery_batch",diagnostics:results});
+        }
+        if(nativeSheetsAction==="delivery_status"){
+          const id=String((e&&e.parameter&&e.parameter.native_sheets_task)||"").trim();
+          if(!/^P263-L0[1-4]$/.test(id))
+            return json_({ok:false,stage:"native_sheets",reason:"current_period_only"});
+          const source=soulkeyNextSources_(id)[0];
+          if(!source)return json_({ok:false,stage:"native_sheets",reason:"english_final_missing"});
+          const terms=skNQTerms_();
+          const task=readTasks_().find(function(t){return t.id===id;});
+          const rows=soulkeyNextSelectedCodes_(id,"audio").map(function(lang){
+            const out={task:id,language:lang};
+            try{
+              const requested=skAudioPayload_(source,lang,terms);
+              if(!requested){out.state="waiting_draft";return out;}
+              out.review=requested.review;
+              out.current_release=requested.tag;
+              out.manuscript=!!skAudioVerifiedSource_(source,lang,requested);
+              const receipt=skAudioReceipt_(source,lang);
+              const current=receipt && receipt.release_tag===requested.tag &&
+                receipt.source_sha256===requested.sha;
+              out.state=current?String(receipt.status):"no_current_receipt";
+              out.source_mp3=!!(current&&soulkeyStudioReceiptAudio_(source,lang,receipt));
+              const proof=skPlaybackReceipt_(source,lang);
+              out.classroom=false;
+              if(proof&&proof.sha===requested.sha&&proof.release_tag===requested.tag&&proof.dest_mp3_id){
+                const file=DriveApp.getFileById(proof.dest_mp3_id);
+                const marker=skPlaybackOwned_(file);
+                out.classroom=!!(skPlaybackFileValid_(file)&&marker&&marker.tag===requested.tag&&
+                  file.getParents().hasNext()&&file.getParents().next().getId()===proof.classroom_folder_id);
+                out.tier=proof.tier||"";
+              }
+            }catch(error){out.error=String(error&&error.message||error).slice(0,180);}
+            return out;
+          });
+          return json_({ok:true,stage:"native_sheets",mode:"delivery_status",diagnostics:rows});
         }
         // Read-only progress for the four current lessons only. Return
         // checkpoint states, never draft text, private keys or transcript.

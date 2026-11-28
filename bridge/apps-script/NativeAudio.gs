@@ -398,7 +398,7 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
   }
   let runError=null;
   try{
-    const sources=soulkeyNextSources_().filter(function(source){
+    const sources=soulkeyNextSources_(focusTask).filter(function(source){
       return focusTask?source.task===focusTask:
         Number(source.period)>=SK_NEXT_AUTO_MIN_PERIOD;
     }).sort(function(a,b){
@@ -428,13 +428,17 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
             String(e&&e.message||e).slice(0,150));
           continue;
         }
-        if(!requested)continue;
+        if(!requested){
+          if(focusTask&&focusLanguage)return {ok:false,task:lesson.task,lang:lang,reason:"current_source_not_ready"};
+          continue;
+        }
         // P262+: a DRAFT may be used for preview, but never issue a
         // production MP3 before this exact revision passes risk-based QA.
         if(Number(lesson.period)>=262 && lang!=="en" &&
            requested.review!=="approved_risk_based_not_full"){
           Logger.log("[NEXT-AUDIO] "+lesson.task+"/"+lang+
             " awaiting current Gemma4 QA; not publishable");
+          if(focusTask&&focusLanguage)return {ok:false,task:lesson.task,lang:lang,reason:"awaiting_current_qa"};
           continue;
         }
         try{skAudioSaveSource_(lesson,lang,requested);}catch(e){
@@ -484,12 +488,18 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
                 playbackAttempts++;
                 if(same)periodicPlaybackChecks++;
                 try{
-                  skPlaybackEnsure_(lesson,lang,receipt,requested,
+                  const copy=skPlaybackEnsure_(lesson,lang,receipt,requested,
                     byTask[lesson.task]);
+                  if(focusTask&&focusLanguage)return {ok:!!copy.ok,task:lesson.task,lang:lang,
+                    status:receipt.status,imported:0,queued:0,
+                    classroom_playback:copy.ok?"copied":"pending",reason:copy.reason||""};
                 }catch(error){
                   Logger.log("[PLAYBACK] retry next tick "+
                     lesson.task+"/"+lang+" "+
                     String(error&&error.message||error).slice(0,160));
+                  if(focusTask&&focusLanguage)return {ok:false,task:lesson.task,lang:lang,
+                    status:receipt.status,classroom_playback:"retry",
+                    reason:String(error&&error.message||error).slice(0,150)};
                 }
               }
             }
@@ -575,8 +585,10 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
           Logger.log("[NEXT-AUDIO] dispatch/import "+
             lesson.task+"/"+lang+" "+
             String(e&&e.message||e).slice(0,160));
-          return {ok:false,task:lesson.task,lang:lang,
-            reason:String(e&&e.message||e).slice(0,150)};
+          const reason=String(e&&e.message||e).slice(0,150);
+          soulkeyNextHeartbeat_("audio","error",invocationMode,lesson.task+"/"+lang+" "+reason);
+          if(focusTask&&focusLanguage)return {ok:false,task:lesson.task,lang:lang,reason:reason};
+          continue;
         }
       }
     }
