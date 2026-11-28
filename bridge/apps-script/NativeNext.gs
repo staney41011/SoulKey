@@ -279,6 +279,7 @@ function soulkeyNextExport_(sources,allRows){
       const writeText=changed || !txtFile;
       if(!complete && writeText && partialExports>=6)return;
       if(changed){
+        if(complete && typeof skShareInvalidate_==="function")skShareInvalidate_(source.task,lang);
         if(priorFile)priorFile.setContent(json);
         else folder.createFile(base+".json",json,MimeType.PLAIN_TEXT);
       }

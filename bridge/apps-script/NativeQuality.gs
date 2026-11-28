@@ -339,6 +339,7 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
         const name="sheets.qa.native."+lang+".json";
         let old=readJsonFile_(lesson.folder,name);
         if(!old||old.revision_key!==revision){
+          if(typeof skShareInvalidate_==="function")skShareInvalidate_(lesson.task,lang);
           old={task_id:lesson.task,lang:lang,revision_key:revision,
             source_file_id:lesson.source_file_id,
             draft_file_id:draft.id,decisions:{}};

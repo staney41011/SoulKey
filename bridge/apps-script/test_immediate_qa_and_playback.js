@@ -125,6 +125,7 @@ playbackCtx.DriveApp.getFileById=()=>({
 });
 vm.createContext(playbackCtx);
 loadNativeHelpers(playbackCtx);
+vm.runInContext(section(audio,"skShareModern_","skAudioReceipt_"),playbackCtx);
 vm.runInContext(audio.slice(audio.indexOf("function soulkeyNextAudioTick(")),playbackCtx);
 const summary=playbackCtx.soulkeyNextAudioTick();
 assert.equal(summary.ok,true);

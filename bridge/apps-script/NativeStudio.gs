@@ -64,6 +64,7 @@ function soulkeyStudioGlossaryUpsert_(request){
       sheet.appendRow(row);
     }
     SpreadsheetApp.flush();
+    skShareInvalidateTerms_();
     return {source:"soulkey-bridge",type:"glossary_saved",
       ok:true,mode:mode,name:name};
   }finally{lock.releaseLock();}
@@ -392,6 +393,7 @@ function soulkeyStudioManualCorrection_(req){
     report.state=report.summary.state;
     report.updated_at=soulkeyNextNow_();
     report.last_error="";
+    skShareInvalidate_(taskId,lang);
     writeTextFile_(source.folder,name,JSON.stringify(report,null,2),
       "application/json");
     return {source:"soulkey-bridge",type:"native_manual_review_result",

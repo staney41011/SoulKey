@@ -2295,13 +2295,14 @@ function renderTtsShare(task){
   if(toggle) toggle.onclick=()=>setTtsShareCollapsed(!document.getElementById("tts-share-content")?.hidden);
   if(panel.dataset.taskId!==String(task.id)){
     panel.dataset.taskId=String(task.id);
-    setTtsShareCollapsed(true);
+    setTtsShareCollapsed(Number(task.period)<263);
   }
 
   const changedLesson=textarea.dataset.taskId!==String(task.id);
   // Preserve edits when the same lesson receives a new Drive snapshot.
   const previous=String(textarea.dataset.generatedMessage||"");
-  if(Number(task.period)>=263 || changedLesson || !previous || textarea.value===previous){
+  if(changedLesson || !previous || textarea.value===previous ||
+     (Number(task.period)>=263 && previous!==result.message)){
     textarea.value=result.message;
   }
   textarea.dataset.taskId=String(task.id);
@@ -2321,7 +2322,7 @@ function renderTtsShare(task){
         ? "已取得 "+Math.max(0,result.readyCount-(result.reviewCount||0))+" 個正式音檔連結；"+
           (result.reviewCount?result.reviewCount+" 個試聽版仍待驗收；":"")+
           "其餘語言以「待確認／待驗收」標示。分享前請確認未驗收項目。"
-        : "TTS 階段已更新，但尚未取得正式 MP3 連結。按「更新音檔連結」重新核對 Drive。";
+        : "正式音檔完成驗證後，中央會自動寫入分享清單。";
   }
   if(note && result.reviewCount && !result.allReady){
     note.textContent="已取得 "+result.readyCount+" 個可分享音檔連結，其中 "+
@@ -2329,14 +2330,16 @@ function renderTtsShare(task){
   }
   if(note && ttsShareLinkErrors[task.id]){
     note.textContent="音檔查詢未完成："+ttsShareLinkErrors[task.id]+
-      "。請按「更新音檔連結」重新查詢；既有已驗證連結仍可使用。";
+      "。系統將自動重新讀取中央清單。";
   } else if(note && ttsShareLoadingTask===task.id) {
-    note.textContent="正在核對六種語言的正式音檔（最多等待20秒）…";
+    note.textContent=Number(task.period)>=263?"正在讀取中央已驗證音檔清單…":"正在核對正式音檔…";
   }
-  button.disabled=!result.hasLinks;
+  button.disabled=!result.hasLinks || (Number(task.period)>=263 &&
+    (!bridgeAuthenticated || !!ttsShareLinkErrors[task.id]));
   button.onclick=()=>{
     const text=textarea.value;
-    if(!result.hasLinks || !text.trim()) return;
+    if(!result.hasLinks || !text.trim() || (Number(task.period)>=263 &&
+       (!bridgeAuthenticated || ttsShareLinkErrors[task.id]))) return;
     const mark=message=>{if(state) state.textContent=message;};
     if(navigator.clipboard && window.isSecureContext){
       navigator.clipboard.writeText(text).then(()=>mark("整則音檔訊息已複製，可貼到 LINE／WhatsApp。"))
@@ -2347,8 +2350,9 @@ function renderTtsShare(task){
     }
   };
   const refresh=document.getElementById("tts-share-refresh");
+  if(refresh) refresh.hidden=Number(task.period)>=263;
   if(refresh) refresh.onclick=()=>{
-    if(state) state.textContent="正在從 Google Drive 核對音檔連結…";
+    if(state) state.textContent="正在讀取中央已驗證音檔清單…";
     requestTtsShareLinks(task.id,true);
   };
   if(changedLesson && state) state.textContent="";
@@ -5586,6 +5590,10 @@ function initStatusPolling(){
   window.setInterval(()=>{
     if(!bridgeAuthenticated) return;
     requestTaskStatuses();
+    if(currentView==="task-detail"&&selectedTaskId){
+      const task=tasks.find(x=>x.id===selectedTaskId);
+      if(task&&Number(task.period)>=263&&ttsShareLoadingTask!==task.id)requestTtsShareLinks(task.id,true);
+    }
   },STATUS_POLL_MS);
 
   window.setInterval(()=>{

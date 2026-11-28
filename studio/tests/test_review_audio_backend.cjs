@@ -19,6 +19,8 @@ const folder={
   return {hasNext:()=>selected.length>0,next:()=>selected[0]};
  }};
 const context={
+ skShareModern_:id=>Number(id.match(/^P(\d+)/)?.[1])>=263,
+ skShareRead_:id=>({ok:true,task_id:id,central_index:true}),
  lessonFolders_:()=>({lesson:{}}),
  cachedChildFolder_:()=>folder,
  formalDriveName_:(id,canonical)=>"formal_"+canonical
@@ -36,4 +38,5 @@ assert.equal(review.needs_timing_review,true);
 assert.equal(review.audio_kind,"standalone_preview");
 assert.ok(review.size>0&&review.url.includes(review.id));
 assert.equal(context.ttsShareLinks_("../bad").ok,false);
+assert.equal(context.ttsShareLinks_("P263-L04").central_index,true);
 console.log("SOULKEY_REVIEW_AUDIO_LOOKUP_OK");

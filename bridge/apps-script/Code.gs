@@ -106,7 +106,7 @@ function doPost(e) {
       const nativeSheetsAction=String((e&&e.parameter&&
         e.parameter.native_sheets_action)||"").trim();
       if(nativeSheetsAction){
-        if(["status","install","tick","qa_tick","qa_repair_p262","qa_editorial_finalize_p262","p262_progress","share_status","delivery_status","delivery_batch","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
+        if(["status","install","tick","qa_tick","qa_repair_p262","qa_editorial_finalize_p262","p262_progress","share_status","delivery_status","delivery_batch","delivery_index","repair_p262_l02"].indexOf(nativeSheetsAction)<0)
           return json_({ok:false,stage:"native_sheets",reason:"invalid_action"});
         if(nativeSheetsAction==="status"){
           const tasks=readTasks_().filter(function(t){
@@ -152,6 +152,30 @@ function doPost(e) {
           return json_({ok:!!share.ok,stage:"native_sheets",
             mode:"share_status",task_id:lesson,
             elapsed_ms:Date.now()-started,diagnostics:available});
+        }
+        if(nativeSheetsAction==="delivery_index"){
+          const id=String((e&&e.parameter&&e.parameter.native_sheets_task)||"").trim();
+          if(!/^P263-L0[1-4]$/.test(id))
+            return json_({ok:false,stage:"native_sheets",reason:"current_period_only"});
+          const lock=LockService.getScriptLock();
+          if(!lock.tryLock(1000))return json_({ok:false,stage:"native_sheets",reason:"busy"});
+          try{
+            const source=soulkeyNextSources_(id)[0];
+            if(!source)return json_({ok:false,stage:"native_sheets",reason:"english_final_missing"});
+            const terms=skNQTerms_(),rows=[];
+            soulkeyNextSelectedCodes_(id,"audio").forEach(function(lang){
+              try{
+                const epoch=skShareEpoch_(id,lang);
+                const requested=skAudioPayload_(source,lang,terms);
+                if(requested)requested.share_epoch=epoch;
+                const receipt=skAudioReceipt_(source,lang);
+                const ready=skSharePublish_(source,lang,receipt,requested);
+                if(ready)skShareSaveManuscript_(source,lang,requested);
+                rows.push({task:id,language:lang,indexed:ready});
+              }catch(e){rows.push({task:id,language:lang,indexed:false,error:String(e&&e.message||e).slice(0,120)});}
+            });
+            return json_({ok:true,stage:"native_sheets",mode:"delivery_index",diagnostics:rows});
+          }finally{lock.releaseLock();}
         }
         if(nativeSheetsAction==="delivery_batch"){
           const id=String((e&&e.parameter&&e.parameter.native_sheets_task)||"").trim();
@@ -3845,6 +3869,7 @@ function upsertTasks_(items) {
     );
 
     if (sourceChanged) {
+      skShareInvalidate_(id);
       row[3] = "";
       row[5] = "";
       for (let idx = 7; idx <= 13; idx++) row[idx] = "";
@@ -4132,6 +4157,8 @@ function saveLanguagePlan_(taskId, plan) {
   const previousSig = languagePlanSignatures_(previous);
   const nextSig = languagePlanSignatures_(plan);
   const hadPrevious = previous.length > 0;
+  if(hadPrevious && (previousSig.translation!==nextSig.translation || previousSig.audio!==nextSig.audio))
+    skShareInvalidate_(taskId);
 
   const sheet = getSheetByName_(LANGUAGE_PLAN_SHEET_NAME);
   const values = sheet.getDataRange().getDisplayValues();
@@ -5263,6 +5290,7 @@ function ttsShareLinks_(taskId) {
   if (!/^P\d+-L\d+$/i.test(id)) {
     return {ok:false,task_id:id,error:"invalid_task_id"};
   }
+  if(skShareModern_(id))return skShareRead_(id);
   const folders = lessonFolders_(id);
   const audioFolder = cachedChildFolder_(folders.lesson, "04_音檔");
   // Current lessons show only the requested six languages, not all 16.
@@ -6596,6 +6624,7 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
     segments: normalized
   }, null, 2);
 
+  if(kind==="en"||kind==="zh")skShareInvalidate_(taskId);
   writeTextFile_(targetFolder, code + ".json", payload, "application/json", taskId);
   writeTextFile_(targetFolder, code + ".txt", buildTxt_(normalized), "text/plain", taskId);
   writeTextFile_(targetFolder, code + ".srt", buildSrt_(normalized), "text/plain", taskId);
@@ -6632,6 +6661,7 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
   );
 
   invalidateDownstreamAfterHumanFinal_(taskId, kind);
+  if(kind==="en"||kind==="zh")skShareInvalidate_(taskId);
 
   let zhCacheReady=false;
   if (kind === "zh") {
@@ -6684,6 +6714,7 @@ function saveReview_(taskId, kind, segments, learnedTerms) {
 }
 
 function learnEnglishTerms_(pairs) {
+  if(pairs.length)skShareInvalidateTerms_();
   const sheet = getSheetByName_("專有名詞庫");
   const values = sheet.getDataRange().getValues();
   const rowByZh = {};

@@ -283,6 +283,88 @@ function skAudioVerifiedSource_(lesson,lang,requested){
     return file.getUrl();
   }catch(e){return "";}
 }
+function skShareSaveManuscript_(lesson,lang,requested){
+  if(["approved_english_final","approved_risk_based_not_full"].indexOf(requested.review)<0)return;
+  const base=lesson.task+"-"+lang+"-"+requested.sha.slice(0,16)+"-approved";
+  const rows=requested.payload.segments;
+  [[".txt",function(){return buildTxt_(rows);}],[".srt",function(){return buildSrt_(rows);}]].forEach(function(item){
+    const name=base+item[0],files=lesson.folder.getFilesByName(name);
+    if(!files.hasNext())lesson.folder.createFile(name,item[1](),MimeType.PLAIN_TEXT);
+  });
+}
+function skShareModern_(id){
+  return Number((String(id).match(/^P(\d+)-/)||[])[1]||0)>=263;
+}
+function skShareKey_(id,lang){return "SOULKEY_SHARE_V1_"+id+"_"+lang;}
+function skShareEpoch_(id,lang){
+  const p=PropertiesService.getScriptProperties();
+  return [p.getProperty("SOULKEY_SHARE_EPOCH_"+id)||"",
+    lang==="en"?"":p.getProperty("SOULKEY_SHARE_TERMS_EPOCH")||""].join("|");
+}
+function skShareInvalidate_(id,lang){
+  if(!skShareModern_(id))return;
+  const p=PropertiesService.getScriptProperties();
+  if(lang){p.deleteProperty(skShareKey_(id,lang));return;}
+  p.setProperty("SOULKEY_SHARE_EPOCH_"+id,String(Date.now())+"-"+Math.random());
+  SK_AUDIO_LANGUAGES.forEach(function(code){p.deleteProperty(skShareKey_(id,code));});
+}
+function skShareInvalidateTerms_(){
+  PropertiesService.getScriptProperties().setProperty("SOULKEY_SHARE_TERMS_EPOCH",String(Date.now())+"-"+Math.random());
+}
+function skShareReadEntry_(id,lang){
+  try{
+    const p=PropertiesService.getScriptProperties();
+    const r=JSON.parse(p.getProperty(skShareKey_(id,lang))||"null");
+    return r&&r.task_id===id&&r.language===lang&&r.epoch===skShareEpoch_(id,lang)?r:null;
+  }catch(_){return null;}
+}
+function skShareRead_(id){
+  const files=SK_AUDIO_LANGUAGES.map(function(lang){return skShareReadEntry_(id,lang);})
+    .filter(Boolean).map(function(r){return r.file;});
+  return {ok:true,task_id:id,groups:[{key:"audio",label:"音檔",files:files}],
+    total_files:files.length,server_time:new Date().toISOString(),central_index:true};
+}
+function skSharePublish_(lesson,lang,receipt,requested){
+  const id=lesson.task;
+  if(!skShareModern_(id))return false;
+  const epoch=requested&&requested.share_epoch;
+  if(!requested){skShareInvalidate_(id,lang);return false;}
+  if(epoch!==skShareEpoch_(id,lang))return false;
+  if(!receipt||receipt.status!=="done"||receipt.release_tag!==requested.tag||
+      receipt.source_sha256!==requested.sha||
+      !skAudioVerifiedSource_(lesson,lang,requested)){
+    skShareInvalidate_(id,lang);return false;
+  }
+  const proof=skPlaybackReceipt_(lesson,lang);
+  if(!proof||proof.status!=="copied"||proof.tier!=="formal"||
+     proof.sha!==requested.sha||proof.release_tag!==requested.tag||
+     proof.review!==requested.review||proof.source_mp3_id!==receipt.mp3_drive_id||
+     !proof.dest_mp3_id){
+    skShareInvalidate_(id,lang);return false;
+  }
+  const source=DriveApp.getFileById(receipt.mp3_drive_id);
+  const file=DriveApp.getFileById(proof.dest_mp3_id);
+  const marker=skPlaybackOwned_(file);
+  const expected=id+"-"+lang+"-"+requested.sha.slice(0,16)+".mp3";
+  if(!skPlaybackFileValid_(source)||source.getName()!==expected||
+     !skPlaybackFileValid_(file)||!marker||marker.task!==id||marker.lang!==lang||
+     marker.tag!==requested.tag||marker.sha!==requested.sha||
+     marker.review!==requested.review||marker.tier!=="formal"||
+     marker.source_mp3_id!==receipt.mp3_drive_id||
+     file.getName()!==proof.dest_filename||
+     !file.getParents().hasNext()||file.getParents().next().getId()!==proof.classroom_folder_id){
+    skShareInvalidate_(id,lang);return false;
+  }
+  if(epoch!==skShareEpoch_(id,lang))return false;
+  const value={task_id:id,language:lang,epoch:epoch,sha:requested.sha,
+    file:{id:file.getId(),name:file.getName(),canonical_name:lang+".mp3",
+      needs_timing_review:false,audio_kind:"formal_aligned",native_verified:true,
+      url:file.getUrl(),size:Number(file.getSize()),group_key:"audio",group_label:"音檔"}};
+  const p=PropertiesService.getScriptProperties(),key=skShareKey_(id,lang);
+  const json=JSON.stringify(value);
+  if(p.getProperty(key)!==json)p.setProperty(key,json);
+  return true;
+}
 function skAudioReceipt_(lesson,lang){
   return readJsonFile_(lesson.folder,"sheets.native_tts."+lang+".json");
 }
@@ -423,12 +505,18 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
         if(soulkeyNextSelectedCodes_(lesson.task,"audio")
            .indexOf(lang)<0)continue;
         let requested;
-        try{requested=skAudioPayload_(lesson,lang,terms);}catch(e){
+        const shareEpoch=skShareModern_(lesson.task)?skShareEpoch_(lesson.task,lang):"";
+        try{
+          requested=skAudioPayload_(lesson,lang,terms);
+          if(requested)requested.share_epoch=shareEpoch;
+        }catch(e){
           Logger.log("[NEXT-AUDIO] "+lesson.task+"/"+lang+" "+
             String(e&&e.message||e).slice(0,150));
+          skShareInvalidate_(lesson.task,lang);
           continue;
         }
         if(!requested){
+          skShareInvalidate_(lesson.task,lang);
           if(focusTask&&focusLanguage)return {ok:false,task:lesson.task,lang:lang,reason:"current_source_not_ready"};
           continue;
         }
@@ -438,14 +526,21 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
            requested.review!=="approved_risk_based_not_full"){
           Logger.log("[NEXT-AUDIO] "+lesson.task+"/"+lang+
             " awaiting current Gemma4 QA; not publishable");
+          skShareInvalidate_(lesson.task,lang);
           if(focusTask&&focusLanguage)return {ok:false,task:lesson.task,lang:lang,reason:"awaiting_current_qa"};
           continue;
         }
-        try{skAudioSaveSource_(lesson,lang,requested);}catch(e){
+        try{
+          skAudioSaveSource_(lesson,lang,requested);
+          if(skShareModern_(lesson.task)&&!skShareReadEntry_(lesson.task,lang))
+            skShareSaveManuscript_(lesson,lang,requested);
+        }catch(e){
           Logger.log("[NEXT-AUDIO] source archive "+lesson.task+" "+lang+": "+
             String(e).slice(0,120));
         }
         const receipt=skAudioReceipt_(lesson,lang);
+        const indexed=skShareModern_(lesson.task)?skShareReadEntry_(lesson.task,lang):null;
+        if(indexed&&indexed.sha!==requested.sha)skShareInvalidate_(lesson.task,lang);
         if(receipt && receipt.release_tag===requested.tag &&
            ["done","needs_review"].includes(receipt.status) &&
            receipt.mp3_drive_id){
@@ -481,7 +576,8 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
               // Focused, signed repair must verify the current destination
               // even when an old receipt (e.g. legacy 柬文/西班牙 folder)
               // was checked recently. The copy helper remains idempotent.
-              const due=!!(focusTask && focusLanguage) || !same ||
+              const due=!!(focusTask && focusLanguage) ||
+                (skShareModern_(lesson.task)&&!skShareReadEntry_(lesson.task,lang)) || !same ||
                 !Number.isFinite(verifiedAt) ||
                 Date.now()-verifiedAt>24*60*60*1000;
               if(due && (!same || periodicPlaybackChecks<1)){
@@ -490,6 +586,7 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
                 try{
                   const copy=skPlaybackEnsure_(lesson,lang,receipt,requested,
                     byTask[lesson.task]);
+                  if(copy.ok&&skShareModern_(lesson.task))skSharePublish_(lesson,lang,receipt,requested);
                   if(focusTask&&focusLanguage)return {ok:!!copy.ok,task:lesson.task,lang:lang,
                     status:receipt.status,imported:0,queued:0,
                     classroom_playback:copy.ok?"copied":"pending",reason:copy.reason||""};
@@ -515,6 +612,7 @@ function soulkeyNextAudioTick(focusTask,focusLanguage){
               const mirrored=skPlaybackEnsure_(lesson,lang,imported,
                 requested,byTask[lesson.task]);
               playback=mirrored.ok?"copied":"pending";
+              if(mirrored.ok&&skShareModern_(lesson.task))skSharePublish_(lesson,lang,imported,requested);
             }catch(error){
               // Important: a copy permission or naming failure may not
               // reclassify an otherwise valid SoulKey original MP3/WAV.
