@@ -8,7 +8,7 @@ const code=fs.readFileSync(path.join(root,"bridge/apps-script/Code.gs"),"utf8");
 const next=fs.readFileSync(path.join(root,"bridge/apps-script/NativeNext.gs"),"utf8");
 const qa=fs.readFileSync(path.join(root,"bridge/apps-script/NativeQuality.gs"),"utf8");
 const audio=fs.readFileSync(path.join(root,"bridge/apps-script/NativeAudio.gs"),"utf8");
-assert(html.includes("native-pipeline.js?v=20261127-manuscript-pair"));
+assert(html.includes("native-pipeline.js?v=20261128-resume"));
 assert(html.includes('id="native-pipeline-panel"'));
 assert(app.includes('window.SoulKeyNativeUI?.render(task,'));
 assert(app.includes('["multi","tts"].includes(next.key)'));

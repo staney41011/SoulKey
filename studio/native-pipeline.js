@@ -7,7 +7,7 @@
     vi:"越南文",hi:"印地語",ta:"泰米爾文",ja:"日文",ko:"韓文",
     km:"高棉文",bn:"孟加拉文",ne:"尼泊爾文",lo:"寮文",
     my:"緬甸文",it:"義大利文",pt:"葡萄牙文"};
-  const last=new Map(),lastRequested=new Map();
+  const last=new Map(),lastRequested=new Map(),resuming=new Set();
   let activePeriod=0,request=null,submit=null;
   function escape(value){
     return String(value??"").replace(/[&<>"']/g,ch=>({
@@ -63,6 +63,9 @@
     const panel=document.getElementById("native-pipeline-panel");
     if(!panel || panel.hidden||panel.dataset.nativeTask!==taskId)return;
     const info=last.get(taskId);
+    const resume=panel.querySelector?.("[data-native-resume]");
+    if(resume){resume.disabled=resuming.has(taskId)||!info?.ok||!info.english_final_ready||info.can_publish;
+      resume.textContent=resuming.has(taskId)?"中央處理中…":"立即接續下一批";}
     const header=document.getElementById("native-pipeline-heading");
     const summary=document.getElementById("native-pipeline-summary");
     const rows=document.getElementById("native-pipeline-rows");
@@ -254,6 +257,14 @@
   root.addEventListener("message",e=>{
     const data=e.data||{};
     if(data.source!=="soulkey-bridge")return;
+    if(data.type==="native_pipeline_resume_result" && data.task_id){
+      resuming.delete(data.task_id);
+      refresh(data.task_id,true);
+      draw(data.task_id);
+      root.alert(data.ok?"中央本批已處理，已要求更新實際進度。":
+        data.reason==="busy"?"中央目前忙碌，本次未執行；原有排程會繼續。":
+        "中央未確認完成："+(data.reason||"未知原因"));
+    }
     if(data.type==="native_pipeline_status" && data.task_id){
       last.set(data.task_id,data);
       draw(data.task_id);
@@ -274,8 +285,24 @@
     }
   });
   root.addEventListener("click",e=>{
-    const target=e.target.closest?.("[data-native-refresh],[data-native-manual]");
+    const target=e.target.closest?.("[data-native-refresh],[data-native-manual],[data-native-resume]");
     if(!target)return;
+    if(target.hasAttribute("data-native-resume")){
+      const task=document.getElementById("native-pipeline-panel")?.dataset.nativeTask;
+      const info=last.get(task);
+      if(!task||resuming.has(task)||!info?.ok||!info.english_final_ready||info.can_publish)return;
+      if(!submit?.({action:"native_pipeline_resume",task_id:task})){
+        root.alert("中央尚未連線，沒有送出任何操作。");return;
+      }
+      resuming.add(task);draw(task);
+      root.setTimeout(()=>{if(resuming.has(task)){
+        refresh(task,true);
+        const n=document.getElementById("native-pipeline-blockers");
+        if(n && document.getElementById("native-pipeline-panel")?.dataset.nativeTask===task)
+          n.textContent="未收到中央確認，請重新連線核對進度；不會自動重送。";
+      }},360000);
+      return;
+    }
     if(target.hasAttribute("data-native-refresh")){
       const task=document.getElementById("native-pipeline-panel")?.dataset.nativeTask;
       if(task)refresh(task,true);

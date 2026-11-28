@@ -29,9 +29,9 @@ for(const f of ["NativeNext.gs","NativeQuality.gs","NativeAudio.gs"]){
     .runInContext(ctx);
 }
 assert.equal(ctx.soulkeyNextInstall().ok,true);
-assert.equal(triggers.length,3);
+assert.equal(triggers.length,1);
 ctx.soulkeyNextInstall();
-assert.equal(triggers.length,3);
+assert.equal(triggers.length,1);
 assert.equal(ctx.soulkeyNextTick().lessons,0);
 assert.equal(ctx.soulkeyNextQATick().reviewed,0);
 const source={task:"P261-L01",segments:[
@@ -56,9 +56,10 @@ assert.equal(triggers.length,0);
 const ready=ctx.soulkeyRecoveryAuthorize();
 assert.equal(ready.ok,true);
 assert.equal(ready.google_sheets_access,true);
-assert.equal(ready.translation_trigger_count,1);
-assert.equal(ready.qa_trigger_count,1);
-assert.equal(ready.audio_trigger_count,1);
+assert.equal(ready.translation_trigger_count,0);
+assert.equal(ready.qa_trigger_count,0);
+assert.equal(ready.audio_trigger_count,0);
+assert.equal(triggers[0].getHandlerFunction(),"soulkeyNextCoordinator");
 assert.equal(ready.github_token_configured,false);
 assert.equal(ready.gemma_api_key_configured,false);
 console.log("PASS native P261+ schedule, OAuth recovery and QA regression");

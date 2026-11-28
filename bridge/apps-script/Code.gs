@@ -576,6 +576,13 @@ function doPost(e) {
       });
     }
 
+    if (action === "native_pipeline_resume") {
+      const taskId=String((e&&e.parameter&&e.parameter.task_id)||"").trim();
+      try{return postMessage_(soulkeyStudioResume_(taskId));}
+      catch(error){return postMessage_({source:"soulkey-bridge",type:"native_pipeline_resume_result",
+        task_id:taskId,ok:false,reason:String(error&&error.message||error).slice(0,200)});}
+    }
+
     if (action === "review_share_draft_save") {
       const taskId = String((e && e.parameter && e.parameter.task_id) || "").trim();
       const payloadJson = String((e && e.parameter && e.parameter.payload_json) || "").trim();

@@ -1148,7 +1148,8 @@ function renderTasks(){
                   ? "排隊中"
                   : nextRemote && nextRemote.status==="error"
                     ? "重新執行"
-                    : "執行下一步")+
+                    : (window.SoulKeyNativeUI?.isNative(t) &&
+                       ["multi","tts"].includes(next?.key)?"查看／接續多語流程":"執行下一步"))+
           '</button>'+
           ''+
         '</div>'+
@@ -2777,6 +2778,7 @@ function confirmNextStage(taskId){
   if(!next) return;
   if(window.SoulKeyNativeUI?.isNative(task) &&
       ["multi","tts"].includes(next.key)){
+    if(currentView!=="task-detail" || selectedTaskId!==task.id) openTaskDetail(task.id);
     window.SoulKeyNativeUI.refresh(task.id,true);
     document.getElementById("native-pipeline-panel")?.scrollIntoView({
       behavior:"smooth",block:"start"
@@ -4516,7 +4518,8 @@ function submitBridgePost(fields){
   // Previously the response iframe was destroyed after only 10 seconds.
   // Google Drive saves regularly take longer; removing the iframe discarded
   // the success event, leaving the button stuck at "正在儲存".
-  const responseWindowMs=fields && fields.action==="review_save" ? 180000 : 120000;
+  const responseWindowMs=fields?.action==="native_pipeline_resume"?360000:
+    fields?.action==="review_save"?180000:120000;
   window.setTimeout(()=>{
     form.remove();
     frame.remove();

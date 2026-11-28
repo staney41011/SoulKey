@@ -127,7 +127,7 @@ function soulkeyStudioNativeStatus_(taskId){
       ok:false,error:"task_not_registered",task_id:id};
   const selectedTexts=soulkeyNextSelectedCodes_(id,"translation");
   const selectedAudio=soulkeyNextSelectedCodes_(id,"audio");
-  const source=soulkeyNextSources_().find(function(x){return x.task===id;});
+  const source=soulkeyNextSources_(id).find(function(x){return x.task===id;});
   const common={source:"soulkey-bridge",type:"native_pipeline_status",
     ok:true,task_id:id,mode:"sheets_gemma4_independent",
     selected_text_languages:selectedTexts,
@@ -402,4 +402,33 @@ function soulkeyStudioManualCorrection_(req){
       ok:false,task_id:taskId,lang:lang,id:segmentId,
       error:String(error&&error.message||error).slice(0,230)};
   }finally{lock.releaseLock();}
+}
+
+
+// Authenticated, task-scoped continuation. Never rerun human Finals.
+// The existing per-stage locks, quota limits and revision guards remain authoritative.
+function soulkeyStudioResume_(taskId){
+  const id=String(taskId||"").trim();
+  const reply={source:"soulkey-bridge",type:"native_pipeline_resume_result",task_id:id};
+  if(!/^P\d+-L\d+$/.test(id) || Number(id.match(/^P(\d+)/)[1])<261)
+    return Object.assign(reply,{ok:false,reason:"invalid_task"});
+  const source=soulkeyNextSources_(id).find(function(x){return x.task===id;});
+  if(!source)return Object.assign(reply,{ok:false,reason:"english_final_missing"});
+  // A focused translation tick is harmless for an already-complete draft,
+  // but QA and audio should be allowed to continue without a redundant tick.
+  const selected=soulkeyNextSelectedCodes_(id,"translation");
+  let missing=false;
+  selected.forEach(function(lang){if(!skNQDraft_(source,lang))missing=true;});
+  let phase,result;
+  if(missing){
+    phase="translation";result=soulkeyNextTick(id);
+  }else{
+    phase="qa";result=soulkeyNextQAOneBatch_(id,null);
+    if(result.ok && !result.reviewed && result.reason!=="blocked_requires_review"){
+      phase="audio";result=soulkeyNextAudioTick(id,"");
+    }
+  }
+  return Object.assign(reply,{ok:!!result.ok,phase:phase,
+    reason:String(result.reason||result.error||""),translated:Number(result.translated||0),
+    reviewed:Number(result.reviewed||0),queued:Number(result.queued||0),imported:Number(result.imported||0)});
 }

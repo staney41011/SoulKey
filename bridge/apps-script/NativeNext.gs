@@ -354,7 +354,7 @@ function soulkeyNextTick(focusTask){
   let completed=null;
   try{
     const start=Date.now();
-    const sources=soulkeyNextSources_().filter(function(item){
+    const sources=soulkeyNextSources_(focusTask).filter(function(item){
       return focusTask?item.task===focusTask:
         Number(item.period)>=SK_NEXT_AUTO_MIN_PERIOD;
     });
@@ -399,11 +399,22 @@ function soulkeyNextTick(focusTask){
         });
       });
     });
-    for(let k=0;k<workItems.length;k++){
+    let batchItems=workItems;
+    if(!focusTask && workItems.length){
+      const pending=new Set(workItems.map(function(w){return String(rows[w.rowIndex][0]);}));
+      const newest=Math.max.apply(null,sources.filter(function(x){return pending.has(x.task);}).map(function(x){return Number(x.period);}));
+      const candidates=sources.filter(function(x){return Number(x.period)===newest && pending.has(x.task);})
+        .map(function(x){return x.task;}).sort();
+      const previous=String(quota.props.getProperty("SOULKEY_NEXT_LAST_TASK")||"");
+      const chosen=candidates[(candidates.indexOf(previous)+1)%candidates.length];
+      batchItems=workItems.filter(function(w){return String(rows[w.rowIndex][0])===chosen;});
+      if(chosen)quota.props.setProperty("SOULKEY_NEXT_LAST_TASK",chosen);
+    }
+    for(let k=0;k<batchItems.length;k++){
       if(requests>=SK_NEXT_LIMIT_PER_TICK||
          quota.used>=SK_NEXT_DAILY_LIMIT||
          Date.now()-start>SK_NEXT_MAX_MS)break;
-      const item=workItems[k],i=item.rowIndex,langIndex=item.languageIndex;
+      const item=batchItems[k],i=item.rowIndex,langIndex=item.languageIndex;
       const row=rows[i],task=String(row[0]||"");
       const lang=SK_NEXT_LANGS[langIndex];
       // Source hashes were checked when workItems were assembled.
@@ -481,37 +492,51 @@ function soulkeyNextTick(focusTask){
     ",failed="+completed.failed);
   return completed;
 }
+// One scheduler, three serialized stages. Avoid three 15-minute triggers
+// fighting for the same script lock at the same instant.
+function soulkeyNextCoordinator(){
+  const props=PropertiesService.getScriptProperties();
+  if(props.getProperty("SOULKEY_NEXT_ENABLED")!=="yes")return {ok:false,reason:"disabled"};
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(1000))return {ok:false,reason:"busy"};
+  const leaseKey="SOULKEY_NEXT_COORDINATOR_LEASE";
+  const phaseKey="SOULKEY_NEXT_COORDINATOR_PHASE";
+  const stages=["translation","qa","audio"];
+  let phase,lease;
+  try{
+    const until=Number(props.getProperty(leaseKey)||0);
+    if(until>Date.now())return {ok:false,reason:"coordinator_busy"};
+    lease=String(Date.now()+420000);
+    props.setProperty(leaseKey,lease);
+    phase=stages.indexOf(props.getProperty(phaseKey));
+    if(phase<0)phase=0;
+  }finally{lock.releaseLock();}
+  let result;
+  try{
+    result=phase===0?soulkeyNextTick():phase===1?soulkeyNextQATick():soulkeyNextAudioTick();
+    if(result && ["busy","coordinator_busy"].indexOf(result.reason)>=0)
+      return result;
+    props.setProperty(phaseKey,stages[(phase+1)%stages.length]);
+    return result;
+  }catch(e){
+    props.setProperty(phaseKey,stages[(phase+1)%stages.length]);
+    soulkeyNextHeartbeat_(stages[phase],"error","scheduled",String(e&&e.message||e));
+    throw e;
+  }finally{
+    if(props.getProperty(leaseKey)===lease)props.deleteProperty(leaseKey);
+  }
+}
 function soulkeyNextInstall(){
   const props=PropertiesService.getScriptProperties();
+  const existing=ScriptApp.getProjectTriggers();
+  const coordinator=existing.filter(function(t){return t.getHandlerFunction()==="soulkeyNextCoordinator";});
+  // Create before deleting old triggers so a failed install cannot stop all work.
+  if(!coordinator.length)ScriptApp.newTrigger("soulkeyNextCoordinator").timeBased().everyMinutes(5).create();
+  coordinator.slice(1).forEach(function(t){ScriptApp.deleteTrigger(t);});
+  existing.filter(function(t){return ["soulkeyNextTick","soulkeyNextQATick","soulkeyNextAudioTick"]
+    .indexOf(t.getHandlerFunction())>=0;}).forEach(function(t){ScriptApp.deleteTrigger(t);});
   props.setProperty("SOULKEY_NEXT_ENABLED","yes");
-  const others=ScriptApp.getProjectTriggers().filter(function(x){
-    return x.getHandlerFunction()==="soulkeyNextTick";
-  });
-  if(!others.length){
-    ScriptApp.newTrigger("soulkeyNextTick").timeBased()
-      .everyMinutes(15).create();
-  }else if(others.length>1){
-    others.slice(1).forEach(function(x){ScriptApp.deleteTrigger(x);});
-  }
-  const audioTriggers=ScriptApp.getProjectTriggers().filter(function(x){
-    return x.getHandlerFunction()==="soulkeyNextAudioTick";
-  });
-  if(!audioTriggers.length){
-    ScriptApp.newTrigger("soulkeyNextAudioTick").timeBased()
-      .everyMinutes(15).create();
-  }else if(audioTriggers.length>1){
-    audioTriggers.slice(1).forEach(function(x){ScriptApp.deleteTrigger(x);});
-  }
-  const reviewTriggers=ScriptApp.getProjectTriggers().filter(function(x){
-    return x.getHandlerFunction()==="soulkeyNextQATick";
-  });
-  if(!reviewTriggers.length){
-    ScriptApp.newTrigger("soulkeyNextQATick").timeBased()
-      .everyMinutes(15).create();
-  }else if(reviewTriggers.length>1){
-    reviewTriggers.slice(1).forEach(function(x){ScriptApp.deleteTrigger(x);});
-  }
-  return {ok:true,trigger:"translation + Gemma QA + private Edge TTS every_15_min",
+  return {ok:true,trigger:"serialized coordinator every_5_min",
     mode:"Google internal only; no public webhook",
     lessons:soulkeyNextSources_().map(function(x){return x.task;})};
 }
@@ -519,7 +544,7 @@ function soulkeyNextStop(){
   PropertiesService.getScriptProperties()
     .setProperty("SOULKEY_NEXT_ENABLED","no");
   ScriptApp.getProjectTriggers().filter(function(x){
-    return ["soulkeyNextTick","soulkeyNextQATick","soulkeyNextAudioTick"]
+    return ["soulkeyNextTick","soulkeyNextQATick","soulkeyNextAudioTick","soulkeyNextCoordinator"]
       .indexOf(x.getHandlerFunction())>=0;
   }).forEach(function(x){ScriptApp.deleteTrigger(x);});
   return {ok:true,enabled:false};
@@ -530,6 +555,10 @@ function soulkeyNextStatus(){
   const rows=SpreadsheetApp.openById(SK_NEXT_SHEET_ID)
     .getSheetByName(SK_NEXT_JOBS_TAB).getDataRange().getDisplayValues();
   return {enabled:p.getProperty("SOULKEY_NEXT_ENABLED")==="yes",
+    coordinator_trigger_count:ScriptApp.getProjectTriggers().filter(function(x){
+      return x.getHandlerFunction()==="soulkeyNextCoordinator";
+    }).length,
+    coordinator_phase:p.getProperty("SOULKEY_NEXT_COORDINATOR_PHASE")||"translation",
     trigger_count:ScriptApp.getProjectTriggers().filter(function(x){
       return x.getHandlerFunction()==="soulkeyNextTick";
     }).length,
