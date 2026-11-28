@@ -376,17 +376,17 @@ function doPost(e) {
             reason:repair.reason||""});
         }
         if(nativeSheetsAction==="qa_tick"){
-          if(!/^P262-L0[1-4]$/.test(nativeSheetsTask))
+          if(!/^P26[23]-L0[1-4]$/.test(nativeSheetsTask))
             return json_({ok:false,stage:"native_sheets",
               reason:"current_period_only"});
           const lang=String((e&&e.parameter&&
-            e.parameter.native_sheets_lang)||"").trim();
+            (e.parameter.native_sheets_lang||e.parameter.native_audio_lang))||"").trim();
           if(lang && soulkeyNextSelectedCodes_(nativeSheetsTask,
               "translation").indexOf(lang)<0)
             return json_({ok:false,stage:"native_sheets",
               reason:"language_not_selected"});
           const reviewed=[],started=Date.now();
-          for(let i=0;i<4&&Date.now()-started<125000;i++){
+          for(let i=0;i<(/^P263-/.test(nativeSheetsTask)?1:4)&&Date.now()-started<125000;i++){
             const batch=soulkeyNextQAOneBatch_(nativeSheetsTask,lang||null);
             reviewed.push({ok:!!batch.ok,
               lang:batch.lang||"",count:Number(batch.reviewed||0),
@@ -395,7 +395,7 @@ function doPost(e) {
           }
           return json_({ok:reviewed.every(function(x){return x.ok;}),
             stage:"native_sheets",mode:"qa_tick",
-            task_id:nativeSheetsTask,reviewed:reviewed});
+            task_id:nativeSheetsTask,reviewed:reviewed,diagnostics:reviewed});
         }
         const result=soulkeyNextTick(nativeSheetsTask);
         return json_({ok:!!result.ok,stage:"native_sheets",mode:"tick",

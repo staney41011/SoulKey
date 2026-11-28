@@ -88,6 +88,16 @@ assert.equal(focused.lang,"es");
 assert.equal(qaRecords.filter(x=>x.lang).length,1);
 assert.equal(qaRecords[1].name,"sheets.qa.native.es.json");
 assert.equal(JSON.parse(qaRecords[1].content).state,"approved_risk_based");
+// Scheduled QA must advance to another language after a transient 503.
+const fairProps=new Map([["SOULKEY_NEXT_ENABLED","yes"]]);
+qaCtx.PropertiesService={getScriptProperties:()=>({
+  getProperty:k=>fairProps.get(k),setProperty:(k,v)=>fairProps.set(k,v)
+})};
+const failedCalls=[];
+qaCtx.skNQCall_=(lang,items)=>{failedCalls.push(lang);throw new Error("gemma_http_503");};
+assert.equal(qaCtx.soulkeyNextQAOneBatch_().ok,false);
+assert.equal(qaCtx.soulkeyNextQAOneBatch_().ok,false);
+assert.deepEqual(failedCalls,["id","es"],"503 in one lane must not block the next");
 // Playback repair: 12 stale, ALREADY copied files may not consume the entire
 // copying budget; the missing destination remains eligible on this tick.
 const ids=Array.from({length:13},(_,i)=>"P262-L"+String(i+1).padStart(2,"0"));

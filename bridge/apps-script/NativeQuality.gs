@@ -188,6 +188,7 @@ function skNQRepairLastThree_(task,lang,editorialOverride){
   if(editorialOverride && !(task==="P262-L01"&&lang==="km"))
     return {ok:false,reason:"editorial_not_allowed_for_other_lanes"};
   const plans={
+    "P263-L02/es":{id:88,expected_source:"Therefore, we must first ask ourselves not to use your principles as a kind of weapon, to accuse others. Doing so is not good. We must take that knife back.",text:"Por lo tanto, primero debemos exigirnos a nosotros mismos que no usemos nuestros principios como un arma para acusar a los demás. Hacerlo no está bien. Debemos retirar ese cuchillo."},
     "P262-L01/km":{id:218,text:"នេះក៏ព្រោះតែខ្ញុំបានធ្វើការក្នុងវិស័យសុខភាពអស់រយៈពេល ៤៧ ឆ្នាំ ហើយខ្ញុំពិតជាយល់ឃើញថាមានអត្ថប្រយោជន៍ចំពោះសុខភាព ព្រោះបើមិនដូច្នោះទេ សុខភាពដែលមិនល្អក៏មិនអាចប្រសើរឡើងបានដែរ។ ដូច្នេះ ខ្ញុំចង់យកបទពិសោធន៍របស់ខ្ញុំមកអំពាវនាវដល់អ្នករាល់គ្នាម្តងហើយម្តងទៀត។ ដើម្បីបំពេញតម្រូវការរបស់មនុស្ស សត្វដូចជាមាន់ ទា និងគោ ត្រូវបានផ្តល់អ័រម៉ូនជំរុញការលូតលាស់ និងថ្នាំអង់ទីប៊ីយោទិច ហើយកុមារក៏បានបរិភោគអាហារដែលមកពីសត្វទាំងនោះ។"},
     "P262-L02/id":{id:189,text:"Dia gagal lebih dari 20.000 kali, tetapi dia tidak menganggap semua itu sebagai kegagalan. Dia justru percaya bahwa dirinya telah menemukan 20.000 cara untuk melakukan sesuatu."},
     "P262-L04/th":{id:289,text:"เมื่อพูดถึง 'ความปรองดอง' ปราชญ์สอนไว้ว่า คำว่า 'ความปรองดอง' เกี่ยวข้องกับคนที่มีปาก แต่เมื่อเราทะเลาะต่อสู้กันเพียงเพื่อรักษาหน้าและศักดิ์ศรีของตน ความปรองดองก็ย่อมหายไป"}
@@ -221,6 +222,7 @@ function skNQRepairLastThree_(task,lang,editorialOverride){
     const draftSeg=d.draft.segments.find(function(x){
       return Number(x.id)===plan.id;});
     if(!original||!draftSeg ||
+      (plan.expected_source && String(original.text||"").trim()!==plan.expected_source) ||
       String(draftSeg.text||"").trim()===plan.text.trim())
       return {ok:false,reason:"source_or_candidate_not_changed"};
     const audits=skNQRisks_(lesson,d.draft,lang,terms);
@@ -245,7 +247,7 @@ function skNQRepairLastThree_(task,lang,editorialOverride){
       }
       verdict=answers[0];
       let candidate=plan.text;
-      for(let attempt=0;attempt<3 && verdict &&
+      for(let attempt=0;attempt<(task==="P263-L02"?0:3) && verdict &&
         verdict.grade==="B";attempt++){
         const proposed=String(verdict.corrected_text||"").trim();
         if(!proposed||proposed===candidate)break;
@@ -280,7 +282,8 @@ function skNQRepairLastThree_(task,lang,editorialOverride){
       return {ok:false,reason:"other_blocked_segments_remain",
         blocked:summary.blocked_segment_ids};
     const backup="sheets.qa.native."+lang+
-      ".before-p262-last-three-repair-20261121.json";
+      (task==="P263-L02"?".before-p263-segment88-repair-20261128.json":
+        ".before-p262-last-three-repair-20261121.json");
     if(!cachedFileId_(lesson.folder,backup))
       writeTextFile_(lesson.folder,backup,
         JSON.stringify(report,null,2),"application/json");
@@ -291,7 +294,7 @@ function skNQRepairLastThree_(task,lang,editorialOverride){
         original_decision:prior.grade,
         method:editorialOverride?"assistant_editorial_exception":"gemma4_A",
         independent_model_verified:!editorialOverride,
-        repair_date:"2026-11-21"}});
+        repair_date:task==="P263-L02"?"2026-11-28":"2026-11-21"}});
     writeTextFile_(lesson.folder,name,
       JSON.stringify(saved,null,2),"application/json");
     return {ok:true,task:task,lang:lang,segment:plan.id,
@@ -319,13 +322,26 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
     });
     if(!lessons.length)return {ok:true,reviewed:0,reason:"no_p261_english_final"};
     const terms=skNQTerms_();
-    for(let i=0;i<lessons.length;i++){
-      const lesson=lessons[i];
-      for(let j=0;j<SK_NEXT_PRIORITY_LANGS.length;j++){
-        const lang=SK_NEXT_PRIORITY_LANGS[j];
-        if(focusLang && lang!==focusLang)continue;
-        if(soulkeyNextSelectedCodes_(lesson.task,"translation")
-           .indexOf(lang)<0)continue;
+    const props=PropertiesService.getScriptProperties();
+    const cursorKey="SOULKEY_NEXT_QA_LAST_LANE";
+    let lanes=[];
+    lessons.forEach(function(lesson){
+      const selected=soulkeyNextSelectedCodes_(lesson.task,"translation");
+      SK_NEXT_PRIORITY_LANGS.forEach(function(lang){
+        if((!focusLang||lang===focusLang)&&selected.indexOf(lang)>=0)
+          lanes.push({lesson:lesson,lang:lang,key:lesson.task+"/"+lang});
+      });
+    });
+    if(!focusTask && !focusLang && lanes.length){
+      const newest=Math.max.apply(null,lessons.map(function(x){return Number(x.period);}));
+      const current=lanes.filter(function(x){return Number(x.lesson.period)===newest;});
+      const older=lanes.filter(function(x){return Number(x.lesson.period)!==newest;});
+      const previous=String(props.getProperty(cursorKey)||"");
+      const n=current.findIndex(function(x){return x.key===previous;})+1;
+      lanes=current.slice(n).concat(current.slice(0,n),older);
+    }
+    for(let i=0;i<lanes.length;i++){
+        const lesson=lanes[i].lesson,lang=lanes[i].lang;
         let draft;
         try{draft=skNQDraft_(lesson,lang);}catch(e){
           Logger.log("[NEXT-QA] "+lesson.task+" "+lang+": "+e);
@@ -373,6 +389,8 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
             risk_flags:x.risk_flags,glossary:x.glossary};
         });
         let reviewed;
+        // Advance before the request, so a 503 or timeout cannot monopolize QA.
+        if(!focusTask&&!focusLang)props.setProperty(cursorKey,lanes[i].key);
         try{reviewed=skNQCall_(lang,selected);}catch(e){
           old.last_error=String(e&&e.message||e).slice(0,180);
           old.updated_at=soulkeyNextNow_();
@@ -408,7 +426,6 @@ function soulkeyNextQAOneBatch_(focusTask,focusLang){
         return {ok:true,task:lesson.task,lang:lang,
           reviewed:reviewed.length,state:summary.state,
           progress:summary.model_reviewed_pass+"/"+summary.model_review_required};
-      }
     }
     return {ok:true,reviewed:0,
       reason:blockers.length?"blocked_requires_review":"no_pending_risk_qa",
